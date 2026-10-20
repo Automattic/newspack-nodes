@@ -22,7 +22,7 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 
 ## What came from where
 
-![The correspondence chart: each upstream Tachikoma file or symbol on the left, the port's name on the right, in four groups — Message, Node and Tachikoma.pm; Router, loop and lifecycle; Shell, interpreter and signing; and Nodes/. Blue rows are renames, among them STREAM to KEY, PAYLOAD to VALUE, owner to target, AgeSieve to Age_Sieve_Node, PayloadTimeout to Value_Timeout_Node, Tail.pm to File_Tail_Node, JobSpawnTimer to Connect_Queue_Timer_Node, list_fds to list_handles and connect_sink to set_sink. A red edge marks a deliberate divergence argued below; a dash marks a name with no counterpart, such as edge, answer() and cancel(), Broker.pm, MemorySieve.pm and the forked Job upstream, or Tail_Node, Tap_Node, Graphite_Node and the worker lifecycle here.](img/tl-name-map.png)
+![The correspondence chart: each upstream Tachikoma file or symbol on the left, the port's name on the right, in four groups — Message, Node and Tachikoma.pm; Router, loop and lifecycle; Shell, interpreter and signing; and Nodes/. Blue rows are renames, among them STREAM to KEY, PAYLOAD to VALUE, owner to target, AgeSieve to Age_Sieve_Node, PayloadTimeout to Value_Timeout_Node, Tail.pm to File_Tail_Node, list_fds to list_handles and connect_sink to set_sink. A red edge marks a deliberate divergence argued below; a dash marks a name with no counterpart, such as edge, answer() and cancel(), Broker.pm, MemorySieve.pm, JobSpawnTimer.pm and the forked Job upstream, or Tail_Node, Tap_Node, Graphite_Node and the worker lifecycle here.](img/tl-name-map.png)
 
 ### Core model
 
@@ -82,7 +82,6 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 | `Value_Timeout_Node` | `Nodes/PayloadTimeout.pm` (v2.0.905), whose `payload` we spell `value` |
 | `Table_Node` | `Nodes/Table.pm` — the vocabulary; the store is the backend each Table names ([below](#a-tables-backend-is-chosen-per-table-and-an-absent-key-sends-nothing)) |
 | `LRU_Cache` | `Nodes/Table.pm`'s bucket LRU, `lru_lookup`, lifted out as its own class |
-| `Connect_Queue_Timer_Node`, on a 500 ms cadence | `Nodes/JobSpawnTimer.pm` and `Job.pm`'s `@SPAWN_QUEUE` — one process-wide timer popping one queued closure per fire and removing itself when the queue runs dry, at `Job.pm`'s `$SPAWN_QUEUE_TIMER` of 250 ms |
 | `Struct_To_JSON_Node` / `JSON_To_Struct_Node` | the `Nodes/StorableToJSON.pm` / `Nodes/JSONtoStorable.pm` pair, minus the pretty-printing. Upstream encodes with `canonical(1)` and `pretty(1)`, so one record is sorted-key JSON spread over many lines; ours is compact, in PHP's own insertion order, with `JSON_UNESCAPED_SLASHES` and exactly one trailing newline, which is what lets a `Tail` hand `JSON_To_Struct` one record at a time. Upstream also ASSIGNS `TM_BYTESTREAM \| $persist`, keeping TM_PERSIST and nothing else; ours masks the STRUCT bit off and leaves every other flag standing |
 | `Probe_To_Graphite_Node` | `Nodes/TopicProbeToGraphite.pm`; both the input shape and the accumulation diverge (see below) |
 | `Graphite_Node` | no node of its own upstream — `TopicProbeToGraphite` sinks its lines into whatever egress the operator wired; the transport diverges (see below) |
@@ -233,6 +232,12 @@ Perl's `fill` returns values (`return $self->SUPER::fill(...)`, `return $self->c
 `Nodes/Partition.pm`'s `make_node` form takes `--replication_factor` and `--leader`, and `Nodes/Broker.pm` elects which host leads which partition, then rebalances when a broker falls behind its share. `Nodes/Topic.pm` addresses that broker, never a partition. Ours carries neither concept: `Topic_Node` writes to the `Partition_Node`s its own topology names, and a partition is one directory on one host's filesystem.
 
 **Why:** an election needs long-lived peers that can see each other, and every worker here is a request that exits within 595 seconds and revives from a lock directory. The durable thing is the filesystem rather than the process, so partition ownership is settled by what a topology declares instead of by a vote, and losing that filesystem is the platform's problem rather than the substrate's. Crossing a host boundary is a PULL: [`Remote_Source_Node`](../includes/class-remote-source-node.php) reads a spoke's partition over SSE under its own durable cursor — Tachikoma's followers-request-from-leaders, with the election removed.
+
+### There is no spawn queue
+
+`Job.pm` pushes each spawn onto `@SPAWN_QUEUE`, and `Nodes/JobSpawnTimer.pm` pops one per `$SPAWN_QUEUE_TIMER` tick, 250 ms, removing itself when the queue runs dry. Nothing here carries that port: [`Remote_Source_Node`](../includes/class-remote-source-node.php) connects on its own tick, paced only by [`SSE_In_Node`](../includes/class-sse-in-node.php)'s backoff.
+
+**Why:** the queue staggered connects within one process, where a hub holds one broker per spoke, so it never spaced two connects to one spoke's slot pool there; brokers to the same spoke in other processes, one per hub partition or topology, it never saw at all. What it did do was round-robin every link's connect check at 500 ms apiece, leaving a dropped stream unattended for up to N × 500 ms on a hub of N links. A busy stream's lifetime close reopens in the drain iteration that read its end instead, when the stream delivered a `msg` and lived at least a second; every other reopen waits for the once-a-second tick and the backoff, which is what bounds a server that closes at once.
 
 ### A read block is 64 KB, and an offset names a byte within a segment
 

@@ -90,7 +90,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	public const REMOVE_SOURCE = 'remove_source';
 
 	/** Broker tick (milliseconds): the Router's own, which it hitchhikes. */
-	private const TICK_INTERVAL_MS = 1000;
+	protected const TICK_INTERVAL_MS = 1000;
 
 	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands and reads. */
 	protected ?HTTP_Out_Node $http_out = null;

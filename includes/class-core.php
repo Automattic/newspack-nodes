@@ -860,6 +860,17 @@ class Core {
 	}
 
 	/**
+	 * The live hi-res clock through the `$clock` seam, assigning nothing: the
+	 * read for a moment inside a dispatch, where `right_now()` would move the
+	 * turn's cached `$now` under every node the batch has yet to reach. It
+	 * repeats `right_now()`'s read rather than serving it, which keeps a frame
+	 * off that hot path.
+	 */
+	public static function live_now(): float {
+		return null !== self::$clock ? ( self::$clock )() : \microtime( true );
+	}
+
+	/**
 	 * A throwable's message as plain text, its HTML entities decoded. Most
 	 * throws here pass their message through `esc_html()`, which this
 	 * reverses; a message thrown as plain text, as `refuse_angle_partition()`

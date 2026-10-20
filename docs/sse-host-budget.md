@@ -159,24 +159,24 @@ a reserved slot rather than granting access. Reserving every slot would lock out
 the readers the host exists for, so `reserved_slots()` always leaves at least
 one.
 
-An aggregator brings up every `Remote_Source` in one tick, and N simultaneous
-connects are what a spoke's pool answers with 429, so each connect goes through
-[`Remote_Source_Node::queue_connect()`](../includes/class-remote-source-node.php)
-onto [`Connect_Queue_Timer_Node`](../includes/class-connect-queue-timer-node.php),
-which pops one every `INTERVAL_MS` (500 ms) and retires when the queue runs
-dry.
-
-On a hub already up the queue never runs dry. Each link's once-per-second
-housekeeping re-queues its connect as soon as the previous closure has run —
-`queue_connect()` clears its `connect_queued` flag inside the closure, not on a
-successful connect — and the closure costs nothing while the stream is healthy,
-because [`SSE_In_Node::maybe_connect()`](../includes/class-sse-in-node.php)
-returns at once on an open handle. N live links therefore hold about N entries
-and are polled round-robin, so each link's reconnect check comes round every
-N × 500 ms: sixty links leave a dropped stream unattended for up to thirty
-seconds before the first reopen, on top of `SSE_In_Node`'s own backoff.
-`INTERVAL_MS` is a class constant with no config key, so unlike
-`sse_max_streams` and `sse_reserved_slots` the ramp cannot be tuned at runtime.
+Nothing staggers a hub's connects. Each
+[`Remote_Source`](../includes/class-remote-source-node.php) opens its stream on
+its own first tick. Within one process a hub holds one broker per spoke, but
+every hub partition and every topology pulling the same spoke runs its own
+broker in its own process, and those boot together. After that, each link's
+once-per-second housekeeping reopens a dropped stream as soon as
+[`SSE_In_Node`](../includes/class-sse-in-node.php)'s backoff allows. The first
+failure doubles the backoff to two seconds, measured from the connect attempt
+that failed, so a stream that lived longer than that reopens on the next tick;
+each further failure doubles it to at most thirty, and any received event
+drops it back to one. That backoff and the tick are the bound on reconnects. A
+busy stream's lifetime close, which carries `retry` 0, reopens in the same
+drain iteration that read its end instead of on its next tick when the stream
+delivered a `msg` and lived at least a second; any other `retry` 0 close waits for the tick, so a
+server or proxy that sends it and closes at once reopens no faster than once a
+second. `INITIAL_BACKOFF` and `MAX_BACKOFF` are class constants with no config
+key, so unlike `sse_max_streams` and `sse_reserved_slots` they cannot be tuned
+at runtime.
 
 ## Why the TTL is 60 and not shorter
 

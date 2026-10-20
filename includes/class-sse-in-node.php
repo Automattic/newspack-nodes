@@ -13,8 +13,10 @@
  * It is passive: it owns NO timer. Inbound bytes flow via the Event_Framework's
  * cURL polling (`start_curl` + `on_curl_done`, like HTTP_Out).
  * Connect / reconnect / stale are driven by a *patron* calling `maybe_connect()`
- * and `check_stale()`. The patron owns durable position persistence and any status
- * memcache write — SSE_In keeps only the in-memory cursor + connection state.
+ * and `check_stale()`; a busy stream's scheduled close with no delay tells the
+ * patron through `on_reopen_due` and opens nothing itself. The patron owns
+ * durable position persistence and any status memcache write — SSE_In keeps
+ * only the in-memory cursor + connection state.
  *
  * `SSE_Out` defines the wire: `connected`, `msg`, `heartbeat`, `retry` and
  * `disconnect`, each carrying one packed 7-field Message. Its
@@ -101,6 +103,20 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 */
 	public ?\Closure $on_connecting     = null;
 
+	/**
+	 * Reopen seam, set by the patron. Called from inside the cURL completion
+	 * when the server closed, with no delay, a stream that delivered a `msg`
+	 * and lived at least `INITIAL_BACKOFF`: the lifetime close of a busy
+	 * stream, which the patron reopens from the timer scan that follows the
+	 * completion dispatch rather than on its next tick. It must open nothing
+	 * itself: the dispatch is still walking its batch.
+	 *
+	 * Signature: `function (): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public ?\Closure $on_reopen_due     = null;
+
 	/** Application-Password secret, paired with `$auth_username` for Basic auth. */
 	protected string $auth_password     = '';
 
@@ -124,6 +140,9 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/** The LEASE: true only past the `connected` handshake, never at open. */
 	private bool   $connected           = false;
+
+	/** Whether this connection has delivered a `msg`. */
+	private bool   $delivered           = false;
 
 	/** When the `connected` handshake landed; only the clean-EOF diagnostic reads it. */
 	private ?float $connected_at        = null;
@@ -309,6 +328,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$this->current_event      = [ 'event' => '', 'data' => '' ];
 		$this->last_event_time    = $now;
 		$this->connected          = false;
+		$this->delivered          = false;
 		$this->last_error         = null;
 		$this->last_http_code     = null;
 		$this->refusal            = '';
@@ -603,6 +623,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		if ( 'msg' === $type ) {
 			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
 			$this->counter++;
+			$this->delivered = true;
 			if ( null !== $this->on_message ) {
 				( $this->on_message )( $raw_data );
 			}
@@ -769,7 +790,10 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * THIS moment — a long-lived stream has already outrun a delay measured from
 	 * its connect — and leave the failure state untouched: no error, no doubling
 	 * backoff, nothing a dashboard reads as a dead link. A delay of 0 reopens on
-	 * the next tick.
+	 * the next tick, or later in the same drain iteration through
+	 * `on_reopen_due` when the stream delivered a `msg` and lived at least
+	 * `INITIAL_BACKOFF`, so a server closing at once never reopens faster than
+	 * the tick.
 	 *
 	 * @param int $retry_ms The advertised reopen delay.
 	 */
@@ -777,9 +801,17 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$seconds = \min( self::MAX_BACKOFF, (int) \ceil( $retry_ms / 1000 ) );
 		$this->set_state( 'RECONNECTING', "scheduled reconnect in {$seconds}s" );
 		$this->detach_handle();
+		$opened_at                    = $this->last_attempt;
 		$this->current_backoff        = $seconds;
 		$this->last_attempt           = Core::$now ?: Core::right_now();
 		$this->scheduled_reconnect_at = (int) $this->last_attempt + $seconds;
+		if ( 0 !== $seconds || ! $this->delivered || null === $this->on_reopen_due ) {
+			return;
+		}
+		// The cached clock is the previous turn's inside a cURL completion.
+		if ( Core::live_now() - $opened_at >= self::INITIAL_BACKOFF ) {
+			( $this->on_reopen_due )();
+		}
 	}
 
 	/** Double the reconnect delay, clamped to `INITIAL_BACKOFF`..`MAX_BACKOFF`. */

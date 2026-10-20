@@ -54,7 +54,6 @@ class HttpSourceNodeTest extends TestCase {
 		Core::$memd                    = null;
 		Event_Framework::$curl_dispatch = null;
 		Event_Framework::reset();
-		Remote_Source_Node::reset_connect_queue();
 		Vault::get_instance()->reset_cache();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		\Newspack_Nodes\Config::reset();
@@ -248,6 +247,14 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'pull-austin:sse-in' ) );
 		$verbs = \array_map( static fn ( array $m ): string => $m[ Message::VALUE ]['name'], $this->read_private( Core::node( 'pull-austin:http-out' ), 'batch' ) );
 		$this->assertNotContains( 'heartbeat', $verbs );
+	}
+
+	public function test_it_carries_no_early_housekeeping(): void {
+		$class = new \ReflectionClass( HTTP_Source_Node::class );
+
+		$this->assertFalse( $class->hasProperty( 'housekeep_early' ), 'a stream broker\'s flag, not every broker\'s' );
+		$this->assertFalse( $class->hasMethod( 'housekeep_now' ) );
+		$this->assertSame( \Newspack_Nodes\Timer_Node::class, $class->getMethod( 'fire_cb' )->getDeclaringClass()->getName() );
 	}
 
 	public function test_the_reply_cap_counts_a_reader_built_this_tick(): void {

@@ -155,8 +155,8 @@ class Timer_Node extends Node {
 	 *
 	 * A node with no sink returns before reaching `fire()`. That guard is why
 	 * `Router_Node` overrides `fire_cb()` outright, having no sink of its own,
-	 * and it traps any subclass whose `fire()` emits nothing:
-	 * `Connect_Queue_Timer_Node` is mounted with a sink for no other reason.
+	 * and it traps any subclass whose `fire()` emits nothing: one built in PHP
+	 * rather than by `make_node` still needs a sink, or it never fires.
 	 *
 	 * The throttle is the price of the hitchhike. The tick arrives at the
 	 * Router's cadence, so a registrant that asked for a longer one drops the

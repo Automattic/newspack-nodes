@@ -57,8 +57,8 @@
   </div>
   <div class="card">
     <h3>The broker ticks once a second</h3>
-    <p><span class="mono">TICK_INTERVAL_MS</span> 1000 is the Router's own cadence, so the broker hitchhikes the Router's tick and holds no Event_Framework slot. <span class="mono">fire()</span> builds each exact source's reader, then <span class="mono">housekeep()</span> latches on the integer wall-second: the patrons, staleness, the queued reconnect, the heartbeat mint every <span class="mono">HEARTBEAT_INTERVAL</span> 15 s, the status publish. Each reader drains its pump buffer on a timer of its own.</p>
-    <p>Connects queue on <span class="mono">_connect_timer</span> (<span class="mono">Connect_Queue_Timer_Node</span>), one per <span class="mono">INTERVAL_MS</span> 500, so a hub reconnecting to many spokes opens them in single file instead of colliding on a spoke's SSE slot pool; the timer removes itself when the queue runs dry.</p>
+    <p><span class="mono">TICK_INTERVAL_MS</span> 1000 is the Router's own cadence, so the broker hitchhikes the Router's tick and holds no Event_Framework slot. <span class="mono">fire()</span> builds each exact source's reader, then <span class="mono">housekeep()</span> latches on the integer wall-second: the patrons, staleness, the reconnect, the heartbeat mint every <span class="mono">HEARTBEAT_INTERVAL</span> 15 s, the status publish. Each reader drains its pump buffer on a timer of its own.</p>
+    <p>A reconnect waits for the tick and for <span class="mono">SSE_In</span>'s backoff, doubling on each failure to thirty seconds. A busy stream's lifetime close, <span class="mono">retry</span> 0 after at least one <span class="mono">msg</span> and a second of life, is the exception: <span class="mono">on_reopen_due</span> has <span class="mono">housekeep_now()</span> swap the hitchhike for a recurring 0 ms timer, so the stream reopens from the timer scan in the same drain iteration, and <span class="mono">fire()</span> puts the 1 s tick back first. Any other <span class="mono">retry</span> 0 close waits for the tick.</p>
   </div>
   <div class="callout">
     <h4>What the pull records, and what it cannot report</h4>

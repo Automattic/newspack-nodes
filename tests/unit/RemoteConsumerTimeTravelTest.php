@@ -222,7 +222,6 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire_cb();
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle(), 'precondition: connected' );
 
@@ -288,7 +287,6 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node->play();
 		Core::$now = 1001.0;
 		$this->broker()->fire();
-		$this->drain_connect_queue();
 
 		$this->assertSame(
 			[ 'segment' => 7, 'offset' => 81 ],
@@ -307,7 +305,6 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire_cb();
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->deliver( $sse, '7:1:40', 'live-626' );
 		$this->deliver( $sse, '7:41:40', 'live-727' );
@@ -327,7 +324,6 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire_cb();
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->set_line_mode( true );
 		$payload = \str_repeat( 'x', 70000 );
@@ -340,7 +336,6 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node->play();
 		Core::$now = 1001.0;
 		$this->broker()->fire();
-		$this->drain_connect_queue();
 
 		$this->assertTrue( $this->read_private( $this->broker(), 'pump_armed' ), 'the new stream opens armed' );
 		$this->deliver( $sse, '7:' . ( 1 + 70100 * 64 ) . ':70100', $payload );

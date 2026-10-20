@@ -425,7 +425,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
-		$this->drain_connect_queue();
 		$sse  = Core::node( 'remote-austin:sse-in' );
 		$blob = \str_repeat( 'q', 2 * \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 9 );
 		foreach ( [ 'firehose.p0', 'sources:php' ] as $i => $from ) {
@@ -440,7 +439,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ] );
-		$this->drain_connect_queue();
 		$firehose = Core::node( 'remote-austin:firehose.p0' );
 		$line     = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'gunwale-2281' ] );
 
@@ -455,7 +453,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ] );
-		$this->drain_connect_queue();
 		$firehose = Core::node( 'remote-austin:firehose.p0' );
 		$sse      = Core::node( 'remote-austin:sse-in' );
 		self::set_slot( $sse, 4 );
@@ -476,7 +473,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
-		$this->drain_connect_queue();
 
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS firehose.p0=8:4410,sources:php=4094521:2910400 DISTANCES firehose.p0=713,sources:php=0' ) );
 
@@ -489,7 +485,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ] );
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS firehose.p0=8:4410 DISTANCES firehose.p0=713' ) );
 
@@ -503,7 +498,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'sources:php', 'php-errors' ] );
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS sources:php=4094521:100' ) );
 
@@ -517,7 +511,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
-		$this->drain_connect_queue();
 		$firehose = Core::node( 'remote-austin:firehose.p0' );
 		$sse      = Core::node( 'remote-austin:sse-in' );
 		$line     = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'oarlock-3315' ] );
@@ -653,7 +646,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->record_requests( $asked );
 		$node = $this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'sources:php', 'php-errors' ], [ 'firehose.p{partition}', 'downstream' ], [ 'jobstats.p{partition}', 'downstream' ], [ 'errors.*', 'downstream' ] );
 		$node->fire();
-		$this->drain_connect_queue();
 		return [ $node, \end( $asked ) ];
 	}
 
@@ -837,7 +829,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$asked = [];
 		$this->record_requests( $asked );
 		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p{partition}', 'downstream' ] );
-		$this->drain_connect_queue();
 		$node = Core::node( 'remote-austin' );
 		$sse  = Core::node( 'remote-austin:sse-in' );
 		$this->assertSame( 'firehose.p2', \end( $asked )['subscribe'] );
@@ -854,7 +845,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$asked = [];
 		$this->record_requests( $asked );
 		[ $node ] = $this->make_remote();
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
 
@@ -862,7 +852,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNull( $sse->test_get_handle(), 'a new source restarts the stream' );
 		Core::$now = 640.0;
 		$node->fire();
-		$this->drain_connect_queue();
 
 		$this->assertSame( 'firehose.p0,egret.p6', \end( $asked )['subscribe'] );
 	}
@@ -872,11 +861,9 @@ class RemoteSourceNodeTest extends TestCase {
 		$asked = [];
 		$this->record_requests( $asked );
 		[ $node ] = $this->make_remote();
-		$this->drain_connect_queue();
 		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
 		Core::$now = 640.0;
 		$node->fire();
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
@@ -928,8 +915,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->record_requests( $asked );
 		[ $node ] = $this->make_remote();
 		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		Core::$now += 1;
 		$node->fire();
-		$this->drain_connect_queue();
 		$this->assertSame( 'firehose.p0,egret.p6', \end( $asked )['subscribe'] );
 		Core::node( 'remote-austin:egret.p6' )->next_offset( [ 'segment' => 4471, 'offset' => 2290 ] );
 		$sse = Core::node( 'remote-austin:sse-in' );
@@ -944,7 +931,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertStringNotContainsString( 'egret.p6', $node->dump_config() );
 		Core::$now = 640.0;
 		$node->fire();
-		$this->drain_connect_queue();
 		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
 	}
 
@@ -956,7 +942,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->interpreter()->dispatch( 'add_source', [ 'errors.*', 'heron-4471' ] );
 		$node->interpreter()->dispatch( 'add_source', [ 'errors.p2', 'kite-2290' ] );
 		$node->fire();
-		$this->drain_connect_queue();
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS errors.p0=4:10,errors.p2=8:20' ) );
 		$kept = Core::node( 'remote-austin:errors.p2' );
 		$this->assertSame( 'heron-4471', $kept->target(), 'the glob, declared first, claims the stamp' );
@@ -1123,9 +1108,10 @@ class RemoteSourceNodeTest extends TestCase {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
-		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
 		Core::node( 'remote-austin:firehose.p0' )->next_offset( [ 'segment' => 14, 'offset' => 2203 ] );
-		$this->drain_connect_queue();
+		Core::$now += 1;
+		$node->fire();
 
 		$this->assertSame( 'firehose.p0,sources:php', \end( $asked )['subscribe'] );
 		$this->assertSame(
@@ -1428,14 +1414,16 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [ 2, 9091 ], [ $this->newest_offsetlog_frame( $child )['segment'], $this->newest_offsetlog_frame( $child )['offset'] ] );
 	}
 
-	public function test_a_connect_queued_before_pause_does_not_reopen_the_stream(): void {
+	public function test_a_paused_sources_tick_opens_no_stream(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		[ , $child ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 6100.0;
+		[ $node, $child ] = $this->make_remote( 'remote-austin' );
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$child->pause();
-		$this->drain_connect_queue();
+		Core::$now = 6104.0;
+		$node->fire();
 
 		$this->assertNull( $sse->test_get_handle(), 'a paused source holds no spoke slot' );
 	}
@@ -1446,20 +1434,17 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->record_requests( $asked );
 		Core::$now = 2000.0;
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
-		$this->drain_connect_queue();
 		$php = Core::node( 'remote-austin:sources:php' );
 		$php->next_offset( [ 'segment' => 7702, 'offset' => 88 ] );
 
 		$php->pause();
 		Core::$now = 2001.0;
 		$node->fire();
-		$this->drain_connect_queue();
 		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
 
 		$php->play();
 		Core::$now = 2002.0;
 		$node->fire();
-		$this->drain_connect_queue();
 		$this->assertSame( 'firehose.p0,sources:php', \end( $asked )['subscribe'] );
 		$this->assertSame( [ 'segment' => 7702, 'offset' => 88 ], \json_decode( \end( $asked )['positions'], true )['sources:php'] );
 	}
@@ -1470,13 +1455,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->record_requests( $asked );
 		Core::$now = 3000.0;
 		[ $node, $child ] = $this->make_remote();
-		$this->drain_connect_queue();
 		$child->pause();
 
 		Core::$now = 3001.0;
 		$node->fire();
-		$this->assertNull( Remote_Source_Node::shift_connect_queue(), 'the tick queues no connect' );
-		$this->drain_connect_queue();
 
 		$this->assertCount( 1, $asked, 'no request after the last reader paused' );
 		$this->assertNull( Core::node( 'remote-austin:sse-in' )->test_get_handle() );
@@ -1488,7 +1470,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->record_requests( $asked );
 		Core::$now = 4000.0;
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'jobstats.p0', 'downstream' ], [ 'topicprobe.p0', 'downstream' ], [ 'tablestats.p0', 'downstream' ], [ 'firehose.p0', 'downstream' ] );
-		$this->drain_connect_queue();
 		foreach ( [ 'jobstats.p0', 'topicprobe.p0', 'tablestats.p0' ] as $stamp ) {
 			// Past the connect backoff, so an immediate reconnect would not be refused.
 			Core::$now += 30.0;
@@ -1497,7 +1478,6 @@ class RemoteSourceNodeTest extends TestCase {
 
 		Core::$now += 1.0;
 		$node->fire();
-		$this->drain_connect_queue();
 
 		$this->assertCount( 2, $asked, 'one connect, then one reconnect for the three pauses' );
 		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
@@ -1509,7 +1489,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->record_requests( $asked );
 		Core::$now = 5000.0;
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'errors.*', 'downstream' ] );
-		$this->drain_connect_queue();
 		$this->assertSame( [], $this->readers( $node ), 'a glob builds nothing until a stamp appears' );
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS errors.p0=4:10,errors.p2=8:20' ) );
@@ -1518,7 +1497,6 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::node( 'remote-austin:errors.p2' )->pause();
 		Core::$now = 5001.0;
 		$node->fire();
-		$this->drain_connect_queue();
 
 		$positions = \json_decode( \end( $asked )['positions'], true );
 		$this->assertSame( 'errors.*', \end( $asked )['subscribe'] );
@@ -1540,7 +1518,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->record_requests( $asked );
 		Core::$now = 6000.0;
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$php = Core::node( 'remote-austin:sources:php' );
 		$this->assertNotNull( $sse->test_get_handle() );
@@ -1548,7 +1525,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$php->pause();
 		Core::$now = 6030.0;
 		$node->fire();
-		$this->drain_connect_queue();
 		$this->assertCount( 2, $asked, 'one reconnect for the pause' );
 		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'], 'a paused reader stays out of the request' );
 
@@ -1557,13 +1533,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNotNull( $sse->test_get_handle(), 'paused, a seek leaves the stream open' );
 		Core::$now = 6045.0;
 		$node->fire();
-		$this->drain_connect_queue();
 		$this->assertCount( 2, $asked, 'none for the seek' );
 
 		$php->play();
 		Core::$now = 6060.0;
 		$node->fire();
-		$this->drain_connect_queue();
 		$this->assertSame( 'firehose.p0,sources:php', \end( $asked )['subscribe'] );
 		$this->assertNotNull( $sse->test_get_handle() );
 		$php->next_offset( [ 'segment' => 9, 'offset' => 1 ] );
@@ -1684,7 +1658,7 @@ class RemoteSourceNodeTest extends TestCase {
 		self::set_slot( $sse, 7, 42424243 );
 
 		// Advance clock past the heartbeat interval (16s) but under the stale timeout (45s).
-		Core::$now = \microtime( true ) + 16;
+		Core::$now += 16;
 		$node->fire();
 
 		$http  = Core::node( 'remote-austin:http-out' );
@@ -1705,7 +1679,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$sse = Core::node( 'remote-austin:sse-in' );
 		self::set_slot( $sse, 5 );
-		Core::$now = \microtime( true ) + 16;
+		Core::$now += 16;
 		$node->fire(); // sends heartbeat, records send-time
 
 		// Simulate the spoke's heartbeat reply routed back into fill(). The spoke's
@@ -1748,6 +1722,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_heartbeat_round_trip_is_in_milliseconds(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
+		Core::$now = 1748959990.0;
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7 );
 		Core::$now = 1748960000.250;
@@ -1770,6 +1745,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_heartbeat_command_error_clears_prior_success_and_records_reason(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
+		Core::$now = 1748959990.0;
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		// Twelve digits: no midfix's pid or uptime can hold the owner.
 		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 731942580617 );
@@ -1849,6 +1825,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_publish_status_ages_out_stale_heartbeat_response(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
+		Core::$now = 990.0;
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$sse = Core::node( 'remote-austin:sse-in' );
 		self::set_slot( $sse, 5 );
@@ -1886,7 +1863,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		Core::$now = 1748970000.0;
 		[ $node ] = $this->make_remote( 'remote-austin' );
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
 		$handle = $sse->test_get_handle();
@@ -1907,6 +1883,249 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1748970009, $status['scheduled_reconnect_at'] );
 	}
 
+	/**
+	 * Run the event loop `$turns` turns, the clock advancing `$step` seconds
+	 * a turn and the first cURL poll answering `$rows`.
+	 *
+	 * @param list<array<string,mixed>> $rows CURLMSG rows for the first poll.
+	 */
+	private function turn_loop( int $turns, float $step, array $rows = [] ): void {
+		$t           = Core::$now;
+		Core::$clock = static function () use ( &$t ): float {
+			return $t;
+		};
+		Event_Framework::$sleep     = static function ( int $microseconds ): void {};
+		Event_Framework::$curl_poll = static function ( \CurlMultiHandle $multi ) use ( &$rows ): array {
+			$polled = $rows;
+			$rows   = [];
+			return $polled;
+		};
+		Event_Framework::instance()->drain(
+			static function () use ( &$turns, &$t, $step ): bool {
+				if ( 0 === $turns-- ) {
+					return false;
+				}
+				$t += $step;
+				return true;
+			}
+		);
+	}
+
+	/** A stamp's one-record block, delivered down the broker's stream. */
+	private static function deliver_block( SSE_In_Node $sse, string $at ): string {
+		$line = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'kept' ] );
+		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', $at, $line ) );
+		return $line;
+	}
+
+	/** Close `$sse`'s stream cleanly at 200 after a `retry` of `$ms`. */
+	private static function scheduled_close_rows( SSE_In_Node $sse, string $ms ): array {
+		$handle = $sse->test_get_handle();
+		$sse->process_sse_chunk( self::retry_frame( $ms ) );
+		( new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' ) )->setValue( $sse, 200 );
+		return [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ];
+	}
+
+	public function test_a_busy_streams_lifetime_close_reopens_in_the_same_drain_iteration(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
+		$sse    = Core::node( 'remote-austin:sse-in' );
+		$handle = $sse->test_get_handle();
+		$this->assertInstanceOf( \CurlHandle::class, $handle );
+		self::set_slot( $sse, 5 );
+		$line      = self::deliver_block( $sse, '63:40917' );
+		$rows      = self::scheduled_close_rows( $sse, '0' );
+		Core::$now = 1748970030.4;
+		$fires     = $node->get_fire_count();
+
+		$this->turn_loop( 1, 0.05, $rows );
+
+		$reopened = $sse->test_get_handle();
+		$this->assertInstanceOf( \CurlHandle::class, $reopened, 'reopened by the timer scan after the completion' );
+		$this->assertNotSame( $handle, $reopened );
+		$this->assertSame( $fires + 1, $node->get_fire_count(), 'one housekeeping, 50 ms after the close' );
+		$this->assertCount( 2, $asked );
+		$this->assertSame( 'firehose.p0,sources:php', $asked[1]['subscribe'] );
+		$this->assertSame(
+			[ 'firehose.p0' => [ 'segment' => 63, 'offset' => 40917 + \strlen( $line ) ], 'sources:php' => Consumer_Node::SEEK_END ],
+			\json_decode( $asked[1]['positions'], true ),
+			'the reopen states where each reader stands at that moment'
+		);
+	}
+
+	public function test_a_busy_close_arms_a_recurring_zero_timer_and_the_fire_restores_the_tick(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		self::deliver_block( $sse, '7:0' );
+		$rows        = self::scheduled_close_rows( $sse, '0' );
+		Core::$now   = 1748970030.0;
+		Core::$clock = static fn (): float => 1748970030.0;
+
+		$this->deliver_curl_rows( $rows );
+		$this->assertSame( 'event_framework', $node->timer_mode(), 'its own slot, due on the next timer scan' );
+		$this->assertSame( 0, $node->interval_ms );
+		$this->assertFalse( $node->oneshot, 'recurring: the fire, not a disarm, restores the cadence' );
+
+		$this->turn_loop( 1, 0.05 );
+
+		$this->assertSame( 'router', $node->timer_mode(), 'back on the Router hitchhike' );
+		$this->assertSame( 1000, $node->interval_ms );
+	}
+
+	public function test_the_early_fire_is_not_throttled_by_a_faster_router(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		Core::$now = 1748970000.0;
+		Core::node( '_router' )->set_timer( 250 );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->assertSame( 'router', $node->timer_mode(), 'the 1 s tick hitchhikes a 250 ms Router and throttles' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+		self::deliver_block( $sse, '7:0' );
+		$rows      = self::scheduled_close_rows( $sse, '0' );
+		Core::$now = 1748970000.5;
+
+		$this->turn_loop( 1, 0.05, $rows );
+
+		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle(), 'the 0 ms slot owes the throttle nothing' );
+	}
+
+	public function test_the_early_housekeeping_holds_no_state_of_its_own(): void {
+		$class = new \ReflectionClass( Remote_Source_Node::class );
+
+		$this->assertFalse( $class->hasProperty( 'housekeep_early' ) );
+		$this->assertSame( \Newspack_Nodes\Timer_Node::class, $class->getMethod( 'fire_cb' )->getDeclaringClass()->getName() );
+	}
+
+	public function test_a_throwing_patron_on_the_reopen_leaves_the_batch_dispatched(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle() );
+		$bystander = new SSE_In_Node();
+		$bystander->name( 'bystander' );
+		$bystander->configure( 'https://quay.example' );
+		$bystander->streams( [ 'jobs.p2' ], [ 'jobs.p2' => Consumer_Node::SEEK_END ] );
+		$this->assertTrue( $bystander->maybe_connect() );
+		$other = $bystander->test_get_handle();
+		( new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' ) )->setValue( $bystander, 200 );
+		self::deliver_block( $sse, '2:0' );
+		$rows      = self::scheduled_close_rows( $sse, '0' );
+		$rows[]    = [ 'msg' => \CURLMSG_DONE, 'handle' => $other, 'result' => \CURLE_OK ];
+		Core::$now = 1748970030.0;
+		$sse->on_connecting = static function (): void {
+			throw new \RuntimeException( 'reader table unreadable' );
+		};
+
+		$thrown = $this->caught( fn () => $this->turn_loop( 1, 0.05, $rows ), 'the patron throw must surface' );
+
+		$this->assertSame( 'reader table unreadable', $thrown->getMessage() );
+		$this->assertSame( [], Event_Framework::instance()->handles_of( $bystander ), 'the later row in the batch still ran' );
+		$this->assertStringContainsString( 'ended without a server disconnect reason', (string) $bystander->connection()['last_error'] );
+		$this->assertSame( 'router', $node->timer_mode(), 'the throw leaves the recurring tick armed' );
+		$this->assertSame( 1000, $node->interval_ms );
+	}
+
+	public function test_a_busy_stream_under_a_second_old_reopens_on_the_tick_not_early(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		self::deliver_block( $sse, '7:0' );
+		$rows        = self::scheduled_close_rows( $sse, '0' );
+		Core::$now   = 1748970000.2;
+		Core::$clock = static fn (): float => 1748970000.2;
+		$fires       = $node->get_fire_count();
+		$this->deliver_curl_rows( $rows );
+
+		$this->turn_loop( 1, 0.05 );
+		$this->assertSame( $fires, $node->get_fire_count(), 'no early housekeeping for a stream under a second old' );
+		$this->assertNull( $sse->test_get_handle() );
+
+		Core::$now = 1748970001.0;
+		$node->fire();
+		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle(), 'the next tick reopens it' );
+		$this->assertCount( 2, $asked );
+	}
+
+	public function test_a_stopped_broker_told_a_reopen_is_due_stays_stopped(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		self::deliver_block( $sse, '7:0' );
+		$rows = self::scheduled_close_rows( $sse, '0' );
+		$node->stop_timer();
+		Core::$now   = 1748970030.0;
+		Core::$clock = static fn (): float => 1748970030.0;
+		$fires       = $node->get_fire_count();
+
+		$this->deliver_curl_rows( $rows );
+		$this->assertSame( 'inactive', $node->timer_mode(), 'a busy close does not restart a stopped broker' );
+		$this->turn_loop( 1, 0.05 );
+
+		$this->assertSame( $fires, $node->get_fire_count() );
+		$this->assertSame( 'inactive', $node->timer_mode() );
+		$this->assertNull( $sse->test_get_handle() );
+	}
+
+	public function test_a_delayed_scheduled_close_reopens_on_the_first_tick_after_its_delay(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle() );
+		self::deliver_block( $sse, '4:0' );
+		$this->deliver_curl_rows( self::scheduled_close_rows( $sse, '5000' ) );
+		$this->assertSame( 'router', $node->timer_mode(), 'a delayed reopen waits for the tick' );
+
+		Core::$now = 1748970004.0;
+		$node->fire();
+		$this->assertNull( $sse->test_get_handle(), 'inside the delay' );
+
+		Core::$now = 1748970005.0;
+		$node->fire();
+		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle() );
+		$this->assertCount( 2, $asked );
+	}
+
+	public function test_a_failed_close_waits_for_the_backoff_and_the_tick(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		$handle   = $sse->test_get_handle();
+		$this->assertInstanceOf( \CurlHandle::class, $handle );
+		self::deliver_block( $sse, '4:0' );
+		$sse->process_sse_chunk( self::retry_frame( '0' ) );
+
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] ] );
+		$this->assertSame( 'router', $node->timer_mode(), 'a failure makes nothing due early' );
+
+		Core::$now = 1748970001.0;
+		$node->fire();
+		$this->assertNull( $sse->test_get_handle(), 'inside the doubled backoff' );
+
+		Core::$now = 1748970002.0;
+		$node->fire();
+		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle() );
+		$this->assertCount( 2, $asked );
+	}
+
 	public function test_publish_status_reports_an_opening_stream_as_connecting(): void {
 		// A socket mid-open is neither up nor down; publishing it as connected
 		// is what made a card read CONNECTED seconds before it timed out.
@@ -1914,7 +2133,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		Core::$now = 1748970000.0;
 		[ $node ] = $this->make_remote( 'remote-austin' );
-		$this->drain_connect_queue();
 		// fire() housekeeps once per wall-second; the publish rides the next one.
 		Core::$now = 1748970001.0;
 		$node->fire();
@@ -1929,7 +2147,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		Core::$now = 1748970000.0;
 		[ $node ] = $this->make_remote( 'remote-austin' );
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
 		self::set_slot( $sse, 5 );
@@ -2048,6 +2265,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_a_changed_status_is_written_at_once(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
+		Core::$now = 8199.0;
 		[ $node ] = $this->make_remote();
 		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
 		Core::$now = 8200.0;
@@ -2184,8 +2402,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		Core::$now = 1000.0;
-		[ $node ] = $this->make_remote( 'remote-austin' ); // queues the connect at t=1000
-		$this->drain_connect_queue();
+		[ $node ] = $this->make_remote( 'remote-austin' ); // connects at t=1000
 
 		// Later ticks keep firing without a reconnect (the handle persists), so
 		// "Connected" must stay pinned to the real connect time — not creep with the tick clock.
@@ -2267,7 +2484,7 @@ class RemoteSourceNodeTest extends TestCase {
 			return \curl_init();
 		};
 		$this->make_remote( 'remote-austin' );
-		$this->assertTrue( Core::node( 'remote-austin:sse-in' )->maybe_connect() );
+		$this->assertInstanceOf( \CurlHandle::class, Core::node( 'remote-austin:sse-in' )->test_get_handle() );
 
 		$stream = \array_values( \array_filter( $captured, static fn ( array $o ): bool => \str_contains( $o[ \CURLOPT_URL ], '/messages/stream' ) ) );
 		$this->assertFalse( $stream[0][ \CURLOPT_SSL_VERIFYPEER ] );
@@ -2612,7 +2829,7 @@ class RemoteSourceNodeTest extends TestCase {
 		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
 
 		// First beat goes out; no reply ever arrives.
-		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		Core::$now += Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
 		$node->fire();
 		$this->assertTrue( Command_Auth::has_session( 'austin' ) );
 
@@ -2635,7 +2852,7 @@ class RemoteSourceNodeTest extends TestCase {
 		self::set_slot( $sse, 7 );
 		( new \ReflectionProperty( SSE_In_Node::class, 'owner' ) )->setValue( $sse, null );
 
-		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		Core::$now += Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
 		$node->fire();
 
 		$this->assertCount( 0, $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' ) );
@@ -2743,10 +2960,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'heartbeat', $batch[0][ Message::VALUE ]['name'] );
 	}
 
-	public function test_two_brokers_connect_one_per_queue_tick_not_all_at_once(): void {
-		// An aggregator brings every Remote_Source up in one tick; N simultaneous
-		// SSE connects are exactly what the spoke answers with HTTP 429. Ported
-		// from Tachikoma's JobSpawnTimer: one connect per timer fire.
+	public function test_two_brokers_both_connect_on_their_first_tick(): void {
 		$connects = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$connects ): \CurlHandle {
 			$connects[] = $opts[ \CURLOPT_URL ];
@@ -2762,32 +2976,16 @@ class RemoteSourceNodeTest extends TestCase {
 		);
 		Vault::get_instance()->reset_cache();
 
-		// The timer sinks into the interpreter, as every node does in a live
-		// graph; without one Timer_Node::fire_cb() never reaches fire().
-		( new Command_Interpreter_Node() )->name( '_command_interpreter' );
 		$this->make_remote( 'remote-austin' );
 		$this->broker( 'remote-brisbane', $this->remote_args( 'remote-brisbane', 'brisbane' ) )->fire();
 
-		$this->assertSame( [], $connects, 'both brokers only QUEUED their connect' );
-
-		$timer = Core::node( \Newspack_Nodes\Connect_Queue_Timer_Node::NODE_NAME );
-		$this->assertInstanceOf( \Newspack_Nodes\Connect_Queue_Timer_Node::class, $timer );
-
-		// Drive fire_cb(), the real dispatch path: Timer_Node::fire_cb() returns
-		// early on a null sink, BEFORE fire(), so a sinkless timer never drains
-		// the queue and nothing ever connects. Calling fire() directly hides it.
-		$timer->fire_cb();
-		$this->assertCount( 1, $connects, 'one connect per queue tick' );
-		$timer->fire_cb();
-		$this->assertCount( 2, $connects, 'the second lands on the next tick' );
-
-		// Dry queue retires the timer, exactly as JobSpawnTimer does.
-		$timer->fire_cb();
-		$this->assertNull( Core::node( \Newspack_Nodes\Connect_Queue_Timer_Node::NODE_NAME ) );
+		$this->assertCount( 2, $connects, 'each broker opens its own stream on its first tick' );
+		$this->assertStringStartsWith( 'https://austin.example', $connects[0] );
+		$this->assertStringStartsWith( 'https://brisbane.example', $connects[1] );
 	}
 
 	public function test_a_simultaneous_session_loss_does_not_stampede_auth(): void {
-		// The connect stagger only spreads FIRST boot. A spoke restart or key
+		// A spoke restart or key
 		// rotation drops every session in the same instant, and every broker is
 		// then long past its retry gate, so without a per-broker phase all N
 		// POST /v1/auth on one tick.
@@ -2803,7 +3001,6 @@ class RemoteSourceNodeTest extends TestCase {
 			Core::$now        = $start;
 			$brokers[ $name ] = $this->broker( $name );
 			$brokers[ $name ]->fire();
-			$this->drain_connect_queue();
 		}
 		foreach ( $brokers as $name => $node ) {
 			Core::$now = $start + 1;
@@ -2918,7 +3115,7 @@ class RemoteSourceNodeTest extends TestCase {
 		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
 		Command_Auth::remember_session( 'austin', \str_repeat( 'b', 32 ), 'heartbeat-session-key' );
 
-		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		Core::$now += Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
 		$node->fire();
 
 		$batch = $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' );
@@ -2936,7 +3133,7 @@ class RemoteSourceNodeTest extends TestCase {
 		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
 		Command_Auth::forget_session( 'austin' );
 
-		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		Core::$now += Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
 		$node->fire();
 
 		$this->assertCount( 0, $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' ) );
@@ -2991,12 +3188,10 @@ class RemoteSourceNodeTest extends TestCase {
 			return \curl_init();
 		};
 		[ $node ] = $this->make_remote( 'dockmaster', $this->remote_args( 'dockmaster', 'harbour' ), [ 'capstan.p4', 'downstream' ] );
-		$this->drain_connect_queue();
 
 		$node->arguments( $this->remote_args( 'dockmaster', 'quayside' ) );
 		Core::$now += 1;
 		$node->fire();
-		$this->drain_connect_queue();
 
 		$this->assertCount( 2, $urls, 'the replay reconnects rather than serving the incumbent' );
 		$this->assertStringStartsWith( 'https://quayside.example', $urls[1], 'against the replayed spoke url' );

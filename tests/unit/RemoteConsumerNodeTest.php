@@ -264,7 +264,8 @@ class RemoteConsumerNodeTest extends TestCase {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
-		$this->assertTrue( $sse->maybe_connect() );
+		Core::$now += 1;
+		$this->assertTrue( $sse->maybe_connect(), 'past the backoff the seek restarted' );
 		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
 		$positions = \json_decode( $query['positions'], true );
 		$this->assertSame( Consumer_Node::SEEK_RECENT, $positions['firehose.p0'] );
@@ -285,7 +286,8 @@ class RemoteConsumerNodeTest extends TestCase {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
-		$this->assertTrue( $sse->maybe_connect() );
+		Core::$now += 1;
+		$this->assertTrue( $sse->maybe_connect(), 'past the backoff the seek restarted' );
 		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
 		$this->assertSame( Consumer_Node::SEEK_END, \json_decode( $query['positions'], true )['firehose.p0'] );
 		$this->assertSame( '', $this->read_private( $node, 'buffer' ), 'a seek abandons what was in flight' );
@@ -440,15 +442,17 @@ class RemoteConsumerNodeTest extends TestCase {
 	 * record `recent` lands on is forwarded, never sacrificed as the suspect.
 	 */
 	public function test_a_pending_seek_word_arms_no_head_skip_from_the_frame(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->seed_offsetlog_frame( 812, 4410, Remote_Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
 		Core::$now = 1000.0;
-		[ , $node, $spy ] = $this->make_remote_spy();
-		$sse = Core::node( 'remote-austin:sse-in' );
+		// No Vault entry yet: the first tick builds the reader and opens nothing.
+		[ $broker, $node, $spy ] = $this->make_remote_spy();
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 
 		$node->next_offset( Consumer_Node::SEEK_RECENT );
 		$this->assertSame( Consumer_Node::SEEK_RECENT, $node->connect_position(), 'the first restore leaves the seek word standing' );
+		$broker->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->handshake( $sse, 'firehose.p0=61:7319' );
 		$this->deliver( $sse, '61:7319:44', '' );
 
@@ -647,7 +651,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		};
 		[ $broker, $node, $sink ] = $this->make_remote();
 		Core::$now = 1000.0;
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->set_line_mode( true );
 		foreach ( [ '5:0:30' => 'r1-121', '5:30:30' => 'r2-232', '5:60:30' => 'r3-343' ] as $crumb => $value ) {
@@ -662,8 +665,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 		Core::$now = 1010.0;
 		$node->fire_cb(); // r2 forwarded
-		$broker->fire(); // the reconnect queued
-		$this->drain_connect_queue();
+		$broker->fire(); // the reconnect
 		\parse_str( (string) \parse_url( \end( $captured )[ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
 		$asked = \json_decode( $query['positions'], true )['firehose.p0'];
 		$sse->process_sse_chunk( self::stream_frame( [
@@ -689,7 +691,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		};
 		[ , $node ] = $this->make_remote();
 		Core::$now = 1000.0;
-		$this->drain_connect_queue();
 		$sse                 = Core::node( 'remote-austin:sse-in' );
 		self::push_record( $node, [ Message::TYPE => Message::TM_BYTESTREAM, Message::ID => '8:640:64', Message::VALUE => 'crumbed-929' ] );
 		$bare                   = Message::new_message();
@@ -735,7 +736,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->capture_asked_positions( $asked );
 		[ , $node, $sink ] = $this->make_remote();
 		Core::$now = 1000.0;
-		$this->drain_connect_queue();
 		$sse  = Core::node( 'remote-austin:sse-in' );
 		$line = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'gaff-6631' ] );
 		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', '5:0', \substr( $line, 0, 11 ) ) );
@@ -757,7 +757,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->capture_asked_positions( $asked );
 		[ $broker, $node, $sink ] = $this->make_remote();
 		Core::$now = 1000.0;
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->wire_record( $sse, '5:0:30', 'r1-161' );
 		$sse->process_sse_chunk( self::torn_block( '5:30', 65 ) );
@@ -767,7 +766,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		$sse->disconnect();
 		Core::$now = 1010.0;
 		$broker->fire();
-		$this->drain_connect_queue();
 
 		$this->assertSame( [ 'r1-161' ], \array_column( $sink->captured, Message::VALUE ) );
 		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], $node->dump_metadata()['cursor'] );
@@ -798,7 +796,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->capture_asked_positions( $asked );
 		[ , $node, $sink ] = $this->make_remote();
 		Core::$now = 1000.0;
-		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->set_line_mode( true );
 		$this->wire_record( $sse, '5:0:30', 'r1-171' );
@@ -1722,7 +1719,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		$sse->disconnect();
 		Core::$now = \microtime( true ) + 100;
 		$broker->fire();
-		$this->drain_connect_queue();
 
 		$last_url = (string) \end( $captured_urls );
 		\parse_str( (string) \parse_url( $last_url, \PHP_URL_QUERY ), $query );
@@ -1886,7 +1882,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->make_remote();
 		Core::$now = 1000.0;
 		// No reader tick yet: the connect itself restores the cursor it states.
-		$this->drain_connect_queue();
 
 		$this->assertSame( [ [ 'segment' => 4, 'offset' => 256 ] ], $asked );
 	}
@@ -1950,11 +1945,9 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->seed_offsetlog_file( "this is not a packed message\n" );
 
-		[ , $node ] = $this->make_remote();
-
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'this is not a packed message' );
-		$node->fire_cb();
+		$this->make_remote();
 	}
 
 	public function test_restore_position_ignores_non_array_value(): void {
