@@ -1997,6 +1997,13 @@ hand-joined path both are.
 
 **Revisit if:** a stamp must name something that is neither a dir nor a registry entry.
 
+**Amendment: a raw block's format is read off its stamp.** A raw block travels as a bare TM_BATCH,
+a partition's and a source's alike. Its reader knows what it subscribed to, as Tachikoma's
+consumer does: a stamp [`Log_Discovery::source_name()`](../includes/class-log-discovery.php) reads
+a name from is a `Tail_Node`'s text lines, and any other stamp's lines are packed records. The
+browser's `sourceName()` in [`src/runtime/log-stamp.js`](../src/runtime/log-stamp.js) is its twin,
+held to it by `tests/fixtures/source-names.json`.
+
 **Amendment: a spoke's log has a name of its own.** A hub's broker reader reports its
 position on the hub's own probe log, and a spoke's `firehose.p0` is not the hub's own log: two logs
 sharing one stamp would merge the spoke's read rate into the hub's series, and a spoke's

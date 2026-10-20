@@ -22,6 +22,7 @@ import {
 	ID,
 	KEY,
 	VALUE,
+	TM_BATCH,
 	TM_BYTESTREAM,
 	TM_COMMAND,
 	TM_EOF,
@@ -131,6 +132,14 @@ describe( 'per-type render rules', () => {
 		);
 		expect( entryFor( msg( TM_BYTESTREAM, 'hello world' ) ) ).toEqual(
 			expect.objectContaining( { kind: 'recv', text: 'hello world' } )
+		);
+	} );
+
+	it( "renders a partition's raw block, a bare TM_BATCH, as its raw text", () => {
+		const block =
+			'[1,1791917918.8,"sources/php","","","","kea-4471"]\n[1,1791917919.2,"sources/php","","","","ruru-';
+		expect( entryFor( msg( TM_BATCH, block ) ) ).toEqual(
+			expect.objectContaining( { kind: 'recv', text: block } )
 		);
 	} );
 

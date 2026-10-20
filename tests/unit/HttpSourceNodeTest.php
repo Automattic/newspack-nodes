@@ -165,14 +165,14 @@ class HttpSourceNodeTest extends TestCase {
 	 *
 	 * @return list<array<int,mixed>>
 	 */
-	private static function block_reply( array $asked, string $bytes, ?int $distance = null, ?string $offset = null, string $extra = '', int $type = Message::TM_BATCH ): array {
+	private static function block_reply( array $asked, string $bytes, ?int $distance = null, ?string $offset = null, string $extra = '' ): array {
 		$offset                ??= $asked[1];
 		$distance              ??= \strlen( $bytes );
 		$info                   = Message::new_message();
 		$info[ Message::TYPE ]  = Message::TM_INFO | Message::TM_BATCH;
 		$info[ Message::VALUE ] = "OFFSET {$offset} DISTANCE {$distance} ASKED {$asked[1]}{$extra}";
 		$batch                   = Message::new_message();
-		$batch[ Message::TYPE ]  = $type;
+		$batch[ Message::TYPE ]  = Message::TM_BATCH;
 		$batch[ Message::ID ]    = $offset;
 		$batch[ Message::VALUE ] = $bytes;
 		return [ $info, $batch ];
@@ -404,7 +404,7 @@ class HttpSourceNodeTest extends TestCase {
 		$reader->next_offset( [ 'segment' => 77031, 'offset' => 12 ] );
 		$reader->fire_cb();
 
-		self::answer( $reader, self::block_reply( [ 'sources:php', '77031:12' ], "PHP Warning 5521\nnot json 6604\n", null, null, '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( [ 'sources:php', '77031:12' ], "PHP Warning 5521\nnot json 6604\n" ) );
 		$reader->fire_cb();
 
 		$this->assertSame( [ "PHP Warning 5521\n", "not json 6604\n" ], \array_column( $php->captured, Message::VALUE ) );
@@ -728,7 +728,7 @@ class HttpSourceNodeTest extends TestCase {
 		$reader = Core::node( 'pull-austin:sources:php' );
 		$reader->fire_cb();
 
-		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':7316' ) );
 		$reader->fire_cb();
 		$this->assertNotNull( $reader->fetch_stats()['waiting_since'], 'the empty answer waits one retry interval' );
 		Core::$now += self::RETRY_S + 0.5;
@@ -736,7 +736,7 @@ class HttpSourceNodeTest extends TestCase {
 
 		$asked = $this->last_fetch_of( $http, 'sources:php' );
 		$this->assertSame( ':7316', $asked[1], 'it asks from the offset named, naming no generation' );
-		self::answer( $reader, self::block_reply( $asked, "PHP Fatal 4471\n", null, '90210:7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( $asked, "PHP Fatal 4471\n", null, '90210:7316' ) );
 		$reader->fire_cb();
 		$this->assertSame( [ "PHP Fatal 4471\n" ], \array_column( $php->captured, Message::VALUE ) );
 	}
@@ -750,10 +750,10 @@ class HttpSourceNodeTest extends TestCase {
 		$reader = Core::node( 'pull-austin:sources:php' );
 		$reader->next_offset( [ 'segment' => 57, 'offset' => 3318 ] );
 		$reader->fire_cb();
-		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), "PHP Notice 2208\n", null, '57:3318', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), "PHP Notice 2208\n", null, '57:3318' ) );
 		$reader->fire_cb();
 
-		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':0', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':0' ) );
 		$reader->fire_cb();
 		Core::$now += self::RETRY_S + 0.5;
 		$node->fire();

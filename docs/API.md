@@ -1113,7 +1113,7 @@ mid-line included, through
 | Message | TYPE | ID | VALUE |
 |---|---|---|---|
 | header | `TM_INFO\|TM_BATCH` | empty | `OFFSET <segment>:<offset> DISTANCE <bytes>[ RESET 1]` |
-| batch | `TM_BATCH`, or `TM_BATCH\|TM_BYTESTREAM` for a source | `<segment>:<offset>` | the raw bytes |
+| batch | `TM_BATCH` | `<segment>:<offset>` | the raw bytes |
 
 `OFFSET`, which the batch's ID repeats, is where the bytes begin; a seek word, a
 rolled segment or a rewind can move it from where the reader was asked to stand.
@@ -1166,9 +1166,9 @@ a [`Tail_Node`](../includes/class-tail-node.php) reader instead of a Consumer;
 a caller can never supply a path, so there is no traversal surface. On the wire
 a source is a partition: same `msg` events, `retry` and `connected`
 envelopes, heartbeat cadence, flush framing, idle close and slot pool, with each
-frame's FROM `sources:<name>`. Its blocks are typed `TM_BATCH|TM_BYTESTREAM`,
-because a source's lines are text: a client wraps each as the TM_BYTESTREAM a
-Tail emits, VALUE the line with its newline.
+frame's FROM `sources:<name>`. Its blocks are a TM_BATCH like a partition's,
+and the `sources:` stamp says their lines are text: a client wraps each as the
+TM_BYTESTREAM a Tail emits, VALUE the line with its newline.
 
 ![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message and read_block with the struct read_message answers, the malformed position it refuses and the empty read it answers with a null message.](img/api-log-stream-sources.png)
 

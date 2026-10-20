@@ -384,7 +384,7 @@ class RemoteConsumerNodeTest extends TestCase {
 	}
 
 	/**
-	 * @param list<array<string,mixed>> $blocks   Each block's place, bytes, header and text flag.
+	 * @param list<array<string,mixed>> $blocks   Each block's place, bytes and header.
 	 * @param array<string,mixed>       $expected The records, torn lines and resume point.
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'raw_block_cases' )]
@@ -396,7 +396,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		$reader->sink( $sink );
 		foreach ( $blocks as $block ) {
 			[ $header, $batch ] = self::block_of( $stamp, $block['at'], $block['bytes'] );
-			$batch[ Message::TYPE ] = ( $block['text'] ?? false ) ? Message::TM_BATCH | Message::TM_BYTESTREAM : Message::TM_BATCH;
 			if ( \array_key_exists( 'header', $block ) ) {
 				$header[ Message::VALUE ] = \str_replace( "OFFSET {$block['at']}", 'OFFSET ' . $block['header'], $header[ Message::VALUE ] );
 			}

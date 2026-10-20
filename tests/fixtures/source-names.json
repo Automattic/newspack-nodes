@@ -1,0 +1,57 @@
+[
+  [
+    "a sources stamp names its entry",
+    "sources:php-9137",
+    "php-9137"
+  ],
+  [
+    "a path is no stamp",
+    "/var/log/sources:php",
+    null
+  ],
+  [
+    "a logs name is no source",
+    "logs:app-5531.log",
+    null
+  ],
+  [
+    "a name merely starting with the prefix",
+    "sourcesphp",
+    null
+  ],
+  [
+    "a log dir named like the prefix",
+    "sources",
+    null
+  ],
+  [
+    "the bare prefix",
+    "sources:",
+    null
+  ],
+  [
+    "a nested name",
+    "sources:php-9138:x",
+    null
+  ],
+  [
+    "a slash spelling",
+    "sources/php-9138",
+    null
+  ],
+  [
+    "an over-long one",
+    "sources:ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+    null
+  ],
+  [
+    "a dotted name",
+    "sources:..",
+    null
+  ],
+  [
+    "a dir stamp",
+    "offsets:php-9138",
+    null
+  ]
+]

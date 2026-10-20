@@ -43,28 +43,29 @@ final class LogStampTest extends TestCase {
 		Log_Discovery::stamp_for( 'logs', 'sources:php' );
 	}
 
-	public function test_source_name_reads_the_name_after_the_sources_prefix(): void {
-		$this->assertSame( 'php-9137', Log_Discovery::source_name( 'sources:php-9137' ) );
-		$this->assertNull( Log_Discovery::source_name( '/var/log/sources:php' ) );
-		$this->assertNull( Log_Discovery::source_name( 'logs:app-5531.log' ) );
-		$this->assertNull( Log_Discovery::source_name( 'sourcesphp' ) );
+	/**
+	 * The cases `tests/fixtures/source-names.json` holds, which the browser's
+	 * `sourceName()` reads alike in `log-stamp.test.js`.
+	 *
+	 * @return array<string,array{string,?string}> Label => a string, then the source it names or null.
+	 */
+	public static function source_names(): array {
+		$cases = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/source-names.json' ), true, 512, \JSON_THROW_ON_ERROR );
+		$out   = [];
+		foreach ( $cases as [ $label, $stamp, $name ] ) {
+			$out[ $label ] = [ $stamp, $name ];
+		}
+		return $out;
 	}
 
-	/** @return array<string,array{string}> Label => a `sources:` string naming no one source. */
-	public static function no_source_names(): array {
-		return [
-			'the bare prefix'  => [ 'sources:' ],
-			'a nested name'    => [ 'sources:php-9138:x' ],
-			'a slash spelling' => [ 'sources/php-9138' ],
-			'an over-long one' => [ 'sources:' . \str_repeat( 'p', Log_Discovery::MAX_STAMP_BYTES ) ],
-			'a dotted name'    => [ 'sources:..' ],
-			'a dir stamp'      => [ 'offsets:php-9138' ],
-		];
+	/** A `sources:` stamp names its entry; anything a stream refuses names none, and nothing throws. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'source_names' )]
+	public function test_source_name_reads_the_name_after_the_sources_prefix( string $stamp, ?string $name ): void {
+		$this->assertSame( $name, Log_Discovery::source_name( $stamp ) );
 	}
 
-	/** What a stream refuses names no source here either, and nothing throws. */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'no_source_names' )]
-	public function test_source_name_answers_null_for_what_no_stamp_names( string $stamp ): void {
-		$this->assertNull( Log_Discovery::source_name( $stamp ) );
+	/** The fixture's over-long case stays past the stamp bound. */
+	public function test_the_fixtures_over_long_source_is_past_the_bound(): void {
+		$this->assertGreaterThan( Log_Discovery::MAX_STAMP_BYTES, \strlen( self::source_names()['an over-long one'][0] ) );
 	}
 }

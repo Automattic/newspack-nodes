@@ -82,7 +82,6 @@ class SSEOutTest extends TestCase {
 			'offset'   => 812,
 			'distance' => 12,
 			'reset'    => false,
-			'type'     => Message::TM_BATCH,
 		] );
 
 		\ob_start();

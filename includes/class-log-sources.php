@@ -302,7 +302,7 @@ class Log_Sources {
 	 * @param string $log          A dir stamp or `sources:<name>`.
 	 * @param string $position     As `read()` takes it.
 	 * @param bool   $multi_writer Whether the log has more than one writer.
-	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int}
+	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool}
 	 * @throws \InvalidArgumentException As `read()` throws.
 	 */
 	public static function read_block( string $log, string $position, bool $multi_writer ): array {

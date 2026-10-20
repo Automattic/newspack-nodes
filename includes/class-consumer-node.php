@@ -44,13 +44,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
-	 * The type of the TM_BATCH a raw block travels in: packed records.
-	 *
-	 * @var int
-	 */
-	public const BATCH_TYPE = Message::TM_BATCH;
-
-	/**
 	 * Bytes read per poll — one block, then yield the event loop. A poll drains
 	 * the buffer it already holds, reads ONE more block, and returns so other
 	 * nodes get a turn. Tachikoma reads one BUFSIZ block (131072) per
@@ -329,7 +322,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * is the end.
 	 *
 	 * @param positive-int $max The most bytes to return.
-	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int}
+	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool}
 	 */
 	public function raw_block( int $max ): array {
 		$this->ensure_initialized();
@@ -352,7 +345,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$block = [ 'bytes' => $bytes, 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 		$this->cursor_offset += \strlen( $bytes );
 		$this->buffer         = '';
-		$block               += [ 'distance' => \strlen( $bytes ) + $this->compute_lag( false )['bytes_behind'], 'reset' => $this->cursor_reset, 'type' => static::BATCH_TYPE ];
+		$block               += [ 'distance' => \strlen( $bytes ) + $this->compute_lag( false )['bytes_behind'], 'reset' => $this->cursor_reset ];
 		// A rewind an earlier lag read made is for this block to report.
 		$this->cursor_reset = false;
 		return $block;
@@ -400,10 +393,11 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * `TM_INFO|TM_BATCH` so nothing reads it as an ordinary TM_INFO, of flat
 	 * pairs: `OFFSET <segment:offset>` where the block begins, `DISTANCE
 	 * <bytes>` what the log holds from there, and `RESET 1` when a deleted
-	 * segment rewound it. Then the bytes, typed `BATCH_TYPE` and ID'd with
-	 * that OFFSET. The caller addresses both.
+	 * segment rewound it. Then the bytes, a TM_BATCH ID'd with that OFFSET,
+	 * whose stamp tells a reader whether its lines are text or packed
+	 * records. The caller addresses both.
 	 *
-	 * @param array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int} $block What `raw_block()` read.
+	 * @param array{bytes:string,segment:?int,offset:int,distance:int,reset:bool} $block What `raw_block()` read.
 	 * @return array{0:array<int,mixed>,1:array<int,mixed>} The header, then the batch.
 	 */
 	public static function block_messages( array $block ): array {
@@ -412,7 +406,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$header[ Message::TYPE ]  = Message::TM_INFO | Message::TM_BATCH;
 		$header[ Message::VALUE ] = "OFFSET {$offset} DISTANCE {$block['distance']}" . ( $block['reset'] ? ' RESET 1' : '' );
 		$batch                    = Message::new_message();
-		$batch[ Message::TYPE ]   = $block['type'];
+		$batch[ Message::TYPE ]   = Message::TM_BATCH;
 		$batch[ Message::ID ]     = $offset;
 		$batch[ Message::VALUE ]  = $block['bytes'];
 		return [ $header, $batch ];
