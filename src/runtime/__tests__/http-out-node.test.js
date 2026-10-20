@@ -423,6 +423,18 @@ describe( 'HttpOut', () => {
 		expect( postBatch ).not.toHaveBeenCalled();
 	} );
 
+	it( 'an empty batch settles, posting nothing', async () => {
+		const { node, postBatch } = makeNode();
+
+		const settled = await Promise.race( [
+			node._post( [] ).then( () => 'settled-4417' ),
+			nextTask().then( () => 'pending' ),
+		] );
+
+		expect( settled ).toBe( 'settled-4417' );
+		expect( postBatch ).not.toHaveBeenCalled();
+	} );
+
 	it( "raises what a receiver throws on an unpackable message's refusal", async () => {
 		const { node } = makeNode();
 		node.sink = {

@@ -48,8 +48,8 @@ const SERVER = 'insights-demo';
  * Poll cadence, in milliseconds. All three cards read one committed offsetlog
  * snapshot, which moves only when the pipeline commits, so thirty seconds is a
  * retry rather than a feed. `useBatchedPoll` throws below 1000ms: under that
- * floor a Timer takes its own `setInterval` slot and fires outside the Router's
- * lock and flush, which costs one POST per slice instead of one per tick.
+ * floor a Timer takes its own `setInterval` slot, off the Router's tick, and its
+ * POST never joins the tick's.
  */
 const DEFAULT_INTERVAL_MS = 30000;
 

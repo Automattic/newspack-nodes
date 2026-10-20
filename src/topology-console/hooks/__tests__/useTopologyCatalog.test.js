@@ -195,13 +195,14 @@ describe( 'useTopologyCatalog', () => {
 		await settle();
 		replyFor.mockClear();
 		// A frozen clock keeps the 10s grid boundary out of reach of the tick.
-		jest.spyOn( Core, 'now' ).mockReturnValue( 1792400007.25 );
+		const now = jest.spyOn( Core, 'now' ).mockReturnValue( 1792400007.25 );
 		Core.node( CATALOG_NODE ).markDue();
 
 		act( () => result.current.reload() );
 		await settle();
 		act( () => Core.node( names.ROUTER ).fireCb() );
 		await settle();
+		now.mockRestore();
 
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 	} );
@@ -209,7 +210,7 @@ describe( 'useTopologyCatalog', () => {
 	it( 'reload() after a cadence tick re-fires no 1s hitchhiker', async () => {
 		const { result } = mountCatalog();
 		await settle();
-		jest.spyOn( Core, 'now' ).mockReturnValue( 1792400011.62 );
+		const now = jest.spyOn( Core, 'now' ).mockReturnValue( 1792400011.62 );
 		const uptime = new TimerNode();
 		uptime.name = 'uptime-probe:7731';
 		uptime.sink = { fill: () => {} };
@@ -219,6 +220,7 @@ describe( 'useTopologyCatalog', () => {
 
 		act( () => result.current.reload() );
 		await settle();
+		now.mockRestore();
 
 		expect( uptime.fireCount ).toBe( 1 );
 		expect( Core.node( CATALOG_NODE ).fireCount ).toBe( catalogFires + 1 );

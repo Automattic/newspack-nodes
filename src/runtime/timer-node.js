@@ -345,13 +345,14 @@ export class TimerNode extends Node {
 	}
 
 	/**
-	 * The caller just did this poll itself, so the next one owes a FULL
-	 * interval. The inverse of `markDue()`.
+	 * The caller just did this poll itself, so the next one waits out an
+	 * interval rather than firing on the next tick. The inverse of `markDue()`.
 	 *
 	 * Not `lastFireTime = now`: the next boundary after an arbitrary instant is
 	 * anywhere in `(0, interval]`, so arming just before one fires again a tick
 	 * later — the duplicate request this exists to suppress. It counts from the
-	 * NEXT boundary instead: a full interval at minimum, still on the grid. A
+	 * NEXT boundary instead: a timer above the tick waits a full interval at
+	 * minimum, still on the grid. A
 	 * timer at the tick's own cadence measures elapsed time rather than the
 	 * grid, so its next fire waits until 0.9s past that boundary, at least
 	 * nine tenths of its interval.

@@ -68,10 +68,10 @@ const ASK_EXPIRY_S = 120;
  *
  * `send()` is the other way in, for a caller with an answer to wait on: it parks
  * arguments the next trigger puts on the wire, so a mutation rides the same
- * batch as everything else instead of minting its own POST. It also parks the
- * SUBJECT the ask is about, which rides on FROM so the answer comes back
- * naming it — that is how ONE Fetcher serves many rows with nothing correlated
- * (ADR-7). `withdraw()` takes every ask back without sending a new one.
+ * batch as everything else instead of a POST apart from the tick's. It also
+ * parks the SUBJECT the ask is about, which rides on FROM so the answer comes
+ * back naming it — that is how ONE Fetcher serves many rows with nothing
+ * correlated (ADR-7). `withdraw()` takes every ask back without sending a new one.
  *
  * `fill()` IGNORES a trigger's payload — every message that is not a REPLY is
  * just a trigger. The command is configured on the node, never read from the

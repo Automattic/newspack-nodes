@@ -80,10 +80,11 @@ const posted = [];
 /**
  * Run `callback` on a task of its own, after every microtask of this one.
  *
- * A channel message rather than a 0ms timeout, because a hidden tab throttles
- * timers to one a second, and to one a minute once it has been hidden five
- * minutes; a held send must not wait that out. React's scheduler posts its
- * work the same way.
+ * A channel message rather than a 0ms timeout, because a hidden tab runs
+ * timeouts at most once a second, and Chrome, once the tab has been hidden
+ * five minutes, runs one set from a chain of timers at most once a minute; a
+ * held send must not wait that out. React's scheduler posts its work the same
+ * way.
  *
  * @param {function(): void} callback Runs once, on the next task.
  */
@@ -251,7 +252,7 @@ export class HttpOutNode extends Node {
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );
 		}
 		if ( 0 === sendable.length ) {
-			return new Promise( () => raise( unpacked ) );
+			return Promise.resolve().then( () => raise( unpacked ) );
 		}
 		return new Promise( ( resolve ) =>
 			resolve( this.client.postBatch( sendable, packed ) )

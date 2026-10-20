@@ -65,8 +65,8 @@ const TARGET = egressPath( GROUP, SERVER );
  * The cadences the dashboard's dropdown offers, as milliseconds in string form
  * because `usePersistedChoice` matches stored text against each option's own
  * value. Every one clears the 1000ms floor `useBatchedPoll` enforces: below it
- * the Timer takes a slot outside the Router's lock and flush, which costs one
- * POST per slice instead of one per tick.
+ * the Timer takes a slot of its own, off the Router's tick, and its POST never
+ * joins the tick's.
  */
 export const REFRESH_OPTIONS = [
 	{ label: '1s', value: '1000' },
