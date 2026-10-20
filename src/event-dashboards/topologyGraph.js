@@ -735,7 +735,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 					const collected = collectLogPartitions( concrete, ctx );
 					hasCursor = hasCursor || collected.hasCursor;
 					const slot = collected.partitions[ 0 ] || {};
-					// The concrete name is the rate key `recordLog` writes.
+					// The transform keys rates and segments by it.
 					return { ...slot, partition, name: concrete };
 				}
 			);

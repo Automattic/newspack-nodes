@@ -100,7 +100,7 @@ it( 'a source log that feeds a subtree keeps its group label and renders the sub
 } );
 
 it( 'keys each partition write/read rate on the CONCRETE partition name', () => {
-	// Rate key MUST match workerStatusTransform's recordLog key byte-for-byte.
+	// The rate key MUST match the transform's log key byte-for-byte.
 	const { container } = render(
 		<TreeEntity
 			entity={ logEntity }

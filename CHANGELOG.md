@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Every log's segment bars slide, not only a read log's.** The worker-status transform tracked each poll's segments only for the logs a worker's `inputs_status` or `outputs_status` named, so a log nothing reads, `completed`, `gyroscope`, `flames`, `alerts`, `errors` and the probe logs among them, had no baseline, and its bars jumped on every rotation instead of sliding, a shift of several slots included. It now tracks every log in `dump_graph`'s `logs`, by the concrete name its row keys on.
+
 ### Changed
 - **A backlog that crossed into a later segment paints the chart red.** The segment bar's red fill reads `--chart-4` in place of `--oxide`. On crt-color it is the Newspack red `#d63638` instead of CRT's lime oxide, and on newspack-brand `#d63638` instead of `#b32d2e`; every other skin's `--chart-4` is its oxide, so they paint as before. The shared `$dead-bg` token, whose only user this was, is gone.
 

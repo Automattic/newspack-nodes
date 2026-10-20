@@ -204,28 +204,18 @@ export class WorkerStatusTransformNode extends Node {
 		const newByteRates = rebuilt.byteRates;
 		const newWriteRates = rebuilt.writeRates;
 
-		// Segment tracking per partition for the slide-in/out animation.
-		const logSnapshots = new Map();
-		const recordLog = ( log ) => {
-			if ( ! log || ! log.name ) {
-				return;
-			}
+		// Every log a row draws, read or not, by the name its row keys on.
+		liveLogs.forEach( ( log ) => {
 			const logKey = log.name;
-			const prior = logSnapshots.get( logKey ) || { segments: new Map() };
-			( log.segments || [] ).forEach( ( seg ) => {
-				prior.segments.set( seg.id, seg );
-			} );
-			logSnapshots.set( logKey, prior );
-		};
-		richWorkers.forEach( ( w ) => {
-			( w.inputs_status || [] ).forEach( ( log ) => recordLog( log ) );
-			( w.outputs_status || [] ).forEach( ( log ) => recordLog( log ) );
-		} );
-
-		logSnapshots.forEach( ( snap, logKey ) => {
-			const currentIds = new Set( snap.segments.keys() );
+			const segments = new Map(
+				( log.partitions?.[ 0 ]?.segments || [] ).map( ( seg ) => [
+					seg.id,
+					seg,
+				] )
+			);
+			const currentIds = new Set( segments.keys() );
 			newPrevSegments[ logKey ] = currentIds;
-			newPrevSegmentData[ logKey ] = snap.segments;
+			newPrevSegmentData[ logKey ] = segments;
 
 			const prevIds = this._prevSegments[ logKey ];
 			const prevData = this._prevSegmentData[ logKey ];
