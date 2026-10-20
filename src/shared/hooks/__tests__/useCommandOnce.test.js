@@ -1,8 +1,8 @@
 /**
  * useCommandOnce — a mutation that rides the batch.
  *
- * Save, delete and activate ride the tick rather than minting their own POST
- * from a React callback, outside the router's lock/flush bracket. Riding the
+ * Save, delete and activate ride the tick rather than leaving with a React
+ * callback's task, in a POST apart from the router's tick. Riding the
  * tick is what puts them in the same request as everything else that tick; the
  * hard part is that a mutation must go EXACTLY ONCE, which is the opposite of a
  * poll's "ask again until it lands".

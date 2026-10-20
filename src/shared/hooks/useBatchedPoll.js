@@ -139,18 +139,17 @@ function syncTimer( timer, isPageVisible, paused, intervalMs, enabled = true ) {
  * @param {boolean}                          [opts.paused]    Suspend polling while true (stops the Timer hitchhike, like a hidden tab); going false polls at once, then resumes the cadence. A paused mount STILL delivers its one first load — see `enabled` for the gate that does not.
  * @param {boolean}                          [opts.enabled]   False costs nothing at all: no first load, no timer. `paused` suspends a surface that is open; this is for one that was never opened. Flipping it true delivers the first load then.
  * @param {boolean}                          [opts.passenger] True to clip onto a backbone somebody else owns — a poll that is a PART of a page rather than its graph. The owner keeps Reset Graph and the full rebuild; a passenger re-attaches when the backbone comes back.
- * @param {number}                           opts.intervalMs  Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick; above that `fireCb` throttles to the interval against the shared wall-clock grid (ADR-17), so two surfaces on one cadence meet on the same tick and share the POST. Changing it re-arms the Timer.
+ * @param {number}                           opts.intervalMs  Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick at least 0.9s after its last fire; above that `fireCb` throttles to the interval against the shared wall-clock grid (ADR-17), so two surfaces on one cadence meet on the same tick and share the POST. Changing it re-arms the Timer.
  * @return {{interpreterRef: {current: ?CommandInterpreterNode}, pollNow: () => void}} A ref to the live interpreter, and `pollNow()` — fire the batched poll tick off-cadence.
  * @throws {TypeError} When `intervalMs` is absent or below the 1000ms floor.
  */
 export function useBatchedPoll( opts ) {
 	// @longform
 	// Required, and >= 1000, which is TimerNode's own hitchhike threshold.
-	// The batch IS the lock/flush bracket the Router puts around
-	// `notifyTimer`, so only a router-hitchhiking timer sits inside it; a
-	// sub-second value takes an own setInterval slot firing outside the
-	// bracket, which is one POST per slice per tick and no batch at all.
-	// Sub-second polling belongs to `useRouterTick`. The floor also makes
+	// A sub-second value takes an own setInterval slot, off the Router's
+	// tick and its wall-clock grid (ADR-17), so its POST never joins the
+	// tick's with the page's other polls. Sub-second polling belongs to
+	// `useRouterTick`. The floor also makes
 	// arming a plain `setTimer( intervalMs )` with no branch: a bare
 	// `setTimer()` takes its interval from the Router and would discard the
 	// caller's cadence without a word.

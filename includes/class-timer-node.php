@@ -160,12 +160,16 @@ class Timer_Node extends Node {
 	 *
 	 * The throttle is the price of the hitchhike. The tick arrives at the
 	 * Router's cadence, so a registrant that asked for a longer one drops the
-	 * ticks in between, and one riding the tick's own cadence drops an extra
-	 * tick asked for less than a tick after its last fire. It skips while less
-	 * than its interval, less a tenth of the Router's tick, has passed since
-	 * `last_fire_time`, which every dispatch records: a tick arriving a hair
-	 * early still fires, and a slower timer keeps its rate, the tolerance
-	 * being a tenth of the tick rather than of its interval.
+	 * ticks in between. It skips while less than its interval, less a tenth of
+	 * the Router's tick, has passed since `last_fire_time`, which every
+	 * dispatch records: a tick arriving a hair early still fires, and a slower
+	 * timer keeps its rate, the tolerance being a tenth of the tick rather than
+	 * of its interval. A timer at the tick's own cadence takes the same rule
+	 * for parity with the JS twin, where a tick asked for between cadence
+	 * ticks reaches it. `Event_Framework` schedules each Router tick a full
+	 * tick after the last scan, so here the rule skips a tick only when
+	 * `fire_cb()` is driven by hand, or when an earlier dispatch in the same
+	 * tick moved `Core::$now` on by more than a tenth of a tick first.
 	 */
 	public function fire_cb(): void {
 		if ( $this->oneshot ) {
@@ -174,10 +178,12 @@ class Timer_Node extends Node {
 		if ( null === $this->sink ) {
 			return;
 		}
-		$tick_ms = self::router_interval_ms();
-		if ( 'router' === $this->mode && $this->interval_ms >= $tick_ms
-			&& Core::$now - $this->last_fire_time < ( $this->interval_ms - 0.1 * $tick_ms ) / 1000.0 ) {
-			return;
+		if ( 'router' === $this->mode ) {
+			$tick_ms = self::router_interval_ms();
+			if ( $this->interval_ms >= $tick_ms
+				&& Core::$now - $this->last_fire_time < ( $this->interval_ms - 0.1 * $tick_ms ) / 1000.0 ) {
+				return;
+			}
 		}
 		$this->last_fire_time = Core::$now;
 		$this->fire_count++;

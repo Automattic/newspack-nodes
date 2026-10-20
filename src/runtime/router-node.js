@@ -37,9 +37,10 @@ import names from './reserved-node-names.json';
  *
  * The value is load-bearing at both ends. `TimerNode.setTimer()` sends any
  * interval of at least 1000ms to the Router rather than to a slot of its own,
- * and `TimerNode.fireCb()` throttles a hitchhiker above it to its grid and one
- * at exactly this cadence only against an extra tick under 0.9s after its
- * last fire — so a poller armed at this cadence fires on every cadence tick.
+ * and `TimerNode.fireCb()` throttles a hitchhiker above it to its grid, and
+ * one at exactly this cadence skips any tick under 0.9s after its last fire —
+ * so a poller armed at this cadence fires on every cadence tick except one
+ * that follows a late tick by less than 0.9s.
  */
 export const ROUTER_TICK_MS = 1000;
 

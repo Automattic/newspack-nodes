@@ -252,8 +252,8 @@ test( 'keeps the inherited command() minting helper', async () => {
 
 // A one-shot rides the tick like everything else: it holds its arguments until
 // the next fan-out, sends once, and has nothing to say on the ticks between.
-// Without this a mutation would have to fire off-cadence, outside the router's
-// lock/flush bracket — its own POST, which is what the batch exists to avoid.
+// Without this a mutation would have to fire off-cadence, from its callback's
+// task — a POST apart from the tick's, which is what the batch exists to avoid.
 test( 'a function command_args returning null sends NOTHING that tick', () => {
 	const f = new FetcherNode();
 	f.arguments = [ 'save:in', 'save' ];
@@ -995,7 +995,7 @@ describe( 'FetcherNode — an ask parked for want of a session', () => {
 		timer.connectNode( 'kakapo-6610:fetch' );
 		timer.setTimer( 1000 );
 		keepUnsignedDue( timer );
-		jest.spyOn( Core, 'now' ).mockReturnValue( 1792400021.4 );
+		const now = jest.spyOn( Core, 'now' ).mockReturnValue( 1792400021.4 );
 
 		router.fireCb();
 		expect( timer.fireCount ).toBe( 1 );
@@ -1009,6 +1009,7 @@ describe( 'FetcherNode — an ask parked for want of a session', () => {
 		} ) );
 		await ensureSession();
 		await nextTask();
+		now.mockRestore();
 
 		const asked = wire.batches
 			.flat()

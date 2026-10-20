@@ -2,7 +2,7 @@
  * useSaveTopology — `topologies save` as a one-shot on the batched tick.
  *
  * What this pins is the whole point of the conversion: the write rides the
- * router tick rather than minting its own POST from a button callback, it goes
+ * router tick rather than leaving with a button callback's task, it goes
  * exactly ONCE, and the reply is addressed back to the node that sent it — no
  * ID, no KEY, nothing to correlate.
  */

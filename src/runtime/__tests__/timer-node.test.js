@@ -526,6 +526,16 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 			t.stopTimer();
 		} );
 
+		test( 'skips a tick 0.85s after its fire', () => {
+			const { r, t } = tickTimer( 'tieke:tick', 1000 );
+			jest.setSystemTime( kereru );
+			r.notifyTimer();
+			jest.setSystemTime( kereru + 850 );
+			r.notifyTimer();
+			expect( t.fireCount ).toBe( 1 );
+			t.stopTimer();
+		} );
+
 		test( 'fires a tick 0.95s after its fire', () => {
 			const { r, t } = tickTimer( 'pukeko:tick', 1000 );
 			jest.setSystemTime( kereru );

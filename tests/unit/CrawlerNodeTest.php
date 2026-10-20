@@ -978,13 +978,13 @@ final class CrawlerNodeTest extends TestCase {
 
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
 		$this->assertSame( [], $this->dispatched, 'a seed waits for the tick' );
-		$this->ticks( $crawler, 1 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
 		$this->assertSame( [ self::SITE . '/' ], $this->dispatched );
 
 		Core::$clock = static fn (): float => 1790000000.75;
 		$this->complete( self::SITE . '/', $this->links_body( '/u-1', '/u-2' ) );
 		$this->assertCount( 1, $this->dispatched, 'an answer waits for the tick' );
-		$this->ticks( $crawler, 1 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
 
 		$this->assertSame( [ self::SITE . '/', self::SITE . '/u-1' ], $this->dispatched, 'one start a tick' );
 	}
@@ -999,14 +999,15 @@ final class CrawlerNodeTest extends TestCase {
 		};
 
 		$at( 1790000000.0 );
-		$this->ticks( $crawler, 1 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
 		$crawler->arguments( [ '7203', '', '3000', '3' ] );
-		$at( 1790000000.5 );
-		$this->ticks( $crawler, 1 );
+		// Past the old 2s, short of the retuned 3s.
+		$at( 1790000002.5 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
 
 		$this->assertCount( 1, $this->dispatched, 'the retuned timer waits 3s from its last fire' );
 		$at( 1790000003.5 );
-		$this->ticks( $crawler, 1 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
 		$this->assertCount( 2, $this->dispatched );
 	}
 

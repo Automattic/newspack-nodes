@@ -144,8 +144,8 @@ export function useVaults( { enabled = false } = {} ) {
  *
  * `open( name )` names what is wanted, the next tick asks for it, and the answer
  * arrives as published state. A promise-returning `fetch( name )` cannot: minted
- * from a React callback, it is a POST of its own, outside the router's
- * lock/flush bracket and batched with nothing.
+ * from a React callback, it leaves with that callback's task rather than in
+ * the router's tick, so its POST never joins the tick's.
  *
  * Being a read, it retries — an unanswered ask is what leaves an editor open on
  * half a page. Being answered is what stops it, refusal included, so a topology

@@ -73,7 +73,7 @@ it( 'asks no Router tick for a sub-second timer on a slot of its own', () => {
 } );
 
 it( 'an out-of-tick pollTimerNow after a cadence tick re-fires no 1s poller', async () => {
-	jest.spyOn( Core, 'now' ).mockReturnValue( 1792400003.48 );
+	const now = jest.spyOn( Core, 'now' ).mockReturnValue( 1792400003.48 );
 	timer.setTimer( SLOW_MS );
 	const egret = Core.node( names.COMMAND_INTERPRETER ).makeNode(
 		'Timer',
@@ -89,6 +89,7 @@ it( 'an out-of-tick pollTimerNow after a cadence tick re-fires no 1s poller', as
 
 	pollTimerNow( timer );
 	await Promise.resolve();
+	now.mockRestore();
 
 	expect( fires ).toBe( 2 );
 	expect( egretFires ).toBe( 1 );
