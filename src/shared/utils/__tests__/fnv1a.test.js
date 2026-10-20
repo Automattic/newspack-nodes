@@ -1,8 +1,24 @@
 /**
- * Tests for the FNV-1a hash util (the golden cross-impl pin lives in tests/php).
+ * Tests for the FNV-1a hash util. `tests/fixtures/fnv1a-hashes.json` holds it
+ * to PHP's `Log_Manager::url_hash()`, which event-logger-nodes' suite reads too.
  */
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import fnv1a from '../fnv1a';
+
+const fixture = JSON.parse(
+	readFileSync(
+		join( __dirname, '../../../../tests/fixtures/fnv1a-hashes.json' ),
+		'utf8'
+	)
+);
+
+describe( 'fnv1a parity with PHP url_hash', () => {
+	test.each( fixture.url_hash )( '%s', ( _, str, hash ) => {
+		expect( fnv1a( str ) ).toBe( hash );
+	} );
+} );
 
 describe( 'fnv1a', () => {
 	it( 'returns a 12-character lowercase hex string', () => {

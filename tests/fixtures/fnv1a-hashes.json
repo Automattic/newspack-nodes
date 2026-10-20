@@ -1,0 +1,11 @@
+{
+	"url_hash": [
+		["the empty string", "", "811c9dc50000"],
+		["an ASCII path", "/wp-cron.php", "13ead606a028"],
+		["an ASCII URL with a query", "https://kea.test/cincinnati/eventsearch?v=?", "4b52fcd65e90"],
+		["a two-byte character", "/kakapo/Ä", "d72fcfbf83d4"],
+		["a three-byte character", "/kea/price-€42", "7f63c7e8a550"],
+		["a four-byte character", "/ruru/🦜", "18856facab08"],
+		["all three widths in one URL", "https://tui.test/café/€/🦜?q=Ä", "83ab2bde81d4"]
+	]
+}
