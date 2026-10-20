@@ -20,8 +20,7 @@ import names from '../runtime/reserved-node-names.json';
  *
  * Every gesture but `invoke` and a compose becomes a command line handed to
  * `sendLine`, the path the REPL prompt uses. That one path owns the transcript
- * echo, the cwd mirror and the `debug_state` persist, and a second one would
- * let `trace` skip all three. A compose arrives already minted, so the handlers
+ * echo and the cwd mirror, and a second one would let `trace` skip both. A compose arrives already minted, so the handlers
  * fill it into the Shell's gate themselves.
  *
  * @param {boolean}                _active          Forwarded to `useGraphSource`, which never reads
@@ -40,8 +39,7 @@ import names from '../runtime/reserved-node-names.json';
  *                                                  (snapped to the grid) when the metadata poll
  *                                                  surfaces it, instead of at autoLayout's choice.
  * @param {(line: string) => void} sendLine         `( line ) => void` — THE dispatch path, the same
- *                                                  one the prompt injects (echo, cwd mirror,
- *                                                  debug_state persist).
+ *                                                  one the prompt injects (echo, cwd mirror).
  * @param {() => void}             onReplSend       `() => void` — the hook's one rule for when the
  *                                                  REPL shows; see `useGraphHandlers`.
  * @return {{ graph: { nodes: Array, edges: Array }, ready: boolean, handlers: Object, pendingDrop: ?Object, commitDrop: (node: { name: string, args: string }) => void, cancelDrop: () => void }} The live graph,

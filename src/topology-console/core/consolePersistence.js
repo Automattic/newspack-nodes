@@ -1,7 +1,8 @@
 /**
  * localStorage persistence for the console's session state: the debug
- * overlay's transcript, the topology console's station transcript, the REPL command
- * history, `debug_level`, and the interpreter's `debug_state`.
+ * overlay's transcript, the topology console's station transcript, the REPL
+ * command history and the `debug_ui` choice. Neither `debug_level` nor a
+ * node's `debug_state` is stored: a reload starts both at 0.
  *
  * Every read and write goes through `readStorage` / `writeStorage`, so
  * private-mode, disabled or quota-full storage degrades to in-memory defaults
@@ -11,8 +12,8 @@
  * (`Vault_CI_Node::public_shape` strips it).
  *
  * Both REPLs share this module — the topology console for the station transcript
- * and ReplFooter's history, the debug overlay for the transcript, the debug
- * level and the debug state — so it lives in `topology-console/core`, where
+ * and ReplFooter's history, the debug overlay for the transcript and
+ * `debug_ui` — so it lives in `topology-console/core`, where
  * each can import it.
  */
 
@@ -36,14 +37,8 @@ const STATION_TRANSCRIPT_KEY = `${ NS }station-transcript`;
 /** Where the REPL's command history is stored. */
 const HISTORY_KEY = `${ NS }history`;
 
-/** Where the transcript's rendering verbosity is stored. */
-const DEBUG_LEVEL_KEY = `${ NS }debug-level`;
-
 /** Where the `debug_ui` choice is stored. */
 const DEBUG_UI_KEY = `${ NS }debug-ui`;
-
-/** Where the interpreter's `debug_state` is stored. */
-const DEBUG_STATE_KEY = `${ NS }debug-state`;
 
 /**
  * Most command lines a persisted history keeps. A transcript takes its cap from
@@ -73,17 +68,6 @@ function readArray( key ) {
 	} catch ( e ) {
 		return [];
 	}
-}
-
-/**
- * Read an integer from storage.
- *
- * @param {string} key Storage key.
- * @return {number} The stored integer, 0 when unset or unparseable.
- */
-function readInt( key ) {
-	const n = parseInt( readStorage( key ) ?? '', 10 );
-	return Number.isFinite( n ) ? n : 0;
 }
 
 /**
@@ -230,25 +214,6 @@ export function saveHistory( entries ) {
 }
 
 /**
- * Restore the transcript's rendering verbosity, so a reload keeps whatever the
- * user last selected.
- *
- * @return {number} The stored debug level, 0 when unset or unparseable.
- */
-export function loadDebugLevel() {
-	return readInt( DEBUG_LEVEL_KEY );
-}
-
-/**
- * Persist the transcript's rendering verbosity.
- *
- * @param {number} level Debug level; anything non-numeric stores 0.
- */
-export function saveDebugLevel( level ) {
-	writeStorage( DEBUG_LEVEL_KEY, String( Number( level ) || 0 ) );
-}
-
-/**
  * Restore whether UI-button traffic shows in the transcript.
  *
  * @return {boolean} The stored choice, false when unset.
@@ -264,23 +229,4 @@ export function loadDebugUi() {
  */
 export function saveDebugUi( on ) {
 	writeStorage( DEBUG_UI_KEY, on ? '1' : '0' );
-}
-
-/**
- * Restore the interpreter's `debug_state` — what the REPL's `trace` builtin
- * mutates — so tracing survives a reload.
- *
- * @return {number} The stored debug state, 0 when unset or unparseable.
- */
-export function loadDebugState() {
-	return readInt( DEBUG_STATE_KEY );
-}
-
-/**
- * Persist the interpreter's `debug_state`.
- *
- * @param {number} state Debug state; anything non-numeric stores 0.
- */
-export function saveDebugState( state ) {
-	writeStorage( DEBUG_STATE_KEY, String( Number( state ) || 0 ) );
 }

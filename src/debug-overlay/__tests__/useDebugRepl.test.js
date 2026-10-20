@@ -20,7 +20,7 @@ describe( 'useDebugRepl', () => {
 		window.localStorage.clear();
 	} );
 
-	it( 'restores debug_level, transcript, and debug_state from localStorage [87]', () => {
+	it( 'restores the transcript, and neither debug_level nor debug_state', () => {
 		window.localStorage.setItem(
 			'newspack-nodes:console:debug-level',
 			'2'
@@ -41,13 +41,9 @@ describe( 'useDebugRepl', () => {
 		expect( result.current.transcript.map( ( e ) => e.text ) ).toContain(
 			'old line'
 		);
-		// debug_state restored onto the browser interpreter.
-		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 1 );
-		// debug_level restored (2): no-arg toggles >0 → 0, then persists.
-		act( () => result.current.sendLine( 'debug_level' ) );
-		expect(
-			window.localStorage.getItem( 'newspack-nodes:console:debug-level' )
-		).toBe( '0' );
+		// Levels an older build stored start at 0 on a reload.
+		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 0 );
+		expect( result.current.debugLevel ).toBe( 0 );
 		teardown();
 	} );
 
@@ -99,16 +95,10 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'persists debug_state and transcript as they change [87]', () => {
+	it( 'persists the transcript as it changes [87]', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-
-		// `trace` toggles the interpreter's debug_state 0 → 1
-		act( () => result.current.sendLine( 'trace' ) );
-		expect(
-			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
-		).toBe( '1' );
 
 		act( () => result.current.append( { kind: 'info', text: 'hello' } ) );
 		const saved = JSON.parse(
@@ -451,44 +441,25 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	/**
-	 * ONE dispatch path. The overlay injects `sendLine` into useGraphHandlers,
-	 * as the console does, so an Inspector action reaches the persist/cwd
-	 * bookkeeping that lives on sendLine. A second dispatcher would let
-	 * `trace * 0` toggle without writing, and the next load would seed the
-	 * stale level back onto the interpreter, which stamps it onto every node
-	 * made afterwards.
-	 */
-	it( 'persists debug_state through sendLine, the one dispatch path [87]', () => {
+	it( 'stores neither the trace level nor debug_level', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 
-		// 3, not 1: a level no default or toggle would land on by accident.
+		// 3 and 2: levels no default or toggle would land on by accident.
 		act( () => result.current.sendLine( 'trace * 3' ) );
-
 		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 3 );
 		expect(
 			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
-		).toBe( '3' );
-		teardown();
-	} );
-
-	it( 'persists an OFF the same as an ON — 0 is a value, not an absence [87]', () => {
-		window.localStorage.setItem(
-			'newspack-nodes:console:debug-state',
-			'1'
-		);
-		const { teardown } = mountExospine();
-		const shell = makeShell();
-		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 1 );
-
+		).toBeNull();
+		// A traced `_output` would log the next line as DEBUG.
 		act( () => result.current.sendLine( 'trace * 0' ) );
+		act( () => result.current.sendLine( 'debug_level 2' ) );
 
+		expect( result.current.debugLevel ).toBe( 2 );
 		expect(
-			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
-		).toBe( '0' );
+			window.localStorage.getItem( 'newspack-nodes:console:debug-level' )
+		).toBeNull();
 		teardown();
 	} );
 

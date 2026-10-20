@@ -5,10 +5,6 @@ import {
 	saveStationTranscript,
 	loadHistory,
 	saveHistory,
-	loadDebugLevel,
-	saveDebugLevel,
-	loadDebugState,
-	saveDebugState,
 	loadDebugUi,
 	saveDebugUi,
 } from '../consolePersistence';
@@ -85,15 +81,6 @@ describe( 'consolePersistence [87]', () => {
 		);
 	} );
 
-	it( 'round-trips debug_level and debug_state as integers', () => {
-		expect( loadDebugLevel() ).toBe( 0 ); // default
-		expect( loadDebugState() ).toBe( 0 );
-		saveDebugLevel( 2 );
-		saveDebugState( 1 );
-		expect( loadDebugLevel() ).toBe( 2 );
-		expect( loadDebugState() ).toBe( 1 );
-	} );
-
 	it( 'round-trips debug_ui as a boolean, off by default', () => {
 		expect( loadDebugUi() ).toBe( false );
 		saveDebugUi( true );
@@ -111,13 +98,8 @@ describe( 'consolePersistence [87]', () => {
 			'newspack-nodes:console:history',
 			'"a string"'
 		);
-		window.localStorage.setItem(
-			'newspack-nodes:console:debug-level',
-			'NaN'
-		);
 		expect( loadTranscript() ).toEqual( [] );
 		expect( loadHistory() ).toEqual( [] );
-		expect( loadDebugLevel() ).toBe( 0 );
 	} );
 } );
 

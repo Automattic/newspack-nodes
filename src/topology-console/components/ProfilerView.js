@@ -59,6 +59,35 @@ const COLS = [
 ];
 
 /**
+ * Send a modal button's verb to the viewed scope, `_cwd`, apart from the REPL:
+ * FROM is bare `_ui`, so its reply reaches the transcript, and its echo is
+ * written there, only while `debug_ui` is on. `minter` mints and signs it;
+ * FROM and TO are written afterwards, since the signature covers the
+ * semantics alone (ADR-15).
+ *
+ * @param {?Object}  minter The node that mints and signs the command.
+ * @param {string}   verb   The verb.
+ * @param {string[]} args   Its argument tokens.
+ * @return {boolean} Whether it was sent: false with no interpreter, or while
+ *   a session is being re-established and nothing can sign.
+ */
+export function sendFromUi( minter, verb, args ) {
+	const interpreter = Core.node( names.COMMAND_INTERPRETER );
+	const m = interpreter ? minter?.command( verb, args ) : null;
+	if ( ! m ) {
+		return false;
+	}
+	m[ FROM ] = names.UI;
+	m[ TO ] = names.CWD;
+	Core.node( names.OUTPUT )?.appendUi( {
+		kind: 'sent',
+		text: [ 'command_node', names.CWD, verb, ...args ].join( ' ' ),
+	} );
+	interpreter.fill( m );
+	return true;
+}
+
+/**
  * One `list_profiles -s` row: the stats the verb derives from a raw profile
  * record, plus the node name — or `--total--` — in `what`.
  *
@@ -108,34 +137,23 @@ export default function ProfilerView() {
 	 * Sends the explicit `profile on` / `profile off` rather than the bare
 	 * toggle, because a toggle carries the reading it was clicked against — a
 	 * stale one turns profiling off in the scope the operator meant to
-	 * measure. The poller MINTS and signs the command; FROM and TO are written
-	 * afterwards, since the signature covers the semantics alone (ADR-15).
-	 * FROM is bare `_ui`: the button reads its answer off the next poll, and a
-	 * reply landing on the poller would stand in for the rows. Polling again
-	 * straight after puts that poll on the next tick, not the next interval.
+	 * measure. The poller mints it, and the button reads its answer off the
+	 * next poll, since a reply landing on the poller would stand in for the
+	 * rows. Polling again straight after puts that poll on the next tick, not
+	 * the next interval.
 	 *
 	 * @param {boolean} enable Whether profiling should run in that scope.
 	 */
 	const setProfiling = ( enable ) => {
 		disagreeRef.current = 0;
 		setOptimistic( enable );
-		const interpreter = Core.node( names.COMMAND_INTERPRETER );
-		if ( ! interpreter ) {
-			return;
+		if (
+			sendFromUi( Core.node( POLLER ), 'profile', [
+				enable ? 'on' : 'off',
+			] )
+		) {
+			pollNow();
 		}
-		const verb = enable ? 'on' : 'off';
-		const m = Core.node( POLLER )?.command( 'profile', [ verb ] );
-		if ( ! m ) {
-			return; // unauthenticated; re-auth is under way
-		}
-		m[ FROM ] = names.UI;
-		m[ TO ] = names.CWD;
-		Core.node( names.OUTPUT )?.appendUi( {
-			kind: 'sent',
-			text: `command_node ${ names.CWD } profile ${ verb }`,
-		} );
-		interpreter.fill( m );
-		pollNow();
 	};
 
 	const rows = useMemo(
