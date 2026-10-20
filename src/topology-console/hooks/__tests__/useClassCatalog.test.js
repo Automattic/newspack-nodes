@@ -9,18 +9,22 @@ import {
 	installFakeCommandWire,
 	makeFakeCommandWire,
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import { runClockFast } from '@newspack-nodes/shared/test-utils/fastClock';
+import { steppedClock } from '@newspack-nodes/shared/test-utils/steppedClock';
 import { useClassCatalog } from '../useCatalogs';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const CATALOG = { classes: [ 'Echo', 'Tee' ], formatters: [ 'Plain' ] };
 
+// The catalog's own cadence: one of these moves the grid to its next poll.
+const CATALOG_S = 30;
+
 let replyFor;
+let clock;
 
 beforeEach( () => {
 	jest.restoreAllMocks();
-	runClockFast();
 	Core.reset();
+	clock = steppedClock();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( () => CATALOG );
 	installFakeCommandWire( ( m ) => replyFor( m ) );
@@ -55,12 +59,11 @@ describe( 'useClassCatalog', () => {
 		act( () => {
 			renewSession();
 		} );
+		// The next poll finds no session, re-authenticates, and asks again.
+		await clock.tick( CATALOG_S );
 
-		// The generation change is noticed on the reconcile tick, then the
-		// round trip runs — past waitFor's 1s default.
-		await waitFor(
-			() => expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] ),
-			{ timeout: 4000 }
+		await waitFor( () =>
+			expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] )
 		);
 	} );
 
@@ -84,11 +87,10 @@ describe( 'useClassCatalog', () => {
 		act( () => {
 			renewSession();
 		} );
+		await clock.tick( CATALOG_S );
 
-		await waitFor(
-			() =>
-				expect( result.current.classes ).toEqual( [ 'Grep', 'Tail' ] ),
-			{ timeout: 4000 }
+		await waitFor( () =>
+			expect( result.current.classes ).toEqual( [ 'Grep', 'Tail' ] )
 		);
 		expect( result.current.formatters ).toEqual( [ 'Bytes' ] );
 	} );
@@ -102,10 +104,10 @@ describe( 'useClassCatalog', () => {
 			useClassCatalog( { enabled: true } )
 		);
 		await waitFor( () => expect( result.current.error ).toBeTruthy() );
+		await clock.tick( CATALOG_S );
 
-		await waitFor(
-			() => expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] ),
-			{ timeout: 4000 }
+		await waitFor( () =>
+			expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] )
 		);
 	} );
 
@@ -177,7 +179,8 @@ describe( 'useClassCatalog', () => {
 		);
 
 		replyFor.mockImplementation( () => null );
-		await new Promise( ( r ) => setTimeout( r, 1200 ) );
+		await clock.tick( CATALOG_S );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ) );
 
 		expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] );
 		expect( result.current.formatters ).toEqual( [ 'Plain' ] );

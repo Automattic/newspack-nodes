@@ -819,6 +819,7 @@ globalThis.__answerBatch = ( entries ) => answerBatch( entries, answerCommand );
 
 import TopologyConsole, { topologyFromParam } from '../TopologyConsole';
 import { nextTask as oneTask } from '@newspack-nodes/shared/test-utils/nextTask';
+import { holdRouterCadence } from '@newspack-nodes/shared/test-utils/holdRouterCadence';
 
 // The handle jest.setup.js issues every test's command session under.
 const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
@@ -841,6 +842,8 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
 		Core.reset();
+		// Every tick counted here is one a test asked for.
+		holdRouterCadence();
 		globalThis.__graphKey = null;
 		globalThis.__shell = null;
 		globalThis.__httpPosts = [];

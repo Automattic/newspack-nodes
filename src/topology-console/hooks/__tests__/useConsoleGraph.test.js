@@ -150,6 +150,12 @@ const tickRouter = () =>
 // An unlocked send leaves on the next task, as it does in production.
 const nextTask = () => act( oneTask );
 
+// @longform
+// Stop the Router's own cadence once the console has armed it, so every POST
+// a test counts is one it asked for: the tick lands just after each grid
+// boundary, and one passing mid-test would post the polls again.
+const holdTick = () => Core.node( names.ROUTER ).stopTimer();
+
 // The console mounts the expand hook beside this one, and it is what answers a
 // key the seed's include-expansion fallback parks. Mirror that here.
 const renderGraph = ( props = {} ) =>
@@ -382,6 +388,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 	it( 'batches one tick of the active worker polls into a SINGLE postBatch', async () => {
 		renderGraph();
+		holdTick();
 		// Let /auth land: a node with no session mints nothing.
 		await act( async () => {} );
 		act( () => lastConnector.emitConnected() );
@@ -772,6 +779,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 
 	it( 'a typed Shell command flows Shell → interpreter → Router → RemoteIpc → POST', async () => {
 		const { result } = renderGraph();
+		holdTick();
 		// Let /auth land: a node with no session mints nothing.
 		await act( async () => {} );
 		act( () => lastConnector.emitConnected() );
@@ -857,6 +865,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 
 	it( 'a worker cwd re-stamps the poll TO out to the worker and POSTs (reply rides the stream)', async () => {
 		renderGraph();
+		holdTick();
 		// Let /auth land: a node with no session mints nothing.
 		await act( async () => {} );
 		act( () => lastConnector.emitConnected() );
@@ -883,6 +892,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 
 	it( 'the local root (_cwd.target = "") interprets the poll in-browser (no POST)', async () => {
 		renderGraph();
+		holdTick();
 		act( () => lastConnector.emitConnected() );
 		// The mount's own sends leave before the spy goes in.
 		await nextTask();

@@ -9,7 +9,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { Core, renewSession, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useVaults } from '../useCatalogs';
-import { runClockFast } from '@newspack-nodes/shared/test-utils/fastClock';
+import { steppedClock } from '@newspack-nodes/shared/test-utils/steppedClock';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const LISTED = {
@@ -22,11 +22,15 @@ const LISTED = {
 	github: { id: 'github', url: '', has_credentials: true },
 };
 
+// The vault catalog's own cadence: one of these moves it to its next poll.
+const CATALOG_S = 30;
+
 let replyFor;
+let clock;
 
 beforeEach( () => {
 	Core.reset();
-	runClockFast();
+	clock = steppedClock();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( () => LISTED );
 	installFakeCommandWire( ( m ) => replyFor( m ) );
@@ -45,20 +49,18 @@ describe( 'useVaults', () => {
 		act( () => {
 			renewSession();
 		} );
+		// The next poll finds no session, re-authenticates, and asks again.
+		await clock.tick( CATALOG_S );
 
-		// The generation change is noticed on the reconcile tick (1s), then
-		// the round trip runs — past waitFor's 1s default.
-		await waitFor(
-			() =>
-				expect( result.current.vaults ).toEqual( [
-					{
-						id: 'austin',
-						url: 'https://a.example',
-						group: 'crawl-g7',
-					},
-					{ id: 'github', url: '', group: '' },
-				] ),
-			{ timeout: 4000 }
+		await waitFor( () =>
+			expect( result.current.vaults ).toEqual( [
+				{
+					id: 'austin',
+					url: 'https://a.example',
+					group: 'crawl-g7',
+				},
+				{ id: 'github', url: '', group: '' },
+			] )
 		);
 	} );
 

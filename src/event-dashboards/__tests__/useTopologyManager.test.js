@@ -20,6 +20,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { TO, TYPE, VALUE, TM_ERROR, newMessage } from '../../runtime/message';
 import { Core } from '../../runtime/core';
+import { holdRouterCadence } from '@newspack-nodes/shared/test-utils/holdRouterCadence';
 import { useTopologyManager } from '../hooks/useTopologyManager';
 
 let mockPageVisible = true;
@@ -117,6 +118,8 @@ function installWedgingWire() {
 
 beforeEach( () => {
 	Core.reset();
+	// Every dump counted here is one a test asked for.
+	holdRouterCadence();
 	window.localStorage.clear();
 	mockPageVisible = true;
 } );

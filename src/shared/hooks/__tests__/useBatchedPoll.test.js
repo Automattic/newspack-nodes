@@ -11,6 +11,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { nextTask } from '@newspack-nodes/shared/test-utils/nextTask';
+import { holdRouterCadence } from '@newspack-nodes/shared/test-utils/holdRouterCadence';
 import { useEffect } from '@wordpress/element';
 import {
 	Core,
@@ -130,6 +131,8 @@ function useObservedVisibilityRace( wire, observations ) {
 
 beforeEach( () => {
 	Core.reset();
+	// Every POST counted here is one a test asked for.
+	holdRouterCadence();
 	// Every test posts; a suite-wide wire keeps each one from re-installing.
 	installWire();
 	Object.defineProperty( document, 'visibilityState', {
