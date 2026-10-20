@@ -1,0 +1,17 @@
+{
+	"grid_phase_ms": 360,
+	"next_boundary": [
+		["a cleared last fire falls due on the first boundary", 0, 1000, 0.36],
+		["a tick just past a boundary waits for the next", 1790000100.37, 1000, 1790000101.36],
+		["a late fire waits for the same next boundary", 1790000100.52, 1000, 1790000101.36],
+		["a fire just short of a boundary is due at it", 1790000101.32, 1000, 1790000101.36],
+		["a fire exactly on a boundary waits a whole interval", 1790000100.36, 1000, 1790000101.36],
+		["a fire stamped mid-tick keeps the next boundary", 1700.67, 1000, 1701.36],
+		["a two-second tick has a two-second grid", 1900.37, 2000, 1902.36],
+		["an off-grid instant rounds up to the grid", 1790000003.48, 1000, 1790000004.36],
+		["a ten-second cadence lands on a tens boundary", 1790000007.25, 10000, 1790000010.36],
+		["a ten-second fire on its boundary waits ten more", 1790000010.36, 10000, 1790000020.36],
+		["a five-second cadence lands on a fives boundary", 1790000002.9, 5000, 1790000005.36],
+		["no interval is no grid", 1790000100.36, 0, 1790000100.36]
+	]
+}

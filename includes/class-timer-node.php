@@ -46,6 +46,12 @@ class Timer_Node extends Node {
 	protected const MIN_INTERVAL_S = 1;
 
 	/**
+	 * Where the wall-clock grid sits, in milliseconds past each whole second:
+	 * the JS `GRID_PHASE_MS` twin, held to it by `grid-boundaries.json`.
+	 */
+	public const GRID_PHASE_MS = 360;
+
+	/**
 	 * Cadence in milliseconds, 0 while disarmed. Public because
 	 * `Event_Framework` re-seeds `next_fire` from it on every recurring fire and
 	 * `list_timers` tabulates it.
@@ -160,16 +166,18 @@ class Timer_Node extends Node {
 	 *
 	 * The throttle is the price of the hitchhike. The tick arrives at the
 	 * Router's cadence, so a registrant that asked for a longer one drops the
-	 * ticks in between. It skips while less than its interval, less a tenth of
-	 * the Router's tick, has passed since `last_fire_time`, which every
-	 * dispatch records: a tick arriving a hair early still fires, and a slower
-	 * timer keeps its rate, the tolerance being a tenth of the tick rather than
-	 * of its interval. A timer at the tick's own cadence takes the same rule
-	 * for parity with the JS twin, where a tick asked for between cadence
-	 * ticks reaches it. `Event_Framework` schedules each Router tick a full
-	 * tick after the last scan, so here the rule skips a tick only when
-	 * `fire_cb()` is driven by hand, or when an earlier dispatch in the same
-	 * tick moved `Core::$now` on by more than a tenth of a tick first.
+	 * ticks in between: it skips while less than its interval, less a tenth
+	 * of the Router's tick, has passed since `last_fire_time`, which every
+	 * dispatch records. A tick arriving a hair early still fires, and a slower
+	 * timer keeps its rate, the slack being a tenth of the tick rather than of
+	 * its interval. A timer at the tick's own cadence reads the wall-clock
+	 * grid instead, as the JS twin does: it skips a tick landing more than a
+	 * tenth of a tick short of the grid boundary after its last fire, so a
+	 * tick at least nine tenths of a tick after that fire always fires. A
+	 * fire stamped late in its tick, by a dispatch ahead of it moving
+	 * `Core::$now` on, costs the next tick nothing unless the delay carried
+	 * it past a grid boundary that the next tick lands more than a tenth of a
+	 * tick before; a hand-driven extra tick short of the boundary skips.
 	 */
 	public function fire_cb(): void {
 		if ( $this->oneshot ) {
@@ -180,8 +188,11 @@ class Timer_Node extends Node {
 		}
 		if ( 'router' === $this->mode ) {
 			$tick_ms = self::router_interval_ms();
-			if ( $this->interval_ms >= $tick_ms
-				&& Core::$now - $this->last_fire_time < ( $this->interval_ms - 0.1 * $tick_ms ) / 1000.0 ) {
+			$slack   = 0.1 * $tick_ms / 1000.0;
+			$due     = $tick_ms === $this->interval_ms
+				? self::next_boundary( $this->last_fire_time, $this->interval_ms ) - $slack
+				: $this->last_fire_time + $this->interval_ms / 1000.0 - $slack;
+			if ( $this->interval_ms >= $tick_ms && Core::$now < $due ) {
 				return;
 			}
 		}
@@ -221,6 +232,24 @@ class Timer_Node extends Node {
 			$this->sink->fill( $message );
 		}
 		$this->notify( 'FIRE', Core::$now );
+	}
+
+	/**
+	 * The first grid boundary strictly after `$after`: the twin of the JS
+	 * `nextBoundary()`. The grid is a function of the wall clock alone, so two
+	 * timers on one cadence share its boundaries however they were armed.
+	 *
+	 * @param float $after       Seconds; the last fire.
+	 * @param int   $interval_ms The cadence.
+	 * @return float The next boundary, in seconds; `$after` with no cadence.
+	 */
+	public static function next_boundary( float $after, int $interval_ms ): float {
+		$interval = $interval_ms / 1000;
+		if ( ! ( $interval > 0 ) ) {
+			return $after;
+		}
+		$phase = self::GRID_PHASE_MS / 1000;
+		return ( \floor( ( $after - $phase ) / $interval ) + 1 ) * $interval + $phase;
 	}
 
 	/**

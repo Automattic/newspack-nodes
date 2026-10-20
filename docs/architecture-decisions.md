@@ -1113,6 +1113,12 @@ bucket rotation survive a process restart with its predecessor's phase intact. T
 [`grid-math`](../scripts/lint-contract.mjs) rule reads JavaScript alone, matching the camelCase `nextBoundary` and
 `GRID_PHASE_MS` under `src/` and `examples/`, and the invariant is scoped to match:
 `LRU_Cache::next_boundary()` is a second grid on the PHP side, on purpose.
+`Timer_Node::next_boundary()` and `Timer_Node::GRID_PHASE_MS` are the PHP twins of this grid,
+held to it by `tests/fixtures/grid-boundaries.json`. In both ports a timer whose interval
+equals the Router's tick reads the grid less a tenth of a tick: it skips a tick landing more
+than that short of the boundary after its last fire, so an extra tick asked for early in the
+second skips while a late fire leaves the next cadence tick its fire unless it ran late past a
+boundary. A PHP timer slower than the tick paces from its last fire, less a tenth of a tick.
 
 **Alternatives considered:** Pacing each timer from its own last fire — rejected: when a
 surface opens then decides which second it polls in, so a 5s catalog opened at :02 and another
