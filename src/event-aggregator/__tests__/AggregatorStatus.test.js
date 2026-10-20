@@ -3,8 +3,8 @@
  * graph. The dashboard reads two independent per-concern slices, each from its
  * own view node:
  *
- *   summary:view → <AggregatorSummary> (header: counts + snapshot clock)
- *   servers:view → <AggregatorServers> (server cards + partition grids)
+ *   summary:view → the header strip: counts + snapshot clock
+ *   servers:view → one card per spoke, a timings line per partition
  *
  * The graph is owned by useAggregatorStatusGraph (tested separately); here we mock
  * it to hand back spy control callbacks, and we register fixture slice nodes in
@@ -219,13 +219,21 @@ describe( 'AggregatorStatus', () => {
 				.querySelectorAll( '.aggregator-fleet-probe-button' )
 				[ n ].dispatchEvent( new Event( 'click', { bubbles: true } ) )
 		);
-	// One card's Status row, found by its label rather than its position.
-	const statusRow = ( partition ) =>
-		[ ...partition.querySelectorAll( '.aggregator-partition-row' ) ].find(
-			( row ) =>
-				'Status' ===
-				row.querySelector( '.aggregator-partition-stat-label' )
+	// One reading in a scope, found by its label rather than its position.
+	const stat = ( scope, label ) =>
+		[ ...scope.querySelectorAll( '.aggregator-stat' ) ].find(
+			( reading ) =>
+				label ===
+				reading.querySelector( '.newspack-nodes-stat-label' )
 					.textContent
+		);
+	// A multi-partition card's timings line, found by its `p<N>` label.
+	const partitionLine = ( scope, label ) =>
+		[ ...scope.querySelectorAll( '.aggregator-partition-line' ) ].find(
+			( candidate ) =>
+				label ===
+				candidate.querySelector( '.aggregator-partition-label' )
+					?.textContent
 		);
 	const mounted = [];
 
@@ -277,152 +285,6 @@ describe( 'AggregatorStatus', () => {
 		expect( container.textContent ).toContain( 'p1' );
 	} );
 
-	it( 'marks only outer server cards as elevated canonical surfaces', () => {
-		registerSlices( {
-			servers: { servers: SAMPLE_SERVERS, loading: false },
-		} );
-		const { container } = mount();
-		const serverCards = [
-			...container.querySelectorAll( '.aggregator-server-card' ),
-		];
-		const partitionCards = [
-			...container.querySelectorAll( '.aggregator-partition' ),
-		];
-
-		expect( serverCards ).toHaveLength( SAMPLE_SERVERS.length );
-		expect( partitionCards ).toHaveLength( 2 );
-		expect(
-			[ ...serverCards, ...partitionCards ].every( ( card ) =>
-				card.classList.contains( 'newspack-nodes-card' )
-			)
-		).toBe( true );
-		expect(
-			serverCards.every( ( card ) =>
-				card.classList.contains( 'newspack-nodes-card--elevated' )
-			)
-		).toBe( true );
-		expect(
-			partitionCards.every(
-				( card ) =>
-					! card.classList.contains( 'newspack-nodes-card--elevated' )
-			)
-		).toBe( true );
-		expect(
-			partitionCards.every( ( card ) =>
-				card.classList.contains( 'newspack-nodes-card--hoverable' )
-			)
-		).toBe( true );
-		expect(
-			serverCards.every(
-				( card ) =>
-					! card.classList.contains(
-						'newspack-nodes-card--hoverable'
-					)
-			)
-		).toBe( true );
-	} );
-
-	it( 'keeps distinct partition readings in compact semantic rows', () => {
-		registerSlices( {
-			summary: {
-				serverNow: 2000,
-				connected: 1,
-				total: 1,
-				loading: false,
-			},
-			servers: {
-				servers: [
-					{
-						id: 'compact-contract',
-						url: 'https://compact.example.test',
-						partitions: {
-							0: {
-								connected: true,
-								last_connection_attempt: 1903,
-								last_sse_heartbeat: 1991,
-								last_response: 1997,
-								last_rtt: 37.25,
-								last_http_code: 207,
-							},
-						},
-					},
-				],
-				loading: false,
-			},
-		} );
-		const { container } = mount();
-		const partition = container.querySelector( '.aggregator-partition' );
-		const rows = [
-			...partition.querySelectorAll( '.aggregator-partition-row' ),
-		];
-
-		expect( rows ).toHaveLength( 4 );
-		expect(
-			rows.every(
-				( row ) => ! row.classList.contains( 'newspack-nodes-stat' )
-			)
-		).toBe( true );
-		expect(
-			rows.every(
-				( row ) =>
-					row.querySelector(
-						'.newspack-nodes-stat-label.aggregator-partition-stat-label'
-					) &&
-					row.querySelector(
-						'.newspack-nodes-stat-value.aggregator-partition-stat-value'
-					)
-			)
-		).toBe( true );
-		expect( partition.textContent ).toContain( '2m ago' );
-		expect( partition.textContent ).toContain( '9s ago' );
-		expect( partition.textContent ).toContain( '3s ago' );
-		expect( partition.textContent ).toContain( '37.3ms' );
-		expect( partition.textContent ).toContain( 'HTTP 207' );
-	} );
-
-	it( "lists each reader's stamp, cursor and lag beside its broker", () => {
-		registerSlices( {
-			summary: { serverNow: 2000, loading: false },
-			servers: {
-				servers: [
-					{
-						id: 'firehose:okapi-3',
-						url: 'https://okapi.example.test',
-						partitions: { 2: { connected: true } },
-						readers: [
-							{
-								stamp: 'firehose.p2',
-								partition: 2,
-								cursor: '14:9021',
-								distance: null,
-							},
-							{
-								stamp: 'sources:php',
-								partition: 2,
-								cursor: ':40913',
-								distance: 70254592,
-							},
-						],
-					},
-				],
-				loading: false,
-			},
-		} );
-		const { container } = mount();
-		const rows = [
-			...container.querySelectorAll( '.aggregator-reader' ),
-		].map( ( row ) =>
-			[ ...row.querySelectorAll( 'span' ) ].map(
-				( cell ) => cell.textContent
-			)
-		);
-
-		expect( rows ).toEqual( [
-			[ 'p2 firehose.p2', '14:9021', 'lag unknown' ],
-			[ 'p2 sources:php', ':40913', '67 MB behind' ],
-		] );
-	} );
-
 	it( 'lists no readers for a broker the probe log names none of', () => {
 		registerSlices( {
 			summary: { serverNow: 2000, loading: false },
@@ -440,7 +302,7 @@ describe( 'AggregatorStatus', () => {
 		} );
 		const { container } = mount();
 
-		expect( container.querySelector( '.aggregator-readers' ) ).toBeNull();
+		expect( container.querySelector( '.aggregator-cursors' ) ).toBeNull();
 	} );
 
 	it( 'names each unreadable topology from the summary slice in an error banner', () => {
@@ -475,7 +337,7 @@ describe( 'AggregatorStatus', () => {
 			servers: { servers: IDLE_AND_FAILED, loading: false },
 		} );
 		const { container } = mount();
-		const idle = container.querySelector( '.aggregator-partition.is-idle' );
+		const idle = partitionLine( container, 'p0' );
 
 		expect( idle ).toBeTruthy();
 		expect( idle.textContent ).toContain( 'idle' );
@@ -493,11 +355,13 @@ describe( 'AggregatorStatus', () => {
 			servers: { servers: IDLE_AND_FAILED, loading: false },
 		} );
 		const { container } = mount();
-		const failed = container.querySelector(
-			'.aggregator-partition.is-down'
-		);
+		const failed = partitionLine( container, 'p1' );
 
-		expect( failed ).toBeTruthy();
+		expect(
+			container
+				.querySelector( '.aggregator-server-card' )
+				.classList.contains( 'is-down' )
+		).toBe( true );
 		expect( failed.textContent ).toContain( 'disconnected' );
 		expect(
 			failed.querySelector( '.aggregator-partition-error' ).textContent
@@ -510,15 +374,14 @@ describe( 'AggregatorStatus', () => {
 			servers: { servers: OPENING, loading: false },
 		} );
 		const { container } = mount();
-		const opening = container.querySelector(
-			'.aggregator-partition.is-connecting'
-		);
+		const opening = partitionLine( container, 'p0' );
 
-		expect( opening ).toBeTruthy();
-		expect( opening.textContent ).toContain( 'connecting' );
+		expect(
+			opening.querySelector( '.aggregator-status-badge' ).textContent
+		).toBe( 'connecting' );
 		expect( opening.textContent ).not.toContain( 'disconnected' );
 		expect(
-			container.querySelector( '.aggregator-partition.is-ok' )
+			container.querySelector( '.aggregator-server-card.is-ok' )
 		).toBeNull();
 	} );
 
@@ -536,20 +399,20 @@ describe( 'AggregatorStatus', () => {
 		expect( errLine.getAttribute( 'title' ) ).toBe( CURL_TIMEOUT_ERROR );
 	} );
 
-	it( 'reads a connection error on the Status row, not a line beneath the card', () => {
+	it( 'reads a connection error on the Status reading, not a line beneath the card', () => {
 		registerSlices( {
 			summary: { serverNow: 1749002006, loading: false },
 			servers: { servers: DEAD, loading: false },
 		} );
 		const { container } = mount();
-		const partition = container.querySelector( '.aggregator-partition' );
-		const errBadge = statusRow( partition ).querySelector(
+		const card = container.querySelector( '.aggregator-server-card' );
+		const errBadge = stat( card, 'Status' ).querySelector(
 			'.aggregator-partition-error'
 		);
 
 		expect( errBadge.textContent ).toBe( "couldn't connect to server" );
 		expect(
-			partition.querySelectorAll( '.aggregator-partition-error' )
+			card.querySelectorAll( '.aggregator-partition-error' )
 		).toHaveLength( 1 );
 	} );
 
@@ -591,13 +454,16 @@ describe( 'AggregatorStatus', () => {
 			servers: { servers: DEAD, loading: false },
 		} );
 		const { container } = mount();
-		const partition = container.querySelector( '.aggregator-partition' );
+		const status = stat(
+			container.querySelector( '.aggregator-server-card' ),
+			'Status'
+		);
 
 		expect(
-			statusRow( partition ).querySelector( '.aggregator-response-badge' )
+			status.querySelector( '.aggregator-response-badge' )
 		).toBeNull();
-		expect( statusRow( partition ).textContent ).not.toContain( 'pending' );
-		expect( statusRow( partition ).textContent ).toContain( 'HTTP 409' );
+		expect( status.textContent ).not.toContain( 'pending' );
+		expect( status.textContent ).toContain( 'HTTP 409' );
 	} );
 
 	it( 'replaces even a succeeding heartbeat badge, the error being the reading that matters', () => {
@@ -606,25 +472,29 @@ describe( 'AggregatorStatus', () => {
 			servers: { servers: CONNECTED_AND_BROKEN, loading: false },
 		} );
 		const { container } = mount();
-		const partition = container.querySelector( '.aggregator-partition' );
-		const row = statusRow( partition );
+		const card = container.querySelector( '.aggregator-server-card' );
+		const status = stat( card, 'Status' );
 
-		expect( row.querySelector( '.aggregator-response-badge' ) ).toBeNull();
 		expect(
-			row.querySelector( '.aggregator-partition-error' ).textContent
+			status.querySelector( '.aggregator-response-badge' )
+		).toBeNull();
+		expect(
+			status.querySelector( '.aggregator-partition-error' ).textContent
 		).toBe( 'Buffer overflow' );
-		// The response it displaced still reads off the Round trip row and rail.
-		expect( partition.classList.contains( 'is-ok' ) ).toBe( true );
-		expect( partition.textContent ).toContain( '13.0ms' );
+		// The response it displaced still reads off Round trip and the rail.
+		expect( card.classList.contains( 'is-ok' ) ).toBe( true );
+		expect( card.textContent ).toContain( '13.0ms' );
 	} );
 
-	it( 'labels the last_response row Round trip and keeps Server HB for the SSE heartbeat', () => {
+	it( 'labels the last_response reading Round trip and keeps Server HB for the SSE heartbeat', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
 		const labels = Array.from(
-			container.querySelectorAll( '.aggregator-partition-stat-label' )
+			container.querySelectorAll(
+				'.aggregator-partition-line .newspack-nodes-stat-label'
+			)
 		).map( ( node ) => node.textContent );
 
 		expect( labels ).toContain( 'Round trip' );
@@ -632,14 +502,12 @@ describe( 'AggregatorStatus', () => {
 		expect( labels ).not.toContain( 'Client HB' );
 	} );
 
-	it( 'leaves a healthy partition Status row reading success alone', () => {
+	it( 'leaves a healthy partition Status reading success alone', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
-		const row = statusRow(
-			container.querySelector( '.aggregator-partition.is-ok' )
-		);
+		const row = stat( partitionLine( container, 'p0' ), 'Status' );
 
 		expect(
 			row.querySelector( '.aggregator-response-badge' ).textContent
@@ -647,16 +515,17 @@ describe( 'AggregatorStatus', () => {
 		expect( row.querySelector( '.aggregator-partition-error' ) ).toBeNull();
 	} );
 
-	it( 'counts an idle partition as present in the server card total', () => {
+	it( 'counts an idle partition as up in the card badge', () => {
 		registerSlices( {
 			summary: { serverNow: IDLE_CLOCK, loading: false },
 			servers: { servers: IDLE_AND_FAILED, loading: false },
 		} );
 		const { container } = mount();
 		expect(
-			container.querySelector( '.aggregator-server-partition-count' )
-				.textContent
-		).toContain( '1/2 partitions' );
+			container.querySelector(
+				'.aggregator-server-header .aggregator-status-badge'
+			).textContent
+		).toBe( '1/2 up' );
 	} );
 
 	it( 'counts idle spokes as up in the header, naming how many are idle', () => {
@@ -730,17 +599,35 @@ describe( 'AggregatorStatus', () => {
 		).toContain( 'HTTP 504' );
 	} );
 
-	it( 'rails each partition by rolled-up health (connected+heartbeating → is-ok, down → is-down)', () => {
+	it( "rails each card by its worst partition's health", () => {
 		registerSlices( {
-			servers: { servers: SAMPLE_SERVERS, loading: false },
+			servers: {
+				servers: [
+					...SAMPLE_SERVERS,
+					...CONNECTED_AND_BROKEN,
+					{
+						id: 'server8',
+						url: 'https://j.example.test',
+						partitions: { 3: { connected: true } },
+					},
+				],
+				loading: false,
+			},
 		} );
 		const { container } = mount();
-		expect(
-			container.querySelector( '.aggregator-partition.is-ok' )
-		).toBeTruthy();
-		expect(
-			container.querySelector( '.aggregator-partition.is-down' )
-		).toBeTruthy();
+		const rails = [
+			...container.querySelectorAll( '.aggregator-server-card' ),
+		].map( ( card ) =>
+			[ ...card.classList ].filter( ( name ) => name.startsWith( 'is-' ) )
+		);
+
+		// server2 reports no partition, which is not a spoke that streams.
+		expect( rails ).toEqual( [
+			[ 'is-down' ],
+			[ 'is-down' ],
+			[ 'is-ok' ],
+			[ 'is-degraded' ],
+		] );
 	} );
 
 	it( 'shows the heartbeat RTT badge', () => {
@@ -1008,6 +895,236 @@ describe( 'AggregatorStatus', () => {
 
 		expect( cards()[ 0 ].textContent ).toContain( '4471' );
 		expect( cards()[ 1 ].textContent ).toContain( 'could not connect' );
+	} );
+
+	it( 'renders one flat card per spoke, nesting no partition card', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const cards = [
+			...container.querySelectorAll( '.newspack-nodes-card' ),
+		];
+
+		expect( cards ).toHaveLength( SAMPLE_SERVERS.length );
+		expect(
+			cards.every( ( card ) =>
+				card.classList.contains( 'aggregator-server-card' )
+			)
+		).toBe( true );
+		expect( container.querySelector( '.aggregator-partition' ) ).toBeNull();
+		expect(
+			container.querySelector( '.aggregator-status-servers' ).children
+		).toHaveLength( SAMPLE_SERVERS.length );
+	} );
+
+	it( 'gives a one-partition spoke its host, one timings line and its cursors', () => {
+		registerSlices( {
+			summary: { serverNow: 2000, loading: false },
+			servers: {
+				servers: [
+					{
+						id: 'concord-41',
+						vault_id: 'concord-41-vault',
+						url: 'https://concord.example.test/wp/',
+						partitions: {
+							0: {
+								connected: true,
+								last_connection_attempt: 1903,
+								last_sse_heartbeat: 1991,
+								last_response: 1997,
+								last_rtt: 37.25,
+								last_http_code: 207,
+							},
+						},
+						readers: [
+							{
+								stamp: 'firehose',
+								partition: 0,
+								cursor: '14:9021',
+								distance: 1536,
+							},
+							{
+								stamp: 'sources:php',
+								partition: 0,
+								cursor: ':40913',
+								distance: 70254592,
+							},
+						],
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+		const card = container.querySelector( '.aggregator-server-card' );
+		const lines = card.querySelectorAll( '.aggregator-partition-line' );
+		const url = card.querySelector( '.aggregator-server-url' );
+
+		expect(
+			card.querySelector( '.aggregator-server-id' ).textContent
+		).toBe( 'concord-41' );
+		expect(
+			card.querySelector(
+				'.aggregator-server-header .aggregator-status-badge'
+			).textContent
+		).toBe( 'connected' );
+		expect( url.textContent ).toBe( 'concord.example.test' );
+		expect( url.getAttribute( 'title' ) ).toBe(
+			'https://concord.example.test/wp/'
+		);
+		expect( lines ).toHaveLength( 1 );
+		expect(
+			card.querySelector( '.aggregator-partition-label' )
+		).toBeNull();
+		for ( const reading of [
+			'2m ago',
+			'9s ago',
+			'37.3ms',
+			'3s ago',
+			'success',
+			'HTTP 207',
+		] ) {
+			expect( lines[ 0 ].textContent ).toContain( reading );
+		}
+		expect(
+			[ ...card.querySelectorAll( '.aggregator-cursor' ) ].map(
+				( cursor ) => [
+					cursor.textContent,
+					cursor.getAttribute( 'title' ),
+				]
+			)
+		).toEqual( [
+			[ 'firehose 1.5 KB', 'firehose 14:9021' ],
+			[ 'php 67 MB', 'sources:php :40913' ],
+		] );
+	} );
+
+	it( 'lists one labelled line per partition and sums them in the header badge', () => {
+		registerSlices( {
+			summary: { serverNow: IDLE_CLOCK, loading: false },
+			servers: {
+				servers: [
+					{
+						id: 'tapir-8',
+						vault_id: 'tapir-8-vault',
+						url: 'https://tapir.example.test',
+						partitions: {
+							0: {
+								connected: true,
+								last_response: IDLE_CLOCK - 2,
+							},
+							1: {
+								connected: true,
+								last_response: IDLE_CLOCK - 4,
+							},
+							2: {
+								connected: false,
+								scheduled_reconnect_at: IDLE_CLOCK + 13,
+							},
+							3: {
+								connected: false,
+								last_error: 'connection refused 8531',
+							},
+						},
+						readers: [
+							{
+								stamp: 'firehose',
+								partition: 3,
+								cursor: '2:77',
+								distance: null,
+							},
+						],
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+		const card = container.querySelector( '.aggregator-server-card' );
+		const lines = [
+			...card.querySelectorAll( '.aggregator-partition-line' ),
+		];
+
+		expect(
+			lines.map(
+				( line ) =>
+					line.querySelector( '.aggregator-partition-label' )
+						.textContent
+			)
+		).toEqual( [ 'p0', 'p1', 'p2', 'p3' ] );
+		expect(
+			lines.map(
+				( line ) =>
+					line.querySelector( '.aggregator-status-badge' ).textContent
+			)
+		).toEqual( [ 'connected', 'connected', 'idle', 'disconnected' ] );
+		expect( lines[ 2 ].textContent ).toContain( 'in 13s' );
+		expect(
+			card.querySelector(
+				'.aggregator-server-header .aggregator-status-badge'
+			).textContent
+		).toBe( '3/4 up' );
+		expect( card.classList.contains( 'is-down' ) ).toBe( true );
+		expect( card.querySelector( '.aggregator-cursor' ).textContent ).toBe(
+			'p3 firehose lag unknown'
+		);
+	} );
+
+	it( 'shows a spoke URL that names no host as stored', () => {
+		registerSlices( {
+			servers: {
+				servers: [
+					{
+						id: 'gecko-5',
+						url: 'gecko-5.example.test:8443',
+						partitions: { 0: { connected: true } },
+					},
+					{
+						id: 'gecko-6',
+						url: 'https://[gecko-6',
+						partitions: { 0: { connected: true } },
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+
+		expect(
+			[ ...container.querySelectorAll( '.aggregator-server-url' ) ].map(
+				( url ) => url.textContent
+			)
+		).toEqual( [ 'gecko-5.example.test:8443', 'https://[gecko-6' ] );
+	} );
+
+	it( 'probes from the button inside its own card', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const second = container.querySelectorAll(
+			'.aggregator-server-card'
+		)[ 1 ];
+		const button = second.querySelector( '.aggregator-fleet-probe-button' );
+
+		// The button closes the card, below the readings it probes behind.
+		expect(
+			second
+				.querySelector( '.aggregator-server-header' )
+				.compareDocumentPosition( button ) &
+				window.Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+		act( () =>
+			button.dispatchEvent( new Event( 'click', { bubbles: true } ) )
+		);
+		answerProbe( 'server2-vault-cred', { error: 'spoke 2 refused' } );
+
+		expect( probeServer ).toHaveBeenCalledWith( 'server2-vault-cred' );
+		expect(
+			second.querySelector( '.aggregator-fleet-rollup.is-error' )
+				.textContent
+		).toBe( 'spoke 2 refused' );
 	} );
 
 	it( 'renders an unknown worst lag as unknown, not as zero bytes', () => {

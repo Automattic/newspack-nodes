@@ -73,17 +73,19 @@
 }
 
 // =============================================================================
-// Server Grid
+// Server Grid — one card per spoke, as many across as the width holds
 // =============================================================================
 
 .aggregator-status-servers {
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
 	gap: 12px;
+	align-items: start;
 }
 
 .aggregator-status-empty {
 	font-size: 14px;
+	grid-column: 1 / -1;
 }
 
 .newspack-nodes-empty-state.aggregator-status-empty {
@@ -100,26 +102,57 @@
 // =============================================================================
 
 .aggregator-server-card {
-	padding: 17px 21px;
+	position: relative;
+	padding: 12px 15px 12px 17px;
 	display: flex;
 	flex-direction: column;
-	gap: 16px;
+	gap: 6px;
+	min-width: 0;
+	overflow: hidden;
+
+	// Health rail: the worst partition's ok / degraded / down, else neutral.
+	&::before {
+		content: "";
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 3px;
+		background: var(--ink-3);
+	}
+
+	&.is-ok::before {
+		background: var(--sage);
+	}
+
+	&.is-degraded::before {
+		background: var(--brass);
+	}
+
+	&.is-down::before {
+		background: var(--oxide);
+	}
 }
 
-// Server Identity
-.aggregator-server-identity {
+.aggregator-server-header {
 	display: flex;
-	flex-direction: row;
 	align-items: center;
-	gap: 16px;
+	justify-content: space-between;
+	gap: 8px;
 	min-width: 0;
+
+	.aggregator-status-badge {
+		flex: 0 0 auto;
+	}
 }
 
 .aggregator-server-id {
 	font-family: base.$mono-font;
-	font-size: 14px;
+	font-size: 13px;
 	font-weight: 600;
 	color: var(--ink);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .aggregator-server-url {
@@ -128,13 +161,6 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	flex: 1;
-}
-
-.aggregator-server-partition-count {
-	font-size: 11px;
-	color: var(--ink-3);
-	font-family: base.$mono-font;
 }
 
 // =============================================================================
@@ -142,14 +168,13 @@
 // =============================================================================
 
 .aggregator-fleet-probe-button {
-	margin-left: auto;
+	align-self: flex-end;
 }
 
 .aggregator-fleet-rollup {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 12px;
-	margin: 8px 0;
+	gap: 4px 12px;
 	font-family: base.$mono-font;
 	font-size: 11px;
 	color: var(--ink-3);
@@ -164,78 +189,33 @@
 	}
 }
 
-.aggregator-fleet-stat {
-	white-space: nowrap;
-}
-
 // =============================================================================
-// Stream readers, one row each beneath the partitions
+// Readers' cursors, one line beneath the partitions
 // =============================================================================
 
-.aggregator-readers {
-	display: grid;
-	gap: 4px;
-	margin-top: 8px;
-}
-
-// =============================================================================
-// Partitions Grid
-// =============================================================================
-
-.aggregator-partitions {
+.aggregator-cursors {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 8px;
+	gap: 0 6px;
+	font-family: base.$mono-font;
+	font-size: 11px;
+	color: var(--ink-3);
 }
 
-.aggregator-partition {
-	position: relative;
-	padding: 12px 15px 12px 17px;
-	min-width: 250px;
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	overflow: hidden;
-
-	// At-a-glance health rail down the left edge: green (ok) / amber (degraded)
-	// / red (down). The whole-card status read without parsing the rows.
-	&::before {
-		content: "";
-		position: absolute;
-		inset: 0 auto 0 0;
-		width: 3px;
-		background: var(--ink-3);
-	}
-
-	&.is-ok::before {
-		background: var(--sage);
-	}
-
-	// Idle is healthy — closed at EOF, due back on the advertised schedule.
-	&.is-idle::before {
-		background: var(--ink-3);
-	}
-
-	// Opening: not up yet, and not a fault either.
-	&.is-connecting::before {
-		background: var(--ink-3);
-	}
-
-	&.is-degraded::before {
-		background: var(--brass);
-	}
-
-	&.is-down::before {
-		background: var(--oxide);
-	}
+.aggregator-cursor + .aggregator-cursor::before {
+	content: "· ";
 }
 
-.aggregator-partition-header {
+// =============================================================================
+// Partition timings, one line each
+// =============================================================================
+
+.aggregator-partition-line {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: 8px;
-	padding-bottom: 6px;
-	border-bottom: 1px solid var(--paper-shadow);
+	gap: 4px 12px;
+	font-size: 11px;
 }
 
 .aggregator-partition-label {
@@ -245,23 +225,15 @@
 	color: var(--ink);
 }
 
-.aggregator-partition-stats {
-	display: flex;
-	flex-direction: column;
+.aggregator-stat {
+	display: inline-flex;
+	align-items: center;
 	gap: 4px;
 }
 
-.aggregator-partition-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	font-size: 11px;
-}
-
-.aggregator-partition-stat-value {
+.aggregator-stat-value {
 	font-family: base.$mono-font;
-	display: flex;
+	display: inline-flex;
 	align-items: center;
 	gap: 6px;
 }
@@ -367,25 +339,5 @@
 @keyframes spin {
 	to {
 		transform: rotate(360deg);
-	}
-}
-
-// =============================================================================
-// Responsive
-// =============================================================================
-
-@media (max-width: 768px) {
-	.aggregator-server-identity {
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 4px;
-	}
-
-	.aggregator-partitions {
-		flex-direction: column;
-	}
-
-	.aggregator-partition {
-		min-width: 100%;
 	}
 }

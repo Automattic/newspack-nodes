@@ -8,8 +8,8 @@
  *   summary:view — the header strip: connected/idle/total counts, the
  *                  server's snapshot clock, and each active topology that
  *                  will not read, whose spokes the cards therefore omit.
- *   servers:view — one card per wired `Remote_Source`, each holding a grid of
- *                  that spoke's partitions and a row per stream reader.
+ *   servers:view — one card per wired `Remote_Source`, each holding a line
+ *                  per partition and a line of its stream readers' cursors.
  *
  * This component reads each slice through its own `useNodeField` and renders
  * it. The split belongs to the graph rather than to the layout: a reply is
@@ -37,6 +37,7 @@ import UnreadableNotice from '@newspack-nodes/shared/components/UnreadableNotice
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
+import { sourceName } from '../runtime/log-stamp';
 import './styles/aggregator-status.scss';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
@@ -222,37 +223,45 @@ const formatCountdown = ( timestamp, now ) => {
 };
 
 /**
- * One stat row: its label, then each value in a cell of its own, so a row
- * carrying several values — a reader's cursor and its lag — lines up with a
- * row carrying one.
+ * One labelled reading inside a timings line: its label, then its value.
  *
- * @param {Object}   props             Component props.
- * @param {string}   props.label       The row's label.
- * @param {Array<*>} props.values      One renderable per value cell.
- * @param {string}   [props.className] A class beside the row's own.
+ * @param {Object} props          Component props.
+ * @param {string} props.label    The reading's label.
+ * @param {*}      props.children The value.
  * @return {import('react').ReactElement} Rendered component.
  */
-function StatRow( { label, values, className = '' } ) {
+function Stat( { label, children } ) {
 	return (
-		<div className={ `aggregator-partition-row ${ className }`.trim() }>
-			<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
-				{ label }
+		<span className="aggregator-stat">
+			<span className="newspack-nodes-stat-label">{ label }</span>
+			<span className="newspack-nodes-stat-value aggregator-stat-value">
+				{ children }
 			</span>
-			{ values.map( ( value, index ) => (
-				<span
-					key={ index }
-					className="newspack-nodes-stat-value aggregator-partition-stat-value"
-				>
-					{ value }
-				</span>
-			) ) }
-		</div>
+		</span>
 	);
 }
 
 /**
- * The label of a partition's first row: when the link reconnects while idle,
- * when it connected while up, and when it last tried otherwise.
+ * A connection-state pill, for one partition or a whole spoke.
+ *
+ * @param {Object} props          Component props.
+ * @param {string} props.state    One of connected|idle|connecting|disconnected.
+ * @param {*}      props.children The pill's text.
+ * @return {import('react').ReactElement} Rendered component.
+ */
+function StateBadge( { state, children } ) {
+	return (
+		<span
+			className={ `newspack-nodes-status-badge aggregator-status-badge small ${ state }` }
+		>
+			{ children }
+		</span>
+	);
+}
+
+/**
+ * The label of a partition's first reading: when the link reconnects while
+ * idle, when it connected while up, and when it last tried otherwise.
  *
  * @param {boolean} idle      Whether the partition sits closed on purpose.
  * @param {boolean} connected Whether the partition streams.
@@ -268,113 +277,133 @@ function attemptLabel( idle, connected ) {
 }
 
 /**
- * One partition tile: its connection state, the timestamps behind that state,
- * and either the error that explains it or the round-trip verdict.
+ * One partition's health, coarser than its connection state: a partition
+ * that is connected but has answered no round trip is `degraded` rather than
+ * `ok` — the socket is up and the round trip is not.
  *
- * The left rail's health class is deliberately coarser than the badge. A
- * partition that is connected but has answered no round trip rails
- * `degraded` rather than `ok` — the socket is up and the round trip is not.
+ * @param {Object} status That partition's status snapshot.
+ * @return {string} One of ok|degraded|idle|connecting|down.
+ */
+function partitionHealth( status ) {
+	const state = partitionState( status );
+	if ( 'connected' === state ) {
+		return status.last_response ? 'ok' : 'degraded';
+	}
+	return 'disconnected' === state ? 'down' : state;
+}
+
+/** Health readings, best first: a card rails its worst partition. */
+const HEALTH_RANK = [ 'ok', 'idle', 'connecting', 'degraded', 'down' ];
+
+/** Connection states, best first: a summed badge wears its worst. */
+const STATE_RANK = [ 'connected', 'idle', 'connecting', 'disconnected' ];
+
+/**
+ * The worst of several readings by a best-first rank, and the rank's worst
+ * when there are none, so a spoke reporting no partition reads as down.
  *
- * @param {Object}  props           Component props.
- * @param {number}  props.partition Partition number.
- * @param {Object}  props.status    That partition's status snapshot.
- * @param {?number} props.now       Server snapshot clock; null before the
- *                                  summary slice's first reply.
+ * @param {Array<string>} values The readings.
+ * @param {Array<string>} rank   Every reading, best first.
+ * @return {string} The worst reading.
+ */
+const worst = ( values, rank ) =>
+	rank[ Math.max( ...values.map( ( value ) => rank.indexOf( value ) ) ) ] ??
+	rank[ rank.length - 1 ];
+
+/**
+ * The host a spoke URL names, which is what tells two spokes apart; the URL
+ * itself when it names none or will not parse.
+ *
+ * @param {string} url The spoke's stored URL.
+ * @return {string} Its host, or the URL as given.
+ */
+function hostOf( url ) {
+	try {
+		return new URL( url ).host || url;
+	} catch {
+		return url;
+	}
+}
+
+/**
+ * One partition's timings on one line: since when it streams (or when it
+ * last tried, or when it reopens), the server heartbeat, the round trip with
+ * its RTT verdict, and the status — the error that explains it outranking
+ * the response badge — with the HTTP code beside it. A card holding several
+ * partitions labels each line and gives it the partition's own state pill.
+ *
+ * @param {Object}  props        Component props.
+ * @param {?string} props.label  `p<N>` on a multi-partition card, else null.
+ * @param {Object}  props.status That partition's status snapshot.
+ * @param {?number} props.now    Server snapshot clock; null before the
+ *                               summary slice's first reply.
  * @return {import('react').ReactElement} Rendered component.
  */
-function PartitionStatus( { partition, status, now } ) {
+function PartitionLine( { label, status, now } ) {
 	const connectionStatus = partitionState( status );
 	const connected = 'connected' === connectionStatus;
 	const idle = 'idle' === connectionStatus;
 	// Gate on connected: response ts is sticky, else dead spoke latches OK.
 	const responseStatus =
 		connected && status.last_response ? 'success' : 'pending';
-	// Health rails the left edge: ok / degraded / idle / connecting / down.
-	let health =
-		'disconnected' === connectionStatus ? 'down' : connectionStatus;
-	if ( connected ) {
-		health = responseStatus === 'success' ? 'ok' : 'degraded';
-	}
 	const errorMessage = shortError( status.last_error );
 	const rtt = status.last_rtt;
 	const rttFormatted = formatRtt( rtt );
 
 	return (
-		<div
-			className={ `newspack-nodes-card newspack-nodes-card--hoverable aggregator-partition is-${ health }` }
-		>
-			<div className="aggregator-partition-header">
-				<span className="aggregator-partition-label">
-					p{ partition }
-				</span>
-				<span
-					className={ `newspack-nodes-status-badge aggregator-status-badge small ${ connectionStatus }` }
-				>
-					{ connectionStatus.replace( /_/g, ' ' ) }
-				</span>
-			</div>
-			<div className="aggregator-partition-stats">
-				<StatRow
-					label={ attemptLabel( idle, connected ) }
-					values={ [
-						idle
-							? formatCountdown(
-									status.scheduled_reconnect_at,
-									now
-							  )
-							: formatTime( status.last_connection_attempt, now ),
-					] }
-				/>
-				<StatRow
-					label={ __( 'Server HB', 'newspack-nodes' ) }
-					values={ [ formatTime( status.last_sse_heartbeat, now ) ] }
-				/>
-				<StatRow
-					label={ __( 'Round trip', 'newspack-nodes' ) }
-					values={ [
-						<>
-							{ rttFormatted && (
-								<span
-									className={ `newspack-nodes-status aggregator-rtt small ${ getRttClass(
-										rtt
-									) }` }
-								>
-									{ rttFormatted }ms
-								</span>
-							) }
-							{ formatTime( status.last_response, now ) }
-						</>,
-					] }
-				/>
-				<StatRow
-					label={ __( 'Status', 'newspack-nodes' ) }
-					values={ [
-						<>
-							{ /* The error outranks the response it explains. */ }
-							{ errorMessage ? (
-								<span
-									className="newspack-nodes-status-badge aggregator-partition-error small is-error"
-									title={ status.last_error }
-								>
-									{ errorMessage }
-								</span>
-							) : (
-								<span
-									className={ `newspack-nodes-status-badge aggregator-response-badge small ${ responseStatus }` }
-								>
-									{ responseStatus.replace( /_/g, ' ' ) }
-								</span>
-							) }
-							{ /* HTTP code as a muted caption on Status line. */ }
-							{ status.last_http_code && (
-								<span className="aggregator-http-code">
-									HTTP { status.last_http_code }
-								</span>
-							) }
-						</>,
-					] }
-				/>
-			</div>
+		<div className="aggregator-partition-line">
+			{ label && (
+				<>
+					<span className="aggregator-partition-label">
+						{ label }
+					</span>
+					<StateBadge state={ connectionStatus }>
+						{ connectionStatus }
+					</StateBadge>
+				</>
+			) }
+			<Stat label={ attemptLabel( idle, connected ) }>
+				{ idle
+					? formatCountdown( status.scheduled_reconnect_at, now )
+					: formatTime( status.last_connection_attempt, now ) }
+			</Stat>
+			<Stat label={ __( 'Server HB', 'newspack-nodes' ) }>
+				{ formatTime( status.last_sse_heartbeat, now ) }
+			</Stat>
+			<Stat label={ __( 'Round trip', 'newspack-nodes' ) }>
+				{ rttFormatted && (
+					<span
+						className={ `newspack-nodes-status aggregator-rtt small ${ getRttClass(
+							rtt
+						) }` }
+					>
+						{ rttFormatted }ms
+					</span>
+				) }
+				{ formatTime( status.last_response, now ) }
+			</Stat>
+			<Stat label={ __( 'Status', 'newspack-nodes' ) }>
+				{ /* The error outranks the response it explains. */ }
+				{ errorMessage ? (
+					<span
+						className="newspack-nodes-status-badge aggregator-partition-error small is-error"
+						title={ status.last_error }
+					>
+						{ errorMessage }
+					</span>
+				) : (
+					<span
+						className={ `newspack-nodes-status-badge aggregator-response-badge small ${ responseStatus }` }
+					>
+						{ responseStatus }
+					</span>
+				) }
+				{ status.last_http_code && (
+					<span className="aggregator-http-code">
+						HTTP { status.last_http_code }
+					</span>
+				) }
+			</Stat>
 		</div>
 	);
 }
@@ -417,7 +446,7 @@ function FleetRollup( { answer } ) {
 	} = answer.result || {};
 	return (
 		<div className="aggregator-fleet-rollup">
-			<span className="aggregator-fleet-stat">
+			<span>
 				{ sprintf(
 					// translators: 1: live, 2: stale, 3: held, 4: idle, 5: down workers.
 					__(
@@ -431,7 +460,7 @@ function FleetRollup( { answer } ) {
 					workers.down || 0
 				) }
 			</span>
-			<span className="aggregator-fleet-stat">
+			<span>
 				{ null === worstDistance
 					? __( 'Worst lag unknown', 'newspack-nodes' )
 					: sprintf(
@@ -440,7 +469,7 @@ function FleetRollup( { answer } ) {
 							worstDistance
 					  ) }
 			</span>
-			<span className="aggregator-fleet-stat">
+			<span>
 				{ sprintf(
 					// translators: %d: number of quarantined dead-letter segments.
 					__( 'DLQ %d', 'newspack-nodes' ),
@@ -452,48 +481,54 @@ function FleetRollup( { answer } ) {
 }
 
 /**
- * The broker's readers, one row each: the spoke's stamp and the worker
- * partition reading it, where its cursor stands, and how far behind it is.
- * A hub reader's lag is null until its spoke first reports one, and a null
- * lag reads as unknown rather than as caught up. Nothing renders for a broker
- * whose readers have reported no position yet.
+ * The broker's readers on one line, each as its log and how far behind it is,
+ * with its stamp and `segment:offset` cursor on hover. A hub reader's lag is
+ * null until its spoke first reports one, and a null lag reads as unknown
+ * rather than as caught up. A multi-partition card prefixes each reader with
+ * the worker partition reading it. Nothing renders for a broker whose readers
+ * have reported no position yet.
  *
  * @param {Object}        props         Component props.
  * @param {Array<Object>} props.readers The server row's `readers`: `stamp`,
  *                                      `partition`, `cursor` and `distance`.
+ * @param {boolean}       props.multi   Whether the card holds several
+ *                                      partitions.
  * @return {?import('react').ReactElement} Rendered component, or null.
  */
-function ReaderList( { readers } ) {
+function CursorLine( { readers, multi } ) {
 	if ( ! readers.length ) {
 		return null;
 	}
 	return (
-		<div className="aggregator-readers">
-			{ readers.map( ( reader ) => (
-				<StatRow
-					key={ `${ reader.partition }:${ reader.stamp }` }
-					className="aggregator-reader"
-					label={ `p${ reader.partition } ${ reader.stamp }` }
-					values={ [
-						reader.cursor,
-						null === reader.distance
-							? __( 'lag unknown', 'newspack-nodes' )
-							: sprintf(
-									// translators: %s: bytes behind, e.g. "4 MB".
-									__( '%s behind', 'newspack-nodes' ),
-									formatBytes( reader.distance )
-							  ),
-					] }
-				/>
-			) ) }
+		<div className="aggregator-cursors">
+			{ readers.map( ( reader ) => {
+				const behind =
+					null === reader.distance
+						? __( 'lag unknown', 'newspack-nodes' )
+						: formatBytes( reader.distance );
+				return (
+					<span
+						key={ `${ reader.partition }:${ reader.stamp }` }
+						className="aggregator-cursor"
+						title={ `${ reader.stamp } ${ reader.cursor }` }
+					>
+						{ `${ multi ? `p${ reader.partition } ` : '' }${
+							sourceName( reader.stamp ) ?? reader.stamp
+						} ${ behind }` }
+					</span>
+				);
+			} ) }
 		</div>
 	);
 }
 
 /**
- * One spoke's card: which server it is, how many of its partitions are up, the
- * Probe button, the last probe's roll-up, a tile per partition, and a row per
- * reader the probe log reports.
+ * One spoke's card: its id and connection badge, its host, one timings line
+ * per partition, its readers' cursors, the last probe's roll-up and the Probe
+ * button. A one-partition spoke's badge is that partition's state; a card
+ * holding several sums them as `<up>/<total> up`, idle counted up, wears the
+ * worst state, and labels each line. The left rail takes the worst
+ * partition's health, so one partition down shows on the card.
  *
  * @param {Object}   props         Component props.
  * @param {Object}   props.server  One row of the servers slice: `id`, `url`,
@@ -513,53 +548,58 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 	const partitionKeys = Object.keys( partitions ).sort(
 		( a, b ) => Number( a ) - Number( b )
 	);
-
-	// Up is anything but disconnected: streaming, idle, or still opening.
-	const connectedPartitions = partitionKeys.filter(
-		( p ) => 'disconnected' !== partitionState( partitions[ p ] )
-	).length;
+	const statuses = partitionKeys.map( ( p ) => partitions[ p ] || {} );
+	const states = statuses.map( partitionState );
+	const multi = 1 !== partitionKeys.length;
+	const health = worst( statuses.map( partitionHealth ), HEALTH_RANK );
 
 	return (
-		<div className="newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card">
-			<div className="aggregator-server-identity">
-				<div className="aggregator-server-id">{ server.id }</div>
-				<div className="aggregator-server-url" title={ server.url }>
-					{ server.url }
-				</div>
-				<div className="aggregator-server-partition-count">
-					{ sprintf(
-						// translators: 1: number of connected partitions, 2: total number of partitions.
-						__( '%1$d/%2$d partitions', 'newspack-nodes' ),
-						connectedPartitions,
-						partitionKeys.length
-					) }
-				</div>
-				<button
-					type="button"
-					className="button aggregator-fleet-probe-button"
-					onClick={ () => onProbe( server.vault_id ) }
-					disabled={ probing }
-				>
-					{ probing
-						? __( 'Probing…', 'newspack-nodes' )
-						: __( 'Probe', 'newspack-nodes' ) }
-				</button>
+		<div
+			className={ `newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card is-${ health }` }
+		>
+			<div className="aggregator-server-header">
+				<span className="aggregator-server-id" title={ server.id }>
+					{ server.id }
+				</span>
+				<StateBadge state={ worst( states, STATE_RANK ) }>
+					{ multi
+						? sprintf(
+								// translators: 1: partitions up (idle counts), 2: all partitions.
+								__( '%1$d/%2$d up', 'newspack-nodes' ),
+								states.filter( ( s ) => 'disconnected' !== s )
+									.length,
+								states.length
+						  )
+						: states[ 0 ] }
+				</StateBadge>
 			</div>
+			<div className="aggregator-server-url" title={ server.url }>
+				{ hostOf( server.url ) }
+			</div>
+
+			{ partitionKeys.map( ( p, index ) => (
+				<PartitionLine
+					key={ p }
+					label={ multi ? `p${ p }` : null }
+					status={ statuses[ index ] }
+					now={ now }
+				/>
+			) ) }
+
+			<CursorLine readers={ server.readers || [] } multi={ multi } />
 
 			{ answer && ! probing && <FleetRollup answer={ answer } /> }
 
-			<div className="aggregator-partitions">
-				{ partitionKeys.map( ( p ) => (
-					<PartitionStatus
-						key={ p }
-						partition={ Number( p ) }
-						status={ partitions[ p ] || {} }
-						now={ now }
-					/>
-				) ) }
-			</div>
-
-			<ReaderList readers={ server.readers || [] } />
+			<button
+				type="button"
+				className="button aggregator-fleet-probe-button"
+				onClick={ () => onProbe( server.vault_id ) }
+				disabled={ probing }
+			>
+				{ probing
+					? __( 'Probing…', 'newspack-nodes' )
+					: __( 'Probe', 'newspack-nodes' ) }
+			</button>
 		</div>
 	);
 }

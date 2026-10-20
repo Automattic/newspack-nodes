@@ -114,10 +114,7 @@ const REQUIRED_ROLE_PAIRS = [
 	[ 'nodes-tm__badge', 'is-pill' ],
 	[ 'aggregator-server-card', 'newspack-nodes-card' ],
 	[ 'aggregator-server-card', 'newspack-nodes-card--elevated' ],
-	[ 'aggregator-partition', 'newspack-nodes-card' ],
-	[ 'aggregator-partition', 'newspack-nodes-card--hoverable' ],
-	[ 'aggregator-partition-stat-label', 'newspack-nodes-stat-label' ],
-	[ 'aggregator-partition-stat-value', 'newspack-nodes-stat-value' ],
+	[ 'aggregator-stat-value', 'newspack-nodes-stat-value' ],
 	[ 'nodes-runtime__grid', 'newspack-nodes-table' ],
 	[ 'topology-modal', 'newspack-nodes-modal' ],
 	[ 'topology-settings-panel', 'newspack-nodes-card' ],
@@ -171,9 +168,6 @@ const SURFACE_SELECTORS = new Set( [
 	'.nodes-tm__topology',
 	'.nodes-tm__badge',
 	'.aggregator-server-card',
-	'.aggregator-partition',
-	'.aggregator-partition:hover',
-	'.aggregator-partition-stat-label',
 	'.nodes-tm__alert',
 	'.topology-modal',
 	'.topology-settings-panel',
@@ -1115,6 +1109,17 @@ describe( 'canonical appearance ownership', () => {
 					'aggregator-partition-error',
 					'rtt-value',
 					'rtt-unit',
+					'aggregator-partition',
+					'aggregator-partitions',
+					'aggregator-partition-header',
+					'aggregator-partition-stats',
+					'aggregator-partition-row',
+					'aggregator-partition-stat-label',
+					'aggregator-partition-stat-value',
+					'aggregator-server-identity',
+					'aggregator-server-partition-count',
+					'aggregator-readers',
+					'aggregator-fleet-stat',
 				],
 			],
 			[
@@ -1827,11 +1832,6 @@ describe( 'canonical appearance ownership', () => {
 			[
 				'event-aggregator/styles/aggregator-status.scss',
 				'.aggregator-server-card',
-				'17px 21px',
-			],
-			[
-				'event-aggregator/styles/aggregator-status.scss',
-				'.aggregator-partition',
 				'12px 15px 12px 17px',
 			],
 			[
@@ -1854,31 +1854,33 @@ describe( 'canonical appearance ownership', () => {
 		}
 	} );
 
-	it( 'preserves compact Aggregator row geometry without local label sizing', () => {
+	it( 'preserves compact Aggregator line geometry without local label sizing', () => {
 		const stylesheet = compile(
 			path.join(
 				NODES_SRC,
 				'event-aggregator/styles/aggregator-status.scss'
 			)
 		);
+		const labelRules = [];
+		stylesheet.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some( ( selector ) =>
+					selectorHasClass( selector, 'newspack-nodes-stat-label' )
+				)
+			) {
+				labelRules.push( rule.selector );
+			}
+		} );
 
 		expect(
-			declarationsForSelector( stylesheet, '.aggregator-partition-row' )
+			declarationsForSelector( stylesheet, '.aggregator-partition-line' )
 		).toEqual( expect.objectContaining( { 'font-size': '11px' } ) );
+		expect( labelRules ).toEqual( [] );
 		expect(
-			declarationsForSelector(
-				stylesheet,
-				'.aggregator-partition-stat-label'
-			)
-		).toBeUndefined();
-		expect(
-			declarationsForSelector(
-				stylesheet,
-				'.aggregator-partition-stat-value'
-			)
+			declarationsForSelector( stylesheet, '.aggregator-stat-value' )
 		).toEqual( {
 			'font-family': 'var(--np-font-mono)',
-			display: 'flex',
+			display: 'inline-flex',
 			'align-items': 'center',
 			gap: '6px',
 		} );
