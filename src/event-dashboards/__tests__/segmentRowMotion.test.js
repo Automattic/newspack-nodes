@@ -392,6 +392,32 @@ describe( 'a rotation of three slides the drawn stack left three slots', () => {
 	} );
 } );
 
+describe( 'a log no worker reads slides as one a worker reads', () => {
+	const unread = ( segmentIds, ts ) => ( {
+		...snapshot( segmentIds, ts, TAIL, { segment: 0, offset: 0 } ),
+		consumers: [],
+	} );
+
+	it( 'a rotation of two departs two bars on the left and arrives two on the right', () => {
+		const bars = row(
+			renderPolls( [
+				unread( ids( 4471, 4478 ), 300 ),
+				unread( ids( 4473, 4480 ), 305 ),
+			] )
+		);
+		expect(
+			bars
+				.filter( ( b ) => b.classes.includes( 'segment-slide-out' ) )
+				.map( ( b ) => b.id )
+		).toEqual( [ 4471, 4472 ] );
+		expect(
+			bars
+				.filter( ( b ) => b.classes.includes( 'segment-slide-in' ) )
+				.map( ( b ) => b.id )
+		).toEqual( [ 4479, 4480 ] );
+	} );
+} );
+
 describe( 'a departed bar belongs to the row drawing it', () => {
 	/**
 	 * The dashboard's graph from the transform on, the view named as

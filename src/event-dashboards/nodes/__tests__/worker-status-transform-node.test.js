@@ -751,7 +751,7 @@ describe( 'worker-status:transform — model envelope', () => {
 	} );
 } );
 
-describe( 'worker-status:transform — segment tracking from the TRIMMED inputs_status', () => {
+describe( 'worker-status:transform — segment tracking from the live logs', () => {
 	const grow = ( segments, endSegment, endSize ) => ( {
 		graph: firehoseGraph(),
 		timestamp: 1000,
@@ -813,6 +813,36 @@ describe( 'worker-status:transform — segment tracking from the TRIMMED inputs_
 		const prev = model.prevSegments[ 'firehose.p0' ];
 		expect( prev.has( 1 ) ).toBe( true );
 		expect( prev.has( 2 ) ).toBe( false );
+	} );
+
+	test( 'a log no worker reads is tracked like one a worker does, two departures at once included', () => {
+		const sink = capture();
+		const t = makeTransform( 'worker-status:transform' );
+		t.sink = sink.node;
+		const unread = ( segments ) => ( {
+			...grow( [ { id: 1, size: 100 } ], 1, 100 ),
+			logs: [
+				logEntry( 'firehose.p0', 0, [ { id: 1, size: 100 } ] ),
+				logEntry( 'completed.p0', 0, segments ),
+			],
+		} );
+		const seg = ( id ) => ( { id, size: 4471 } );
+		withClock( () => {
+			t.fill(
+				metadataMsg( unread( [ seg( 649 ), seg( 650 ), seg( 651 ) ] ) )
+			);
+			t.fill(
+				metadataMsg( unread( [ seg( 651 ), seg( 652 ), seg( 653 ) ] ) )
+			);
+		} );
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( [ ...model.prevSegments[ 'completed.p0' ] ] ).toEqual( [
+			649, 650, 651,
+		] );
+		expect( model.removingSegments[ 'completed.p0' ] ).toEqual( [
+			seg( 649 ),
+			seg( 650 ),
+		] );
 	} );
 
 	test( 'no removals → removingSegments is empty', () => {
