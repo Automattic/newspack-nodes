@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.117.1] - 2026-10-19
+
 ### Removed
 - **The `Remote_Source` connect queue and its `_connect_timer` reserved name.** `Connect_Queue_Timer_Node`, `Node_Names::CONNECT_TIMER` and its `reserved-node-names.json` twin, and `Remote_Source_Node::push_connect_queue()`, `shift_connect_queue()` and `reset_connect_queue()` are gone. Each broker's tick calls `SSE_In_Node::maybe_connect()` directly, after its usual gates, and `SSE_In`'s backoff is the one bound on reconnects. On a live hub the queue held one entry per link and released one every 500 ms, so a hub of sixty links could leave a dropped stream unattended for thirty seconds. Within one process a hub holds one broker per spoke, so the queue never spaced two connects to one spoke's slot pool there, and brokers to the same spoke in other processes, one per hub partition or topology, it never staggered at all.
 
