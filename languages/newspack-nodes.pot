@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.120.0\n"
+"Project-Id-Version: Newspack Nodes 2.120.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-20T17:05:01+00:00\n"
+"POT-Creation-Date: 2026-10-20T17:54:53+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -463,109 +463,113 @@ msgid "Reset stats"
 msgstr ""
 
 #. translators: %d: number of seconds since the last update.
-#: src/event-aggregator/AggregatorStatus.js:102
+#: src/event-aggregator/AggregatorStatus.js:105
 #, js-format
 msgid "%ds ago"
 msgstr ""
 
 #. translators: %d: number of minutes since the last update.
 #. translators: %d: minutes since last activity.
-#: src/event-aggregator/AggregatorStatus.js:109
+#: src/event-aggregator/AggregatorStatus.js:112
 #: src/topology-console/components/Inspector.js:335
 #, js-format
 msgid "%dm ago"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:193
+#: src/event-aggregator/AggregatorStatus.js:196
 msgid "timed out"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:196
+#: src/event-aggregator/AggregatorStatus.js:199
 msgid "stream ended"
 msgstr ""
 
 #. translators: %d: seconds until the stream reopens.
-#: src/event-aggregator/AggregatorStatus.js:220
+#: src/event-aggregator/AggregatorStatus.js:223
 #, js-format
 msgid "in %ds"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:272
+#: src/event-aggregator/AggregatorStatus.js:281
 msgid "Reconnects"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:275
+#: src/event-aggregator/AggregatorStatus.js:284
 msgid "Connected"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:276
+#: src/event-aggregator/AggregatorStatus.js:285
 msgid "Attempt"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:370
+#: src/event-aggregator/AggregatorStatus.js:386
 msgid "Server HB"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:373
+#: src/event-aggregator/AggregatorStatus.js:392
 msgid "Round trip"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:385
+#: src/event-aggregator/AggregatorStatus.js:413
 #: src/event-dashboards/Jobs.js:93
 #: src/vault/VaultAdmin.js:563
 msgid "Status"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:428
-#: src/event-aggregator/AggregatorStatus.js:600
+#: src/event-aggregator/AggregatorStatus.js:432
+msgid "HTTP"
+msgstr ""
+
+#: src/event-aggregator/AggregatorStatus.js:456
+#: src/event-aggregator/AggregatorStatus.js:633
 msgid "Probing…"
 msgstr ""
 
 #. translators: 1: live, 2: stale, 3: held, 4: idle, 5: down workers.
-#: src/event-aggregator/AggregatorStatus.js:452
+#: src/event-aggregator/AggregatorStatus.js:480
 #, js-format
 msgid "Workers %1$d live / %2$d stale / %3$d held / %4$d idle / %5$d down"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:465
+#: src/event-aggregator/AggregatorStatus.js:493
 msgid "Worst lag unknown"
 msgstr ""
 
 #. translators: %d: worst consumer lag in bytes.
-#: src/event-aggregator/AggregatorStatus.js:468
+#: src/event-aggregator/AggregatorStatus.js:496
 #, js-format
 msgid "Worst lag %d B"
 msgstr ""
 
 #. translators: %d: number of quarantined dead-letter segments.
-#: src/event-aggregator/AggregatorStatus.js:475
+#: src/event-aggregator/AggregatorStatus.js:503
 #, js-format
 msgid "DLQ %d"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:507
+#: src/event-aggregator/AggregatorStatus.js:535
 msgid "lag unknown"
 msgstr ""
 
 #. translators: 1: partitions up (idle counts), 2: all partitions.
 #. translators: %1$d: live partitions; %2$d: total.
-#: src/event-aggregator/AggregatorStatus.js:568
+#: src/event-aggregator/AggregatorStatus.js:601
 #: src/event-dashboards/TopologyRow.js:342
 #, js-format
 msgid "%1$d/%2$d up"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:601
+#: src/event-aggregator/AggregatorStatus.js:634
 msgid "Probe"
 msgstr ""
 
 #. translators: %s: formatted time of the last update.
-#: src/event-aggregator/AggregatorStatus.js:658
+#: src/event-aggregator/AggregatorStatus.js:691
 #, js-format
 msgid "Updated %s"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:661
+#: src/event-aggregator/AggregatorStatus.js:694
 #: src/station/lazyTabs.js:62
 #: src/topology-console/components/Inspector.js:2303
 #: src/topology-console/components/OpenTopologyModal.js:61
@@ -573,31 +577,31 @@ msgstr ""
 msgid "Loading…"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:668
+#: src/event-aggregator/AggregatorStatus.js:701
 msgid "up"
 msgstr ""
 
 #. translators: %d: number of spokes between streams.
-#: src/event-aggregator/AggregatorStatus.js:673
+#: src/event-aggregator/AggregatorStatus.js:706
 #, js-format
 msgid "%d idle"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:684
+#: src/event-aggregator/AggregatorStatus.js:717
 msgid "Refresh interval"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:703
+#: src/event-aggregator/AggregatorStatus.js:736
 msgid "Loading server status…"
 msgstr ""
 
 #. translators: 1: topology name, 2: why it will not read.
-#: src/event-aggregator/AggregatorStatus.js:713
+#: src/event-aggregator/AggregatorStatus.js:746
 #, js-format
 msgid "Topology %1$s will not read, so its servers are not listed: %2$s"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:745
+#: src/event-aggregator/AggregatorStatus.js:778
 msgid "No servers configured. Add a server in the Vault tab, then wire a Remote_Source into an active topology."
 msgstr ""
 
