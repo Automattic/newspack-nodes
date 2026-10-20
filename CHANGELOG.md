@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.118.0] - 2026-10-20
+
 ### Changed
 - **The Event Timeline's trace button stays out of the REPL, as the Profiler's profile button does.** It sent `trace * 1` as a typed command, so the command and its `debug_state 1 on <n> nodes` reply joined the REPL transcript the timeline itself parses. It now sends through `sendFromUi()`, the Profiler's path moved into a named export of `ProfilerView`: minted by `_metadata`, FROM bare `_ui`, TO `_cwd`, and echoed with its reply only while `debug_ui` is on. The Inspector's Trace and Profiling toggles stay REPL commands.
 - **A source's raw block is a `TM_BATCH` like any other.** `Tail_Node` sent its blocks as `TM_BATCH|TM_BYTESTREAM` so a reader would know the lines were text; now both readers, PHP `Remote_Consumer_Node` and the browser's `SseInNode`, read that off the stamp, as Tachikoma's consumer reads a batch's format off what it subscribed to: a `sources:` stamp's lines are text, any other's are packed records. `Consumer_Node::BATCH_TYPE`, `Tail_Node::BATCH_TYPE` and the raw block's `type` field are gone, and `log-stamp.js` gains `sourceName()`, the twin of `Log_Discovery::source_name()`. A hub and its spokes run the same release: an older hub reading a newer spoke's `sources:` stream would unpack each text line as a packed record and tear it.
