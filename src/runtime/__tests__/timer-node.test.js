@@ -1,4 +1,6 @@
-import { TimerNode, GRID_PHASE_MS } from '../timer-node';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { TimerNode, GRID_PHASE_MS, nextBoundary } from '../timer-node';
 import { RouterNode } from '../router-node';
 import { Node } from '../node';
 import { Core } from '../core';
@@ -500,11 +502,15 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		r.stopTimer();
 	} );
 
-	// @longform A timer at the tick's own cadence skips an extra tick less
-	// than nine tenths of a second after its last fire, and fires one a hair
-	// early; a slower one keeps its grid.
+	// @longform A timer at the tick's own cadence fires on the first tick
+	// within a tenth of a tick of the grid boundary after its last fire: a
+	// late fire leaves the next tick its fire unless it ran past a boundary,
+	// an extra tick early skips, and one a hair early fires, and so does the
+	// on-grid tick after it.
 	describe( 'a timer at the tick cadence', () => {
 		const kereru = 1_790_000_100_000 + GRID_PHASE_MS;
+		// A cadence tick lands 10ms past its boundary, never on the float edge.
+		const onTick = kereru + 10;
 
 		function tickTimer( name, ms ) {
 			const r = makeRouter();
@@ -516,32 +522,45 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 			return { r, t };
 		}
 
-		test( 'skips a tick half a second after its fire', () => {
-			const { r, t } = tickTimer( 'kereru:tick', 1000 );
-			jest.setSystemTime( kereru );
+		function tickAt( r, ms ) {
+			jest.setSystemTime( ms );
 			r.notifyTimer();
-			jest.setSystemTime( kereru + 500 );
-			r.notifyTimer();
+		}
+
+		test( 'a late fire leaves the next on-time tick its fire', () => {
+			const { r, t } = tickTimer( 'kereru:late', 1000 );
+			tickAt( r, onTick + 150 );
+			tickAt( r, onTick + 1000 );
+			expect( t.fireCount ).toBe( 2 );
+			t.stopTimer();
+		} );
+
+		test( 'skips an extra tick 0.4s after an on-grid fire', () => {
+			const { r, t } = tickTimer( 'tieke:extra', 1000 );
+			tickAt( r, onTick );
+			tickAt( r, onTick + 400 );
 			expect( t.fireCount ).toBe( 1 );
 			t.stopTimer();
 		} );
 
-		test( 'skips a tick 0.85s after its fire', () => {
-			const { r, t } = tickTimer( 'tieke:tick', 1000 );
-			jest.setSystemTime( kereru );
-			r.notifyTimer();
-			jest.setSystemTime( kereru + 850 );
-			r.notifyTimer();
-			expect( t.fireCount ).toBe( 1 );
+		test( 'fires an extra tick 0.95s after an on-grid fire, and the on-grid tick after it', () => {
+			const { r, t } = tickTimer( 'pukeko:double', 1000 );
+			tickAt( r, onTick );
+			tickAt( r, onTick + 950 );
+			expect( t.fireCount ).toBe( 2 );
+			// The accepted rare double: both sit inside the boundary's tenth.
+			tickAt( r, onTick + 1000 );
+			expect( t.fireCount ).toBe( 3 );
 			t.stopTimer();
 		} );
 
-		test( 'fires a tick 0.95s after its fire', () => {
-			const { r, t } = tickTimer( 'pukeko:tick', 1000 );
-			jest.setSystemTime( kereru );
-			r.notifyTimer();
-			jest.setSystemTime( kereru + 950 );
-			r.notifyTimer();
+		test( 'a fire late past the next boundary costs a tick landing well short of the one after', () => {
+			const { r, t } = tickTimer( 'ruru:crossed', 1000 );
+			// Ticks at half past the boundary; this fire ran 0.55s late.
+			tickAt( r, kereru + 1050 );
+			tickAt( r, kereru + 1500 );
+			expect( t.fireCount ).toBe( 1 );
+			tickAt( r, kereru + 2500 );
 			expect( t.fireCount ).toBe( 2 );
 			t.stopTimer();
 		} );
@@ -608,4 +627,25 @@ describe( 'due', () => {
 		t.markFired();
 		expect( t.due ).toBe( false );
 	} );
+} );
+
+// `Timer_Node::next_boundary()` is the PHP twin; both read this fixture.
+describe( 'nextBoundary parity with PHP', () => {
+	const fixture = JSON.parse(
+		readFileSync(
+			join( __dirname, '../../../tests/fixtures/grid-boundaries.json' ),
+			'utf8'
+		)
+	);
+
+	test( 'shares the grid phase', () => {
+		expect( GRID_PHASE_MS ).toBe( fixture.grid_phase_ms );
+	} );
+
+	test.each( fixture.next_boundary )(
+		'%s',
+		( _, after, intervalMs, next ) => {
+			expect( nextBoundary( after, intervalMs ) ).toBe( next );
+		}
+	);
 } );

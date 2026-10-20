@@ -42,8 +42,9 @@ import {
 export const GRID_PHASE_MS = 360;
 
 /**
- * How early, in seconds, a Router tick may arrive and still fire a timer at
- * the tick's own cadence: a tenth of the 1s tick, as PHP's `Timer_Node` takes.
+ * How early, in seconds, a Router tick may land before the grid boundary and
+ * still fire a timer at the tick's own cadence: a tenth of the 1s tick, as
+ * PHP's `Timer_Node` takes.
  */
 const EARLY_TICK_S = 0.1;
 
@@ -169,12 +170,16 @@ export class TimerNode extends Node {
 	 * its own last fire (ADR-17): the tick that reaches `fire()` is the first at
 	 * or past the next boundary, so two nodes on one cadence fire on the same
 	 * tick however far apart they were armed. A hitchhiker at the tick's own
-	 * cadence skips an extra tick, such as one `requestTick()` asked for, that
-	 * lands less than 0.9s after its last fire, so a tick a hair early still
-	 * fires it. An own slot already fires at `interval_ms` and skips both
-	 * tests. Every dispatch records `lastFireTime`, which `setTimer()` keeps,
-	 * so a retuned hitchhiker waits from its last fire rather than firing on
-	 * the next tick.
+	 * cadence reads the same grid with a tenth of a tick's slack: it skips a
+	 * tick landing more than 0.1s short of the boundary after its last fire,
+	 * such as an extra one `requestTick()` asked for, so a tick at least 0.9s
+	 * after the last fire always fires, and a late fire costs the next cadence
+	 * tick nothing unless it ran late past a boundary. A tick within that
+	 * tenth fires, so an extra tick just short of the boundary and the cadence
+	 * tick after it both fire.
+	 * An own slot already fires at `interval_ms` and skips both tests. Every
+	 * dispatch records `lastFireTime`, which `setTimer()` keeps, so a retuned
+	 * hitchhiker waits from its last fire rather than firing on the next tick.
 	 */
 	fireCb() {
 		if ( this.oneshot ) {
@@ -185,11 +190,12 @@ export class TimerNode extends Node {
 		}
 		const now = Core.now();
 		// Paces the 1s router tick; an own slot already fires at interval_ms.
-		const early =
-			this.interval_ms > 1000
-				? now < nextBoundary( this.lastFireTime, this.interval_ms )
-				: now - this.lastFireTime < 1 - EARLY_TICK_S;
-		if ( 'router' === this.mode && this.interval_ms >= 1000 && early ) {
+		const slack = this.interval_ms > 1000 ? 0 : EARLY_TICK_S;
+		if (
+			'router' === this.mode &&
+			this.interval_ms >= 1000 &&
+			now < nextBoundary( this.lastFireTime, this.interval_ms ) - slack
+		) {
 			return;
 		}
 		this.lastFireTime = now;
@@ -352,10 +358,9 @@ export class TimerNode extends Node {
 	 * anywhere in `(0, interval]`, so arming just before one fires again a tick
 	 * later — the duplicate request this exists to suppress. It counts from the
 	 * NEXT boundary instead: a timer above the tick waits a full interval at
-	 * minimum, still on the grid. A
-	 * timer at the tick's own cadence measures elapsed time rather than the
-	 * grid, so its next fire waits until 0.9s past that boundary, at least
-	 * nine tenths of its interval.
+	 * minimum, still on the grid. A timer at the tick's own cadence keeps a
+	 * tenth of a tick's slack, so its next fire waits until 0.1s short of the
+	 * boundary after that one: at least nine tenths of its interval.
 	 *
 	 * @return {void}
 	 */
