@@ -71,9 +71,6 @@ final class Node_Names {
 	/** Held in reserve: nothing registers a node under it. `Settings_Event_Writer` names its transient Partition `settings:writer` instead. */
 	public const SETTINGS_LOG        = '_settings:log';
 
-	/** `Connect_Queue_Timer_Node`'s single instance, mounted only while the connect queue holds work. */
-	public const CONNECT_TIMER       = '_connect_timer';
-
 	/** The `SSE_Out_Node` egress. A browser command carries `_sse:<session handle>` in FROM so a stream can gate the reply to the session that sent it. */
 	public const SSE                 = '_sse';
 
@@ -106,7 +103,6 @@ final class Node_Names {
 	 */
 	public const SESSION_SCAFFOLDING = [
 		self::COMMAND_INTERPRETER,
-		self::CONNECT_TIMER,
 		self::FLEET,
 		self::ROUTER,
 		self::OUTPUT,

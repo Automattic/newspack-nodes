@@ -268,7 +268,6 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Curl_Node::$curl_result         = null;
 		}
 		$this->reset_health_test_state();
-		\Newspack_Nodes\Remote_Source_Node::reset_connect_queue();
 		parent::tearDown();
 	}
 
@@ -292,20 +291,6 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['_wp_test_is_main_site'] = true;
 	}
 
-	/**
-	 * A scratch dir INSIDE the runtime base, auto-removed in tearDown.
-	 *
-	 * Inside, not beside: storage nodes refuse a path outside the runtime tree,
-	 * and a sibling is outside. Tests that repoint base_directory at their own
-	 * temp dir stay contained either way.
-	 */
-	/**
-	 * Run every queued Remote_Source connect now.
-	 *
-	 * Connects are staggered one-per-tick through Connect_Queue_Timer_Node, so a
-	 * test that asserts on a live stream has to advance that queue rather than
-	 * assume `fire()` connected inline.
-	 */
 	/**
 	 * Seed the Vault option as `add()` would write it: every non-empty password
 	 * sealed. `get_all()` reads an unsealed option value as planted, so a test
@@ -340,16 +325,13 @@ abstract class TestCase extends PHPUnitTestCase {
 		return $node;
 	}
 
-	protected function drain_connect_queue(): void {
-		while ( true ) {
-			$connect = \Newspack_Nodes\Remote_Source_Node::shift_connect_queue();
-			if ( null === $connect ) {
-				return;
-			}
-			$connect();
-		}
-	}
-
+	/**
+	 * A scratch dir INSIDE the runtime base, auto-removed in tearDown.
+	 *
+	 * Inside, not beside: storage nodes refuse a path outside the runtime tree,
+	 * and a sibling is outside. Tests that repoint base_directory at their own
+	 * temp dir stay contained either way.
+	 */
 	protected function make_temp_dir( string $prefix = 'newspack-nodes-test-' ): string {
 		// PID + more-entropy uniqid: bare uniqid() is microtime-based and collides
 		// across PARALLEL processes (run-coverage runs nodes/ELN/pyrobase at once),

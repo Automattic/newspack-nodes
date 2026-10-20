@@ -425,6 +425,140 @@ class SseInCoverageTest extends TestCase {
 		$this->assertTrue( $node->maybe_connect(), 'a busy stream comes straight back' );
 	}
 
+	/** Count each `on_reopen_due` call into `$calls`. */
+	private static function count_reopens( SSE_In_Node $node, int &$calls ): void {
+		$node->on_reopen_due = static function () use ( &$calls ): void {
+			++$calls;
+		};
+	}
+
+	/**
+	 * Connect at `$opened`, deliver `$messages` msg events and `retry 0`, then
+	 * close clean with the cached clock at `$stale_now` and the live one at
+	 * `$closed`, as inside a cURL completion.
+	 */
+	private function busy_close( SSE_In_Node $node, float $opened, int $messages, float $stale_now, float $closed ): void {
+		Core::$now = $opened;
+		$handle    = $this->connect( $node );
+		for ( $i = 0; $i < $messages; $i++ ) {
+			$node->process_sse_chunk( self::msg_frame( "9:{$i}:40", 'delivered', 'kept' ) );
+		}
+		$node->process_sse_chunk( self::retry_frame( '0' ) );
+		$this->set_http_code( $node, 200 );
+		Core::$now   = $stale_now;
+		Core::$clock = static fn (): float => $closed;
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
+	}
+
+	public function test_a_busy_stream_that_lived_a_second_tells_the_patron_and_opens_nothing(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+
+		$this->busy_close( $node, 1748960000.0, 3, 1748960030.0, 1748960030.0 );
+
+		$this->assertSame( 1, $calls, 'the patron learns the reopen is due' );
+		$this->assertNull( $node->test_get_handle(), 'SSE_In stays passive: the patron reopens' );
+		$this->assertSame( [], Event_Framework::instance()->handles_of( $node ) );
+		$this->assertNull( $node->connection()['last_error'] );
+		$this->assertTrue( $node->maybe_connect(), 'no backoff stands between the patron and the reopen' );
+	}
+
+	public function test_a_retry_zero_close_with_no_message_leaves_the_reopen_to_the_tick(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+
+		$this->busy_close( $node, 1748960000.0, 0, 1748960030.0, 1748960030.0 );
+
+		$this->assertSame( 0, $calls, 'nothing delivered, nothing early' );
+		$this->assertSame( 0, $node->connection()['current_backoff'] );
+		$this->assertTrue( $node->maybe_connect(), 'the next tick reopens it' );
+	}
+
+	public function test_a_retry_zero_close_under_a_second_old_leaves_the_reopen_to_the_tick(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+
+		$this->busy_close( $node, 1748960000.0, 2, 1748960000.6, 1748960000.6 );
+
+		$this->assertSame( 0, $calls, 'a stream under INITIAL_BACKOFF old never outruns the tick' );
+		$this->assertTrue( $node->maybe_connect(), 'the next tick reopens it' );
+	}
+
+	public function test_the_close_age_reads_the_live_clock_not_the_cached_one(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+
+		$this->busy_close( $node, 1748960000.0, 1, 1748960000.3, 1748960001.4 );
+
+		$this->assertSame( 1, $calls, 'the turn-old cached clock understates its age' );
+	}
+
+	public function test_the_age_check_leaves_the_cached_clock_alone(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+
+		$this->busy_close( $node, 1748960000.0, 1, 1748960000.3, 1748960001.4 );
+
+		$this->assertSame( 1, $calls );
+		$this->assertSame( 1748960000.3, Core::$now, 'a completion mid-batch must not move the turn\'s clock' );
+	}
+
+	public function test_a_delayed_scheduled_close_does_not_tell_the_patron(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk( self::msg_frame( '9:7731:40', 'delivered', 'kept' ) );
+		$node->process_sse_chunk( self::retry_frame( '4500' ) );
+		$this->set_http_code( $node, 200 );
+		Core::$now = 1748960030.0;
+
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
+
+		$this->assertSame( 0, $calls, 'the tick of the patron finds a delayed reopen when it falls due' );
+	}
+
+	public function test_an_http_error_after_retry_zero_backs_off_without_telling_the_patron(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk( self::msg_frame( '9:7731:40', 'delivered', 'kept' ) );
+		$node->process_sse_chunk( self::retry_frame( '0' ) );
+		$this->set_http_code( $node, 503 );
+
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
+
+		$this->assertSame( 0, $calls );
+		$this->assertSame( 'HTTP 503', $node->connection()['last_error'] );
+		$this->assertSame( 2, $node->connection()['current_backoff'] );
+		$this->assertFalse( $node->maybe_connect() );
+	}
+
+	public function test_a_curl_error_after_retry_zero_backs_off_without_telling_the_patron(): void {
+		[ $node ] = $this->configured_node();
+		$calls    = 0;
+		self::count_reopens( $node, $calls );
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk( self::msg_frame( '9:7731:40', 'delivered', 'kept' ) );
+		$node->process_sse_chunk( self::retry_frame( '0' ) );
+
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_RECV_ERROR ] ] );
+
+		$this->assertSame( 0, $calls );
+		$this->assertStringStartsWith( 'cURL error 56', (string) $node->connection()['last_error'] );
+		$this->assertSame( 2, $node->connection()['current_backoff'] );
+		$this->assertFalse( $node->maybe_connect() );
+	}
+
 	public function test_a_transport_error_still_backs_off_even_after_a_retry_hint(): void {
 		[ $node ] = $this->configured_node();
 		$handle   = $this->connect( $node );

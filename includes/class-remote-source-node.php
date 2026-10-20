@@ -20,8 +20,10 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
  * `Remote_Broker_Node`. This class adds the stream: an `SSE_In` patron
  * (`<name>:sse-in`), the slot-keepalive heartbeat it mints every
  * ~HEARTBEAT_INTERVAL through the channel's HTTP_Out (whose reply self-routes
- * back into `fill()` for RTT bookkeeping), the staggered connect queue, and
- * the routing between the stream and the readers. `SSE_In` hands each raw
+ * back into `fill()` for RTT bookkeeping), the reconnect, and the routing
+ * between the stream and the readers. The tick connects, under `SSE_In`'s
+ * backoff; a busy stream's scheduled close makes the housekeeping due on the
+ * timer scan of the same drain iteration instead (`housekeep_now()`). `SSE_In` hands each raw
  * `msg` payload to `route()`, which reads its FROM stamp and hands it to the
  * reader the first matching source owns, building that reader on first sight.
  * A connect asks each live reader where its stream stands; a paused reader
@@ -52,20 +54,6 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	private const PUMP_ARM_BYTES    = 2 * Log_Sources::BLOCK_BYTES;
 	private const PUMP_DISARM_BYTES = 4 * Log_Sources::BLOCK_BYTES;
 
-	/**
-	 * Pending connects, drained one per tick by Connect_Queue_Timer_Node.
-	 * Process-wide, exactly as Tachikoma's `@SPAWN_QUEUE` is package-wide.
-	 *
-	 * Each entry is `[ closure, owning source ]` so a removed source's pending
-	 * connect can be purged rather than resurrect it.
-	 *
-	 * @var list<array{0: callable,1: self|null}>
-	 */
-	private static array $connect_queue = [];
-
-	/** Whether this source already has a connect waiting in that queue. */
-	private bool $connect_queued = false;
-
 	/** Patron SSE_In sibling (`<name>:sse-in`); null until the Vault entry resolves. */
 	protected ?SSE_In_Node $sse_in = null;
 
@@ -80,6 +68,20 @@ class Remote_Source_Node extends Remote_Broker_Node {
 
 	/** Mirror of the SSE_In valve state: true while armed. Only the readers' bytes flip it. */
 	private bool $pump_armed = true;
+
+	/**
+	 * Each tick, after putting back the recurring cadence a `housekeep_now()`
+	 * replaced. The re-arm comes first, before anything that can throw, so
+	 * neither an early return nor a throw leaves the broker on its 0 ms slot.
+	 *
+	 * @api Dynamic entrypoint (Timer_Node::fire_cb).
+	 */
+	public function fire(): void {
+		if ( self::TICK_INTERVAL_MS !== $this->interval_ms ) {
+			$this->set_timer( self::TICK_INTERVAL_MS );
+		}
+		parent::fire();
+	}
 
 	/**
 	 * One tick's housekeeping: drive the passive SSE_In, keep the slot
@@ -97,7 +99,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			return;
 		}
 		$sse->check_stale();
-		$this->queue_connect( $sse );
+		$sse->maybe_connect();
 		$this->maybe_send_heartbeat();
 		$this->publish_status();
 	}
@@ -143,9 +145,24 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$sse->on_message = function ( string $raw ): void {
 			$this->route( $raw );
 		};
+		$sse->on_reopen_due = $this->housekeep_now( ... );
 		$this->sse_in = $sse;
 		$this->publish_patron( self::SSE_IN_KIND, $sse );
 		return $sse;
+	}
+
+	/**
+	 * Make the housekeeping due on the timer scan that follows the cURL
+	 * completion asking for it, later in the same drain iteration: a recurring
+	 * 0 ms slot of its own in place of the Router hitchhike, which `fire()`
+	 * swaps back. `SSE_In` asks from inside that completion, where nothing may
+	 * connect. A stopped broker stays stopped.
+	 */
+	private function housekeep_now(): void {
+		if ( ! $this->timer_is_active() ) {
+			return;
+		}
+		$this->set_timer( 0 );
 	}
 
 	/**
@@ -219,43 +236,6 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * Queue this source's connect instead of running it inline, and make sure
-	 * the shared drain timer is up.
-	 *
-	 * Tachikoma `Job.pm`: a spawn pushes a closure onto `@SPAWN_QUEUE` and
-	 * mounts `_spawn_timer` if absent. Same shape, same reason — an aggregator
-	 * brings every Remote_Source up in one tick, and N simultaneous SSE
-	 * connects are what the spoke answers with 429. The queued flag is what
-	 * keeps a once-per-second housekeeping tick from queueing the same connect
-	 * over and over while it waits its turn.
-	 *
-	 * @param SSE_In_Node $sse The patron stream to connect.
-	 */
-	private function queue_connect( SSE_In_Node $sse ): void {
-		if ( $this->connect_queued ) {
-			return;
-		}
-		$this->connect_queued = true;
-		self::push_connect_queue(
-			function () use ( $sse ): void {
-				$this->connect_queued = false;
-				// Its turn can come after the source stopped wanting it.
-				if ( $this->should_connect() ) {
-					$sse->maybe_connect();
-				}
-			},
-			$this
-		);
-		if ( null === Core::node( Connect_Queue_Timer_Node::NODE_NAME ) ) {
-			$timer = new Connect_Queue_Timer_Node();
-			$timer->name( Connect_Queue_Timer_Node::NODE_NAME );
-			// fire_cb() returns early on a null sink, before fire().
-			$timer->sink( Core::node( Node_Names::COMMAND_INTERPRETER ) );
-			$timer->set_timer( Connect_Queue_Timer_Node::INTERVAL_MS );
-		}
-	}
-
-	/**
 	 * Connect while any exact source's reader is live, or any glob may yet
 	 * find a dir. The tick builds each exact source's reader before
 	 * housekeeping, so this only reads them.
@@ -267,17 +247,6 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			$connect = $connect || $live;
 		}
 		return $connect;
-	}
-
-	/**
-	 * Append a connect for the drain timer to run. The owner may be null for a
-	 * queue entry with no source to purge it (tests).
-	 *
-	 * @param callable  $connect The queued connect.
-	 * @param self|null $owner   Source whose remove_node() should purge it.
-	 */
-	public static function push_connect_queue( callable $connect, ?self $owner ): void {
-		self::$connect_queue[] = [ $connect, $owner ];
 	}
 
 	/**
@@ -466,7 +435,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 
 	/**
 	 * Drop the live stream so the next request states the live set again;
-	 * what it left buffered still drains. The tick queues the reconnect, so
+	 * what it left buffered still drains. The next tick reconnects, so
 	 * readers that pause in one tick share one.
 	 */
 	public function restream(): void {
@@ -486,36 +455,11 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		return null !== $conn && $conn['connected'] && null !== $conn['last_sse_heartbeat'] ? (float) $conn['last_sse_heartbeat'] : null;
 	}
 
-	/**
-	 * Tear down the SSE_In patron and any connect queued against it, then the
-	 * channel.
-	 *
-	 * A queued closure holds this node and its SSE_In; popped after teardown it
-	 * reconnects a stream nothing owns any more and strands a cURL handle in
-	 * the drain loop, holding a slot nothing can release.
-	 */
+	/** Tear down the SSE_In patron, then the channel. */
 	protected function drop_patrons(): void {
-		$this->connect_queued = false;
-		self::$connect_queue  = \array_values(
-			\array_filter(
-				self::$connect_queue,
-				fn ( $queued ): bool => $queued[1] !== $this
-			)
-		);
 		$this->sse_in = null;
 		$this->retract_sibling( self::SSE_IN_KIND );
 		parent::drop_patrons();
-	}
-
-	/** Drop every pending connect. Teardown only; a live graph purges per source. */
-	public static function reset_connect_queue(): void {
-		self::$connect_queue = [];
-	}
-
-	/** Pop the oldest queued connect for the drain timer; null when the queue is dry. */
-	public static function shift_connect_queue(): ?callable {
-		$queued = \array_shift( self::$connect_queue );
-		return null === $queued ? null : $queued[0];
 	}
 
 	/** Composite stat delegation: report the children's tallies, not zeros. */

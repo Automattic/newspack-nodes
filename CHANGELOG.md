@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **The `Remote_Source` connect queue and its `_connect_timer` reserved name.** `Connect_Queue_Timer_Node`, `Node_Names::CONNECT_TIMER` and its `reserved-node-names.json` twin, and `Remote_Source_Node::push_connect_queue()`, `shift_connect_queue()` and `reset_connect_queue()` are gone. Each broker's tick calls `SSE_In_Node::maybe_connect()` directly, after its usual gates, and `SSE_In`'s backoff is the one bound on reconnects. On a live hub the queue held one entry per link and released one every 500 ms, so a hub of sixty links could leave a dropped stream unattended for thirty seconds. Within one process a hub holds one broker per spoke, so the queue never spaced two connects to one spoke's slot pool there, and brokers to the same spoke in other processes, one per hub partition or topology, it never staggered at all.
+
+### Changed
+- **A busy stream's lifetime close reopens in the same drain iteration.** When a spoke closes, with `retry` 0, a stream that delivered at least one `msg` and lived at least `INITIAL_BACKOFF` (1 s) since its connect, `SSE_In_Node` calls its patron's new `on_reopen_due` seam and opens nothing inside the cURL completion; it reads the stream's age from the live clock through the new `Core::live_now()`, which leaves the turn's cached `Core::$now` alone. `Remote_Source` answers with `housekeep_now()`, a recurring 0 ms timer in place of its Router hitchhike, so its full housekeeping, every gate included, runs from the timer scan that follows the completion, in the same iteration, instead of up to a second later; its `fire()` puts the 1 s tick back before anything that can throw, and a stopped broker stays stopped. Any other `retry` 0 close reopens on the next tick, so no reconnect loop runs faster than the tick. A delayed close (`sse_retry_ms`, 5 s by default) still reopens on the first tick after its delay, and failures still wait out the backoff.
+
 ## [2.117.0] - 2026-10-19
 
 ### Added

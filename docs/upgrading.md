@@ -6,6 +6,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The `Remote_Source` connect queue is removed.** `Connect_Queue_Timer_Node`,
+  `Node_Names::CONNECT_TIMER` (`_connect_timer`, and its `CONNECT_TIMER` key
+  in `src/runtime/reserved-node-names.json`), and the public statics
+  `Remote_Source_Node::push_connect_queue()`, `shift_connect_queue()` and
+  `reset_connect_queue()` no longer exist. A broker connects on its own tick,
+  so a test that drained the queue after `fire()` reads the stream straight
+  after `fire()`, and a reconnect within a second of the last attempt waits
+  for the next tick past `SSE_In_Node`'s backoff. None of the sibling plugins
+  calls them, so no consumer floor moves.
+
 - **`Service_CI_Node::slice_verb()` is removed, and `sliceView()` takes no
   `json` flag.** A slice verb's reply is its struct, encoded once by the wire.
   Pass each shape closure as the verb's `handler` directly:

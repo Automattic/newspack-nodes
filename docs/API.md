@@ -1250,7 +1250,7 @@ cursor moves on every drain.
 |---|---|---|
 | `CONNECT_TIMEOUT` | 5 seconds | The connect, as `CURLOPT_CONNECTTIMEOUT`. The transfer itself is untimed (`CURLOPT_TIMEOUT` 0), which is what `check_stale()` covers instead. |
 | `HEARTBEAT_TIMEOUT` | 45 seconds | The silence `check_stale()` reads as a dead stream. `SSE_Out_Node` heartbeats every 2 seconds, so only a broken link reaches it. |
-| `INITIAL_BACKOFF` / `MAX_BACKOFF` | 1 / 30 seconds | The reconnect delay, doubling on each failure and reset to the floor by any received event. A clean 200 close on a stream that advertised a reopen delay — the `retry` event, or a plain server's `retry:` field — takes that delay instead, capped at `MAX_BACKOFF` and leaving the failure state untouched; a delay of 0 reopens on the next tick. |
+| `INITIAL_BACKOFF` / `MAX_BACKOFF` | 1 / 30 seconds | The reconnect delay, measured from the last connect attempt, doubling on each failure and reset to the floor by any received event. A clean 200 close on a stream that advertised a reopen delay — the `retry` event, or a plain server's `retry:` field — takes that delay instead, counted from the close, capped at `MAX_BACKOFF` and leaving the failure state untouched; a delay of 0 reopens on the next tick. A delay of 0 on a stream that delivered a `msg` and lived at least `INITIAL_BACKOFF` opens nothing inside the completion either: `SSE_In` calls the patron's `on_reopen_due`, and `Remote_Source` reopens from the timer scan that follows the completion, in the same drain iteration, instead of on its next 1 s tick. |
 | `MAX_BUFFER_SIZE` | 33554432 (32 MiB) | Received bytes holding no newline. |
 | `MAX_EVENT_SIZE` | 33554432 (32 MiB) | One event's accumulated `data:`. |
 
