@@ -220,7 +220,7 @@ final class TableProbeTest extends TestCase {
 
 	public function test_the_stock_topology_declares_the_probe_and_its_day_long_log(): void {
 		$tsl = (string) \file_get_contents( \dirname( __DIR__, 2 ) . '/topologies/table-probe.tsl' );
-		$this->assertStringContainsString( 'make_node Table_Probe tablestats 15', $tsl );
+		$this->assertMatchesRegularExpression( '/make_node\s+Table_Probe\s+tablestats\s+15\b/', $tsl );
 		$this->assertStringContainsString( '<config:logs_dir>/tablestats.p0 1048576 2 8 0 86400 86400', $tsl );
 		$this->assertStringContainsString( 'connect_node tablestats tablestats:log', $tsl );
 	}
