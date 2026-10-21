@@ -265,7 +265,7 @@ class Job_Worker_Node extends Node {
 					throw $e;
 				} catch ( \Throwable $e ) {
 					$failure = $e;
-					$outcome = [ 'status' => 'error', 'message' => $e->getMessage(), 'items_ok' => 0, 'items_err' => 0 ];
+					$outcome = [ 'status' => 'error', 'message' => Driver_Error::of( $e ), 'items_ok' => 0, 'items_err' => 0 ];
 				}
 				$this->record_job_stats( $handler, $identity, $started, $queue_ms, $outcome );
 				if ( null !== $failure ) {

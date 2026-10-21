@@ -462,7 +462,7 @@ class Table_Node extends Node {
 	 * @return string `Table <name>: <why>`.
 	 */
 	private function refusal( \Throwable $e ): string {
-		return \esc_html( "Table {$this->table_name()}: " . $e->getMessage() );
+		return \esc_html( "Table {$this->table_name()}: " . Driver_Error::of( $e ) );
 	}
 
 	/**

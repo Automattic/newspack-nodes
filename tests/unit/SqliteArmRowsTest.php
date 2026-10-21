@@ -208,8 +208,7 @@ final class SqliteArmRowsTest extends TestCase {
 			),
 			'NOT NULL refused'
 		);
-		$this->assertStringContainsString( 'visits', $e->getMessage() );
-		$this->assertStringContainsString( 'NOT NULL', $e->getMessage() );
+		$this->assertStringStartsWith( 'visits: [23000] SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: visits.', $e->getMessage() );
 		$this->assertSame( [], $this->all( 'SELECT * FROM tallies' ) );
 		$arm->write_rows( [ [ 'add', 'tallies', [ 7341, 'heron', 3, 41.5 ] ] ] );
 		$this->assertSame( [ [ 3 ] ], $this->all( 'SELECT n FROM tallies' ), 'the transaction ended and the next one commits' );
@@ -327,6 +326,18 @@ final class SqliteArmRowsTest extends TestCase {
 
 		$this->assertSame( [ 'rows' => 2, 'full' => true ], $arm->purge( 9100, 4 ), 'two of the limit\'s four are the visits\' take' );
 		$this->assertSame( [ 'rows' => 1, 'full' => false ], $arm->purge( 9100, 4 ) );
+	}
+
+	/** A retained table's purge the driver refuses logs the driver's shaped text. */
+	public function test_a_refused_retained_purge_logs_the_drivers_text_shaped(): void {
+		$arm = $this->rows_arm();
+		$arm->write_rows( [ [ 'insert', 'visits', [ 'rid-6640', 1000, 0, 1.5 ] ] ] );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'DROP TABLE visits' );
+		$logged = $this->capture_stderr();
+
+		$arm->purge( 9100, 4 );
+
+		$this->assertStringContainsString( 'Table purge failed: sqlite ' . $this->path() . ': [HY000] SQLSTATE[HY000]: General error: 1 no such table', \implode( '', (array) $logged ) );
 	}
 
 	public function test_a_released_name_still_named_by_a_surviving_row_stays(): void {

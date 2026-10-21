@@ -875,12 +875,13 @@ class Core {
 	 * throws here pass their message through `esc_html()`, which this
 	 * reverses; a message thrown as plain text, as `refuse_angle_partition()`
 	 * throws one, carries no entities and comes back as it was, unless it
-	 * spells one out literally.
+	 * spells one out literally. A database driver's is shaped first
+	 * (`Driver_Error::of()`), because a verb's reply can leave the site.
 	 *
 	 * @param \Throwable $e What was thrown.
 	 */
 	public static function message_of( \Throwable $e ): string {
-		return \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
+		return \html_entity_decode( Driver_Error::of( $e ), \ENT_QUOTES );
 	}
 
 	/**

@@ -25,6 +25,7 @@ use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Driver_Error;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Position;
 use Newspack_Nodes\Log_Sources;
@@ -633,7 +634,7 @@ class SSE_Out_Node extends Node {
 					]
 					: $this->stream_context( 'unexpected_exception', $active_lease, $partition, $subs );
 				$context['exception_class']   = $e::class;
-				$context['exception_message'] = $e->getMessage();
+				$context['exception_message'] = Driver_Error::of( $e );
 				$this->write_diagnostic( $context );
 			}
 			throw $e;

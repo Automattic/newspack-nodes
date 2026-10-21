@@ -353,7 +353,7 @@ class CommandAuthSessionTest extends TestCase {
 			Command_Auth::mint_session( Capabilities::TUNE, self::TTL );
 			$this->fail( 'an unstored session must not be handed back' );
 		} catch ( Session_Store_Unavailable $e ) {
-			$this->assertSame( 'could not store the session: wpdb wp_newspack_nodes_table: Deadlock found 4816', $e->getMessage() );
+			$this->assertSame( 'could not store the session: wpdb wp_newspack_nodes_table: [0] Deadlock found 4816', $e->getMessage() );
 		}
 	}
 
@@ -361,7 +361,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->db->deny['CREATE TABLE'] = 'CREATE command denied 4816';
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'the session store is unavailable: Table nodes-sessions: wpdb backend could not create wp_newspack_nodes_table: CREATE command denied 4816' );
+		$this->expectExceptionMessage( 'the session store is unavailable: Table nodes-sessions: wpdb backend could not create wp_newspack_nodes_table: [0] CREATE command denied 4816' );
 		Command_Auth::mint_session();
 	}
 
@@ -669,7 +669,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->db->deny['SELECT cache_key'] = 'Lost connection 4817';
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'could not read the sessions: wpdb wp_newspack_nodes_table: Lost connection 4817' );
+		$this->expectExceptionMessage( 'could not read the sessions: wpdb wp_newspack_nodes_table: [0] Lost connection 4817' );
 		Command_Auth::load_session_records( [ $handle ] );
 	}
 

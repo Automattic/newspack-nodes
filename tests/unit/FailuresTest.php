@@ -24,6 +24,12 @@ class FailuresTest extends TestCase {
 		$this->assertInstanceOf( \RuntimeException::class, $failures );
 	}
 
+	public function test_a_driver_member_is_named_by_its_code_and_none_of_its_values(): void {
+		$failures = new Failures( [ new \RuntimeException( 'disk-full-9' ), new \PDOException( "Duplicate entry 'weka-7746' for key 'k'", 1062 ) ] );
+
+		$this->assertSame( '2 failures: disk-full-9 | [1062] Duplicate entry', $failures->getMessage() );
+	}
+
 	public function test_a_nested_failures_flattens_on_construction(): void {
 		$a = new \RuntimeException( 'a-21' );
 		$b = new \RuntimeException( 'b-22' );

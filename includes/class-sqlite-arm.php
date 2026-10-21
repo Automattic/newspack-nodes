@@ -252,18 +252,25 @@ final class Sqlite_Arm extends Durable_Arm {
 			$this->db = $read_only ? $this->db() : $this->connect();
 		} catch ( \PDOException $e ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
-			throw new \RuntimeException( "sqlite backend could not open {$path}: " . $e->getMessage(), 0, $e );
+			throw new \RuntimeException( "sqlite backend could not open {$path}: " . Driver_Error::of( $e ), 0, $e );
 		}
 	}
 
 	/**
 	 * See Durable_Arm::vacuum(); the checkpoint returns the WAL's pages too.
 	 *
-	 * @throws \RuntimeException When a reader keeps the checkpoint from finishing.
+	 * @throws \RuntimeException When the driver refuses the VACUUM, or a
+	 *                           reader keeps the checkpoint from finishing.
 	 */
 	public function vacuum(): void {
-		$this->handle()->exec( 'VACUUM' );
-		$row = $this->single_row( 'PRAGMA wal_checkpoint(TRUNCATE)' );
+		try {
+			$this->handle()->exec( 'VACUUM' );
+			$row = $this->single_row( 'PRAGMA wal_checkpoint(TRUNCATE)' );
+		} catch ( \PDOException $e ) {
+			$this->failure = Driver_Error::of( $e );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+			throw new \RuntimeException( $this->last_failure(), 0, $e );
+		}
 		if ( ! \is_array( $row ) || 0 !== Core::as_int( $row[0] ) ) {
 			$this->failure = 'database is locked: a reader holds the WAL';
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
@@ -284,7 +291,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		try {
 			$row = $this->single_row( 'PRAGMA wal_checkpoint(PASSIVE)' );
 		} catch ( \PDOException $e ) {
-			$this->failure = $e->getMessage();
+			$this->failure = Driver_Error::of( $e );
 			Core::print_less_often( 'Table checkpoint failed: ', $this->last_failure() );
 			return null;
 		}
@@ -340,7 +347,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			);
 		} catch ( \PDOException $e ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
-			throw new \RuntimeException( ( '' === $table ? $this->path : $table ) . ': ' . $e->getMessage(), 0, $e );
+			throw new \RuntimeException( ( '' === $table ? $this->path : $table ) . ': ' . Driver_Error::of( $e ), 0, $e );
 		}
 	}
 
@@ -473,7 +480,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			try {
 				[ $rows, $filled ] = $this->write_scope( fn (): array => $this->purge_retained( $table, $retain, $now, $limit - $purged ) );
 			} catch ( \PDOException $e ) {
-				$this->failure = $e->getMessage();
+				$this->failure = Driver_Error::of( $e );
 				Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
 				break;
 			}

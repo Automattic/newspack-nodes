@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Driver_Error;
 use Newspack_Nodes\Durable_Arm;
 use Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb;
 use Newspack_Nodes\Tests\TestCase;
@@ -21,13 +22,13 @@ final class WpdbArmTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		Wpdb_Arm::$errno = null;
+		Driver_Error::$errno = null;
 		parent::tearDown();
 	}
 
 	/** Answer MySQL's missing-table code where SQLite reports its own. */
 	private function report_missing_tables_as_1146(): void {
-		Wpdb_Arm::$errno = static fn ( \wpdb $db ): int => \str_contains( Core::as_string( $db->last_error ), 'no such table' ) ? 1146 : 0;
+		Driver_Error::$errno = static fn ( object $db ): int => \str_contains( Core::as_string( $db->last_error ), 'no such table' ) ? 1146 : 0;
 	}
 
 	/** @return list<string> The statements sent that contain `$needle`. */
@@ -41,7 +42,7 @@ final class WpdbArmTest extends TestCase {
 
 	public function test_a_failed_create_table_throws_at_construction(): void {
 		$this->db->deny['CREATE TABLE'] = 'CREATE command denied';
-		$this->expectExceptionMessage( 'wpdb backend could not create kea7_newspack_nodes_table: CREATE command denied' );
+		$this->expectExceptionMessage( 'wpdb backend could not create kea7_newspack_nodes_table: [0] CREATE command denied' );
 		new Wpdb_Arm( 'kea:p3' );
 	}
 
@@ -49,7 +50,7 @@ final class WpdbArmTest extends TestCase {
 		$arm                                    = new Wpdb_Arm( 'kea:p3' );
 		$this->db->deny['@@max_allowed_packet'] = 'SELECT command denied 7121';
 		$this->assertFalse( $arm->set( 'sku-41', 41, 777 ) );
-		$this->assertSame( 'wpdb kea7_newspack_nodes_table: could not read max_allowed_packet: SELECT command denied 7121', $arm->last_failure() );
+		$this->assertSame( 'wpdb kea7_newspack_nodes_table: could not read max_allowed_packet: [0] SELECT command denied 7121', $arm->last_failure() );
 		$this->assertSame( [], $this->sent( 'INSERT' ), 'nothing unmeasured reached the server' );
 	}
 
@@ -127,7 +128,7 @@ final class WpdbArmTest extends TestCase {
 		$this->db->deny['CREATE TABLE'] = 'CREATE command denied 3380';
 
 		$this->assertFalse( $arm->set( 'sku-41', 41, 777 ) );
-		$this->assertSame( 'wpdb kea7_newspack_nodes_table: wpdb backend could not create kea7_newspack_nodes_table: CREATE command denied 3380', $arm->last_failure() );
+		$this->assertSame( 'wpdb kea7_newspack_nodes_table: wpdb backend could not create kea7_newspack_nodes_table: [0] CREATE command denied 3380', $arm->last_failure() );
 	}
 
 	public function test_the_packet_limit_is_read_once_per_connection_on_the_first_write(): void {
@@ -142,7 +143,7 @@ final class WpdbArmTest extends TestCase {
 	public function test_a_failed_install_throws_naming_the_table(): void {
 		$this->db->deny['CREATE TABLE'] = 'CREATE command denied 7121';
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'wpdb backend could not create kea7_newspack_nodes_table: CREATE command denied 7121' );
+		$this->expectExceptionMessage( 'wpdb backend could not create kea7_newspack_nodes_table: [0] CREATE command denied 7121' );
 		Wpdb_Arm::install();
 	}
 
@@ -348,14 +349,16 @@ final class WpdbArmTest extends TestCase {
 		$this->assertFalse( $arm->get( 'sku-41' ) );
 		$this->assertSame( [], $arm->read_multi( [ 'sku-41' ], $failed ) );
 		$this->assertTrue( $failed );
-		$this->assertSame( 'wpdb kea7_newspack_nodes_table: Lost connection to server during query', $arm->last_failure() );
+		$this->assertSame( 'wpdb kea7_newspack_nodes_table: [0] Lost connection to server during query', $arm->last_failure() );
 	}
 
-	public function test_the_failure_records_the_servers_own_text(): void {
+	/** The failure records the server's text by its errno, cut at the first quote. */
+	public function test_the_failure_records_the_servers_text_shaped(): void {
 		$arm                      = new Wpdb_Arm( 'kea:p3' );
-		$this->db->deny['SELECT'] = "Table 'kea7_x' doesn't exist <here>";
+		Driver_Error::$errno          = static fn (): int => 1054;
+		$this->db->deny['SELECT'] = "Unknown column 'weka-7746' in 'where clause' <here>";
 		$arm->get( 'sku-41' );
-		$this->assertSame( [ 'wpdb_error' => "Table 'kea7_x' doesn't exist <here>" ], $arm->diagnostic_metadata() );
+		$this->assertSame( [ 'wpdb_error' => '[1054] Unknown column' ], $arm->diagnostic_metadata() );
 	}
 
 	public function test_every_failed_write_verb_answers_as_a_failure(): void {
@@ -384,7 +387,7 @@ final class WpdbArmTest extends TestCase {
 		$this->assertSame( 'OPTIMIZE TABLE `kea7_newspack_nodes_table`, `kea7_newspack_nodes_members`', \end( $this->db->sent ) );
 		$this->db->deny['OPTIMIZE'] = 'INDEX command denied';
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'vacuum failed: INDEX command denied' );
+		$this->expectExceptionMessage( 'vacuum failed: [0] INDEX command denied' );
 		$arm->vacuum();
 	}
 
@@ -398,7 +401,7 @@ final class WpdbArmTest extends TestCase {
 			$arm->vacuum();
 			$this->fail( 'an error row must fail the vacuum' );
 		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'vacuum failed: Table is marked as crashed', $e->getMessage() );
+			$this->assertSame( 'vacuum failed: [?] Table is marked as crashed', $e->getMessage() );
 		}
 		$this->assertStringContainsString( 'Table is marked as crashed', $arm->last_failure() );
 	}

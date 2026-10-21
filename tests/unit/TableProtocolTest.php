@@ -726,7 +726,7 @@ final class TableProtocolTest extends TestCase {
 		$this->use_wpdb();
 		$this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
 		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_members`'] = 'Lock wait timeout 4473';
-		$this->expectExceptionMessage( 'Table lab-7:owl: flush failed: wpdb wp_newspack_nodes_table: Lock wait timeout 4473' );
+		$this->expectExceptionMessage( 'Table lab-7:owl: flush failed: wpdb wp_newspack_nodes_table: [0] Lock wait timeout 4473' );
 		$this->flush_verb( 'lab-7:owl' );
 	}
 

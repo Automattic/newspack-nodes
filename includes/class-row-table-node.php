@@ -375,7 +375,7 @@ class Row_Table_Node extends Table_Node {
 			try {
 				$builder = Sqlite_Arm::build_rows( $building, $table['files'], $schema::version() );
 			} catch ( \PDOException | \LogicException $e ) {
-				throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . $e->getMessage() ), 0, $e );
+				throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . Driver_Error::of( $e ) ), 0, $e );
 			}
 			if ( [] === $builder->aliases() ) {
 				return false;
@@ -432,7 +432,7 @@ class Row_Table_Node extends Table_Node {
 		try {
 			return Sqlite_Arm::open_immutable( $file );
 		} catch ( \PDOException | \LogicException $e ) {
-			throw new Table_Unavailable( \esc_html( "snapshot {$name}: " . $e->getMessage() ), 0, $e );
+			throw new Table_Unavailable( \esc_html( "snapshot {$name}: " . Driver_Error::of( $e ) ), 0, $e );
 		}
 	}
 
@@ -502,7 +502,7 @@ class Row_Table_Node extends Table_Node {
 		try {
 			$reader = Sqlite_Arm::open_rows( $table['files'], $schema::version() );
 		} catch ( \PDOException | \LogicException $e ) {
-			throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . $e->getMessage() ), 0, $e );
+			throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . Driver_Error::of( $e ) ), 0, $e );
 		}
 		return $read( $reader );
 	}

@@ -1308,6 +1308,30 @@ class SSEOutTest extends TestCase {
 		$this->assertSame( 'distinct inspection failure 731', $logged[0]['exception_message'] );
 	}
 
+	/** A driver's exception reaches the diagnostic with its code and none of its values. */
+	public function test_a_driver_exception_is_logged_without_its_values(): void {
+		$lease  = [ 'slot' => 7, 'owner' => 42424244 ];
+		$logged = [];
+		$this->capture_diagnostics( $logged );
+		SSE_Out_Node::$check_slot   = static function (): bool {
+			throw new \PDOException( "Duplicate entry 'weka-7746@kea.test' for key 'k'", 1062 );
+		};
+		SSE_Out_Node::$release_slot = static function (): void {};
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-driver-exception-' ) );
+		try {
+			\ob_start();
+			$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, $lease, 3 );
+		} catch ( \PDOException ) {
+			// The original escapes; the diagnostic is the assertion.
+		} finally {
+			\ob_get_clean();
+		}
+
+		$this->assertSame( '[1062] Duplicate entry', $logged[0]['exception_message'] ?? null );
+	}
+
 	/**
 	 * Every `retry` event's VALUE, in the order the stream sent them.
 	 *

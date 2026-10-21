@@ -879,7 +879,7 @@ class TableNodeTest extends TestCase {
 		try {
 			$table = new Table_Node();
 			$table->name( 'lab-7:kea' );
-			$this->assert_unavailable( static fn () => $table->arguments( [ 'kea:p3', '37', 'sqlite' ] ), "Table lab-7:kea: sqlite backend could not open {$dir}/tables/lab-7:kea.p3.sqlite: SQLSTATE[HY000] [14] unable to open database file" );
+			$this->assert_unavailable( static fn () => $table->arguments( [ 'kea:p3', '37', 'sqlite' ] ), "Table lab-7:kea: sqlite backend could not open {$dir}/tables/lab-7:kea.p3.sqlite: [14] SQLSTATE[HY000] [14] unable to open database file" );
 		} finally {
 			unset( Core::$var['partition'] );
 		}
@@ -889,17 +889,28 @@ class TableNodeTest extends TestCase {
 		$dir = $this->base_dir( 'table-unwritable-' );
 		\mkdir( "{$dir}/tables", 0500 );
 		try {
-			$this->assert_unavailable( static fn () => Table_Node::table( 'kea:p3', 37, 'sqlite' ), "Table kea:p3: sqlite backend could not open {$dir}/tables/kea:p3.p0.sqlite: SQLSTATE[HY000] [14] unable to open database file" );
+			$this->assert_unavailable( static fn () => Table_Node::table( 'kea:p3', 37, 'sqlite' ), "Table kea:p3: sqlite backend could not open {$dir}/tables/kea:p3.p0.sqlite: [14] SQLSTATE[HY000] [14] unable to open database file" );
 		} finally {
 			\chmod( "{$dir}/tables", 0700 );
 		}
+	}
+
+	/** A refusal a driver threw names its code and none of its values. */
+	public function test_a_refusal_a_driver_threw_names_its_code_alone(): void {
+		$table = new Table_Node();
+		$table->name( 'kea:refusal' );
+		$refusal = new \ReflectionMethod( Table_Node::class, 'refusal' );
+
+		$said = $refusal->invoke( $table, new \PDOException( "SQLSTATE[23000]: 19 UNIQUE constraint failed: kea.c 'weka-7746'", 23000 ) );
+
+		$this->assertStringEndsWith( ': [23000] SQLSTATE[23000]: 19 UNIQUE constraint failed: kea.c', $said );
 	}
 
 	public function test_a_wpdb_table_the_server_will_not_create_is_table_unavailable(): void {
 		$db                       = $this->use_wpdb();
 		$db->base_prefix          = 'kea9_';
 		$db->deny['CREATE TABLE'] = 'CREATE command denied';
-		$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not create kea9_newspack_nodes_table: CREATE command denied' );
+		$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not create kea9_newspack_nodes_table: [0] CREATE command denied' );
 	}
 
 	public function test_a_wpdb_packet_limit_the_server_will_not_say_fails_the_first_write(): void {
@@ -908,7 +919,7 @@ class TableNodeTest extends TestCase {
 		$db->deny['@@max_allowed_packet'] = 'SELECT command denied 1131';
 		[ $table ]                        = $this->table( 'kea:p3', '37', 'wpdb' );
 		$this->assertFalse( $table->store( 'sku-1131', 1131 ) );
-		$this->assertSame( 'wpdb kea9_newspack_nodes_table: could not read max_allowed_packet: SELECT command denied 1131', $table->last_failure() );
+		$this->assertSame( 'wpdb kea9_newspack_nodes_table: could not read max_allowed_packet: [0] SELECT command denied 1131', $table->last_failure() );
 	}
 
 	public function test_a_memcache_table_with_no_handle_is_table_unavailable(): void {
