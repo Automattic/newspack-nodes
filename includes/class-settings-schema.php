@@ -129,7 +129,7 @@ class Settings_Schema {
 					type: 'int',
 					min: 0,
 					max: 604800,
-					default: 43200,
+					default: 86400,
 					label: static fn(): string => \__( 'Min Lifetime', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
@@ -140,11 +140,11 @@ class Settings_Schema {
 					type: 'int',
 					min: 0,
 					max: 604800,
-					default: 86400,
 					label: static fn(): string => \__( 'Lifetime', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
 					render: [ Admin::class, 'lifetime_callback' ],
+					follows: 'min_lifetime',
 				),
 				// Display-only readout (no option, no reset).
 				new Field(
@@ -255,12 +255,12 @@ class Settings_Schema {
 					type: 'int',
 					min: 0,
 					max: 604800,
-					default: 900,
 					label: static fn(): string => \__( 'Remote Lifetime', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
 					render: [ Admin::class, 'remote_lifetime_callback' ],
 					register_args: [ 'type' => 'integer' ],
+					follows: 'remote_min_lifetime',
 				),
 				// Fleet-alert thresholds; read live by Alerts, no restart.
 				new Field(

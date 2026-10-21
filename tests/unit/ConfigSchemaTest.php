@@ -73,15 +73,148 @@ class ConfigSchemaTest extends TestCase {
 		$this->assertSame( [], $missing, "keys read but not declared:\n" . \implode( "\n", $missing ) );
 	}
 
-	/** Every declared key carries its default in code, so no file is required. */
+	/** Every declared key carries its default in code, or follows a key that does, so no file is required. */
 	public function test_the_schema_supplies_a_default_for_every_declared_key(): void {
-		$defaults = Settings_Schema::get()->defaults();
+		$supplied = \array_merge(
+			\array_keys( Settings_Schema::get()->defaults() ),
+			\array_keys( self::following_keys() )
+		);
 
 		$this->assertSame(
 			[],
-			\array_values( \array_diff( Settings_Schema::get()->overlay_keys(), \array_keys( $defaults ) ) ),
+			\array_values( \array_diff( Settings_Schema::get()->overlay_keys(), $supplied ) ),
 			'a declared key with no code default is null on every install whose file predates it'
 		);
+	}
+
+	/** A config file setting only min_lifetime moves lifetime with it. */
+	public function test_a_file_setting_only_min_lifetime_moves_lifetime(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'min_lifetime' => 7200 ] );
+
+		$this->assertSame( 7200, Config::value( 'lifetime' ) );
+	}
+
+	/** An option setting only min_lifetime moves lifetime: the follow resolves after the overlay. */
+	public function test_an_option_setting_only_min_lifetime_moves_lifetime(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'min_lifetime' => 7200 ] );
+		\update_option( 'newspack_nodes_min_lifetime', 5400 );
+		Config::reset();
+
+		try {
+			$this->assertSame( 5400, Config::value( 'lifetime' ) );
+		} finally {
+			\delete_option( 'newspack_nodes_min_lifetime' );
+		}
+	}
+
+	/** A file setting lifetime explicitly wins over min_lifetime, zero included. */
+	public function test_a_file_setting_lifetime_explicitly_wins(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'min_lifetime' => 7200, 'lifetime' => 0 ] );
+
+		$this->assertSame( 0, Config::value( 'lifetime' ) );
+		$this->assertSame( 0, Config::blank_value( 'lifetime' ) );
+	}
+
+	/** A null lifetime in a file is unset, so it follows. */
+	public function test_a_null_lifetime_in_a_file_follows_min_lifetime(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'min_lifetime' => 7200, 'lifetime' => null ] );
+
+		$this->assertSame( 7200, Config::value( 'lifetime' ) );
+	}
+
+	/** remote_lifetime follows remote_min_lifetime from a file, in both effective and blank reads. */
+	public function test_a_file_setting_only_remote_min_lifetime_moves_remote_lifetime(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'remote_min_lifetime' => 1800 ] );
+
+		$this->assertSame( 1800, Config::value( 'remote_lifetime' ) );
+		$this->assertSame( 1800, Config::blank_value( 'remote_lifetime' ) );
+	}
+
+	/** An option setting only remote_min_lifetime moves remote_lifetime. */
+	public function test_an_option_setting_only_remote_min_lifetime_moves_remote_lifetime(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'remote_min_lifetime' => 1800 ] );
+		\update_option( 'newspack_nodes_remote_min_lifetime', 2700 );
+		Config::reset();
+
+		try {
+			$this->assertSame( 2700, Config::value( 'remote_lifetime' ) );
+		} finally {
+			\delete_option( 'newspack_nodes_remote_min_lifetime' );
+		}
+	}
+
+	/** An explicit remote_lifetime wins over remote_min_lifetime. */
+	public function test_an_explicit_remote_lifetime_wins(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'remote_min_lifetime' => 1800, 'remote_lifetime' => 600 ] );
+
+		$this->assertSame( 600, Config::value( 'remote_lifetime' ) );
+	}
+
+	/** A blank following key yields the followed key's effective value, option included. */
+	public function test_blank_value_of_a_following_key_is_the_followed_effective_value(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'min_lifetime' => 7200 ] );
+		\update_option( 'newspack_nodes_min_lifetime', 5400 );
+		Config::reset();
+
+		try {
+			$this->assertSame( 'min_lifetime', Config::blank_follows( 'lifetime' ) );
+			$this->assertSame( 5400, Config::blank_value( 'lifetime' ) );
+		} finally {
+			\delete_option( 'newspack_nodes_min_lifetime' );
+		}
+	}
+
+	/** A file setting a following key explicitly is what a blank there yields, and it follows nothing. */
+	public function test_blank_value_of_a_following_key_a_file_sets_is_the_file_value(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'min_lifetime' => 7200, 'lifetime' => 900 ] );
+		\update_option( 'newspack_nodes_min_lifetime', 5400 );
+		Config::reset();
+
+		try {
+			$this->assertSame( '', Config::blank_follows( 'lifetime' ) );
+			$this->assertSame( 900, Config::blank_value( 'lifetime' ) );
+		} finally {
+			\delete_option( 'newspack_nodes_min_lifetime' );
+		}
+	}
+
+	/** A blank non-following key yields the files' value, never its stored option. */
+	public function test_blank_value_of_a_non_following_key_is_the_file_value(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'remote_segment_size' => 3145728 ] );
+		\update_option( 'newspack_nodes_remote_segment_size', 4194304 );
+		Config::reset();
+
+		try {
+			$this->assertSame( 3145728, Config::blank_value( 'remote_segment_size' ) );
+		} finally {
+			\delete_option( 'newspack_nodes_remote_segment_size' );
+		}
+	}
+
+	/** blank_value() of a key no schema declares throws, as value() does. */
+	public function test_blank_value_of_an_undeclared_key_throws(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no_such_key_4417' );
+
+		Config::blank_value( 'no_such_key_4417' );
+	}
+
+	/** An option setting lifetime explicitly wins over min_lifetime at any layer, zero included. */
+	public function test_an_option_setting_lifetime_explicitly_wins(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'min_lifetime' => 7200 ] );
+		\update_option( 'newspack_nodes_min_lifetime', 5400 );
+		\update_option( 'newspack_nodes_lifetime', 0 );
+		Config::reset();
+
+		try {
+			$this->assertSame( 0, Config::value( 'lifetime' ) );
+			\update_option( 'newspack_nodes_lifetime', 3600 );
+			Config::reset();
+			$this->assertSame( 3600, Config::value( 'lifetime' ) );
+		} finally {
+			\delete_option( 'newspack_nodes_min_lifetime' );
+			\delete_option( 'newspack_nodes_lifetime' );
+		}
 	}
 
 	/** The four SSE knobs resolve to the platform budget with no config file. */
@@ -117,7 +250,7 @@ class ConfigSchemaTest extends TestCase {
 	 * this pair of files exists to close.
 	 */
 	public function test_the_documented_ledger_matches_the_schema_defaults(): void {
-		$schema = Settings_Schema::get()->defaults();
+		$schema = Settings_Schema::get()->defaults() + \array_fill_keys( \array_keys( self::following_keys() ), null );
 		$ledger = $this->documented_ledger();
 		\ksort( $schema );
 		\ksort( $ledger );
@@ -251,7 +384,7 @@ class ConfigSchemaTest extends TestCase {
 	public function test_the_config_token_refuses_a_vault_key_a_stale_file_still_declares(): void {
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		Config::reset();
-		$ref = new \ReflectionProperty( Config::class, 'config_defaults' );
+		$ref = new \ReflectionProperty( Config::class, 'config_files' );
 		$ref->setValue( null, [ 'vault' => [ 'vault-stale-4418' => [ 'url' => 'https://stale.example', 'auth_password' => 'plain-4418' ] ] ] );
 		Config::register_token_namespace();
 		$resolve = \Newspack_Nodes\Core::$config_resolvers['config'] ?? null;
@@ -260,6 +393,21 @@ class ConfigSchemaTest extends TestCase {
 		$this->assertNull( $resolve( 'vault' ), 'a stale file-declared vault must not reach a TSL token' );
 		$ref->setValue( null, null );
 		Config::reset();
+	}
+
+	/**
+	 * Each following key => the key it follows, read off the Fields.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function following_keys(): array {
+		$out = [];
+		foreach ( Settings_Schema::get()->fields() as $field ) {
+			if ( '' !== $field->follows ) {
+				$out[ $field->key ] = $field->follows;
+			}
+		}
+		return $out;
 	}
 
 	/**

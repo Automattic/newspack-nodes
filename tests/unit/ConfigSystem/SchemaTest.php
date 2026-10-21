@@ -232,5 +232,143 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			);
 			$this->assertSame( [ 'rendered', 'overlay_only' ], $schema->overlay_keys() );
 		}
+
+		/** A schema whose `trailing` key declares no default of its own and follows `leading`. */
+		private function following_schema(): Schema {
+			return new Schema(
+				'pfx_',
+				[
+					new Field( key: 'leading', type: 'int', default: 3100 ),
+					new Field( key: 'trailing', type: 'int', follows: 'leading' ),
+				]
+			);
+		}
+
+		/** An unset following key takes the followed key's value, whatever layer set it. */
+		public function test_resolve_follows_fills_an_absent_following_key(): void {
+			$this->assertSame(
+				[ 'leading' => 7200, 'trailing' => 7200 ],
+				$this->following_schema()->resolve_follows( [ 'leading' => 7200 ] )
+			);
+		}
+
+		/** A null following key is unset too, so it follows. */
+		public function test_resolve_follows_fills_a_null_following_key(): void {
+			$this->assertSame(
+				[ 'leading' => 5400, 'trailing' => 5400 ],
+				$this->following_schema()->resolve_follows( [ 'leading' => 5400, 'trailing' => null ] )
+			);
+		}
+
+		/** An explicitly set following key wins, zero included. */
+		public function test_resolve_follows_keeps_an_explicit_following_value(): void {
+			$schema = $this->following_schema();
+
+			$this->assertSame( [ 'leading' => 7200, 'trailing' => 0 ], $schema->resolve_follows( [ 'leading' => 7200, 'trailing' => 0 ] ) );
+			$this->assertSame( [ 'leading' => 7200, 'trailing' => 900 ], $schema->resolve_follows( [ 'leading' => 7200, 'trailing' => 900 ] ) );
+		}
+
+		/** A following key declares no literal default, so defaults() leaves it out. */
+		public function test_defaults_omit_a_following_key(): void {
+			$this->assertSame( [ 'leading' => 3100 ], $this->following_schema()->defaults() );
+		}
+
+		/** A Field naming both a literal default and a key to follow is two answers to one question. */
+		public function test_a_field_with_both_follows_and_default_throws(): void {
+			$this->expectException( \InvalidArgumentException::class );
+			$this->expectExceptionMessage( 'trailing' );
+
+			new Field( key: 'trailing', type: 'int', default: 900, follows: 'leading' );
+		}
+
+		/** A Field following a key its schema never declares fails at schema construction. */
+		public function test_following_an_undeclared_key_throws(): void {
+			$this->expectException( \InvalidArgumentException::class );
+			$this->expectExceptionMessage( 'ghost_key' );
+
+			new Schema(
+				'pfx_',
+				[
+					new Field( key: 'leading', type: 'int', default: 3100 ),
+					new Field( key: 'trailing', type: 'int', follows: 'ghost_key' ),
+				]
+			);
+		}
+
+		/** overlay() resolves after the options, so an option on the followed key alone moves the follower. */
+		public function test_overlay_moves_the_follower_with_an_option_on_the_followed_key(): void {
+			\update_option( 'pfx_leading', 5400 );
+
+			try {
+				$config = $this->following_schema()->overlay( [ 'leading' => 3100 ] );
+			} finally {
+				\delete_option( 'pfx_leading' );
+			}
+
+			$this->assertSame( [ 'leading' => 5400, 'trailing' => 5400 ], $config );
+		}
+
+		/** An option on the follower wins over the key it follows. */
+		public function test_overlay_keeps_an_option_on_the_follower(): void {
+			\update_option( 'pfx_leading', 5400 );
+			\update_option( 'pfx_trailing', 900 );
+
+			try {
+				$config = $this->following_schema()->overlay( [ 'leading' => 3100 ] );
+			} finally {
+				\delete_option( 'pfx_leading' );
+				\delete_option( 'pfx_trailing' );
+			}
+
+			$this->assertSame( [ 'leading' => 5400, 'trailing' => 900 ], $config );
+		}
+
+		/** followers() lists every key following the given one, and none for a key nothing follows. */
+		public function test_followers_lists_the_keys_following_a_key(): void {
+			$schema = $this->following_schema();
+
+			$this->assertSame( [ 'trailing' ], $schema->followers( 'leading' ) );
+			$this->assertSame( [], $schema->followers( 'trailing' ) );
+		}
+
+		/** followed() answers the Field a following Field follows. */
+		public function test_followed_answers_the_followed_field(): void {
+			$schema = $this->following_schema();
+
+			$this->assertSame( 'leading', $schema->followed( $schema->field_for_short( 'trailing' ) )->key );
+		}
+
+		/** followed() of a Field that follows nothing is a caller bug, refused naming the key. */
+		public function test_followed_of_a_field_that_follows_nothing_throws(): void {
+			$schema = $this->following_schema();
+
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessage( 'leading' );
+
+			$schema->followed( $schema->field_for_short( 'leading' ) );
+		}
+
+		/** A Field following itself resolves to nothing, so the schema refuses it. */
+		public function test_a_field_following_itself_throws(): void {
+			$this->expectException( \InvalidArgumentException::class );
+			$this->expectExceptionMessage( 'selfish follows selfish' );
+
+			new Schema( 'pfx_', [ new Field( key: 'selfish', type: 'int', follows: 'selfish' ) ] );
+		}
+
+		/** A Field following a key that itself follows is a chain, refused naming both keys. */
+		public function test_following_a_following_key_throws(): void {
+			$this->expectException( \InvalidArgumentException::class );
+			$this->expectExceptionMessage( 'tail follows middle' );
+
+			new Schema(
+				'pfx_',
+				[
+					new Field( key: 'head', type: 'int', default: 3100 ),
+					new Field( key: 'middle', type: 'int', follows: 'head' ),
+					new Field( key: 'tail', type: 'int', follows: 'middle' ),
+				]
+			);
+		}
 	}
 }

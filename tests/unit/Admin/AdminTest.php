@@ -903,6 +903,45 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="regular-text"', $html );
 	}
 
+	/**
+	 * A following field's placeholder is what a blank save yields: the followed
+	 * key's effective value, option included, never the files' value.
+	 */
+	public function test_lifetime_placeholder_is_the_effective_min_lifetime(): void {
+		$this->use_base_dir( $this->base_dir, [ 'min_lifetime' => 7200 ] );
+		\update_option( 'newspack_nodes_min_lifetime', 5400 );
+		Config::reset();
+
+		try {
+			\ob_start();
+			( new Admin() )->lifetime_callback();
+			$html = (string) \ob_get_clean();
+		} finally {
+			\delete_option( 'newspack_nodes_min_lifetime' );
+		}
+
+		$this->assertStringContainsString( 'placeholder="5400"', $html );
+		$this->assertStringContainsString( 'Blank follows Min Lifetime.', $html );
+	}
+
+	/** A file that sets lifetime explicitly is the placeholder, and the blank follows nothing. */
+	public function test_lifetime_placeholder_is_the_file_value_a_file_sets(): void {
+		$this->use_base_dir( $this->base_dir, [ 'min_lifetime' => 7200, 'lifetime' => 900 ] );
+		\update_option( 'newspack_nodes_min_lifetime', 5400 );
+		Config::reset();
+
+		try {
+			\ob_start();
+			( new Admin() )->lifetime_callback();
+			$html = (string) \ob_get_clean();
+		} finally {
+			\delete_option( 'newspack_nodes_min_lifetime' );
+		}
+
+		$this->assertStringContainsString( 'placeholder="900"', $html );
+		$this->assertStringNotContainsString( 'Blank follows', $html );
+	}
+
 	// ---- remote_* sanitizers ---------------------------------------------
 
 	public function test_the_remote_bounds_come_from_the_field_not_a_hand_written_method(): void {
@@ -1011,7 +1050,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		// No saved option — textarea is empty, placeholder reflects the configured defaults
 		// loaded from the installed config file (env-specific: dev container uses
 		// memcache1:11211, vanilla install would use 127.0.0.1:11211). Don't pin the
-		// exact host — pin the shape and the source-of-truth (Config::load_config_defaults).
+		// exact host — pin the shape and the source-of-truth (Config::blank_value).
 		$admin = new Admin();
 
 		\ob_start();
@@ -1024,8 +1063,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="regular-text code"', $html );
 
 		// Placeholder must match what Config returns as default.
-		$defaults = \Newspack_Nodes\Config::load_config_defaults();
-		$expected = (string) ( $defaults['memcache_servers'][0] ?? '127.0.0.1:11211' );
+		$expected = (string) ( \Newspack_Nodes\Config::blank_value( 'memcache_servers' )[0] ?? '127.0.0.1:11211' );
 		$this->assertStringContainsString( 'placeholder="' . $expected . '"', $html );
 
 		$this->assertStringContainsString( 'one per line', $html );

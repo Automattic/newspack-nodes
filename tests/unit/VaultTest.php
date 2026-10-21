@@ -154,7 +154,7 @@ final class VaultTest extends TestCase {
 	 * entry sharing its id is edited and removed as freely as any other.
 	 */
 	public function test_a_config_file_vault_entry_is_ignored(): void {
-		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_files' );
 		$ref->setValue( null, [ 'vault' => [
 			'vault-file-7301' => [ 'url' => 'https://file-only.example' ],
 			'vault-both-5146' => [ 'url' => 'https://file-side.example' ],

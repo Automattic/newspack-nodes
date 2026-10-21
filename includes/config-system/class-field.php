@@ -111,9 +111,8 @@ class Field {
 		/** @api Inclusive upper bound for an `int` field; null clamps at PHP_INT_MAX. See $min. */
 		public readonly ?int $max = null,
 		/**
-		 * The key's built-in value: what `Config::load_config_defaults()`
-		 * starts from, what a blank save falls back to, and the page's
-		 * placeholder. It lives HERE because a default that lives only in the
+		 * The key's built-in value: what `Config` layers the config files
+		 * onto, what a blank save falls back to, and the page's placeholder. It lives HERE because a default that lives only in the
 		 * shipped config file reads null on every install whose file predates
 		 * the key — a deploy preserves the operator's file, so the key never
 		 * appears in it (ADR-20). null means the Field declares none.
@@ -126,7 +125,22 @@ class Field {
 		mixed $render = null,
 		public readonly bool $ui = true,
 		public readonly array $register_args = [],
+		/**
+		 * The key whose final value this one takes when no layer sets it — no
+		 * file, no option, or a null in either; '' follows nothing. Resolved
+		 * by `Schema::resolve_follows()` after every layer, so an option
+		 * setting only the followed key moves both. A following Field declares
+		 * no `default`: the followed key's is its default.
+		 *
+		 * @api
+		 */
+		public readonly string $follows = '',
 	) {
+		if ( '' !== $this->follows && null !== $this->default ) {
+			throw new \InvalidArgumentException(
+				\sprintf( 'config field %s declares both a default and follows %s', \esc_html( $this->key ), \esc_html( $this->follows ) )
+			);
+		}
 		$this->label_source    = $label;
 		$this->sanitize        = \is_callable( $sanitize ) ? $sanitize : null;
 		$this->render          = \is_callable( $render ) ? $render : null;

@@ -95,6 +95,27 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertNull( $rows['max_segments']['overlay'] );
 	}
 
+	/** An unstored following key whose value came from the key it follows names that key. */
+	public function test_an_unstored_following_key_reports_what_it_follows(): void {
+		$this->use_base_dir( $this->tmp, [ 'min_lifetime' => 7200 ] );
+
+		$rows = $this->rows_by_key();
+
+		$this->assertSame( '— (follows Min Lifetime)', $rows['lifetime']['stored'] );
+		$this->assertSame( '7200', $rows['lifetime']['effective'] );
+		$this->assertNull( $rows['lifetime']['overlay'] );
+	}
+
+	/** A following key a file sets reads as a file default, not as following. */
+	public function test_a_following_key_a_file_sets_reports_file_default(): void {
+		$this->use_base_dir( $this->tmp, [ 'min_lifetime' => 7200, 'lifetime' => 900 ] );
+
+		$rows = $this->rows_by_key();
+
+		$this->assertSame( '— (file default)', $rows['lifetime']['stored'] );
+		$this->assertSame( '900', $rows['lifetime']['effective'] );
+	}
+
 	public function test_stored_overlaid_setting_reports_overlay_value(): void {
 		\update_option( 'newspack_nodes_max_segments', 9 );
 		Config::reset();
