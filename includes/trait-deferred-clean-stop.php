@@ -21,7 +21,7 @@
  * inside `Event_Framework::uninterruptible()`, where no stop raises at all.
  *
  * @api Consumed by application snapshot nodes in sibling plugins: event-logger-nodes'
- *      Request_Builder_Node and Flame_Builder_Node.
+ *      Request_Builder_Node and Stats_Builder_Node.
  * @package Newspack_Nodes
  */
 

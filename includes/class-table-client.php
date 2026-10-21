@@ -38,7 +38,7 @@ final class Table_Client {
 	/**
 	 * Bind the client to the one node that asks through it.
 	 *
-	 * @api A node asking Tables: `Crawler_Node`, and event-logger-nodes' flame builder.
+	 * @api A node asking Tables: `Crawler_Node`, and event-logger-nodes' stats builder.
 	 * @param Node         $asker  FROM, and the sink the ask leaves through.
 	 * @param list<string> $tables Tables the asker names before it asks them.
 	 */
@@ -179,7 +179,7 @@ final class Table_Client {
 	 * the asker's `fill()`, which hands it to `accepts()`; a refusal, or no
 	 * answer, raises, since a row the batch named may be gone.
 	 *
-	 * @api A node writing row tables: event-logger-nodes' flame builder.
+	 * @api A node writing row tables: event-logger-nodes' stats builder.
 	 * @param string                 $table The Row_Table's registered name.
 	 * @param list<Row_Op> $batch `[ op, table, row, then?, ids? ]` each, as `Sqlite_Arm::write_rows()` takes them.
 	 * @throws \LogicException When an ask is in flight already.
@@ -326,7 +326,7 @@ final class Table_Client {
 	 * Take a message a Table sent: collect the awaited Table's reply, and
 	 * swallow any other Table's with a rate-limited line.
 	 *
-	 * @api A node asking Tables: `Crawler_Node`, and event-logger-nodes' flame builder.
+	 * @api A node asking Tables: `Crawler_Node`, and event-logger-nodes' stats builder.
 	 * @param array<int,mixed> $message Any message the asker received.
 	 * @return bool True when a Table sent the message, so it is not the asker's input.
 	 */
