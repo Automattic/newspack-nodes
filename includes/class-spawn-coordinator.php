@@ -275,10 +275,11 @@ class Spawn_Coordinator {
 	 * Backlog, not presence: a partition that exists but is drained must not wake
 	 * anyone, or the minute pass quietly restores the resident fleet on-demand
 	 * replaced. A live reader is skipped before its partition is ever read, and
-	 * so is a reader whose cursor is unknown — an ephemeral one keeps none, and
-	 * one that has not checkpointed yet reports the whole partition by default.
-	 * Reading either as "all of it is behind" respawns it on every pass forever,
-	 * which is the same resident fleet by another route.
+	 * so is an ephemeral one, which keeps no cursor and so has no backlog to
+	 * measure. A durable reader that has never checkpointed is behind by the
+	 * whole partition, because it starts at the oldest segment: a topology
+	 * activated for the first time has nothing else to wake it, and once woken
+	 * it checkpoints, so the next pass measures it like any other.
 	 *
 	 * Spawns the SPECIFIC backlogged worker rather than delegating to
 	 * `wake_on_demand()`, which wakes every absent reader of the directory: two
@@ -305,8 +306,7 @@ class Spawn_Coordinator {
 				if ( '' === $cursor ) {
 					continue;
 				}
-				$lag = Consumer_Node::lag_from_disk( $dir, $cursor );
-				if ( ! $lag['cursor_known'] || 0 === $lag['bytes_behind'] ) {
+				if ( 0 === Consumer_Node::lag_from_disk( $dir, $cursor )['bytes_behind'] ) {
 					continue;
 				}
 				$behind[] = $worker;

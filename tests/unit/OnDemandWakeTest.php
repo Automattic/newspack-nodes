@@ -183,6 +183,17 @@ class OnDemandWakeTest extends TestCase {
 		$this->assertSame( [], $this->woken() );
 	}
 
+	public function test_the_backlog_sweep_wakes_a_reader_that_never_saved_its_cursor(): void {
+		// A Consumer with no checkpoint starts at the oldest segment, so a
+		// newly activated reader is behind by all of it, never by nothing.
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->seed_partition( 'jobintake.p1', 512 );
+
+		$this->coordinator()->wake_readers_with_backlog( (float) \time() );
+
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
 	public function test_the_backlog_sweep_ignores_a_reader_with_no_durable_cursor(): void {
 		// An ephemeral reader (empty offsetlog token) keeps no cursor, so its
 		// backlog is unknowable — not "all of it". Reading it the other way

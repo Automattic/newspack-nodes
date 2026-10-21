@@ -1016,6 +1016,19 @@ class TopologiesCITest extends TestCase {
 		$this->assertFileDoesNotExist( $path );
 	}
 
+	public function test_delete_that_prunes_the_active_set_asks_live_workers_to_reload(): void {
+		\file_put_contents( "{$this->user}/orphan.tsl", "make_node Echo e\n" );
+		\file_put_contents( "{$this->user}/other.tsl", "make_node Echo o\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'orphan', 'other' ];
+		$other = "{$this->base_dir}/locks/other.p0.lock.d";
+		\mkdir( $other, 0755, true );
+		\file_put_contents( "{$other}/heartbeat", (string) \getmypid() );
+
+		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'delete', 'orphan' );
+
+		$this->assertFileExists( "{$other}/" . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
+	}
+
 	public function test_delete_prunes_active_entry_when_no_stock_fallback(): void {
 		// User-only topology, in the active set. After delete there is no stock
 		// copy to fall back to, so a dangling active entry would be orphaned —

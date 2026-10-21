@@ -177,6 +177,28 @@ function redactSecrets( value ) {
 }
 
 /**
+ * `redactSecrets()` for text that will not parse, such as a reply cut short:
+ * the same two shapes, a secret-named key's string value and a `--name=value`
+ * token, matched in the raw JSON text, an unterminated value included.
+ *
+ * @param {string} text Raw, possibly truncated, JSON text.
+ * @return {string} The text with credential values masked.
+ */
+export function redactSecretText( text ) {
+	return text
+		.replace(
+			/"((?:[^"\\]|\\.)*)"(\s*:\s*)"(?:[^"\\]|\\.)*("?)/g,
+			( match, key, colon, close ) =>
+				Core.isSecretProperty( key )
+					? `"${ key }"${ colon }"${ REDACTED }${ close }`
+					: match
+		)
+		.replace( /--([\w-]+)=(?:[^"\\\s]|\\.)*/g, ( match, name ) =>
+			Core.isSecretProperty( name ) ? `--${ name }=${ REDACTED }` : match
+		);
+}
+
+/**
  * dump_node's credential mask, mirroring PHP `Node::dump_node()`: a non-empty
  * secret-NAMED property is masked whole, anything else goes through the same
  * `redactSecrets()` the drop audit uses, so a secret nested in an ordinary

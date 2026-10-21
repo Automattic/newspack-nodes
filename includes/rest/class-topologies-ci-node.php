@@ -377,6 +377,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 
 		// Symmetry with save: deleting a child changes its parents too.
 		$restarted = self::restart_affected_fleets( $name );
+		if ( $pruned ) {
+			Topology_Registry::reload_live_workers();
+		}
 
 		return [
 			'name'             => $name,

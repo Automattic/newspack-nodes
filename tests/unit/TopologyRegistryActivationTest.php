@@ -208,6 +208,58 @@ class TopologyRegistryActivationTest extends TestCase {
 		}
 	}
 
+	/** A live worker of `$name` partition 0: its lock dir with a fresh heartbeat. */
+	private function live_worker( string $name ): string {
+		$dir = "{$this->base_dir}/locks/{$name}.p0.lock.d";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/heartbeat", (string) \getmypid() );
+		return $dir;
+	}
+
+	// A live writer keeps its wake map for its whole life unless told to reload,
+	// so a newly activated on-demand reader would wait out the writer's lifetime.
+	public function test_activate_asks_every_live_worker_to_reload(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl", "make_node Echo b\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'beta' ];
+		Config::reset();
+		$beta = $this->live_worker( 'beta' );
+
+		Topology_Registry::activate( 'alpha' );
+
+		$this->assertFileExists( "{$beta}/" . Lock_Node::RELOAD_FLAG );
+	}
+
+	public function test_activate_spawns_before_a_reload_flag_that_will_not_land_raises(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\nmake_node Echo a\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl", "make_node Echo b\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'beta' ];
+		Config::reset();
+		$beta = $this->live_worker( 'beta' );
+		\chmod( $beta, 0555 );
+
+		try {
+			$this->caught( fn () => Topology_Registry::activate( 'alpha' ), 'expected the refused flag to raise' );
+		} finally {
+			\chmod( $beta, 0755 );
+		}
+
+		$this->assertCount( 2, $GLOBALS['_test_outbound_posts'] ?? [], 'the fleet spawned first' );
+		$this->assertContains( 'alpha', (array) \get_option( 'newspack_nodes_topologies', [] ) );
+	}
+
+	public function test_deactivate_asks_every_remaining_worker_to_reload(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl", "make_node Echo b\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];
+		Config::reset();
+		$beta = $this->live_worker( 'beta' );
+
+		Topology_Registry::deactivate( 'alpha' );
+
+		$this->assertFileExists( "{$beta}/" . Lock_Node::RELOAD_FLAG );
+	}
+
 	public function test_deactivate_preserves_other_active_names(): void {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		\file_put_contents( "{$this->stock}/beta.tsl", "make_node Echo b\n" );
