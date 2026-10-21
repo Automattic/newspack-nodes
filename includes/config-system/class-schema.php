@@ -39,48 +39,48 @@ namespace Newspack_Nodes\Config_System;
 class Schema {
 
 	/**
-	 * Hold a plugin's declaration.
+	 * Each following key => the key it follows, built once at construction.
+	 *
+	 * @var array<string,string>
+	 */
+	private readonly array $follows;
+
+	/**
+	 * Hold a plugin's declaration, refusing a Field that follows a key this
+	 * schema does not declare, itself, or a key that follows another: a
+	 * followed key declares its own value, so one pass resolves every follow.
 	 *
 	 * @param string                                                       $prefix   WP-option name prefix (e.g. 'newspack_nodes_').
 	 * @param array<int,Field>                                             $fields   The settings, in render order.
 	 * @param array<string,array{title:string|callable,callback:callable}> $sections Section id => title (a string or a `fn(): string` thunk) plus the callback printing that section's intro.
+	 * @throws \InvalidArgumentException When a Field follows an undeclared key, itself, or a following key.
 	 */
 	public function __construct(
 		private readonly string $prefix,
 		private readonly array $fields,
 		private readonly array $sections = [],
-	) {}
-
-	/**
-	 * The unprefixed key of every Field that names one — what `Options_Overlay`
-	 * overlays onto the defaults, and the set `Config` declares as readable.
-	 *
-	 * Whether the page renders a key is irrelevant here. A `ui: false` Field is
-	 * an overlay-only key an operator sets in the config file, and it has to
-	 * resolve through `Config::value()` like any other or the read is refused.
-	 * Only the keyless display-only Fields drop out.
-	 *
-	 * @return array<int,string>
-	 */
-	public function overlay_keys(): array {
-		return $this->collect_keys( static fn ( Field $f ): bool => '' !== $f->key );
-	}
-
-	/**
-	 * The unprefixed keys of the Fields the predicate accepts, in declaration
-	 * order.
-	 *
-	 * @param callable(Field):bool $predicate Field filter.
-	 * @return array<int,string>
-	 */
-	private function collect_keys( callable $predicate ): array {
-		$out = [];
+	) {
+		$declared = \array_fill_keys( $this->overlay_keys(), true );
+		$follows  = [];
 		foreach ( $this->fields as $field ) {
-			if ( $predicate( $field ) ) {
-				$out[] = $field->key;
+			if ( '' === $field->follows ) {
+				continue;
+			}
+			if ( ! isset( $declared[ $field->follows ] ) ) {
+				throw new \InvalidArgumentException(
+					\sprintf( 'config field %s follows undeclared key %s', \esc_html( $field->key ), \esc_html( $field->follows ) )
+				);
+			}
+			$follows[ $field->key ] = $field->follows;
+		}
+		foreach ( $follows as $key => $followed ) {
+			if ( isset( $follows[ $followed ] ) ) {
+				throw new \InvalidArgumentException(
+					\sprintf( 'config field %s follows %s, which itself follows a key', \esc_html( $key ), \esc_html( $followed ) )
+				);
 			}
 		}
-		return $out;
+		$this->follows = $follows;
 	}
 
 	/**
@@ -151,6 +151,24 @@ class Schema {
 	}
 
 	/**
+	 * The Field a following Field follows. Construction refused every follow
+	 * of an undeclared key, so a miss means the caller passed a Field that
+	 * follows nothing.
+	 *
+	 * @param Field $field A Field whose `follows` names a key.
+	 * @throws \LogicException When $field follows no key this schema declares.
+	 */
+	public function followed( Field $field ): Field {
+		$leader = '' === $field->follows ? null : $this->field_for_short( $field->follows );
+		if ( null === $leader ) {
+			throw new \LogicException(
+				\sprintf( 'config field %s follows no declared key', \esc_html( $field->key ) )
+			);
+		}
+		return $leader;
+	}
+
+	/**
 	 * The Field declaring an unprefixed option key, or null when none does.
 	 *
 	 * @param string $short Unprefixed option key.
@@ -212,6 +230,83 @@ class Schema {
 	}
 
 	/**
+	 * The stored WordPress options overlaid onto `$defaults` by presence
+	 * (`Options_Overlay`), then every follow resolved: the one step each
+	 * plugin's `Config` takes to its effective config, so no caller can
+	 * overlay without resolving.
+	 *
+	 * @param array<string,mixed> $defaults Every layer below the options.
+	 * @return array<string,mixed>
+	 */
+	public function overlay( array $defaults ): array {
+		return $this->resolve_follows(
+			Options_Overlay::apply( $defaults, $this->overlay_keys(), $this->prefix )
+		);
+	}
+
+	/**
+	 * The unprefixed key of every Field that names one — what `Options_Overlay`
+	 * overlays onto the defaults, and the set `Config` declares as readable.
+	 *
+	 * Whether the page renders a key is irrelevant here. A `ui: false` Field is
+	 * an overlay-only key an operator sets in the config file, and it has to
+	 * resolve through `Config::value()` like any other or the read is refused.
+	 * Only the keyless display-only Fields drop out.
+	 *
+	 * @return array<int,string>
+	 */
+	public function overlay_keys(): array {
+		return $this->collect_keys( static fn ( Field $f ): bool => '' !== $f->key );
+	}
+
+	/**
+	 * The unprefixed keys of the Fields the predicate accepts, in declaration
+	 * order.
+	 *
+	 * @param callable(Field):bool $predicate Field filter.
+	 * @return array<int,string>
+	 */
+	private function collect_keys( callable $predicate ): array {
+		$out = [];
+		foreach ( $this->fields as $field ) {
+			if ( $predicate( $field ) ) {
+				$out[] = $field->key;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Give every following key no layer set — absent, or null — the value of
+	 * the key it follows. An explicit value wins, zero included.
+	 *
+	 * Runs on a config already merged from EVERY layer it reads, so an option
+	 * setting only the followed key moves both. Resolving an earlier layer
+	 * instead would hand the overlay a filled-in value it cannot tell from an
+	 * operator's.
+	 *
+	 * @param array<string,mixed> $config The merged config.
+	 * @return array<string,mixed>
+	 */
+	public function resolve_follows( array $config ): array {
+		foreach ( $this->follows as $key => $followed ) {
+			$config[ $key ] ??= $config[ $followed ] ?? null;
+		}
+		return $config;
+	}
+
+	/**
+	 * Every key that follows $key, in declaration order; none when nothing
+	 * does.
+	 *
+	 * @param string $key Unprefixed config key.
+	 * @return list<string>
+	 */
+	public function followers( string $key ): array {
+		return \array_keys( $this->follows, $key, true );
+	}
+
+	/**
 	 * Every declared key's built-in default — the base `Config` layers the
 	 * config files and then the WP-option overlay onto (ADR-20).
 	 *
@@ -227,6 +322,9 @@ class Schema {
 	 * (`ConfigSchemaTest::test_the_schema_supplies_a_default_for_every_declared_key`).
 	 * Plugins whose defaults live in a `Config::config_defaults()` array
 	 * instead — pyrobase, nuclear — declare no Field defaults.
+	 *
+	 * A following Field is omitted as well: its default is the followed key's
+	 * final value, which only {@see self::resolve_follows()} can know.
 	 *
 	 * @return array<string,mixed>
 	 */

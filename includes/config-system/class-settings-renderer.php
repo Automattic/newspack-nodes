@@ -118,9 +118,17 @@ class Settings_Renderer {
 			}
 			$key       = $field->key;
 			$raw_store = Options_Overlay::stored_value( $prefix, $key );
-			$stored    = Options_Overlay::ABSENT === $raw_store
-				? \__( '— (file default)', 'newspack-nodes' )
-				: self::format_value( $raw_store );
+			if ( Options_Overlay::ABSENT !== $raw_store ) {
+				$stored = self::format_value( $raw_store );
+			} elseif ( self::took_followed_value( $field, $effective ) ) {
+				$stored = \sprintf(
+					/* translators: %s: label of the setting this one follows */
+					\__( '— (follows %s)', 'newspack-nodes' ),
+					$schema->followed( $field )->label()
+				);
+			} else {
+				$stored = \__( '— (file default)', 'newspack-nodes' );
+			}
 
 			// load_config() applied the overlay; fall back if it omits the key.
 			$effective_value = $effective[ $key ] ?? $raw_store;
@@ -189,6 +197,23 @@ class Settings_Renderer {
 			\__( 'Restarts: %s', 'newspack-nodes' ),
 			\implode( ', ', \array_keys( $topologies ) )
 		);
+	}
+
+	/**
+	 * Whether an unstored following Field's effective value is the one its
+	 * followed key holds, which is what it takes when no file sets it.
+	 *
+	 * The panel sees only the resolved config, so a file setting the key to
+	 * exactly the followed key's value also reads as following; the value
+	 * shown is the same either way.
+	 *
+	 * @param Field               $field     A rendered setting.
+	 * @param array<string,mixed> $effective The caller's resolved config.
+	 */
+	private static function took_followed_value( Field $field, array $effective ): bool {
+		return '' !== $field->follows
+			&& \array_key_exists( $field->key, $effective )
+			&& $effective[ $field->key ] === ( $effective[ $field->follows ] ?? null );
 	}
 
 	/**

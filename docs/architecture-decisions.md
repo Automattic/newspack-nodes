@@ -1325,12 +1325,18 @@ A plugin declares defaults one of two ways, both first-class. Where a
 array is (newspack-nuclear-gyrobase, which has no Field layer, and newspack-pyrobase).
 Declaring a key in both places is the drift this ADR exists to prevent.
 
-![Four layers stacked weakest first: Settings_Schema in code, the shipped newspack-nodes-config.php that a deploy replaces with the operator's own, the file LOCAL_NEWSPACK_NODES_CONF names, and a stored newspack_nodes_<key> option that wins by presence. The unknown-key report runs on the shipped file before the local file is applied. Side cards: the two declaration shapes, Schema::defaults() or a config_defaults() array; reading through a helper that falls back to the declared default. Three rejected shapes: the file as declaration failing forward (sse_idle_timeout inert) and backward (base_directroy self-declaring), and throwing on an unknown key, a card that also rejects putting every default in a Field, since pyrobase would carry 71 Fields no page shows. A note: uninstall never resolves the schema default.](img/adr-config-layers.png)
+![Four layers stacked weakest first: Settings_Schema in code, the shipped newspack-nodes-config.php that a deploy replaces with the operator's own, the file LOCAL_NEWSPACK_NODES_CONF names, and a stored newspack_nodes_<key> option that wins by presence, after which Schema::overlay() gives a following key no layer set the value of the key it follows, and Config::blank_value() is what a blank save reads. The unknown-key report runs on the shipped file before the local file is applied. Side cards: the two declaration shapes, Schema::defaults() or a config_defaults() array; reading through a helper that falls back to the declared default. Three rejected shapes: the file as declaration failing forward (sse_idle_timeout inert) and backward (base_directroy self-declaring), and throwing on an unknown key, a card that also rejects putting every default in a Field, since pyrobase would carry 71 Fields no page shows. A note: uninstall never resolves the schema default.](img/adr-config-layers.png)
 
 A key with no sensible universal value declares `null`, and that is not a missing default:
 per-deployment identity has no default that is right anywhere else, and committing one
 deployment's value as "the default" is worse than declaring none. The test is evidence, not
 taste: a key every deployment overrides is identity.
+
+A key whose right default is another key's value declares `follows` instead of a default, as
+`lifetime` follows `min_lifetime`. `Schema::resolve_follows()` gives it the followed key's
+value after every layer has merged, the option overlay included, so an operator setting only
+the followed key moves both, and one setting the following key at any layer, 0 included, wins.
+`Schema::defaults()` omits a following key, because no layer below the merge knows its value.
 
 **Alternatives considered:** Keeping the file as the base and adding a completeness test —
 rejected: the test sees only the file in THIS checkout, and the failure is on an installed host

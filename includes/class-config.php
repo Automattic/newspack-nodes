@@ -49,11 +49,11 @@ class Config {
 	/** The quarantine root's name under the base: `Config::deadletter_dir()`. */
 	public const DEADLETTER_SUBDIR = 'deadletter';
 
-	/** @var array<string,mixed>|null Cached effective config: the defaults under the option overlay. */
+	/** @var array<string,mixed>|null Cached effective config: the files under the option overlay, follows resolved. */
 	private static $config = null;
 
-	/** @var array<string,mixed>|null Cached defaults: schema values under both config files. */
-	private static $config_defaults = null;
+	/** @var array<string,mixed>|null Cached schema values under both config files, no follow resolved. */
+	private static $config_files = null;
 
 	/**
 	 * Keys the shipped config named that no Field declares. Reported, never
@@ -226,6 +226,23 @@ class Config {
 	}
 
 	/**
+	 * What a substrate key reads with no option row: the config files' value
+	 * when they set it, else, for a key that follows another, the followed
+	 * key's effective value, stored option included. A blank save deletes the
+	 * row, so this is also what the settings page's placeholder shows and what
+	 * settings-sync pushes for an absent option.
+	 *
+	 * @api
+	 * @param string $key Unprefixed substrate config key.
+	 * @return mixed
+	 * @throws \RuntimeException When the substrate schema does not declare $key, or a config file is invalid.
+	 */
+	public static function blank_value( string $key ): mixed {
+		$followed = self::blank_follows( $key );
+		return '' === $followed ? ( self::load_config_files()[ $key ] ?? null ) : self::value( $followed );
+	}
+
+	/**
 	 * Fail-loud single-key config read: an undeclared key throws instead of
 	 * limping on a `?? default` — that's the guard that catches a renamed or
 	 * typo'd key. A declared key resolves to load_config()[$key] (option overlay
@@ -332,6 +349,25 @@ class Config {
 	}
 
 	/**
+	 * The key a blank $key follows, or '' when a blank there reads the files:
+	 * $key follows nothing, or a config file sets it explicitly.
+	 *
+	 * @api
+	 * @param string $key Unprefixed substrate config key.
+	 * @throws \RuntimeException When the substrate schema does not declare $key, or a config file is invalid.
+	 */
+	public static function blank_follows( string $key ): string {
+		$field = '' === $key ? null : Settings_Schema::get()->field_for_short( $key );
+		if ( null === $field ) {
+			throw new \RuntimeException(
+				\sprintf( "unknown config key '%s' — not declared by the substrate schema", \esc_html( $key ) )
+			);
+		}
+		$set_by_a_file = null !== ( self::load_config_files()[ $key ] ?? null );
+		return $set_by_a_file ? '' : $field->follows;
+	}
+
+	/**
 	 * The configured base path, unvalidated — '' when unset. `wp nodes doctor`
 	 * needs the path ensure_path() REFUSED in order to explain the refusal.
 	 *
@@ -354,7 +390,7 @@ class Config {
 	 * @throws \RuntimeException When a config file is invalid; the `config-keys` check catches it and reports that instead.
 	 */
 	public static function unrecognized_keys(): array {
-		self::load_config_defaults();
+		self::load_config_files();
 		return self::$unrecognized;
 	}
 
@@ -542,8 +578,10 @@ class Config {
 	}
 
 	/**
-	 * The effective configuration: `load_config_defaults()` with the stored
-	 * WordPress options overlaid. Memoized for the process; `reset()` clears it.
+	 * The effective configuration: the config files with the stored WordPress
+	 * options overlaid, then every following key no layer set resolved
+	 * (`Schema::overlay()`). Memoized for the process; `reset()`
+	 * clears it.
 	 *
 	 * @api
 	 * @return array<string,mixed>
@@ -554,30 +592,22 @@ class Config {
 			return self::$config;
 		}
 
-		// Presence overlay: any stored option wins; only absent falls back.
-		$schema = Settings_Schema::get();
-		$config = Config_System\Options_Overlay::apply(
-			self::load_config_defaults(),
-			$schema->overlay_keys(),
-			$schema->prefix()
-		);
-
-		self::$config = $config;
-		return $config;
+		self::$config = Settings_Schema::get()->overlay( self::load_config_files() );
+		return self::$config;
 	}
 
 	/**
-	 * Configuration WITHOUT the WordPress option overlay: the schema's code
-	 * defaults, overridden by the shipped config file, then by an operator's
-	 * LOCAL_NEWSPACK_NODES_CONF. The schema is the definition; both files are
-	 * override surfaces.
+	 * The schema's code defaults, overridden by the shipped config file, then
+	 * by an operator's LOCAL_NEWSPACK_NODES_CONF, with no follow resolved: the
+	 * overlay must see a following key the files left unset still unset. The
+	 * schema is the definition; both files are override surfaces.
 	 *
 	 * @return array<string,mixed>
 	 * @throws \RuntimeException When either config file returns anything but a tree of scalars, nulls and arrays, or LOCAL_NEWSPACK_NODES_CONF names no canonical readable PHP file.
 	 */
-	public static function load_config_defaults(): array {
-		if ( null !== self::$config_defaults ) {
-			return self::$config_defaults;
+	private static function load_config_files(): array {
+		if ( null !== self::$config_files ) {
+			return self::$config_files;
 		}
 
 		// Code defaults first; a file only overrides values it names.
@@ -603,9 +633,9 @@ class Config {
 			);
 		}
 
-		self::$config_defaults = $config;
+		self::$config_files = $config;
 
-		return self::$config_defaults;
+		return self::$config_files;
 	}
 
 	/**
@@ -677,6 +707,19 @@ class Config {
 	}
 
 	/**
+	 * Drop the memoized effective config alone, so the next `load_config()`
+	 * re-reads the options and re-resolves every follow. Unlike `reset()` it
+	 * fires no `RESET_ACTION`, so the files, the parsed topologies and the
+	 * Vault stay cached. A long-lived reader purges the options cache first
+	 * (`invalidate_options_cache()`), then calls this.
+	 *
+	 * @api
+	 */
+	public static function forget_effective(): void {
+		self::$config = null;
+	}
+
+	/**
 	 * Drop this process's cached copy of every option, so it rereads what
 	 * another process wrote. A long-lived reader calls it once at the start of
 	 * each unit of work. Where a `Config::reset()` follows, this must run FIRST:
@@ -732,7 +775,7 @@ class Config {
 	 */
 	public static function reset(): void {
 		self::$config                   = null;
-		self::$config_defaults          = null;
+		self::$config_files             = null;
 		self::$unrecognized             = [];
 		self::$keys_declared            = false;
 		self::$validated_base_directory = null;

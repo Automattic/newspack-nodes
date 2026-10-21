@@ -6,6 +6,47 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`min_lifetime` defaults to 86400, and `lifetime` follows it.** A
+  Partition, Topic or Log whose topology passes `<config:min_lifetime>` and
+  `<config:lifetime>` keeps up to a day of segments where it kept 12 hours,
+  under the same `max_segments` ceiling. A site that sets `min_lifetime` in a
+  config file or as an option, and sets no `lifetime`, now gets `lifetime`
+  equal to that value: a `min_lifetime` of 3600 makes the age rule prune
+  segments past an hour, and a `min_lifetime` of 0 turns age pruning off.
+  Such a site sets `lifetime` explicitly, to 86400, to keep its old age rule.
+  A site on the defaults that wants the old retention sets `min_lifetime` to
+  43200 and `lifetime` to 86400. `lifetime` declares no literal default, so
+  `Settings_Schema::get()->defaults()` no longer holds it; read the
+  effective value through `Config::value( 'lifetime' )`.
+
+- **`remote_lifetime` follows `remote_min_lifetime`.** Settings-sync pushes
+  `remote_lifetime` to each spoke's `newspack_nodes_lifetime`, so a hub that
+  sets only `remote_min_lifetime`, in a config file or as an option, now
+  pushes that value as every spoke's `lifetime`: a `remote_min_lifetime` of
+  3600 makes each spoke's age
+  rule prune past an hour. A hub that wants a different spoke age rule sets
+  `remote_lifetime` explicitly. A hub on the defaults pushes 900 for both, as
+  before. `remote_lifetime` declares no literal default either.
+
+- **`Config::load_config_defaults()` is removed.** Read what a key holds with
+  no option row through `Config::blank_value( $key )`: the config files' value
+  when they set it, else, for a key following another, the followed key's
+  effective value. A caller indexing the old array calls `blank_value()` per
+  key and raises its `version_at_least()` floor to this release.
+
+- **Settings-sync resolves a blank substrate option itself.** A
+  `newspack_nodes/settings_sync/value` filter receives a substrate-declared
+  option that is absent or blank already resolved to `Config::blank_value()`,
+  never `false` or `''`; a filter that resolved those itself drops that
+  branch, as newspack-event-logger-nodes does.
+
+- **A plugin's `Config` overlays its options through `Schema::overlay()`.**
+  It runs `Options_Overlay::apply()` with the schema's own keys and prefix,
+  then `Schema::resolve_follows()`, so a following key resolves after the
+  options. A consumer calling `Options_Overlay::apply()` directly switches to
+  `$schema->overlay( $defaults )` and raises its `version_at_least()` floor
+  to this release; newspack-event-logger-nodes and newspack-pyrobase do.
+
 - **Driver text the substrate reports is shaped.** A durable Table's
   `last_failure()` and `diagnostic_metadata()`, the `Table_Unavailable` a
   Row_Table read or snapshot throws, a refused `Wpdb_Arm::install()`, a

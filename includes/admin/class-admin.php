@@ -485,7 +485,10 @@ class Admin {
 	 *
 	 * The value is the stored option and the placeholder is the effective default
 	 * — the schema's code default as the config files override it — so a blank box
-	 * shows what the field falls back to instead of hiding it.
+	 * shows what the field falls back to instead of hiding it: `Config::blank_value()`,
+	 * which for a field following another no file sets is the followed key's
+	 * effective value, stored option included, and the description then says
+	 * it follows.
 	 *
 	 * Refuses to render a field the schema does not declare, or declares without a
 	 * min and max. An unbounded number box accepts a partition count of 900 or a
@@ -497,7 +500,8 @@ class Admin {
 	 * @throws \RuntimeException When the schema declares no bounds for the field.
 	 */
 	private static function render_number( string $field, string $description ): void {
-		$bounds = Settings_Schema::get()->field_for_short( $field );
+		$schema = Settings_Schema::get();
+		$bounds = $schema->field_for_short( $field );
 		if ( null === $bounds || null === $bounds->min || null === $bounds->max ) {
 			throw new \RuntimeException(
 				\esc_html( "settings field declares no bounds: {$field}" )
@@ -505,11 +509,17 @@ class Admin {
 		}
 		$min     = $bounds->min;
 		$max     = $bounds->max;
-		$default = self::default_int(
-			Config::load_config_defaults(),
-			$field,
-			Core::as_int( $bounds->default, 0 )
-		);
+		$followed = Config::blank_follows( $field );
+		$default  = '' === $followed
+			? self::blank_int( $field, Core::as_int( $bounds->default, 0 ) )
+			: Core::as_int( Config::value( $followed ), 0 );
+		if ( '' !== $followed ) {
+			$description .= ' ' . \sprintf(
+				/* translators: %s: label of the setting this one follows */
+				\__( 'Blank follows %s.', 'newspack-nodes' ),
+				$schema->followed( $bounds )->label()
+			);
+		}
 		$value   = \get_option( self::OPTION_PREFIX . $field, '' );
 		$html    = Settings_Renderer::number(
 			$field,
@@ -769,14 +779,12 @@ class Admin {
 	 * sentinel value.
 	 */
 	public static function base_directory_callback(): void {
-		$defaults = Config::load_config_defaults();
-		$base     = $defaults['base_directory'] ?? '';
-		$value    = \get_option( 'newspack_nodes_base_directory', '' );
-		$html     = Settings_Renderer::directory(
+		$value = \get_option( 'newspack_nodes_base_directory', '' );
+		$html  = Settings_Renderer::directory(
 			'base_directory',
 			'newspack_nodes_base_directory',
 			Core::as_string( $value ),
-			Core::as_string( $base ),
+			Core::as_string( Config::blank_value( 'base_directory' ) ),
 			\__( 'Base directory for logs, locks, and offsets.', 'newspack-nodes' ),
 			self::reset_mark_name( 'base_directory' )
 		);
@@ -789,8 +797,7 @@ class Admin {
 	 * a placeholder alone vanishes the moment the operator types one server.
 	 */
 	public static function memcache_servers_callback(): void {
-		$defaults        = Config::load_config_defaults();
-		$default_servers = $defaults['memcache_servers'] ?? [ '127.0.0.1:11211' ];
+		$default_servers = Config::blank_value( 'memcache_servers' ) ?? [ '127.0.0.1:11211' ];
 		if ( ! \is_array( $default_servers ) ) {
 			$default_servers = [ '127.0.0.1:11211' ];
 		}
@@ -854,14 +861,13 @@ class Admin {
 	 *   runtime base directory will not resolve.
 	 */
 	public static function total_storage_callback(): void {
-		$defaults     = Config::load_config_defaults();
 		$segment_size = \get_option( 'newspack_nodes_segment_size', '' );
 		$num_segments = \get_option( 'newspack_nodes_num_segments', '' );
 		$max_segments = \get_option( 'newspack_nodes_max_segments', '' );
 
-		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : Core::as_int( $segment_size );
-		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 8 ) : Core::as_int( $num_segments );
-		$max_segments = '' === $max_segments ? self::default_int( $defaults, 'max_segments', 0 ) : Core::as_int( $max_segments );
+		$segment_size = '' === $segment_size ? self::blank_int( 'segment_size', 64 * 1024 * 1024 ) : Core::as_int( $segment_size );
+		$num_segments = '' === $num_segments ? self::blank_int( 'num_segments', 8 ) : Core::as_int( $num_segments );
+		$max_segments = '' === $max_segments ? self::blank_int( 'max_segments', 0 ) : Core::as_int( $max_segments );
 		$max_segments = \Newspack_Nodes\Partition_Node::derive_max_segments( $num_segments, $max_segments );
 
 		// on_disk() is already per-partition; don't multiply by num_partitions.
@@ -895,17 +901,15 @@ class Admin {
 	}
 
 	/**
-	 * Read an int config default, coercing a scalar exactly as `(int)` would and
-	 * taking the fallback for a missing or non-scalar entry.
+	 * What an int key reads with no option row (`Config::blank_value()`),
+	 * coerced as `(int)` would, taking the fallback for null or a non-scalar.
 	 *
-	 * @param array<string,mixed> $defaults Config defaults.
-	 * @param string              $key      Key to read.
-	 * @param int                 $fallback Value for a missing or non-scalar entry.
-	 * @return int The default this field renders as its placeholder.
+	 * @param string $key      Unprefixed substrate config key.
+	 * @param int    $fallback Value for a null or non-scalar entry.
+	 * @return int The value this field renders as its placeholder.
 	 */
-	private static function default_int( array $defaults, string $key, int $fallback ): int {
-		$value = $defaults[ $key ] ?? $fallback;
-		return Core::as_int( $value, $fallback );
+	private static function blank_int( string $key, int $fallback ): int {
+		return Core::as_int( Config::blank_value( $key ) ?? $fallback, $fallback );
 	}
 
 	/**

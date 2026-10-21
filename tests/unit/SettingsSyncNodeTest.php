@@ -468,6 +468,124 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame( [ 'newspack_nodes_max_segments', '99' ], $out[ Message::VALUE ]['arguments'] );
 	}
 
+	/** A settings-change event naming one option, as the Consumer feeds it. */
+	private static function event_for( string $option ): array {
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => $option ];
+		return $msg;
+	}
+
+	/** Each captured `set`'s arguments, in send order. */
+	private static function pushed( Capture_Sink_Node $sink ): array {
+		return \array_map( static fn ( array $m ): array => $m[ Message::VALUE ]['arguments'], $sink->captured );
+	}
+
+	/** An absent following option pushes what a blank yields: the followed option's effective value. */
+	public function test_an_absent_following_option_pushes_the_followed_options_value(): void {
+		\update_option( 'newspack_nodes_remote_min_lifetime', 2700 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_lifetime', 'settings', 'newspack_nodes_lifetime' );
+
+		$node->fill( self::event_for( 'newspack_nodes_remote_lifetime' ) );
+
+		$this->assertSame( [ [ 'newspack_nodes_lifetime', '2700' ] ], self::pushed( $sink ) );
+	}
+
+	/** An absent non-following substrate option pushes its config-file value. */
+	public function test_an_absent_substrate_option_pushes_its_file_value(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'remote_segment_size' => 3145728 ] );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_segment_size', 'settings', 'newspack_nodes_segment_size' );
+
+		$node->fill( self::event_for( 'newspack_nodes_remote_segment_size' ) );
+
+		$this->assertSame( [ [ 'newspack_nodes_segment_size', '3145728' ] ], self::pushed( $sink ) );
+	}
+
+	/** A blank stored substrate option pushes its config-file value, never ''. */
+	public function test_a_blank_substrate_option_pushes_its_file_value(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'remote_segment_size' => 3145728 ] );
+		\update_option( 'newspack_nodes_remote_segment_size', '' );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_segment_size', 'settings', 'newspack_nodes_segment_size' );
+
+		$node->fill( self::event_for( 'newspack_nodes_remote_segment_size' ) );
+
+		$this->assertSame( [ [ 'newspack_nodes_segment_size', '3145728' ] ], self::pushed( $sink ) );
+	}
+
+	/** A long-lived node pushes the effective value as it stands at each push, not as first read. */
+	public function test_a_second_push_carries_an_option_changed_since_the_first(): void {
+		\update_option( 'newspack_nodes_remote_min_lifetime', 2700 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_lifetime', 'settings', 'newspack_nodes_lifetime' );
+		$node->fill( self::event_for( 'newspack_nodes_remote_lifetime' ) );
+
+		\update_option( 'newspack_nodes_remote_min_lifetime', 4500 );
+		$sink->captured = [];
+		$node->fire();
+
+		$this->assertSame( [ [ 'newspack_nodes_lifetime', '4500' ] ], self::pushed( $sink ) );
+	}
+
+	/** A change to a followed option re-pushes every registered option that follows it. */
+	public function test_an_event_for_a_followed_option_pushes_its_followers_too(): void {
+		\update_option( 'newspack_nodes_remote_min_lifetime', 2700 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_min_lifetime', 'settings', 'newspack_nodes_min_lifetime' );
+		$node->add_setting( 'newspack_nodes_remote_lifetime', 'settings', 'newspack_nodes_lifetime' );
+		$node->add_setting( 'newspack_nodes_remote_min_lifetime', 'settings', 'newspack_nodes_remote_min_lifetime' );
+		$node->add_setting( 'newspack_nodes_remote_lifetime', 'settings', 'newspack_nodes_remote_lifetime' );
+
+		$node->fill( self::event_for( 'newspack_nodes_remote_min_lifetime' ) );
+
+		$this->assertSame(
+			[
+				[ 'newspack_nodes_min_lifetime', '2700' ],
+				[ 'newspack_nodes_remote_min_lifetime', '2700' ],
+				[ 'newspack_nodes_lifetime', '2700' ],
+				[ 'newspack_nodes_remote_lifetime', '2700' ],
+			],
+			self::pushed( $sink )
+		);
+	}
+
+	/** A declared option that resolves to null cannot encode, so it throws and sends nothing. */
+	public function test_a_blank_option_resolving_to_null_throws_and_sends_nothing(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'remote_segment_size' => null ] );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_segment_size', 'settings', 'newspack_nodes_segment_size' );
+
+		try {
+			$node->fill( self::event_for( 'newspack_nodes_remote_segment_size' ) );
+			$this->fail( 'a null value was pushed' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'settings_sync: cannot encode value for newspack_nodes_remote_segment_size', $e->getMessage() );
+		}
+		$this->assertSame( [], $sink->captured );
+	}
+
+	/** A follower with a stored row did not move, so a change to its leader pushes the leader alone. */
+	public function test_a_stored_follower_is_not_re_pushed_with_its_followed_option(): void {
+		\update_option( 'newspack_nodes_remote_min_lifetime', 2700 );
+		\update_option( 'newspack_nodes_remote_lifetime', 600 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_min_lifetime', 'settings', 'newspack_nodes_min_lifetime' );
+		$node->add_setting( 'newspack_nodes_remote_lifetime', 'settings', 'newspack_nodes_lifetime' );
+
+		$node->fill( self::event_for( 'newspack_nodes_remote_min_lifetime' ) );
+
+		$this->assertSame( [ [ 'newspack_nodes_min_lifetime', '2700' ] ], self::pushed( $sink ) );
+	}
+
 	public function test_fill_ignores_non_struct_message(): void {
 		\update_option( 'newspack_nodes_max_segments', 8 );
 		$sink = new Capture_Sink_Node();

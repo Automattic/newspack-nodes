@@ -126,13 +126,6 @@ class ConfigTest extends TestCase {
 		$this->assertEquals( $config1, $config2 );
 	}
 
-	public function test_load_config_defaults_cached(): void {
-		Config::reset();
-		$d1 = Config::load_config_defaults();
-		$d2 = Config::load_config_defaults();
-		$this->assertSame( $d1, $d2 );
-	}
-
 	// ── value(): fail-loud declared-key accessor ───────────────────────────
 
 	public function test_value_returns_configured_value_for_declared_key(): void {
@@ -290,7 +283,7 @@ class ConfigTest extends TestCase {
 
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $override_path );
 		Config::reset();
-		$config = Config::load_config_defaults();
+		$config = Config::load_config();
 		$this->assertSame( 'nodes-external-8317', $config['operator_override_sentinel'] );
 	}
 
@@ -301,7 +294,7 @@ class ConfigTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'LOCAL_NEWSPACK_NODES_CONF' );
 
-		Config::load_config_defaults();
+		Config::load_config();
 	}
 
 	// ── WP option overrides ────────────────────────────────────────────────
@@ -757,7 +750,7 @@ class ConfigTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'config must return array of scalar/array values only' );
 
-		Config::load_config_defaults();
+		Config::load_config();
 	}
 
 	public function test_explicit_local_env_override_with_object_throws(): void {
@@ -772,7 +765,7 @@ class ConfigTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'config must return array of scalar/array values only' );
 
-		Config::load_config_defaults();
+		Config::load_config();
 	}
 
 	// ── get_base_directory throws when not configured ──────────────────────

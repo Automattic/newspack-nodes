@@ -81,15 +81,20 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * On a settings-change event, push the named option to the spokes.
+	 * On a settings-change event, push the named option to the spokes, and
+	 * every registered option whose substrate key follows its key, since a
+	 * blank follower reads the changed value.
 	 *
 	 * The Consumer feeds a TM_STRUCT carrying only the option NAME
 	 * (`VALUE = ['option' => $name]`); the effective value is read here at
-	 * consume time. Anything that isn't a TM_STRUCT with an 'option' key is
-	 * dropped, and so is an option this node would not push, before it pays the
-	 * cache flush: `Settings_Event_Writer` records every `newspack_*` option.
+	 * consume time, after both caches are dropped, because this worker lives
+	 * ~595 s. Anything that isn't a TM_STRUCT with an 'option' key is dropped,
+	 * and so is an option this node would not push, before it pays the
+	 * flush: `Settings_Event_Writer` records every `newspack_*` option. Every
+	 * option is attempted, and what any of them threw is raised after the last.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
+	 * @throws \Throwable Every option's failure, combined, raised after the last.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -101,12 +106,14 @@ class Settings_Sync_Node extends Timer_Node {
 		if ( ! \is_array( $value ) || ! isset( $value['option'] ) ) {
 			return;
 		}
-		$local = Core::as_string( $value['option'] );
-		if ( ! isset( $this->registry[ $local ] ) || [] === $this->live_targets() ) {
+		$locals = $this->registered_with_followers( Core::as_string( $value['option'] ) );
+		if ( [] === $locals || [] === $this->live_targets() ) {
 			return;
 		}
 		Config::invalidate_options_cache();
-		$this->push( $local );
+		Config::forget_effective();
+		$caught = Worker_Should_Stop::attempt_each( $locals, fn ( string $local ) => $this->push( $local ) );
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**
@@ -124,6 +131,7 @@ class Settings_Sync_Node extends Timer_Node {
 			return;
 		}
 		Config::invalidate_options_cache();
+		Config::forget_effective();
 		$caught = Worker_Should_Stop::attempt_each(
 			\array_keys( $this->registry ),
 			fn ( string $local ) => $this->push( $local )
@@ -144,8 +152,8 @@ class Settings_Sync_Node extends Timer_Node {
 	 * @throws \Throwable Every mapping's failure, combined, raised after the last.
 	 */
 	private function push( string $local ): void {
-		// App-overridable: ELN resolves a blank remote_* to its file default.
-		$value  = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
+		// App-overridable: a plugin transforms its own options on the way out.
+		$value  = \apply_filters( 'newspack_nodes/settings_sync/value', self::local_value( $local ), $local );
 		$scalar = self::scalarize( $value )
 			?? throw new \RuntimeException( \esc_html( "settings_sync: cannot encode value for {$local}" ) );
 		// One `set` per mapping — a local may target several spoke options.
@@ -154,6 +162,63 @@ class Settings_Sync_Node extends Timer_Node {
 			fn ( array $spec ) => $this->send_signed( $spec['to'], 'set', [ $spec['remote'], $scalar ] )
 		);
 		Worker_Should_Stop::raise( $caught );
+	}
+
+	/**
+	 * $local when it is registered, then every registered option whose
+	 * substrate key follows $local's (`Schema::followers()`) and has no stored
+	 * row: a stored follower did not move. A follower whose row another
+	 * process just deleted pushes on its own delete event.
+	 *
+	 * @param string $local A changed WP-option name.
+	 * @return list<string>
+	 */
+	private function registered_with_followers( string $local ): array {
+		$locals = [ $local ];
+		$key    = self::short_key_of( $local );
+		if ( null !== $key ) {
+			$prefix = Settings_Schema::get()->prefix();
+			foreach ( Settings_Schema::get()->followers( $key ) as $follower ) {
+				if ( false === \get_option( $prefix . $follower ) ) {
+					$locals[] = $prefix . $follower;
+				}
+			}
+		}
+		return \array_values( \array_filter( $locals, fn ( string $l ): bool => isset( $this->registry[ $l ] ) ) );
+	}
+
+	/**
+	 * The value to push for $local: its stored option, except that a
+	 * substrate-declared option absent or blank pushes what a blank there
+	 * yields (`Config::blank_value()`), since a spoke's typed `set` refuses ''.
+	 * Any other option, declared by no substrate Field, passes through.
+	 *
+	 * @param string $local Registered local WP-option name.
+	 * @throws \RuntimeException When a blank declared option resolves to null, which encodes as nothing.
+	 */
+	private static function local_value( string $local ): mixed {
+		$stored = \get_option( $local );
+		$key    = self::short_key_of( $local );
+		if ( null === $key || ( false !== $stored && '' !== $stored ) ) {
+			return $stored;
+		}
+		return Config::blank_value( $key )
+			?? throw new \RuntimeException( \esc_html( "settings_sync: cannot encode value for {$local}" ) );
+	}
+
+	/**
+	 * The substrate config key $local stores, or null when $local is not a
+	 * `newspack_nodes_` option a substrate Field declares.
+	 *
+	 * @param string $local A WP-option name.
+	 */
+	private static function short_key_of( string $local ): ?string {
+		$schema = Settings_Schema::get();
+		if ( ! \str_starts_with( $local, $schema->prefix() ) ) {
+			return null;
+		}
+		$key = \substr( $local, \strlen( $schema->prefix() ) );
+		return '' !== $key && null !== $schema->field_for_short( $key ) ? $key : null;
 	}
 
 	/**

@@ -43,11 +43,11 @@ return [
 
     // Floor for the COUNT rule: spare a segment younger than this many
     // seconds; 0 = prune purely by count.
-    // 'min_lifetime'               => 43200,
+    // 'min_lifetime'               => 86400,
 
     // The AGE rule itself: prune segments older than this many seconds, down
-    // to min_segments; 0 = no age pruning.
-    // 'lifetime'                   => 86400,
+    // to min_segments; 0 = no age pruning; null follows min_lifetime.
+    // 'lifetime'                   => null,
 
     // The one Memcached handle. Empty leaves it null rather than installing an
     // unreachable one, because each reader's fail path keys on that null:
@@ -125,11 +125,12 @@ return [
 
     // Spoke geometry the settings-sync graph pushes; nothing local reads it.
     // Each lands as that spoke's own retention key, and as its own remote_*
-    // copy, so the geometry propagates on to ITS spokes.
+    // copy, so the geometry propagates on to ITS spokes. A remote_lifetime
+    // of null follows remote_min_lifetime.
     // 'remote_segment_size'        => 64 * 1024 * 1024,
     // 'remote_min_segments'        => 2,
     // 'remote_num_segments'        => 8,
     // 'remote_max_segments'        => 0,
     // 'remote_min_lifetime'        => 900,
-    // 'remote_lifetime'            => 900,
+    // 'remote_lifetime'            => null,
 ];
