@@ -443,12 +443,11 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * constructors do no event-loop work (ADR-5), so this is safe in request
 	 * scope and on the WP-Cron pass.
 	 *
-	 * `cursor_known` says whether the reported backlog can be acted on: true when
-	 * a committed cursor was found, and true for an empty partition, where there is
-	 * nothing to be behind. False means the backlog defaults to the whole
-	 * partition, which a caller deciding whether to WAKE something must not act on
-	 * — an offsetlog holding no committed frame is the ordinary state between
-	 * boot and the first checkpoint.
+	 * `cursor_known` says whether a committed cursor was found, and is true for
+	 * an empty partition, where there is nothing to be behind. False reports
+	 * the whole partition as behind, which is exact for a reader with no
+	 * checkpoint, since it starts at the oldest segment, and is what the
+	 * backlog sweep wakes such a reader on.
 	 *
 	 * @param string $source_dir    Partition directory the reader tails.
 	 * @param string $offsetlog_dir Its durable cursor dir; empty = no cursor at all.

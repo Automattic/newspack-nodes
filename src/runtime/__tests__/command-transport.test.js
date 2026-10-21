@@ -85,23 +85,71 @@ describe( 'the command transport.postBatch — unparseable response lines', () =
 
 	const clientFor = ( body ) => {
 		global.fetch = jest.fn().mockResolvedValue( {
+			ok: true,
+			status: 207,
 			text: () => Promise.resolve( body ),
 		} );
 		return commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
+	};
+
+	const command = ( name ) => {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = { name, arguments: [] };
+		return m;
 	};
 
 	it( 'drops a line that is not a 7-field message, and warns', async () => {
 		const warn = jest
 			.spyOn( Core, 'printLessOften' )
 			.mockImplementation( () => {} );
-		const client = clientFor( `${ okLine }\nnot json at all\n[]` );
+		const client = clientFor( `not json at all\n${ okLine }\n[]\n` );
 
-		const messages = await client.postBatch( [], [] );
+		const messages = await client.postBatch( [
+			command( 'heartbeat' ),
+			command( 'dump' ),
+		] );
 
 		expect( messages ).toHaveLength( 1 );
 		expect( messages[ 0 ][ TYPE ] ).toBe( TM_BYTESTREAM );
 		expect( warn ).toHaveBeenCalledWith(
-			'ERROR: dropped an unparseable /command response line'
+			'ERROR: dropped an unparseable /command response line',
+			' - HTTP 207, 2 of 3 lines dropped, first at line 1, 15 bytes, batch heartbeat, dump: "not json at all"'
+		);
+		warn.mockRestore();
+	} );
+
+	// The line is not JSON, so the quote masks credentials by their text shape.
+	it( 'masks credentials in the line it quotes', async () => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const client = clientFor(
+			'[8,1,"a","b","","",{"name":"v","api_token":"s3cr3t-77","arguments":["--password=hunter2'
+		);
+
+		await client.postBatch( [ command( 'vault' ) ] );
+
+		const [ , evidence ] = warn.mock.calls[ 0 ];
+		expect( evidence ).not.toContain( 's3cr3t-77' );
+		expect( evidence ).not.toContain( 'hunter2' );
+		expect( evidence ).toContain( '\\"api_token\\":\\"<redacted>\\"' );
+		expect( evidence ).toContain( '--password=<redacted>' );
+		warn.mockRestore();
+	} );
+
+	// A body Http_In wrote whole ends in a newline; one cut short does not.
+	it( 'says when the dropped line ends a body cut short', async () => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const client = clientFor( `${ okLine }\n{"partial` );
+
+		await client.postBatch( [ command( 'dump_graph' ) ] );
+
+		expect( warn ).toHaveBeenCalledWith(
+			'ERROR: dropped an unparseable /command response line',
+			' - HTTP 207, 1 of 2 lines dropped, first at line 2, body ends without a newline, 9 bytes, batch dump_graph: "{\\"partial"'
 		);
 		warn.mockRestore();
 	} );

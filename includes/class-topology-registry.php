@@ -129,7 +129,8 @@ class Topology_Registry {
 	 *
 	 * The one activation primitive behind both the `topologies activate` CI verb
 	 * and the `wp nodes activate` CLI verb: write the option, invalidate the
-	 * config cache, spawn. It materializes the effective active set from
+	 * config cache, spawn, then ask every live worker to reload. It
+	 * materializes the effective active set from
 	 * `Bootstrap::get_topologies()` rather than the raw option, so config-file
 	 * defaults are not silently dropped, and it refuses a write-conflicting set
 	 * BEFORE writing, so such a set is never persisted or spawned. The conflict
@@ -151,6 +152,7 @@ class Topology_Registry {
 	 * @throws \RuntimeException When the name is unknown or activating it would
 	 *                           put two fleets on one log or offsetlog.
 	 * @throws \InvalidArgumentException When a line of the set's topologies is one its class refuses.
+	 * @throws \Throwable When a live worker's reload flag will not land, after the spawn; the activation stands.
 	 */
 	public static function activate( string $name ): array {
 		if ( null === self::resolve( $name ) ) {
@@ -174,6 +176,7 @@ class Topology_Registry {
 		self::invalidate_config_cache();
 
 		$spawned = \Newspack_Nodes\Bootstrap::spawn_coordinator()->spawn_fleet( $name );
+		self::reload_live_workers();
 
 		return [
 			'name'    => $name,
@@ -306,13 +309,15 @@ class Topology_Registry {
 	 * Symmetric with `activate()`: the one deactivation primitive behind both
 	 * the `topologies deactivate` CI verb and the `wp nodes deactivate` CLI
 	 * verb. It removes the name from the effective active set, writes,
-	 * invalidates the config cache, then drops a restart flag on every live
-	 * worker's lock dir through `Spawn_Coordinator::kill_readers()`. Nothing is
-	 * killed here: each worker reads its own flag and exits on its next drain
-	 * iteration. Callers validate the name and gate the capability.
+	 * invalidates the config cache, drops a restart flag on every live worker's
+	 * lock dir through `Spawn_Coordinator::kill_readers()`, then asks every
+	 * live worker left to reload. Nothing is killed here: each worker reads its
+	 * own flag and exits on its next drain iteration. Callers validate the name
+	 * and gate the capability.
 	 *
 	 * @param string $name Topology name (already validated by the caller).
 	 * @return array{name: string, active: false}
+	 * @throws \Throwable When a live worker's reload flag will not land, after the drain; the deactivation stands.
 	 */
 	public static function deactivate( string $name ): array {
 		$active = \array_values( \array_diff( \array_keys( \Newspack_Nodes\Bootstrap::get_topologies() ), [ $name ] ) );
@@ -320,11 +325,33 @@ class Topology_Registry {
 		self::invalidate_config_cache();
 
 		\Newspack_Nodes\Bootstrap::spawn_coordinator()->kill_readers( [ $name ] );
+		self::reload_live_workers();
 
 		return [
 			'name'   => $name,
 			'active' => false,
 		];
+	}
+
+	/**
+	 * Write every live worker's reload watermark, so each drops its snapshot of
+	 * the active set within one `_fleet` scan. A worker freezes the set at boot,
+	 * its on-demand wake map with it, so a writer left unsignalled wakes no
+	 * reader a write of the set added for the rest of its lifetime.
+	 *
+	 * The writers of the set call it last — `activate()`, `deactivate()` and the
+	 * `Topologies_CI` delete verb — so a failed flag costs no spawn, kill or
+	 * restart. A worker acting on a watermark calls `invalidate_config_cache()`
+	 * alone, or every reload would signal another. A subsite signals nothing:
+	 * the fleet is network-global and runs on the main site.
+	 *
+	 * @throws \Throwable When the lock tree or a flag write fails, after every live worker was offered its flag.
+	 */
+	public static function reload_live_workers(): void {
+		if ( ! \Newspack_Nodes\Bootstrap::fleet_site() ) {
+			return;
+		}
+		\Newspack_Nodes\Config_System\Restart_Planner::request_reloads( \Newspack_Nodes\Config::get_base_directory_with_locks() );
 	}
 
 	/**

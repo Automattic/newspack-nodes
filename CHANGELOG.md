@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A newly activated on-demand topology starts at once.** Two gaps left its workers asleep for up to a writer's ~595-second lifetime. `Topology_Registry::activate()`, `deactivate()` and the `Topologies_CI` delete verb now end in `Topology_Registry::reload_live_workers()`, which writes every live worker's reload watermark, as a settings save does, after the spawn, drain or restart, so a flag that will not land raises without costing them, and signals nothing on a subsite; a writer frozen on its boot-time wake map drops it on its next `_fleet` scan, within 15 seconds, and its next write wakes the new reader. And the minute pass's backlog sweep, `wake_readers_with_backlog()`, no longer skips a durable reader that has never checkpointed: a Consumer with no cursor starts at the oldest segment, so it is behind by the whole partition, and the sweep now wakes it. An ephemeral reader, which keeps no cursor, is still skipped.
+
+### Changed
+- **A dropped `/command` response line says what it was.** The browser's warning, `ERROR: dropped an unparseable /command response line`, now carries the HTTP status, how many of the body's lines were dropped and where the first one sat, whether the body ends without a newline (a body `Http_In` wrote whole always ends in one, so one that does not was cut short), the line's size in bytes, the verbs of the batch that earned it, and the line's first 120 characters, quoted, each credential value masked by the rule `redactSecrets()` applies to a parsed value: a secret-named key's string and a `--name=value` token, read off the raw text by the new `redactSecretText()`.
+
 ## [2.121.0] - 2026-10-20
 
 ### Added

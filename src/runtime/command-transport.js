@@ -27,6 +27,7 @@ import {
 	TM_UNTYPED,
 } from './message';
 import { invalidateAuth, renewSession } from './command-auth';
+import { redactSecretText } from './node';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData, refreshNodesNonce } from './nodes-data';
@@ -39,6 +40,9 @@ import { nodesData, refreshNodesNonce } from './nodes-data';
  * `rest_invalid_json` before `Http_In` is ever reached.
  */
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
+
+/** Characters of a dropped line its warning quotes. */
+const DROPPED_HEAD_CHARS = 120;
 
 /**
  * What a boundary node's `client` must provide: POST a batch as JSONL and
@@ -70,24 +74,57 @@ function restErrorCode( text ) {
  * EVERY body, whatever the status.
  *
  * @param {string} text The raw response body.
- * @return {{messages: Array<Array>, dropped: number}} Replies, and the count of
- *   lines that were not messages.
+ * @return {{messages: Array<Array>, dropped: Array<{at: number, line: string}>, lines: number}}
+ *   Replies, each line that was not a message with its 1-based place, and
+ *   the body's non-blank line count.
  */
 function unpackLines( text ) {
 	const messages = [];
-	let dropped = 0;
+	const dropped = [];
+	let lines = 0;
 	for ( const line of String( text ).split( '\n' ) ) {
 		if ( '' === line.trim() ) {
 			continue;
 		}
+		++lines;
 		const message = unpack( line );
 		if ( message[ TYPE ] & TM_UNTYPED ) {
-			dropped++;
+			dropped.push( { at: lines, line } );
 			continue;
 		}
 		messages.push( message );
 	}
-	return { messages, dropped };
+	return { messages, dropped, lines };
+}
+
+/**
+ * The evidence a dropped-line warning carries: the status, which line, whether
+ * the body was cut short, the batch that earned it and the line's head, its
+ * credentials masked. A body `Http_In` wrote whole ends in a newline, so one
+ * that does not was truncated.
+ *
+ * @param {number}                            status  HTTP status.
+ * @param {string}                            text    The raw response body.
+ * @param {Array<{at: number, line: string}>} dropped The lines dropped.
+ * @param {number}                            lines   Non-blank lines in the body.
+ * @param {string}                            body    The JSONL batch posted.
+ * @return {string} The tail `printLessOften` prints after its key.
+ */
+function droppedEvidence( status, text, dropped, lines, body ) {
+	const [ { at, line } ] = dropped;
+	const cut = text.endsWith( '\n' ) ? '' : ', body ends without a newline';
+	const verbs = body
+		.split( '\n' )
+		.map( ( sent ) => unpack( sent )[ VALUE ]?.name )
+		.filter( Boolean )
+		.join( ', ' );
+	const head = JSON.stringify(
+		redactSecretText( line.slice( 0, DROPPED_HEAD_CHARS ) )
+	);
+	const count = `${ dropped.length } of ${ lines } lines dropped`;
+	const bytes = byteLength( line );
+	const where = `first at line ${ at }${ cut }, ${ bytes } bytes`;
+	return ` - HTTP ${ status }, ${ count }, ${ where }, batch ${ verbs }: ${ head }`;
 }
 
 /**
@@ -166,12 +203,13 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 		// server's real replies — the refusal's diagnosis, and every reply that
 		// succeeded beside it. Only a body that unpacks to nothing is the REST
 		// error object the fabricated refusal below stands in for.
-		const { messages, dropped } = unpackLines( text );
+		const { messages, dropped, lines } = unpackLines( text );
 		const restErrorBody = false === r.ok && 0 === messages.length;
 		// That error object is ONE unreadable line by design; say nothing.
-		if ( 0 < dropped && ! restErrorBody ) {
+		if ( 0 < dropped.length && ! restErrorBody ) {
 			Core.printLessOften(
-				'ERROR: dropped an unparseable /command response line'
+				'ERROR: dropped an unparseable /command response line',
+				droppedEvidence( r.status, text, dropped, lines, body )
 			);
 		}
 		// Inbound bytes and counts; HttpOut keeps the error TALLY.
