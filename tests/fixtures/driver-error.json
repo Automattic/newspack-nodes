@@ -1,0 +1,141 @@
+[
+    [
+        "a duplicate key",
+        1062,
+        "Duplicate entry 'weka-7746@kea.test' for key 'user_email'",
+        "[1062] Duplicate entry"
+    ],
+    [
+        "a syntax error near a quoted literal",
+        1064,
+        "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ''kea-7746' WHERE option_name = 'weka'' at line 1",
+        "[1064] You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near"
+    ],
+    [
+        "an 80-character fragment cut open",
+        1064,
+        "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'tui-4417 hunter2-kea WHERE option_name = weka-7746 AND option_value = kakapo-9' at line 1",
+        "[1064] You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near"
+    ],
+    [
+        "a SIGNAL by errno",
+        1644,
+        "bad email weka@kea.test",
+        "[1644]"
+    ],
+    [
+        "a SIGNAL by SQLSTATE",
+        "45000",
+        "SQLSTATE[45000]: <<Unknown error>>: 1644 bad email weka@kea.test",
+        "[45000]"
+    ],
+    [
+        "a double-quoted token",
+        "HY000",
+        "SQLSTATE[HY000]: General error: 1 near \"kea-7746\": syntax error",
+        "[HY000] SQLSTATE[HY000]: General error: 1 near"
+    ],
+    [
+        "a backticked identifier",
+        1054,
+        "Unknown column `kea_7746` in 'field list'",
+        "[1054] Unknown column"
+    ],
+    [
+        "no quote at all",
+        2006,
+        "MySQL server has gone away",
+        "[2006] MySQL server has gone away"
+    ],
+    [
+        "a message opening at a quote",
+        1062,
+        "'weka-7746' is taken",
+        "[1062]"
+    ],
+    [
+        "no code",
+        null,
+        "Table 'db.kea7_newspack_nodes_table' is marked as crashed",
+        "[?] Table"
+    ],
+    [
+        "an empty code",
+        "",
+        "Lock wait timeout exceeded",
+        "[?] Lock wait timeout exceeded"
+    ],
+    [
+        "a code carrying a quote",
+        "45'000",
+        "kea-7746 refused",
+        "[?] kea-7746 refused"
+    ],
+    [
+        "a code of zero",
+        0,
+        "Lost connection to server during query",
+        "[0] Lost connection to server during query"
+    ],
+    [
+        "a SIGNAL code with a leading zero is no SIGNAL",
+        "01644",
+        "bad email weka@kea.test",
+        "[01644] bad email weka@kea.test"
+    ],
+    [
+        "a SQLite constraint, which names columns",
+        "23000",
+        "SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: kea_7746.c",
+        "[23000] SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: kea_7746.c"
+    ],
+    [
+        "SQLite near a token",
+        "HY000",
+        "SQLSTATE[HY000]: General error: 1 near \"x\": syntax error",
+        "[HY000] SQLSTATE[HY000]: General error: 1 near"
+    ],
+    [
+        "SQLite unable to open",
+        14,
+        "SQLSTATE[HY000] [14] unable to open database file",
+        "[14] SQLSTATE[HY000] [14] unable to open database file"
+    ],
+    [
+        "a long message, capped at 256 bytes",
+        1205,
+        "kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 ",
+        "[1205] kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 kea lock wait 7746 ke"
+    ],
+    [
+        "a multibyte message, cut on a character",
+        1205,
+        "错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错",
+        "[1205] 错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错"
+    ],
+    [
+        "trailing space before the cut is trimmed",
+        1146,
+        "Table   'kea.t_1146' doesn't exist",
+        "[1146] Table"
+    ],
+    [
+        "a misaligned multibyte message, cut back to a character",
+        1205,
+        "k错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错",
+        "[1205] k错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错错"
+    ],
+    [
+        "a malformed lead byte at the cut is dropped, not left dangling",
+        1205,
+        "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHjiQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
+        "WzEyMDVdIHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4",
+        "base64"
+    ],
+    [
+        "a code with a trailing newline is not a bare word",
+        "1062\n",
+        "Duplicate entry 'weka-7746' for key 'k'",
+        "[?] Duplicate entry"
+    ]
+]

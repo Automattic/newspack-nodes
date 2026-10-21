@@ -269,7 +269,7 @@ trait Dead_Letter_Queue {
 	 */
 	protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
 		$where   = Core::as_string( $message[ Message::ID ] ?? '' );
-		$why     = null === $error ? '' : ': ' . $error->getMessage();
+		$why     = null === $error ? '' : ': ' . Driver_Error::of( $error );
 		$outcome = 'dropped (no deadletter_dir)';
 		$quarantine = $this->deadletter;
 		if ( null === $quarantine && null !== $error ) {

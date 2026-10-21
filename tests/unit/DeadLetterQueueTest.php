@@ -198,6 +198,19 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertStringContainsString( ' at 62:0:10 — quarantined', $lines );
 	}
 
+	/** A driver's error that condemned a record prints its code, none of its values. */
+	public function test_a_dead_letter_line_carries_a_driver_error_shaped(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$errors = $this->capture_stderr();
+
+		$d->quarantine( $this->dl_message( 'gaff-5523', '63:0:10' ), 'throw', new \PDOException( "SQLSTATE[23000]: 19 UNIQUE constraint failed: kea.c 'weka-7746'", 23000 ) );
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( ' at 63:0:10 — quarantined: [23000] SQLSTATE[23000]: 19 UNIQUE constraint failed: kea.c', $lines );
+		$this->assertStringNotContainsString( 'weka-7746', $lines );
+	}
+
 	/**
 	 * With nowhere to quarantine, the error that condemned the message is
 	 * the only record of it, so it raises rather than printing and dropping.

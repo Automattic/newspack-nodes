@@ -323,6 +323,20 @@ class HealthChecksTest extends TestCase {
 		$this->assertNotContains( 'wpdb-schema', \array_column( Health_Checks::evaluate( $this->good_runtime_results() ), 'id' ) );
 	}
 
+	/** A driver that throws on the probe is named by its code, none of its values. */
+	public function test_a_probe_a_driver_throws_through_names_its_code_alone(): void {
+		$GLOBALS['wpdb'] = new class() extends \Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb {
+			/** @return list<array<string,mixed>> */
+			public function get_results( string $query, string $output = 'OBJECT' ): array {
+				throw new \mysqli_sql_exception( "Access denied for user 'weka-7746'@'kea.test'", 1045 );
+			}
+		};
+
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
+
+		$this->assertSame( 'The wpdb Tables could not be probed: [1045] Access denied for user', $row['messages'][0] ?? null );
+	}
+
 	/** A probe that cannot run says so in its own row rather than throwing. */
 	public function test_a_schema_probe_that_cannot_run_is_recommended_naming_why(): void {
 		$GLOBALS['wpdb'] = null;
@@ -344,6 +358,24 @@ class HealthChecksTest extends TestCase {
 
 		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] ?? null );
 		$this->assertStringContainsString( 'owl3_newspack_nodes_members', $row['messages'][0] );
+	}
+
+	/** The server's text is shaped, so the row names the tables itself. */
+	public function test_a_refused_probe_names_the_tables_and_shapes_the_servers_text(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'owl4_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$db->deny['SELECT 1 FROM'] = "Table 'kea_db.owl4_newspack_nodes_members' doesn't exist";
+		\Newspack_Nodes\Driver_Error::$errno = static fn (): int => 1146;
+
+		try {
+			$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
+		} finally {
+			\Newspack_Nodes\Driver_Error::$errno = null;
+		}
+
+		$this->assertStringContainsString( 'The wpdb Tables owl4_newspack_nodes_table and owl4_newspack_nodes_members do not answer ([1146] Table)', $row['messages'][0] ?? '' );
+		$this->assertStringNotContainsString( 'kea_db', $row['messages'][0] ?? '' );
 	}
 
 	/** No hold, no row — the check is a reminder, not a permanent status line. */

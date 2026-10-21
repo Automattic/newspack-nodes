@@ -98,17 +98,6 @@ final class Wpdb_Arm extends Durable_Arm {
 	private static ?\WeakMap $packets = null;
 
 	/**
-	 * Driver-errno seam. Replaces `mysqli_errno()` on `$wpdb`'s connection,
-	 * which core exposes only through its `__get()`, read after a
-	 * statement fails to tell a missing table from any other refusal. Tests
-	 * reassign it to report a code the SQLite `$wpdb` cannot.
-	 * Signature: `function ( \wpdb $db ): int`
-	 *
-	 * @var (\Closure(\wpdb): int)|null
-	 */
-	public static ?\Closure $errno = null;
-
-	/**
 	 * Install the schema when the option records another, which is how an
 	 * upgrade that never re-activated installs it.
 	 *
@@ -146,9 +135,10 @@ final class Wpdb_Arm extends Durable_Arm {
 	 */
 	public function vacuum(): void {
 		try {
-			foreach ( $this->rows( $this->statement( 'OPTIMIZE TABLE %i, %i', self::db()->base_prefix . self::MEMBERS_TABLE ) ) as $row ) {
+			foreach ( $this->rows( $this->statement( 'OPTIMIZE TABLE %i, %i', self::members_table() ) ) as $row ) {
 				if ( 'error' === \strtolower( Core::as_string( $row['Msg_type'] ) ) ) {
-					throw new \UnexpectedValueException( Core::as_string( $row['Msg_text'] ) );
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+					throw new \UnexpectedValueException( Driver_Error::shape( null, Core::as_string( $row['Msg_text'] ) ) );
 				}
 			}
 		} catch ( \UnexpectedValueException $e ) {
@@ -168,12 +158,12 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * statement reading both, so a missing table or a refused read shows
 	 * whatever the schema option records.
 	 *
-	 * @return string The server's error, or '' when both tables answer.
+	 * @return string The server's error, shaped, or '' when both tables answer.
 	 */
 	public static function unavailable(): string {
 		$db = self::db();
-		$db->get_results( self::bind( $db, 'SELECT 1 FROM %i, %i LIMIT 0', [ self::table(), $db->base_prefix . self::MEMBERS_TABLE ] ), 'ARRAY_A' );
-		return $db->last_error;
+		$db->get_results( self::bind( $db, 'SELECT 1 FROM %i, %i LIMIT 0', [ self::table(), self::members_table() ] ), 'ARRAY_A' );
+		return Driver_Error::of_wpdb( $db );
 	}
 
 	/** See Durable_Arm::row_key(): the key alone, under the namespace column. */
@@ -348,7 +338,7 @@ final class Wpdb_Arm extends Durable_Arm {
 			$packet = $db->get_var( 'SELECT @@max_allowed_packet' );
 			if ( ! \is_numeric( $packet ) ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
-				throw new \UnexpectedValueException( "could not read max_allowed_packet: {$db->last_error}" );
+				throw new \UnexpectedValueException( 'could not read max_allowed_packet: ' . Driver_Error::of_wpdb( $db ) );
 			}
 			$packets[ $db ] = (int) $packet;
 		}
@@ -405,7 +395,7 @@ final class Wpdb_Arm extends Durable_Arm {
 		}
 		if ( '' !== $db->last_error || ! \is_array( $rows ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
-			throw new \UnexpectedValueException( $db->last_error );
+			throw new \UnexpectedValueException( Driver_Error::of_wpdb( $db ) );
 		}
 		return \array_map( Core::arr( ... ), $rows );
 	}
@@ -470,7 +460,16 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * @return string The bound statement.
 	 */
 	private function member_statement( string $sql, mixed ...$args ): string {
-		return self::bind( self::db(), $sql, [ self::db()->base_prefix . self::MEMBERS_TABLE, ...\array_values( $args ) ] );
+		return self::bind( self::db(), $sql, [ self::members_table(), ...\array_values( $args ) ] );
+	}
+
+	/**
+	 * The set members' table, under the network's base prefix.
+	 *
+	 * @return string The table name.
+	 */
+	public static function members_table(): string {
+		return self::db()->base_prefix . self::MEMBERS_TABLE;
 	}
 
 	/**
@@ -503,11 +502,7 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * @throws \UnexpectedValueException When the server refuses the reinstall.
 	 */
 	private static function heal(): bool {
-		$errno = self::$errno ?? static function ( \wpdb $db ): int {
-			$dbh = $db->__get( 'dbh' );
-			return $dbh instanceof \mysqli ? \mysqli_errno( $dbh ) : 0;
-		};
-		if ( self::NO_SUCH_TABLE !== $errno( self::db() ) ) {
+		if ( self::NO_SUCH_TABLE !== Driver_Error::errno( self::db() ) ) {
 			return false;
 		}
 		try {
@@ -589,7 +584,7 @@ final class Wpdb_Arm extends Durable_Arm {
 		$db = self::db();
 		if ( false === $result ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
-			throw new \UnexpectedValueException( $db->last_error );
+			throw new \UnexpectedValueException( Driver_Error::of_wpdb( $db ) );
 		}
 		return $db->rows_affected;
 	}

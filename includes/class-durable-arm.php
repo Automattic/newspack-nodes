@@ -690,7 +690,7 @@ abstract class Durable_Arm extends Cache_Backend {
 		try {
 			return $op();
 		} catch ( \PDOException | \UnexpectedValueException $e ) {
-			$this->failure = $e->getMessage();
+			$this->failure = Driver_Error::of( $e );
 			return $failed;
 		}
 	}

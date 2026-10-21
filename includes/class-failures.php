@@ -104,7 +104,7 @@ final class Failures extends \RuntimeException {
 		$message = "{$total} failures: ";
 		$room    = self::MESSAGE_BUDGET - self::MARKER_ROOM;
 		foreach ( $all as $shown => $e ) {
-			$piece = ( 0 === $shown ? '' : ' | ' ) . $e->getMessage();
+			$piece = ( 0 === $shown ? '' : ' | ' ) . Driver_Error::of( $e );
 			if ( \strlen( $message ) + \strlen( $piece ) > $room ) {
 				return $message . ' … and ' . ( $total - $shown ) . ' more';
 			}

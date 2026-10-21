@@ -294,7 +294,7 @@ class SessionCliCommandTest extends TestCase {
 		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 6631';
 
 		$this->assertSame(
-			'Table nodes-sessions: flush failed: wpdb wp_newspack_nodes_table: Lock wait timeout 6631',
+			'Table nodes-sessions: flush failed: wpdb wp_newspack_nodes_table: [0] Lock wait timeout 6631',
 			$this->cli_error( static fn ( $cli ) => $cli->revoke( [], [ 'all' => true ] ) )
 		);
 	}

@@ -188,7 +188,7 @@ final class Health_Checks {
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e;
 		} catch ( \Throwable $e ) {
-			return [ self::result( 'wpdb-schema', 'Database tables', self::STATUS_RECOMMENDED, 'The wpdb Tables could not be probed: ' . $e->getMessage() ) ];
+			return [ self::result( 'wpdb-schema', 'Database tables', self::STATUS_RECOMMENDED, 'The wpdb Tables could not be probed: ' . Driver_Error::of( $e ) ) ];
 		}
 		if ( '' === $error ) {
 			return [];
@@ -198,7 +198,7 @@ final class Health_Checks {
 				'wpdb-schema',
 				'Database tables',
 				self::STATUS_CRITICAL,
-				"The wpdb Tables do not answer ({$error}), so command sessions and every wpdb "
+				'The wpdb Tables ' . Wpdb_Arm::table() . ' and ' . Wpdb_Arm::members_table() . " do not answer ({$error}), so command sessions and every wpdb "
 					. 'Table fail. The next statement to find a table missing installs it; grant the '
 					. 'database user CREATE if that install is refused.'
 			),

@@ -47,6 +47,12 @@ class CoreTest extends TestCase {
 		$this->assertSame( "unknown log: \"Kea's <tail>\" & more", Core::message_of( $e ) );
 	}
 
+	public function test_message_of_shapes_a_driver_exception(): void {
+		$e = new \mysqli_sql_exception( "Duplicate entry 'weka-7746@kea.test' for key 'user_email'", 1062 );
+
+		$this->assertSame( '[1062] Duplicate entry', Core::message_of( $e ) );
+	}
+
 	public function test_register_and_lookup_node_by_name(): void {
 		$obj = new \Newspack_Nodes\Node();
 		Core::register_node( 'foo', $obj );

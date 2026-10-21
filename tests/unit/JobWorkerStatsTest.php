@@ -148,6 +148,20 @@ class JobWorkerStatsTest extends TestCase {
 		$this->assertSame( 'kaboom-42', $record[ Jobstats_Record::LAST_MESSAGE ] );
 	}
 
+	/** A handler a driver threw through records its code and none of its values. */
+	public function test_a_driver_exception_records_its_code_and_none_of_its_values(): void {
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'boom', function () { throw new \mysqli_sql_exception( "Duplicate entry 'weka-7746@kea.test' for key 'user_email'", 1062 ); } );
+
+		try {
+			$jw->fill( $this->job_message( 'boom' ) );
+		} catch ( \mysqli_sql_exception ) {
+			// Poison propagates; the record is the assertion.
+		}
+
+		$this->assertSame( '[1062] Duplicate entry', $this->record_for( $jw, 'boom' )[ Jobstats_Record::LAST_MESSAGE ] );
+	}
+
 	public function test_a_worker_should_stop_records_nothing(): void {
 		// A cooperative stop is not a job failure — no run is counted for it.
 		$jw = new Job_Worker_Node();

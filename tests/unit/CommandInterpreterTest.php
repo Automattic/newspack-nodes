@@ -1193,6 +1193,24 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
+	/** A handler a driver threw through answers its code and none of its values. */
+	public function test_a_driver_exception_replies_without_its_values(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$interpreter->commands(
+			[
+				'boom' => static function (): string {
+					throw new \PDOException( "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'weka-7746@kea.test' for key 'k'", 23000 );
+				},
+			]
+		);
+
+		$interpreter->fill( $this->command_message( 'boom', '', true ) );
+
+		$this->assertSame( "[23000] SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry\n", $sink->captured[0][ Message::VALUE ]['payload'] );
+	}
+
 	public function test_dispatch_throws_on_unknown_command(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

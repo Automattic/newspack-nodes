@@ -230,7 +230,7 @@ class SessionsTest extends TestCase {
 			Sessions::issue( 'tui-6613', Capabilities::READ, 900 );
 			$this->fail( 'expected the index refusal' );
 		} catch ( Session_Store_Unavailable $e ) {
-			$this->assertSame( 'could not index the session: wpdb wp_newspack_nodes_table: Deadlock found 6613', $e->getMessage() );
+			$this->assertSame( 'could not index the session: wpdb wp_newspack_nodes_table: [0] Deadlock found 6613', $e->getMessage() );
 		}
 		$this->assertSame( [], $this->db->get_results( "SELECT cache_key FROM wp_newspack_nodes_table WHERE namespace = 'nodes-sessions'" ) );
 	}
@@ -250,7 +250,7 @@ class SessionsTest extends TestCase {
 		$this->db->deny['FROM `wp_newspack_nodes_members`'] = 'Lost connection 4471';
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'could not read the session index: wpdb wp_newspack_nodes_table: Lost connection 4471' );
+		$this->expectExceptionMessage( 'could not read the session index: wpdb wp_newspack_nodes_table: [0] Lost connection 4471' );
 		Sessions::listing();
 	}
 

@@ -6,6 +6,22 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Driver text the substrate reports is shaped.** A durable Table's
+  `last_failure()` and `diagnostic_metadata()`, the `Table_Unavailable` a
+  Row_Table read or snapshot throws, a refused `Wpdb_Arm::install()`, a
+  verb's error reply and a job's recorded failure carry a driver's error as
+  `[<code>] ` and its message cut at the first quote, within 256 bytes, and a
+  SIGNAL as `[<code>]` alone. A refused `Sqlite_Arm::vacuum()` throws a plain
+  `\RuntimeException` naming the file rather than the `PDOException`. A
+  consumer matching the server's whole text matches the shaped form, and one
+  shaping its own driver text calls `Driver_Error::shape()`, `of()`,
+  `of_wpdb()` or `fatal()` and raises its `version_at_least()` floor to this release.
+  newspack-event-logger-nodes drops its `Log_Manager::driver_error()` and
+  `driver_text()` for them and raises its floor here. The test seam
+  `Wpdb_Arm::$errno` is now `Driver_Error::$errno`, read through
+  `Driver_Error::errno( $wpdb )`; a test reporting a code to the arm assigns
+  the new name.
+
 - **The `Remote_Source` connect queue is removed.** `Connect_Queue_Timer_Node`,
   `Node_Names::CONNECT_TIMER` (`_connect_timer`, and its `CONNECT_TIMER` key
   in `src/runtime/reserved-node-names.json`), and the public statics

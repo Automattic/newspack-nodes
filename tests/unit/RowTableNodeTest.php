@@ -662,7 +662,7 @@ final class RowTableNodeTest extends TestCase {
 		\file_put_contents( Table_Node::file( 'wombats-6620', 2 ), \str_repeat( 'not a database ', 512 ) );
 		$e = $this->caught( fn () => Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): null => null ), 'a junk file' );
 		$this->assertInstanceOf( Table_Unavailable::class, $e );
-		$this->assertStringStartsWith( 'Row_Table wombats-6620: ', $e->getMessage() );
+		$this->assertSame( 'Row_Table wombats-6620: [HY000] SQLSTATE[HY000]: General error: 26 file is not a database', $e->getMessage(), 'the driver text is shaped' );
 	}
 
 	public function test_read_answers_what_its_reader_returns(): void {
@@ -852,7 +852,7 @@ final class RowTableNodeTest extends TestCase {
 			\chmod( "{$this->base}/tables", 0755 );
 		}
 		$this->assertInstanceOf( Table_Unavailable::class, $e );
-		$this->assertStringStartsWith( 'Row_Table wombats-6620: ', $e->getMessage() );
+		$this->assertSame( 'Row_Table wombats-6620: [14] SQLSTATE[HY000] [14] unable to open database file', $e->getMessage(), 'the driver text is shaped' );
 	}
 
 	public function test_open_snapshot_reads_what_build_published(): void {
@@ -880,7 +880,7 @@ final class RowTableNodeTest extends TestCase {
 		\file_put_contents( "{$this->base}/tables/heron-snap-7113.sqlite", \str_repeat( 'not a database ', 512 ) );
 		$e = $this->caught( static fn () => Row_Table_Node::open_snapshot( 'heron-snap-7113' ), 'a junk file' );
 		$this->assertInstanceOf( Table_Unavailable::class, $e );
-		$this->assertStringStartsWith( 'snapshot heron-snap-7113: ', $e->getMessage() );
+		$this->assertSame( 'snapshot heron-snap-7113: [HY000] SQLSTATE[HY000]: General error: 26 file is not a database', $e->getMessage(), 'the driver text is shaped' );
 	}
 
 	public function test_remove_snapshot_deletes_the_published_file_and_leaves_every_other(): void {

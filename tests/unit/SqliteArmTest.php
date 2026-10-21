@@ -172,6 +172,23 @@ final class SqliteArmTest extends TestCase {
 		}
 	}
 
+	/** A VACUUM the driver refuses names its file and the driver's shaped text. */
+	public function test_a_refused_vacuum_throws_the_drivers_text_shaped(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3', 1 );
+		$arm->set( 'sku-41', 1, 0 );
+		$writer = new \PDO( 'sqlite:' . $this->path() );
+		$writer->exec( 'BEGIN IMMEDIATE' );
+		try {
+			$arm->vacuum();
+			$this->fail( 'a held write lock must refuse the VACUUM' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertNotInstanceOf( \PDOException::class, $e );
+			$this->assertSame( 'sqlite ' . $this->path() . ': [HY000] SQLSTATE[HY000]: General error: 5 database is locked', $e->getMessage() );
+		} finally {
+			$writer->exec( 'ROLLBACK' );
+		}
+	}
+
 	public function test_a_counter_swap_keeps_its_expiry_and_stores_a_blob(): void {
 		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
 		Core::$clock = static fn (): float => 1790000000.0;
@@ -523,7 +540,7 @@ final class SqliteArmTest extends TestCase {
 			}
 		);
 		$this->assertNull( ( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->checkpoint() );
-		$this->assertStringContainsString( 'Table checkpoint failed: sqlite ' . $this->path() . ': no file at', \implode( "\n", $logged ) );
+		$this->assertStringContainsString( 'Table checkpoint failed: sqlite ' . $this->path() . ': [0] no file at', \implode( "\n", $logged ) );
 	}
 
 	// ── In-place writes: a rewrite updates its row rather than replacing it ──
