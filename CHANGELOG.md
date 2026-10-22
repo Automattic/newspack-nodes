@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.123.0] - 2026-10-22
+
 ### Added
 - **`sessions_backend` names where command sessions live.** A Storage setting, `sqlite` or `wpdb`, rendered on the settings page as a select whose blank choice restores the default; the sanitizer stores either value and blanks anything else. `Command_Auth::sessions_backend()` reads it and throws `sessions_backend must be one of sqlite, wpdb, not <value>` for any other, which a mint answers as `the session store is unavailable: …`. `Command_Auth::SESSIONS_BACKENDS` lists the two. A change restarts every worker, because each worker's verifier holds the session Table it first opened. `Settings_Renderer::select()` renders a choice of fixed values inside the per-field reset row.
 - **`Cache_Backend::install_id()`** answers twelve hex characters of the MD5 of `DB_NAME`, the network's base prefix, `DB_HOST` and `ABSPATH` as written: the install identity `site()` hashes with the cache salt, without the salt, so no rotation moves it, and with the database host and the install path, so two sites naming one database and prefix on separate servers, as Local sites do, get different ids. `ABSPATH` is never resolved, because a path symlinked to a versioned core would move with every core update. `Cache_Backend::$constant` is the seam its constant reads go through. It throws when neither identifies the install.
