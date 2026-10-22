@@ -55,19 +55,19 @@ class SpawnCoordinatorTest extends TestCase {
 	public function test_spawn_rate_limit_skips_recent_spawns(): void {
 		$s   = new Spawn_Coordinator( $this->tmp );
 		$now = microtime( true );
-		$s->record_spawn( 'foo', 0, $now - 5 );
+		$s->admit_spawn( 'foo', 0, $now - 5 );
 		$this->assertTrue( $s->is_recently_spawned( 'foo', 0, $now ) );
 		$this->assertFalse( $s->is_recently_spawned( 'foo', 0, $now + 20 ) );
 	}
 
-	public function test_record_spawn_persists_across_coordinator_instances(): void {
+	public function test_admit_spawn_persists_across_coordinator_instances(): void {
 		// Simulates a worker process exit + restart (cron backstop or
 		// self-respawn). The new instance must see the recent spawn so it
 		// honors the 15s rate limit instead of re-spawning the same worker.
 		$now = microtime( true );
 
 		$first = new Spawn_Coordinator( $this->tmp );
-		$first->record_spawn( 'firehose-workers', 0, $now );
+		$first->admit_spawn( 'firehose-workers', 0, $now );
 
 		// Fresh instance — empty in-memory map; relies on persistence.
 		$second = new Spawn_Coordinator( $this->tmp );
@@ -392,17 +392,18 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->rmdir_recursive( $external );
 	}
 
-	// ── persist_spawn_ts / load_spawn_ts: TTL via transient ───────────────
+	// ── admit_spawn / load_spawn_ts: TTL via transient ───────────────
 
 	/**
-	 * persist_spawn_ts must use a TTL of 2 * MIN_SPAWN_INTERVAL_S (30s) so
-	 * stale entries auto-expire and don't accumulate after retired worker
-	 * types. Verifies the TTL computation by checking the transient store.
+	 * An admitted spawn's record outlives the throttle window by a second, so
+	 * a whole-second expiry never lapses it early; entries auto-expire and
+	 * don't accumulate after retired worker types. Verifies the TTL
+	 * computation by checking the transient store.
 	 */
-	public function test_persist_spawn_ts_writes_with_bounded_ttl(): void {
+	public function test_admit_spawn_writes_with_bounded_ttl(): void {
 		$s   = new Spawn_Coordinator( $this->tmp );
 		$now = microtime( true );
-		$s->record_spawn( 'firehose-workers', 0, $now );
+		$s->admit_spawn( 'firehose-workers', 0, $now );
 
 		$key = Cache_Backend::site_key( Spawn_Coordinator::SPAWN_TS_CACHE_KEY . 'firehose-workers|0' );
 		// Bootstrap stores transients as [value, expires_at]. Inspect the raw
@@ -413,10 +414,10 @@ class SpawnCoordinatorTest extends TestCase {
 		[ $value, $expires_at ] = $entry;
 		$ttl = $expires_at - time();
 		$this->assertSame( (int) $now, (int) $value );
-		// TTL bounded by 2 * MIN_SPAWN_INTERVAL_S = 30. Allow off-by-one for
-		// time() roundoff between persist_spawn_ts and our read.
-		$this->assertGreaterThanOrEqual( 28, $ttl );
-		$this->assertLessThanOrEqual( 30, $ttl );
+		// TTL is MIN_SPAWN_INTERVAL_S + 1 = 16. Allow off-by-one for time()
+		// roundoff between admit_spawn and our read.
+		$this->assertGreaterThanOrEqual( 15, $ttl );
+		$this->assertLessThanOrEqual( 16, $ttl );
 	}
 
 	/**
@@ -424,7 +425,7 @@ class SpawnCoordinatorTest extends TestCase {
 	 * the key. is_recently_spawned then returns false (nothing to gate).
 	 */
 	public function test_load_spawn_ts_returns_null_on_miss(): void {
-		// No record_spawn called — no persisted state.
+		// No admit_spawn called — no persisted state.
 		$s = new Spawn_Coordinator( $this->tmp );
 		$method = new \ReflectionMethod( Spawn_Coordinator::class, 'load_spawn_ts' );
 
@@ -443,9 +444,9 @@ class SpawnCoordinatorTest extends TestCase {
 	public function test_is_recently_spawned_caches_persisted_value_after_first_read(): void {
 		$now = microtime( true );
 
-		// First instance: persist via record_spawn.
+		// First instance: persist via admit_spawn.
 		$first = new Spawn_Coordinator( $this->tmp );
-		$first->record_spawn( 'foo', 0, $now );
+		$first->admit_spawn( 'foo', 0, $now );
 
 		// Second instance: triggers load_spawn_ts internally.
 		$second = new Spawn_Coordinator( $this->tmp );
@@ -469,7 +470,7 @@ class SpawnCoordinatorTest extends TestCase {
 		\Newspack_Nodes\Core::$memd = $memd;
 		try {
 			$s = new Spawn_Coordinator( $this->tmp );
-			$s->record_spawn( 'throttled-type', 3, 1234567.0 );
+			$s->admit_spawn( 'throttled-type', 3, 1234567.0 );
 
 			$stored = $memd->get( Cache_Backend::site_key( Spawn_Coordinator::SPAWN_TS_CACHE_KEY . 'throttled-type|3' ) );
 			$this->assertSame( 1234567, $stored, 'spawn ts must land in the shared backend' );
@@ -538,6 +539,131 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->assertSame( 'cold-start-workers', $posts[0]['args']['body']['type'] );
 		$this->assertSame( 2, $posts[0]['args']['body']['partition'] );
 		$this->assertTrue( $s->validate_spawn_token( $posts[0]['args']['body']['nonce'], 1700000000 ) );
+	}
+
+	// ── admitting a spawn ───────────────────────────────────────────────────
+
+	private const CLAIM_FLEET = [
+		'claim-7713' => [ 'num_partitions' => 2, 'topology' => '/claim.tsl', 'stale_timeout' => 45 ],
+	];
+
+	/** The shared tier the throttle reads, restored by the caller. */
+	private function shared_tier(): \Newspack_Nodes\Tests\Helpers\InMemoryMemcached {
+		$memd                        = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		\Newspack_Nodes\Core::$memd = $memd;
+		return $memd;
+	}
+
+	private static function slot_key( string $slot ): string {
+		return Cache_Backend::site_key( Spawn_Coordinator::SPAWN_TS_CACHE_KEY . $slot );
+	}
+
+	/** Of two processes admitting one slot, the shared tier's `add()` admits one. */
+	public function test_admit_spawn_admits_one_of_two_coordinators(): void {
+		$memd = $this->shared_tier();
+		try {
+			$first  = new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' );
+			$second = new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' );
+
+			$this->assertTrue( $first->admit_spawn( 'claim-7713', 1, 1700000300.0 ) );
+			$this->assertFalse( $second->admit_spawn( 'claim-7713', 1, 1700000301.0 ) );
+			$this->assertSame( 1700000300, $memd->get( self::slot_key( 'claim-7713|1' ) ) );
+		} finally {
+			\Newspack_Nodes\Core::$memd = null;
+		}
+	}
+
+	/**
+	 * Memcached expires in whole seconds, so a key stored for exactly the
+	 * window can lapse up to a second early; the key outlives it instead.
+	 */
+	public function test_the_admitted_slot_outlives_the_throttle_window(): void {
+		$memd        = $this->shared_tier();
+		$memd->clock = static fn (): int => 1700000300;
+		try {
+			( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->admit_spawn( 'claim-7713', 0, 1700000300.0 );
+
+			$this->assertSame(
+				1700000300 + Spawn_Coordinator::MIN_SPAWN_INTERVAL_S + 1,
+				$memd->expiries()[ self::slot_key( 'claim-7713|0' ) ]
+			);
+		} finally {
+			\Newspack_Nodes\Core::$memd = null;
+		}
+	}
+
+	/** A shared tier that answers neither the add nor the read stops no spawn. */
+	public function test_admit_spawn_admits_through_a_failing_shared_tier(): void {
+		$memd = $this->shared_tier();
+		$memd->fail_add( \Memcached::RES_FAILURE );
+		$memd->fail_get( self::slot_key( 'claim-7713|0' ) );
+		try {
+			$this->assertTrue( ( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->admit_spawn( 'claim-7713', 0, 1700000300.0 ) );
+		} finally {
+			\Newspack_Nodes\Core::$memd = null;
+		}
+	}
+
+	/** Without a shared tier the transient throttle admits once a window. */
+	public function test_admit_spawn_without_a_shared_tier_admits_once_a_window(): void {
+		$this->assertTrue( ( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->admit_spawn( 'claim-7713', 0, 1700000300.0 ) );
+		$this->assertFalse( ( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->admit_spawn( 'claim-7713', 0, 1700000310.0 ) );
+		$this->assertTrue( ( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->admit_spawn( 'claim-7713', 0, 1700000316.0 ) );
+	}
+
+	/** The caller only checks the throttle; the endpoint takes the slot, so the POST carries no claim. */
+	public function test_the_spawn_post_claims_nothing(): void {
+		$this->with_active_fleet( self::CLAIM_FLEET );
+		$memd = $this->shared_tier();
+		try {
+			( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->spawn_each( [ [ 'type' => 'claim-7713', 'partition' => 1 ] ], 'spawn failed', 1700000300.0 );
+
+			$this->assertSame( [ 'type', 'partition', 'nonce' ], \array_keys( $GLOBALS['_test_outbound_posts'][0]['args']['body'] ) );
+			$this->assertFalse( $memd->get( self::slot_key( 'claim-7713|1' ) ) );
+		} finally {
+			\Newspack_Nodes\Core::$memd = null;
+		}
+	}
+
+	// ── refused spawns ────────────────────────────────────────────────────
+
+	/** Answer every spawn POST with `$status` and a REST error carrying `$message`. */
+	private function endpoint_answers( int $status, string $message ): void {
+		\Newspack_Nodes\Core::$curl_exec = static function ( \CurlHandle $ch, array $body, array $options ) use ( $status, $message ): int {
+			$GLOBALS['_test_outbound_posts'][] = [ 'url' => '', 'args' => [ 'body' => $body ] ];
+			( $options[ \CURLOPT_WRITEFUNCTION ] )( $ch, (string) \wp_json_encode( [ 'code' => 429 === $status ? 'spawn_throttled' : 'fleet_held', 'message' => $message ] ) );
+			return $status;
+		};
+	}
+
+	/** A refused spawn is reported, rate-limited, under the pass's label. */
+	public function test_spawn_each_reports_a_refused_spawn(): void {
+		$this->with_active_fleet( self::CLAIM_FLEET );
+		$saved  = \Newspack_Nodes\Core::$curl_exec;
+		$stderr = $this->capture_stderr();
+		$this->endpoint_answers( 403, "Invalid spawn token for \033[2Jkea-dawn" );
+		try {
+			( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->spawn_each( [ [ 'type' => 'claim-7713', 'partition' => 1 ] ], 'tui wake failed', 1700000300.0 );
+		} finally {
+			\Newspack_Nodes\Core::$curl_exec = $saved;
+		}
+
+		$this->assertCount( 1, self::stderr_lines( $stderr, 'tui wake failed for claim-7713.p1: HTTP 403: Invalid spawn token for <1B>[2Jkea-dawn' ) );
+	}
+
+	/** A 429 means another process is starting the worker: nothing to report. */
+	public function test_spawn_each_reports_nothing_for_a_throttled_spawn(): void {
+		$this->with_active_fleet( self::CLAIM_FLEET );
+		$saved  = \Newspack_Nodes\Core::$curl_exec;
+		$stderr = $this->capture_stderr();
+		$this->endpoint_answers( 429, 'claim-7713.p1 spawned less than 15s ago' );
+		try {
+			( new Spawn_Coordinator( $this->tmp, 'CLAIM_SALT' ) )->spawn_each( [ [ 'type' => 'claim-7713', 'partition' => 1 ] ], 'tui wake failed', 1700000300.0 );
+		} finally {
+			\Newspack_Nodes\Core::$curl_exec = $saved;
+		}
+
+		$this->assertSame( [], self::stderr_lines( $stderr, 'claim-7713' ) );
 	}
 
 	// ── spawn_due_workers: the cold-start pass ────────────────────────────
@@ -668,7 +794,7 @@ class SpawnCoordinatorTest extends TestCase {
 		$s   = new Spawn_Coordinator( $this->tmp, 'COLD_START_SALT' );
 		// The endpoint records every accepted spawn; a cron minute later the
 		// window may still be open.
-		$s->record_spawn( 'cold-start-workers', 0, $now - 5 );
+		$s->admit_spawn( 'cold-start-workers', 0, $now - 5 );
 
 		$this->assertSame( 0, $s->spawn_due_workers( $now ) );
 		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] );

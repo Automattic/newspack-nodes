@@ -6,6 +6,22 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Core::fire_and_forget_post()` returns `{ outcome, message }`.** Compare
+  `outcome` with `Core::POST_DELIVERED`, `Core::POST_THROTTLED` or
+  `Core::POST_FAILED` where a caller tested for a null error, and read the
+  reason from `message`. A replacement `Core::$curl_exec` seam returns the
+  HTTP status, 0 for no answer, and hands any answer to the options'
+  `CURLOPT_WRITEFUNCTION`.
+- **`Spawn_Coordinator::worker_channel()` takes `( $base_dir, $worker_id )`
+  and no longer wakes.** Call `Spawn_Coordinator::wake_channel( $base_dir,
+  $channel, $now )` once whatever the caller mounts is in place; it raises the
+  spawn endpoint's refusal of the wake. `wake_sleeping_worker()` is removed:
+  resolve the channel and call `wake_channel()`. Raise the caller's
+  `version_at_least()` floor to this release.
+- **`Spawn_Coordinator::record_spawn()` is now `admit_spawn( $type,
+  $partition, $now )`**, which answers whether the spawn may run and takes
+  the slot only when it may.
+
 - **Command sessions move to SQLite by default.** The session store is the
   file `{base}/tables/nodes-sessions-<install>.p0.sqlite`, named for this
   install, unless the new

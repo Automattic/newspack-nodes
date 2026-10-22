@@ -316,29 +316,27 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * The IPC channel of the worker `$worker_id` names, waking it when it is an
-	 * on-demand worker asleep; null when the id will not parse, or names no
-	 * worker that is running or wakeable.
+	 * The IPC channel of the worker `$worker_id` names; null when the id will
+	 * not parse, or names no worker that is running or wakeable.
 	 *
 	 * THE resolution every door into a worker's IPC takes — an attached cli and
-	 * a request-scope Partition mount — so none re-derives the lock test, the
-	 * wake or the legs. `sleeping` says the worker held no lock and was woken,
-	 * so its IPC tree may not exist yet. Static, so a live worker costs no
-	 * spawn key; only a wake builds a coordinator.
+	 * a request-scope Partition mount — so none re-derives the lock test or the
+	 * legs. `sleeping` says the worker holds no lock and is an on-demand worker
+	 * `wake_channel()` brings up, so its IPC tree may not exist yet. Static, so
+	 * resolving costs no spawn key; only a wake builds a coordinator.
 	 *
 	 * @param string $base_dir  Runtime state root holding `locks/` and `ipc/`.
 	 * @param string $worker_id `{type}.p{N}`.
-	 * @param float  $now       Clock the wake judges the throttle by.
 	 * @return array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}|null
 	 */
-	public static function worker_channel( string $base_dir, string $worker_id, float $now ): ?array {
+	public static function worker_channel( string $base_dir, string $worker_id ): ?array {
 		$worker = CLI::parse_worker_id( $worker_id );
 		if ( null === $worker ) {
 			return null;
 		}
 		[ $type, $partition ] = $worker;
 		$sleeping             = ! \is_dir( self::lock_path( $base_dir, $type, $partition ) );
-		if ( $sleeping && ! ( new self( $base_dir ) )->wake_sleeping_worker( $type, $partition, $now ) ) {
+		if ( $sleeping && null === self::on_demand_worker( $type, $partition ) ) {
 			return null;
 		}
 		return [
@@ -349,26 +347,6 @@ class Spawn_Coordinator {
 			'output'    => Worker_Base::ipc_dir( $base_dir, $type, $partition, Worker_Base::IPC_OUTPUT ),
 			'sleeping'  => $sleeping,
 		];
-	}
-
-	/**
-	 * Wake the on-demand worker `{type}.p{partition}`, which holds no lock dir
-	 * because it sleeps BY DESIGN; false when the fleet runs no such on-demand
-	 * worker, so a resident one with no lock dir — a typo or a dead fleet —
-	 * stays refused.
-	 *
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition number.
-	 * @param float  $now       Clock, so one pass judges every worker alike.
-	 * @return bool True when the pair names an on-demand worker; the wake itself
-	 *              is fire-and-forget, and the throttle may still swallow it.
-	 */
-	public function wake_sleeping_worker( string $type, int $partition, float $now ): bool {
-		if ( null === $this->on_demand_worker( $type, $partition ) ) {
-			return false;
-		}
-		$this->wake_on_demand( Worker_Base::ipc_dir( $this->base_dir, $type, $partition, Worker_Base::IPC_INPUT ), $now );
-		return true;
 	}
 
 	/**
@@ -440,7 +418,8 @@ class Spawn_Coordinator {
 	 * @throws \Throwable Every configured topology that will not read, after the POSTs.
 	 */
 	public function spawn_each( array $workers, string $label, float $now ): int {
-		[ $posted, $unreadable ] = $this->post_due( $workers, $label, $now );
+		[ $posted, $unreadable, $refused ] = $this->post_due( $workers, $now );
+		self::report_refused( $label, $refused );
 		Worker_Should_Stop::raise( $unreadable );
 		return $posted;
 	}
@@ -478,7 +457,7 @@ class Spawn_Coordinator {
 			return null;
 		}
 		$worker = CLI::parse_worker_id( \explode( '/', \substr( $dir, \strlen( $prefix ) ) )[0] );
-		$reader = null === $worker ? null : $this->on_demand_worker( ...$worker );
+		$reader = null === $worker ? null : self::on_demand_worker( ...$worker );
 		return null === $reader ? [] : [ $reader ];
 	}
 
@@ -490,7 +469,7 @@ class Spawn_Coordinator {
 	 * @param int    $partition Partition number.
 	 * @return array<array-key,mixed>|null Worker descriptor.
 	 */
-	private function on_demand_worker( string $type, int $partition ): ?array {
+	private static function on_demand_worker( string $type, int $partition ): ?array {
 		foreach ( Bootstrap::expand_workers() as $worker ) {
 			if ( 0 !== Bootstrap::on_demand_idle_of( $worker )
 				&& $type === Core::as_string( $worker['type'] )
@@ -621,16 +600,29 @@ class Spawn_Coordinator {
 			Bootstrap::expand_workers(),
 			static fn ( array $worker ): bool => $name === $worker['type']
 		);
-		[ $posted, $unreadable ] = $this->post_due( $fleet, 'fleet spawn failed', (float) \time() );
+		[ $posted, $unreadable, $refused ] = $this->post_due( $fleet, (float) \time() );
+		self::report_refused( 'fleet spawn failed', $refused );
 		Worker_Should_Stop::raise( \array_intersect_key( $unreadable, [ $name => true ] ) );
 		return $posted;
 	}
 
 	/**
+	 * Report each spawn the endpoint refused, rate-limited per worker.
+	 *
+	 * @param string               $label   Failure-report verb, e.g. 'wake failed'.
+	 * @param array<string,string> $refused What `post_due()` handed back, by worker id.
+	 */
+	private static function report_refused( string $label, array $refused ): void {
+		foreach ( $refused as $id => $message ) {
+			Core::print_less_often( "{$label} for {$id}: ", Core::terminal_safe( $message ) );
+		}
+	}
+
+	/**
 	 * The ONE spawn loop: drop what the shared throttle suppresses, refuse a
 	 * subsite, a held fleet and a write-conflicting active set, resolve the
-	 * endpoint and mint one token for the pass, then POST each survivor,
-	 * report under `$label`, and record the POST locally.
+	 * endpoint and mint one token for the pass, then POST each survivor and
+	 * record it locally.
 	 *
 	 * Every entry point differs only in the worker list it computes, which is its
 	 * actual job. A hand-copied second loop drops the local record and re-posts
@@ -648,22 +640,25 @@ class Spawn_Coordinator {
 	 * a write: judged the other way round, every request that writes pays that
 	 * read for the whole window.
 	 *
+	 * The throttle here is a cheap read that saves a POST; two processes can
+	 * both pass it, and the endpoint's `admit_spawn()` lets one of them in.
+	 *
 	 * A configured topology that will not read — an unknown name, a broken
 	 * include — is judged out of the set and handed back rather than raised: it
 	 * cannot load, so it boots no worker to collide with, the readable fleets
 	 * still come up, and each caller raises what concerns it — `spawn_each()`
 	 * all of it, `spawn_fleet()` its own fleet's.
 	 *
-	 * Counts POSTS REQUESTED, not workers started: `fire_and_forget_post` hangs
-	 * up before any outcome, and the endpoint records accepted spawns only after
-	 * control has returned here — which is why the local record cannot wait.
+	 * Counts POSTS REQUESTED, not workers started: the endpoint records an accepted
+	 * spawn only after control has returned here, which is why the local
+	 * record cannot wait. A spawn the endpoint refused is handed back for the
+	 * caller to report or raise; a throttled one is another process's.
 	 *
 	 * @param array<array-key,array<array-key,mixed>> $workers Descriptors to spawn (fleet or wake-map shape).
-	 * @param string                                  $label   Failure-report verb, e.g. 'wake failed'.
 	 * @param float                                   $now     Pass clock.
-	 * @return array{0: int, 1: array<string,\Throwable>} Spawn POSTs fired, then each configured topology that will not read.
+	 * @return array{0: int, 1: array<string,\Throwable>, 2: array<string,string>} Spawn POSTs sent, each configured topology that will not read, and each refused spawn's message by worker id.
 	 */
-	private function post_due( array $workers, string $label, float $now ): array {
+	private function post_due( array $workers, float $now ): array {
 		$due = [];
 		foreach ( $workers as $worker ) {
 			$type      = Core::as_string( $worker['type'] );
@@ -673,36 +668,37 @@ class Spawn_Coordinator {
 			}
 		}
 		if ( [] === $due ) {
-			return [ 0, [] ]; // Nothing to POST: don't pay for the conflict walk.
+			return [ 0, [], [] ]; // Nothing to POST: don't pay for the conflict walk.
 		}
 		// The endpoint records neither refusal, so no throttle stops these.
 		if ( ! Bootstrap::fleet_site() || self::hold() > 0 ) {
-			return [ 0, [] ];
+			return [ 0, [], [] ];
 		}
 		[ $readable, $unreadable ] = Bootstrap::active_topologies();
 		$conflict                  = self::conflict_description( \array_keys( $readable ) );
 		$spawn_url                 = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
 		$posted                    = 0;
+		$refused                   = [];
 		if ( '' !== $conflict ) {
 			Core::print_less_often( 'refusing to spawn — topology write-conflict: ', $conflict );
 		} elseif ( '' !== $spawn_url ) {
 			$token = $this->generate_spawn_token( (int) $now );
 			foreach ( $due as [ $type, $partition ] ) {
-				$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
-				if ( null !== $err ) {
-					Core::print_less_often( "{$label} for " . CLI::worker_id( $type, $partition ) . ': ', $err );
+				$outcome = $this->post_spawn( $spawn_url, $type, $partition, $token );
+				if ( Core::POST_FAILED === $outcome['outcome'] ) {
+					$refused[ CLI::worker_id( $type, $partition ) ] = $outcome['message'];
 				}
 				$this->record_spawn_local( $type, $partition, $now );
 			}
 			$posted = \count( $due );
 		}
-		return [ $posted, $unreadable ];
+		return [ $posted, $unreadable, $refused ];
 	}
 
 	/**
 	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
-	 * here would make the endpoint (which records on accept) reject the very
-	 * POST this record announces.
+	 * here would take the slot `admit_spawn()` takes, and the endpoint would
+	 * refuse the very POST this record announces.
 	 *
 	 * @param string $type      Worker type.
 	 * @param int    $partition Partition number.
@@ -713,16 +709,16 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Fire-and-forget spawn POST. Returns the transport error rather than
-	 * reporting it, so `spawn_each` names the pass the failure belongs to.
+	 * Fire-and-forget spawn POST. Returns the outcome rather than reporting
+	 * it, so the caller names the pass a refusal belongs to.
 	 *
 	 * @param string $spawn_url Fully-qualified spawn endpoint URL.
 	 * @param string $type      Worker type.
 	 * @param int    $partition Partition number.
 	 * @param string $token     Current HMAC spawn token.
-	 * @return string|null Error description, or null on success.
+	 * @return array{outcome:string,message:string} What `Core::fire_and_forget_post()` answered.
 	 */
-	private function post_spawn( string $spawn_url, string $type, int $partition, string $token ): ?string {
+	private function post_spawn( string $spawn_url, string $type, int $partition, string $token ): array {
 		return Core::fire_and_forget_post( $spawn_url, [
 			'type'      => $type,
 			'partition' => $partition,
@@ -760,6 +756,43 @@ class Spawn_Coordinator {
 	}
 
 	/**
+	 * Admit a spawn of `{type}.p{partition}`, or refuse one inside the throttle
+	 * window. The spawn endpoint calls this — the one gate every spawn crosses —
+	 * so self-respawns, peer scans and the cron pass share one cross-process
+	 * window. In the shared tier the admission is one atomic `add()` of the
+	 * slot's key, so of concurrent spawns exactly one is admitted; a tier that
+	 * can neither add nor say who holds the slot admits, and with no shared
+	 * tier the transient is checked, then set.
+	 *
+	 * The key lives a second past the window, because memcached expires in
+	 * whole seconds and a key stored for exactly the window can lapse early.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @param float  $now       Time the endpoint judges the spawn at.
+	 * @return bool True when this spawn may run.
+	 */
+	public function admit_spawn( string $type, int $partition, float $now ): bool {
+		$key       = "{$type}|{$partition}";
+		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
+		$ttl       = self::MIN_SPAWN_INTERVAL_S + 1;
+		$backend   = Cache_Backend::shared_first();
+		if ( null !== $backend ) {
+			$admitted = $backend->add( $cache_key, (int) $now, $ttl )
+				|| Cache_Backend::READ_HIT !== $backend->read( $cache_key )['status'];
+		} else {
+			$admitted = ! $this->is_recently_spawned( $type, $partition, $now );
+			if ( $admitted && \function_exists( 'set_transient' ) ) {
+				\set_transient( $cache_key, (int) $now, $ttl );
+			}
+		}
+		if ( $admitted ) {
+			$this->last_spawn_time[ $key ] = $now;
+		}
+		return $admitted;
+	}
+
+	/**
 	 * True while `{type}.p{partition}` sits inside the shared throttle window.
 	 *
 	 * @param string $type      Worker type.
@@ -784,7 +817,7 @@ class Spawn_Coordinator {
 
 	/**
 	 * Load a persisted spawn timestamp; null if absent. Reads the same single
-	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
+	 * tier admit_spawn wrote — a throttle window must never straddle tiers.
 	 *
 	 * @param string $key `{type}|{partition}`.
 	 * @return float|null Recorded timestamp, or null when no tier holds one.
@@ -804,43 +837,6 @@ class Spawn_Coordinator {
 			}
 		}
 		return null;
-	}
-
-	/**
-	 * Record an ACCEPTED spawn (in-memory + persisted). The spawn endpoint calls
-	 * this — the one gate every spawn crosses — so self-respawns, peer scans and
-	 * the cron pass share a single cross-process throttle window.
-	 *
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition number.
-	 * @param float  $when      Time the endpoint accepted the spawn.
-	 */
-	public function record_spawn( string $type, int $partition, float $when ): void {
-		$key                          = "{$type}|{$partition}";
-		$this->last_spawn_time[ $key ] = $when;
-		$this->persist_spawn_ts( $key, $when );
-	}
-
-	/**
-	 * Persist a spawn timestamp (Cache_Backend, transient fallback) so a respawn
-	 * honors the rate limit. The TTL is twice MIN_SPAWN_INTERVAL_S, so the entry
-	 * outlives the window it guards and then expires on its own — no sweep.
-	 *
-	 * @param string $key  `{type}|{partition}`.
-	 * @param float  $when Time the spawn was accepted.
-	 */
-	protected function persist_spawn_ts( string $key, float $when ): void {
-		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
-		$ttl       = self::MIN_SPAWN_INTERVAL_S * 2;
-
-		$backend = Cache_Backend::shared_first();
-		if ( null !== $backend ) {
-			$backend->set( $cache_key, (int) $when, $ttl );
-			return;
-		}
-		if ( \function_exists( 'set_transient' ) ) {
-			\set_transient( $cache_key, (int) $when, $ttl );
-		}
 	}
 
 	/**
@@ -920,6 +916,32 @@ class Spawn_Coordinator {
 	 */
 	public static function locks_dir( string $base_dir ): string {
 		return \rtrim( $base_dir, '/' ) . '/locks';
+	}
+
+	/**
+	 * Wake the worker a `worker_channel()` names when it sleeps; a live one
+	 * costs nothing. A door calls it once whatever it mounts is in place, so
+	 * a refused wake raises with what the door wrote still standing.
+	 *
+	 * A spawn the endpoint refuses raises its refusal, so the door that asked —
+	 * a `/command` verb, an attached cli — answers it; a throttled one is
+	 * another process starting the worker, and raises nothing.
+	 *
+	 * @param string                                                                       $base_dir Runtime state root.
+	 * @param array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool} $channel  What `worker_channel()` resolved.
+	 * @param float                                                                        $now      Clock the wake judges the throttle by.
+	 * @throws \Throwable The endpoint's refusal, and any unreadable topology, combined.
+	 */
+	public static function wake_channel( string $base_dir, array $channel, float $now ): void {
+		if ( ! $channel['sleeping'] ) {
+			return;
+		}
+		[ , $unreadable, $refused ] = ( new self( $base_dir ) )->post_due( [ $channel ], $now );
+		$raised                     = [];
+		foreach ( $refused as $id => $message ) {
+			$raised[] = new \RuntimeException( \esc_html( "wake failed for {$id}: {$message}" ) );
+		}
+		Worker_Should_Stop::raise( [ ...$raised, ...\array_values( $unreadable ) ] );
 	}
 
 	/**

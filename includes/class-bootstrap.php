@@ -1398,12 +1398,15 @@ class Bootstrap {
 
 	/**
 	 * Mount one worker's input Partition by reader id (format-validated,
-	 * idempotent). A sleeping on-demand worker is woken first, and skips the
-	 * input-dir check, because it creates that directory only once it runs.
+	 * idempotent). A sleeping on-demand worker skips the input-dir check,
+	 * because it creates that directory only once it runs, and is woken once
+	 * the mount stands, so a refused wake raises with what the batch writes
+	 * next still landing in its input.
 	 *
 	 * @param string $worker_id Reader id; `CLI::parse_worker_id()` refuses any other shape.
 	 * @param string $base_dir  Runtime base holding `locks/` and `ipc/`.
 	 * @return bool True iff the partition is now mounted.
+	 * @throws \Throwable The endpoint's refusal of the wake, after the mount.
 	 */
 	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
 		// Parsed first, so no other node's name answers the idempotency test.
@@ -1413,7 +1416,7 @@ class Bootstrap {
 		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
 			return true;
 		}
-		$channel = Spawn_Coordinator::worker_channel( $base_dir, $worker_id, Core::right_now() );
+		$channel = Spawn_Coordinator::worker_channel( $base_dir, $worker_id );
 		if ( null === $channel || ( ! $channel['sleeping'] && ! \is_dir( $channel['input'] ) ) ) {
 			return false;
 		}
@@ -1430,6 +1433,7 @@ class Bootstrap {
 			$part->sink( $ci );
 		}
 		$part->arguments( Worker_Base::ipc_partition_args( $channel['input'] ) );
+		Spawn_Coordinator::wake_channel( $base_dir, $channel, Core::right_now() );
 		return true;
 	}
 

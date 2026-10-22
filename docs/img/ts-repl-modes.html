@@ -38,7 +38,7 @@
   <header><span class="n">0</span>Attaching resolves the worker in two steps, and a bad id is refused before either</header>
   <div class="body">
     <div class="chip"><span class="mono">{type}.p{N}</span> must parse, greedily, so a dotted topology name keeps its dots. Otherwise <span class="mono">invalid reader id: &lt;id&gt; (expected {type}.p{N})</span>.</div>
-    <div class="chip">Then <span class="mono">{base}/locks/{type}.p{N}.lock.d/</span> must exist, or failing that <span class="mono">Spawn_Coordinator::wake_sleeping_worker()</span> must answer, since an on-demand worker sleeps holding no lock. Otherwise <span class="mono">no worker '&lt;id&gt;' (run `wp nodes status` to list active workers)</span>.</div>
+    <div class="chip">Then <span class="mono">{base}/locks/{type}.p{N}.lock.d/</span> must exist, or failing that the fleet must run the worker on demand, since an on-demand worker sleeps holding no lock; <span class="mono">Spawn_Coordinator::wake_channel()</span> then wakes it, and a refused wake is the error. Otherwise <span class="mono">no worker '&lt;id&gt;' (run `wp nodes status` to list active workers)</span>.</div>
     <div class="chip">Neither refusal creates a ghost IPC partition. Staleness is not blocked: a stale worker is mid-restart, and the cli works once a peer respawns it.</div>
   </div>
 </div>

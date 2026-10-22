@@ -151,8 +151,8 @@ class CLI_Command {
 	 * builtin prints on request.
 	 *
 	 * Resolving the worker's IPC paths comes before any node is constructed, so an
-	 * unknown worker id is refused by `WP_CLI::error` while the failure is still a
-	 * single line. Stashing the summary rather than printing it serves the rule
+	 * unknown worker id, or a wake the spawn endpoint refuses, is refused by
+	 * `WP_CLI::error` while the failure is still a single line. Stashing the summary rather than printing it serves the rule
 	 * the suppressed prompts and trailing newline serve: a piped session emits
 	 * what the script asked for and nothing else.
 	 *
@@ -174,6 +174,9 @@ class CLI_Command {
 				$ipc = $cli->attach_to_worker( $worker_id );
 			} catch ( \InvalidArgumentException $e ) {
 				\WP_CLI::error( $e->getMessage() );
+			} catch ( \RuntimeException $e ) {
+				// A refused wake, or an active topology that will not read.
+				\WP_CLI::error( Core::terminal_safe( Core::message_of( $e ) ) );
 			}
 		}
 

@@ -51,9 +51,9 @@
   </div>
 
   <div class="panel" style="left:150px;top:290px;width:752px">
-    <header>The one gate: <span class="mono" style="font-weight:400">is_recently_spawned</span>, 15 s per slot</header>
+    <header>The one gate: <span class="mono" style="font-weight:400">admit_spawn</span>, 15 s per slot</header>
     <div class="body" style="padding:10px 14px">
-      <p style="font-size:12.5px;margin:0;line-height:1.5;color:#50575E">The spawn endpoint enforces and records the throttle, because it is the one gate every spawner crosses. An accepted spawn writes <span class="mono">last_spawn:{type}|{partition}</span> through <span class="mono">Cache_Backend::shared_first()</span>, falling back to a transient, at a TTL of twice <span class="mono">MIN_SPAWN_INTERVAL_S</span> so the record outlives the window it guards and expires on its own. A slot spawned under 15 s ago is refused, so respawn storms are bounded however many spawners there are.</p>
+      <p style="font-size:12.5px;margin:0;line-height:1.5;color:#50575E">The spawn endpoint takes the throttle, because it is the one gate every spawner crosses. An admitted spawn takes <span class="mono">last_spawn:{type}|{partition}</span> with one atomic <span class="mono">add()</span> through <span class="mono">Cache_Backend::shared_first()</span>, falling back to a checked transient, at a TTL of <span class="mono">MIN_SPAWN_INTERVAL_S</span> plus one second so a whole-second expiry never lapses it inside the window. Of concurrent spawns for one slot one is admitted, so respawn storms are bounded however many spawners there are.</p>
     </div>
   </div>
 </div>

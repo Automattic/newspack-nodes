@@ -567,11 +567,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * Router answers NOT_AVAILABLE for a TO naming the worker. Only the named
 	 * worker is mounted. A worker that cannot be — an id outside
 	 * `{topology}.p{N}`, no lock dir and no wakeable sleeper, no ipc input dir —
-	 * is not reported here; the command behind it bounces NOT_AVAILABLE.
+	 * is not reported here; the command behind it bounces NOT_AVAILABLE. A
+	 * sleeper whose wake the spawn endpoint refuses is mounted, and the
+	 * refusal raises, so this verb answers it as its TM_ERROR.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: the reader, a worker id (`{topology}.p{N}`).
 	 *
 	 * @return string Always empty, so the mount adds no reply to the batch.
+	 * @throws \Throwable The endpoint's refusal of a sleeping worker's wake.
 	 */
 	public static function cmd_connect_worker_input( array $args ): string {
 		Bootstrap::register_worker_partition( Core::as_string( $args['reader'] ), Bootstrap::base_dir() );

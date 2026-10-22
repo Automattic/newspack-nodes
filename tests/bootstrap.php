@@ -135,7 +135,7 @@ require_once __DIR__ . '/Helpers/TopologyDurability.php';
 			$resp( $url, $args );
 		}
 	}
-	return false; // simulate "no response received" — we'd hang up anyway.
+	return 0; // no answer arrived: we hang up before one would.
 };
 
 // Pull in each bundled example's test bootstrap so example test suites run as

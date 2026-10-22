@@ -31,6 +31,7 @@ import {
 	KEY,
 	VALUE,
 	TM_COMMAND,
+	TM_ERROR,
 	TM_INFO,
 	TM_REQUEST,
 	TM_BYTESTREAM,
@@ -116,6 +117,29 @@ function command( { from = '', to = '' } = {} ) {
 	m[ TO ] = to;
 	m[ VALUE ] = { name: 'ls', arguments: [] };
 	return m;
+}
+
+// A client whose first POST is answered with a mount refusal TO `to`.
+function refusingClient( to ) {
+	return {
+		postBatch: ( messages ) => {
+			batches.push( messages );
+			if ( 1 < batches.length ) {
+				return Promise.resolve( [] );
+			}
+			const refusal = newMessage();
+			refusal[ TYPE ] = TM_COMMAND | TM_ERROR;
+			refusal[ FROM ] = 'topologies';
+			refusal[ TO ] = to;
+			refusal[ VALUE ] = {
+				name: 'connect_worker_input',
+				arguments: [ 'heron-dusk.p4' ],
+				payload:
+					'wake failed for heron-dusk.p4: HTTP 409: fleet held\n',
+			};
+			return Promise.resolve( [ refusal ] );
+		},
+	};
 }
 
 describe( 'RemoteIpcNode', () => {
@@ -487,6 +511,38 @@ describe( 'RemoteIpcNode', () => {
 			arguments: [],
 		} );
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0' );
+	} );
+
+	// The server answers a refused mount TO the RemoteIpc that minted it; that
+	// reply is an answer, and posting it back would write it into the worker.
+	it( 'takes a refusal of its own mount as an answer, never a send', async () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'heron-dusk.p4', interpreter );
+		node.client = refusingClient( 'heron-dusk.p4' );
+
+		node.fill( command( { from: '_metadata' } ) );
+		await nextTask();
+		await nextTask();
+		await nextTask();
+
+		expect( batches ).toHaveLength( 1 );
+	} );
+
+	// A reply carrying a remainder is addressed past this node, so it still
+	// travels the send path to the worker, as it always has.
+	it( 'forwards a reply addressed past it, as any send', async () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'heron-dusk.p4', interpreter );
+		node.client = refusingClient( 'heron-dusk.p4/_metadata' );
+
+		node.fill( command( { from: '_metadata' } ) );
+		await nextTask();
+		await nextTask();
+		await nextTask();
+
+		expect( batches ).toHaveLength( 2 );
+		expect( batches[ 1 ][ 1 ][ TO ] ).toBe( 'heron-dusk.p4/_metadata' );
+		expect( batches[ 1 ][ 1 ][ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
 	} );
 
 	it( 'bridges its SseIn connected slot into the shared `_heartbeat`', () => {

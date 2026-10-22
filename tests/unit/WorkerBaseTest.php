@@ -465,6 +465,65 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'fresh-token-9f3', $posts[0]['body']['nonce'], 'self_respawn must not reuse the boot-time token' );
 	}
 
+	/** Answer the respawn POST with `$status` and a REST error carrying `$message`. */
+	private function endpoint_answers( int $status, string $message ): void {
+		Core::$curl_exec = static function ( \CurlHandle $ch, array $body, array $options ) use ( $status, $message ): int {
+			( $options[ \CURLOPT_WRITEFUNCTION ] )( $ch, (string) \wp_json_encode( [ 'code' => 429 === $status ? 'spawn_throttled' : 'fleet_held', 'message' => $message ] ) );
+			return $status;
+		};
+	}
+
+	/** A refused respawn is reported with the endpoint's message, never printed to output. */
+	public function test_self_respawn_reports_a_refused_respawn(): void {
+		$this->endpoint_answers( 409, 'fleet held since egret-noon' );
+		$stderr = $this->capture_stderr();
+
+		\ob_start();
+		( new TestableWorker( $this->tmp, 'egret-workers', 2 ) )->self_respawn( 'http://example.test/spawn', 'token-egret' );
+		$printed = \ob_get_clean();
+
+		$this->assertSame( '', $printed );
+		$this->assertCount( 1, self::stderr_lines( $stderr, 'egret-workers.p2: self_respawn failed: HTTP 409: fleet held since egret-noon' ) );
+	}
+
+	/**
+	 * A deactivated type's last workers each meet a 400 on the way out, so a
+	 * refusal is said once a window rather than once a respawn.
+	 */
+	public function test_self_respawn_reports_a_repeated_refusal_once(): void {
+		$this->endpoint_answers( 400, 'Invalid parameter(s): type' );
+		$stderr = $this->capture_stderr();
+
+		( new TestableWorker( $this->tmp, 'egret-workers', 2 ) )->self_respawn( 'http://example.test/spawn', 'token-egret' );
+		( new TestableWorker( $this->tmp, 'egret-workers', 2 ) )->self_respawn( 'http://example.test/spawn', 'token-egret' );
+
+		$this->assertCount( 1, self::stderr_lines( $stderr, 'egret-workers.p2: self_respawn failed: HTTP 400: Invalid parameter(s): type' ) );
+	}
+
+	/** Under a deploy hold the successor would only be refused 409, so none is posted. */
+	public function test_self_respawn_posts_nothing_while_the_fleet_is_held(): void {
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500987 );
+		try {
+			( new TestableWorker( $this->tmp, 'egret-workers', 2 ) )->self_respawn( 'http://example.test/spawn', 'token-egret' );
+		} finally {
+			\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+		}
+
+		$this->assertSame( [], $posts );
+	}
+
+	/** A throttled respawn is another process starting the slot: nothing to report. */
+	public function test_self_respawn_reports_nothing_when_throttled(): void {
+		$this->endpoint_answers( 429, 'egret-workers.p2 spawned less than 15s ago' );
+		$stderr = $this->capture_stderr();
+
+		( new TestableWorker( $this->tmp, 'egret-workers', 2 ) )->self_respawn( 'http://example.test/spawn', 'token-egret' );
+
+		$this->assertSame( [], self::stderr_lines( $stderr, 'egret-workers' ) );
+	}
+
 	public function test_self_respawn_swallows_empty_url_without_posting(): void {
 		// The shared helper rejects an empty URL ('empty url') before touching curl;
 		// self_respawn logs it but must not throw or hit the seam.

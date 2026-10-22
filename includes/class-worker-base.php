@@ -416,22 +416,30 @@ class Worker_Base {
 	 * curl extension itself). Body stays byte-compatible with the spawn endpoint's
 	 * {type, partition, nonce} contract so HMAC/nonce validation still passes.
 	 *
+	 * Under a deploy hold nothing is posted, as `Spawn_Coordinator` posts
+	 * nothing: the endpoint would refuse it 409. A refusal is reported once a
+	 * rate-limit window, because the last workers of a deactivated type each
+	 * meet a 400 on the way out and that refusal says nothing new.
+	 *
 	 * @param string $spawn_url Fully-qualified spawn URL (rest_url + path).
 	 * @param string $token     Current HMAC spawn token.
 	 */
 	public function self_respawn( string $spawn_url, string $token ): void {
+		if ( Spawn_Coordinator::hold() > 0 ) {
+			return;
+		}
 		// Boot-time tokens are stale here; mint at POST time when wired.
 		$provider = self::$token_provider;
 		if ( null !== $provider ) {
 			$token = Core::as_string( $provider() );
 		}
-		$err = Core::fire_and_forget_post( $spawn_url, [
+		$outcome = Core::fire_and_forget_post( $spawn_url, [
 			'type'      => $this->worker_type,
 			'partition' => $this->partition,
 			'nonce'     => $token,
 		], 'self-respawn' );
-		if ( null !== $err ) {
-			Core::stderr( CLI::worker_id( $this->worker_type, $this->partition ) . ": self_respawn failed: {$err}" );
+		if ( Core::POST_FAILED === $outcome['outcome'] ) {
+			Core::print_less_often( CLI::worker_id( $this->worker_type, $this->partition ) . ': self_respawn failed: ', Core::terminal_safe( $outcome['message'] ) );
 		}
 	}
 

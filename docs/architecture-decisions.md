@@ -439,7 +439,7 @@ keeps executing after the disconnect and respawns a successor before its clock r
 the caller abandons the connection, and the endpoint runs the worker inline for its whole
 lifetime.
 
-![A timeline with three lanes. The caller writes the spawn POST and walks away at 250 ms, Core::fire_and_forget_post's SPAWN_POST_TIMEOUT_MS, reading no status. The endpoint checks the HMAC, then runs the worker inline under ignore_user_abort(true) and set_time_limit(0) for about 595 seconds, ending in a finally that releases the lock and then self-respawns, so the successor acquires the lock immediately. Three cards: fastcgi_finish_request rejected because it hands WordPress a response it can no longer send, a resident daemon or rescue-only restart rejected, and the cost of about 144 respawns a day per worker.](img/adr-zombie-request.png)
+![A timeline with three lanes. The caller writes the spawn POST and walks away at 250 ms, Core::fire_and_forget_post's SPAWN_POST_TIMEOUT_MS, reading a status only when a refusal answers inside it. The endpoint checks the HMAC, then runs the worker inline under ignore_user_abort(true) and set_time_limit(0) for about 595 seconds, ending in a finally that releases the lock and then self-respawns, so the successor acquires the lock immediately. Three cards: fastcgi_finish_request rejected because it hands WordPress a response it can no longer send, a resident daemon or rescue-only restart rejected, and the cost of about 144 respawns a day per worker.](img/adr-zombie-request.png)
 
 Nothing detaches from FPM or the process group: the process holding the connection IS the
 worker, for [`Cooperative_Stop::DEFAULT_MAX_RUNTIME`](../includes/trait-cooperative-stop.php), ~595 s.
@@ -471,7 +471,7 @@ system — and whatever revives it can itself die.
 ([`Fleet_Node`](../includes/class-fleet-node.php)); WP-Cron catches a fleet with nothing left running, at minute cadence, via
 [`Bootstrap::reconcile_fleet()`](../includes/class-bootstrap.php).
 
-![Three spawners feed one gate. Tier 1: the shutdown in Worker_Base::execute, which releases the lock then self-respawns; and _fleet, which every 15 seconds (SCAN_INTERVAL_MS) spawns any worker whose lock dir is missing or heartbeat stale, at most MAX_SPAWNS_PER_TICK 4 per pass because each POST is a blocking cURL. Tier 2: Bootstrap::reconcile_fleet on WP-Cron once a minute, no per-pass cap. All three POST the HMAC-validated spawn endpoint, where is_recently_spawned enforces 15 seconds per slot and records last_spawn:{type}|{partition} through shared_first with a transient fallback at twice MIN_SPAWN_INTERVAL_S. The minute pass, Bootstrap::reconcile_steps(), runs nine steps in order, each attempted whatever an earlier one threw, then every failure written to stderr one cause a line under the step that threw it, then after_reconcile: before_reconcile, spawn_due_workers, wake_readers_with_backlog, lock-dir reconcile, retention, orphan-IPC reaping, alerts, the delayed-jobs sweep, newspack_nodes/periodic. Cards give the rejected dedicated supervisor and what N spawners buy.](img/adr-safety-net.png)
+![Three spawners feed one gate. Tier 1: the shutdown in Worker_Base::execute, which releases the lock then self-respawns; and _fleet, which every 15 seconds (SCAN_INTERVAL_MS) spawns any worker whose lock dir is missing or heartbeat stale, at most MAX_SPAWNS_PER_TICK 4 per pass because each POST is a blocking cURL. Tier 2: Bootstrap::reconcile_fleet on WP-Cron once a minute, no per-pass cap. All three POST the HMAC-validated spawn endpoint, where admit_spawn takes last_spawn:{type}|{partition} with one atomic add through shared_first, admitting one spawn per slot per 15 seconds, with a checked transient fallback, at MIN_SPAWN_INTERVAL_S plus one second. The minute pass, Bootstrap::reconcile_steps(), runs nine steps in order, each attempted whatever an earlier one threw, then every failure written to stderr one cause a line under the step that threw it, then after_reconcile: before_reconcile, spawn_due_workers, wake_readers_with_backlog, lock-dir reconcile, retention, orphan-IPC reaping, alerts, the delayed-jobs sweep, newspack_nodes/periodic. Cards give the rejected dedicated supervisor and what N spawners buy.](img/adr-safety-net.png)
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
 before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
@@ -1467,7 +1467,8 @@ its `id`.
 `input`, `output` and `input.offsets` legs included, and `Spawn_Coordinator` is the one
 class that walks the IPC tree (`cleanup_orphan_ipc()`), reads a worker back out of an IPC
 path (`ipc_reader_of()`), or resolves a worker id to its channel (`worker_channel()`,
-which wakes a sleeping on-demand worker and hands the `id` back with the channel). No other file globs, joins or
+which hands the `id` back with the channel, and `wake_channel()`, which wakes a sleeping
+on-demand worker). No other file globs, joins or
 strips either tree. A process outside PHP receives type, partition and the resolved
 directory, never an id to parse, because a second grammar accepts what the first refuses.
 
