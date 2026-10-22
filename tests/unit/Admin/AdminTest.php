@@ -265,6 +265,32 @@ class AdminTest extends TestCase {
 		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_log_sources]"', $html );
 	}
 
+	public function test_sanitize_sessions_backend_keeps_a_backend_and_blanks_anything_else(): void {
+		$admin = new Admin();
+		$admin->register_settings();
+
+		$cb = $GLOBALS['_registered_settings']['newspack_nodes_sessions_backend']['args']['sanitize_callback'];
+		$this->assertSame( 'wpdb', \call_user_func( $cb, 'wpdb' ) );
+		$this->assertSame( 'sqlite', \call_user_func( $cb, 'sqlite' ) );
+		$this->assertSame( '', \call_user_func( $cb, 'memcache' ), 'blank hands the row to Reset_Gate' );
+		$this->assertSame( '', \call_user_func( $cb, 'WPDB' ) );
+		$this->assertSame( '', \call_user_func( $cb, [ 'wpdb' ] ) );
+	}
+
+	public function test_sessions_backend_callback_renders_a_select_naming_the_default_and_the_cost(): void {
+		\update_option( 'newspack_nodes_sessions_backend', 'wpdb' );
+
+		\ob_start();
+		Admin::sessions_backend_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( '<select id="sessions_backend" name="newspack_nodes_sessions_backend">', $html );
+		$this->assertStringContainsString( '<option value="">Default (sqlite)</option>', $html );
+		$this->assertStringContainsString( '<option value="wpdb" selected="selected">wpdb</option>', $html );
+		$this->assertStringContainsString( 'drops every open session', $html );
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_sessions_backend]"', $html );
+	}
+
 	public function test_register_settings_base_directory_rejects_relative_and_traversal(): void {
 		$admin = new Admin();
 		$admin->register_settings();

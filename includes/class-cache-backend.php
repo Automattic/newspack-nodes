@@ -121,6 +121,16 @@ abstract class Cache_Backend {
 	public static ?\Closure $apcu_sma_info = null;
 
 	/**
+	 * Constant-read seam for `install_id()`'s `DB_HOST` and `ABSPATH`. Null
+	 * reads the real constant, or null when it is undefined; tests answer
+	 * two installs' values from one process.
+	 * Signature: `function (string $name): mixed`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $constant = null;
+
+	/**
 	 * Key for a per-MACHINE budget, where the machine is the resource being
 	 * rationed. SSE connection slots are the only such surface, and they
 	 * compose the scope themselves through `SSE_Slot_Pool::namespace_key()`
@@ -208,18 +218,13 @@ abstract class Cache_Backend {
 		if ( '' !== self::$site ) {
 			return self::$site;
 		}
-		$db     = \defined( 'DB_NAME' ) ? Core::as_string( \constant( 'DB_NAME' ), '' ) : '';
-		$prefix = '';
-		if ( isset( $GLOBALS['wpdb'] ) && \is_object( $GLOBALS['wpdb'] ) ) {
-			// base_prefix is the network half; the blog's is a last resort.
-			$prefix = Core::as_string( $GLOBALS['wpdb']->base_prefix ?? ( $GLOBALS['wpdb']->prefix ?? '' ), '' );
-		}
-		if ( '' === $db && '' === $prefix ) {
+		$identity = self::identity();
+		if ( '' === $identity ) {
 			// Memoized last resort; co-tenants SHARE it — hence the warning.
 			Core::print_less_often( 'ERROR: cache scope unresolvable (no DB_NAME, no $wpdb): keys are NOT install-scoped' );
 			return self::$site = 'unscoped';
 		}
-		return self::$site = \substr( \md5( $db . ':' . $prefix . ':' . self::salt() ), 0, 12 );
+		return self::$site = \substr( \md5( $identity . ':' . self::salt() ), 0, 12 );
 	}
 
 	/**
@@ -237,6 +242,47 @@ abstract class Cache_Backend {
 	 */
 	public static function key( string $scope, string $logical ): string {
 		return 'newspack_nodes:' . self::KEY_VERSION . ':' . $scope . ':' . $logical;
+	}
+
+	/**
+	 * The install as `site()` reads it, with `DB_HOST` and `ABSPATH` beside,
+	 * and without the salt, so no rotation moves it: a durable store a
+	 * co-tenant could share takes its name from it, as the SQLite
+	 * command-session store under a shared base directory does. `DB_HOST`
+	 * parts two sites that name one database and prefix on separate servers,
+	 * as Local sites do. `ABSPATH` is read as written, never resolved: a
+	 * host whose path is a symlink to a versioned core would see a resolved
+	 * one move with every core update.
+	 *
+	 * @api `Command_Auth::session_store()` names its file with it.
+	 * @return string Twelve hex characters.
+	 * @throws \RuntimeException When neither `DB_NAME` nor `$wpdb` identifies
+	 *                           the install.
+	 */
+	public static function install_id(): string {
+		$identity = self::identity();
+		if ( '' === $identity ) {
+			throw new \RuntimeException( 'install unidentifiable: no DB_NAME and no $wpdb' );
+		}
+		$read = self::$constant ?? static fn ( string $name ): mixed => \defined( $name ) ? \constant( $name ) : null;
+		$host = Core::as_string( $read( 'DB_HOST' ), '' );
+		$path = Core::as_string( $read( 'ABSPATH' ), '' );
+		return \substr( \md5( "{$identity}:{$host}:{$path}" ), 0, 12 );
+	}
+
+	/**
+	 * `DB_NAME` and the network's base prefix, joined: what tells co-tenants
+	 * apart. The blog's prefix stands in only when no base prefix is set.
+	 *
+	 * @return string `{db}:{prefix}`, or '' when neither is known.
+	 */
+	private static function identity(): string {
+		$db     = \defined( 'DB_NAME' ) ? Core::as_string( \constant( 'DB_NAME' ), '' ) : '';
+		$prefix = '';
+		if ( isset( $GLOBALS['wpdb'] ) && \is_object( $GLOBALS['wpdb'] ) ) {
+			$prefix = Core::as_string( $GLOBALS['wpdb']->base_prefix ?? ( $GLOBALS['wpdb']->prefix ?? '' ), '' );
+		}
+		return '' === $db && '' === $prefix ? '' : "{$db}:{$prefix}";
 	}
 
 	/**

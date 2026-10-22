@@ -251,7 +251,7 @@ final class TablesCliCommandTest extends TestCase {
 				[ 'Table' => 'lab-7:kea', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p0', 'State' => 'down', 'Store' => $file, 'Bytes' => $size, 'Disk' => self::disk_of( $file ), 'Verbs' => null ],
 				[ 'Table' => 'lab-7:kea', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p1', 'State' => 'down', 'Store' => Table_Node::file( 'lab-7:kea', 1 ), 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
 				[ 'Table' => 'lab-7:owl', 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '37', 'Owner' => 'owl-w.p0', 'State' => 'down', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Disk' => null, 'Verbs' => null ],
-				[ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Disk' => null, 'Verbs' => null ],
+				[ 'Table' => Command_Auth::session_store(), 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => Table_Node::file( Command_Auth::session_store(), 0 ), 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
 			],
 			$this->printed()
 		);
@@ -331,13 +331,41 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( [ 'wombats-6620:config stats' ], $this->answered );
 	}
 
-	/** The session store's row is its declaration: listing it opens nothing, so a store that will not open lists all the same. */
-	public function test_list_names_the_session_store_without_opening_it(): void {
+	/** The session store's row is its declaration: listing it opens nothing, so the file is only sized. */
+	public function test_list_sizes_the_sqlite_session_store_without_opening_it(): void {
+		$file = Table_Node::file( Command_Auth::session_store(), 0 );
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+		$this->assertFileDoesNotExist( $file, 'listing creates no store' );
+
+		Command_Auth::mint_session( \Newspack_Nodes\Capabilities::READ, 6173 );
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$row = \array_slice( $this->printed(), -1 )[0];
+		$this->assertSame( [ 'sqlite', $file, Sqlite_Arm::footprint( $file )['bytes'] ], [ $row['Backend'], $row['Store'], $row['Bytes'] ] );
+		$this->assertGreaterThan( 0, $row['Bytes'] );
+	}
+
+	/** On wpdb the row names the shared table, and a store that will not open lists all the same. */
+	public function test_list_names_a_wpdb_session_store_without_opening_it(): void {
+		\update_option( 'newspack_nodes_sessions_backend', 'wpdb' );
+		Config::reset();
 		$GLOBALS['wpdb']->deny['CREATE TABLE'] = 'CREATE command denied 1030';
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( [ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Disk' => null, 'Verbs' => null ], \array_slice( $this->printed(), -1 )[0] );
+		$this->assertSame( [ 'Table' => Command_Auth::session_store(), 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Disk' => null, 'Verbs' => null ], \array_slice( $this->printed(), -1 )[0] );
+	}
+
+	/** A volatile Table keeps no rows on disk or in wpdb, so its store is named by its backend. */
+	public function test_list_names_a_volatile_tables_store_by_its_backend(): void {
+		$this->write_tsl( 'emu-v', "make_node Table lab-7:emu emu:p{partition} 41 memcache\nmake_node Table lab-7:rhea rhea:p{partition} 43 apcu\nmake_node Table lab-7:tui tui:p{partition} 47\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'emu-v' ] );
+		Config::reset();
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$stores = \array_column( \array_slice( $this->printed(), 0, 3 ), 'Store', 'Table' );
+		$this->assertSame( [ 'lab-7:emu' => 'memcache', 'lab-7:rhea' => 'apcu', 'lab-7:tui' => 'auto' ], $stores );
 	}
 
 	public function test_list_counts_a_sqlite_partitions_shm_in_its_bytes(): void {

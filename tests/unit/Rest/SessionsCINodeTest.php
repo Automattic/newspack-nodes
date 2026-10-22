@@ -25,7 +25,7 @@ class SessionsCINodeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->use_wpdb();
+		$this->use_wpdb_sessions();
 		$this->prev_memd                      = Core::$memd;
 		$this->memd                           = new InMemoryMemcached();
 		Core::$memd                           = $this->memd;

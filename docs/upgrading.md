@@ -6,6 +6,24 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Command sessions move to SQLite by default.** The session store is the
+  file `{base}/tables/nodes-sessions-<install>.p0.sqlite`, named for this
+  install, unless the new
+  `sessions_backend` setting names `wpdb`. Sessions in the wpdb store are not
+  carried over, so every open dashboard and MCP client mints a new session
+  once. To keep the old store, set `sessions_backend` to `wpdb` on the
+  settings page, as the `newspack_nodes_sessions_backend` option, or in the
+  config file; a site whose web requests land on more than one host must,
+  because a session minted into one host's file does not verify on another.
+  `Command_Auth::SESSIONS_BACKEND` is removed: read
+  `Command_Auth::sessions_backend()`. The session Table's name is
+  `Command_Auth::session_store()`, not `SESSIONS_TABLE`, and a session read
+  goes through `Command_Auth::session_reader()`. Raise the caller's
+  `version_at_least()` floor to this release. No purge reaches the old
+  `nodes-sessions` namespace again; its expired wpdb rows stay until deleted:
+  `DELETE FROM {base_prefix}newspack_nodes_table WHERE namespace =
+  'nodes-sessions'`, and the same against `{base_prefix}newspack_nodes_members`.
+
 - **`min_lifetime` defaults to 86400, and `lifetime` follows it.** A
   Partition, Topic or Log whose topology passes `<config:min_lifetime>` and
   `<config:lifetime>` keeps up to a day of segments where it kept 12 hours,

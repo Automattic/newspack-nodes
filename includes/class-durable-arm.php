@@ -88,16 +88,34 @@ abstract class Durable_Arm extends Cache_Backend {
 	 */
 	abstract protected function upsert( array $rows, int $expires ): void;
 
-	/** See Cache_Backend::add(); an expired row is absent. */
-	public function add( string $key, mixed $value, int $ttl ): bool {
+	/**
+	 * See Cache_Backend::add(); an expired row is absent. With `$purge`, the
+	 * same write scope then deletes up to that many expired rows and members,
+	 * so a writer that reclaims as it claims takes the write lock once.
+	 *
+	 * @param string $key   Key.
+	 * @param mixed  $value Value.
+	 * @param int    $ttl   Lifetime in seconds.
+	 * @param int    $purge Most expired rows and members to delete; 0 for none.
+	 * @return bool True when the row was inserted.
+	 */
+	public function add( string $key, mixed $value, int $ttl, int $purge = 0 ): bool {
 		if ( self::refuses_key( $key ) ) {
 			return false;
 		}
 		return $this->attempt(
-			function () use ( $key, $value, $ttl ): bool {
+			function () use ( $key, $value, $ttl, $purge ): bool {
 				$bytes   = $this->encode( $value );
 				$expires = self::expires( $ttl );
-				return $this->write_scope( fn (): bool => $this->claim( $key, $bytes, $expires ) );
+				return $this->write_scope(
+					function () use ( $key, $bytes, $expires, $purge ): bool {
+						$added = $this->claim( $key, $bytes, $expires );
+						if ( $purge > 0 ) {
+							$this->delete_expired( self::now(), $purge );
+						}
+						return $added;
+					}
+				);
 			},
 			false
 		);
@@ -222,10 +240,7 @@ abstract class Durable_Arm extends Cache_Backend {
 	public function purge( int $now, int $limit ): array {
 		$limit  = \max( 0, $limit );
 		$purged = $this->attempt(
-			function () use ( $now, $limit ): int {
-				$rows = $this->purge_rows( $now, $limit );
-				return $rows < $limit ? $rows + $this->purge_member_rows( $now, $limit - $rows ) : $rows;
-			},
+			fn (): int => $this->delete_expired( $now, $limit ),
 			null
 		);
 		if ( null === $purged ) {
@@ -235,6 +250,19 @@ abstract class Durable_Arm extends Cache_Backend {
 			'rows' => $purged ?? 0,
 			'full' => 0 < $limit && $limit === $purged,
 		];
+	}
+
+	/**
+	 * Delete up to `$limit` keyed rows expired at `$now`, then members with
+	 * what the limit leaves.
+	 *
+	 * @param int $now   Epoch second.
+	 * @param int $limit Most rows.
+	 * @return int Rows deleted.
+	 */
+	private function delete_expired( int $now, int $limit ): int {
+		$rows = $this->purge_rows( $now, $limit );
+		return $rows < $limit ? $rows + $this->purge_member_rows( $now, $limit - $rows ) : $rows;
 	}
 
 	/**

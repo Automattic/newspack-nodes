@@ -347,8 +347,9 @@ fixate a live session.
 A session the store cannot hold answers 503 `session_store_unavailable`:
 `Command_Auth::mint_session()` throws
 [`Session_Store_Unavailable`](../includes/class-session-store-unavailable.php)
-when the durable session store — a wpdb Table row under the `nodes-sessions`
-namespace — will not open or refuses the row, and
+when the durable session store — a row of this install's
+`nodes-sessions-<install>` Table on the backend `sessions_backend` names, SQLite
+by default — will not open or refuses the row, and
 [`issue()`](../includes/rest/class-auth-controller.php) catches that type alone,
 logging the server's reason and keeping it out of the
 response. `mint_session()` also throws `InvalidArgumentException` on a scope

@@ -58,7 +58,8 @@ class Log_Cleaner {
 	 * running — the one moment a cursor is certainly reclaimable. Skipping it
 	 * left a fleet with everything deactivated unable to reclaim an offset at
 	 * all, however long it sat. The Table sweep runs on an empty set for the same
-	 * reason: only a topology declares a SQLite Table.
+	 * reason: only a topology declares a SQLite Table, beside this install's
+	 * command-session store.
 	 *
 	 * The log sweep does not, and the asymmetry is the point: log dirs are also
 	 * declared from PHP through `newspack_nodes/registered_log_producers`, and an
@@ -255,12 +256,14 @@ class Log_Cleaner {
 	 * index` map (the partition comes from the resolver's enumeration loop, never
 	 * parsed out of a name); the whitelisted settings log is partition 0. The
 	 * `tables` bucket maps each declared SQLite Table partition's file stem the
-	 * same way, and is never null.
+	 * same way, with this install's command-session store's whatever
+	 * `sessions_backend` reads, and is never null.
 	 *
 	 * @param array<string,array<array-key,mixed>> $readable   Readable active topology => its entry.
 	 * @param array<string,\Throwable>             $unreadable Active topology => what it threw.
 	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, tables: array<string,int>, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
-	 * @throws \RuntimeException When `Config::value()` rejects a key.
+	 * @throws \RuntimeException When `Config::value()` rejects a key, or the
+	 *                           install cannot be identified.
 	 */
 	private static function declared_dirs( array $readable, array $unreadable ): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
@@ -283,6 +286,8 @@ class Log_Cleaner {
 				$tables[ $stem ] ??= $partition;
 			}
 		}
+		// Kept whatever the backend reads: an idle store costs a few pages.
+		$tables[ Table_Node::stem( Command_Auth::session_store(), 0 ) ] ??= 0;
 
 		if ( '' !== $logs_root ) {
 			[ $producers, $refused ] = self::producer_log_dirs();

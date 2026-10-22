@@ -474,6 +474,33 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( 65536, Sqlite_Arm::CACHE_KIB );
 	}
 
+	/** No Router tick reaches a file many processes write, so each COMMIT checkpoints. */
+	public function test_a_file_many_processes_write_checkpoints_on_commit(): void {
+		$writer = new Sqlite_Arm( $this->path(), 'kea:p3', many_writers: true );
+		$this->assertSame( 1000, (int) self::pragma( $writer, 'wal_autocheckpoint' ), "SQLite's own threshold" );
+		$this->assertSame( Sqlite_Arm::WAL_LIMIT_BYTES, (int) self::pragma( $writer, 'journal_size_limit' ) );
+	}
+
+	/**
+	 * A flush that unlinked the file would leave every other process writing
+	 * it on the old inode, reading what the flush was meant to remove.
+	 */
+	public function test_a_flush_of_a_file_many_processes_write_empties_it_in_place(): void {
+		$one = new Sqlite_Arm( $this->path(), 'kea:p3', many_writers: true );
+		$two = new Sqlite_Arm( $this->path(), 'kea:p3', many_writers: true );
+		$one->write_multi( [ 'sku-6611' => 'kea-6611', 'sku-6613' => 'kea-6613' ], 600 );
+		$one->add_members( [ 'owl:set-66' => [ [ 'm-6617' => 1 ], 600 ] ] );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'PRAGMA user_version = 6619' );
+
+		$this->assertSame( [ 'rows' => 3 ], $two->flush() );
+
+		$this->assertFalse( $one->get( 'sku-6611' ), 'the other writer reads the emptied file' );
+		$this->assertSame( [], $one->members( [ 'owl:set-66' ], 9 ) );
+		$this->assertSame( 6619, (int) ( new \PDO( 'sqlite:' . $this->path() ) )->query( 'PRAGMA user_version' )->fetchColumn(), 'the same file, emptied' );
+		$this->assertTrue( $one->set( 'sku-6623', 'kea-6623', 600 ) );
+		$this->assertSame( 'kea-6623', $two->get( 'sku-6623' ), 'both write one file after' );
+	}
+
 	public function test_a_writer_caps_the_wal_file_it_rewinds(): void {
 		$writer = new Sqlite_Arm( $this->path(), 'kea:p3' );
 		$this->assertSame( 67108864, Sqlite_Arm::WAL_LIMIT_BYTES );

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`sessions_backend` names where command sessions live.** A Storage setting, `sqlite` or `wpdb`, rendered on the settings page as a select whose blank choice restores the default; the sanitizer stores either value and blanks anything else. `Command_Auth::sessions_backend()` reads it and throws `sessions_backend must be one of sqlite, wpdb, not <value>` for any other, which a mint answers as `the session store is unavailable: …`. `Command_Auth::SESSIONS_BACKENDS` lists the two. A change restarts every worker, because each worker's verifier holds the session Table it first opened. `Settings_Renderer::select()` renders a choice of fixed values inside the per-field reset row.
+- **`Cache_Backend::install_id()`** answers twelve hex characters of the MD5 of `DB_NAME`, the network's base prefix, `DB_HOST` and `ABSPATH` as written: the install identity `site()` hashes with the cache salt, without the salt, so no rotation moves it, and with the database host and the install path, so two sites naming one database and prefix on separate servers, as Local sites do, get different ids. `ABSPATH` is never resolved, because a path symlinked to a versioned core would move with every core update. `Cache_Backend::$constant` is the seam its constant reads go through. It throws when neither identifies the install.
+- **`Table_Node::table()` takes an access**, `ONE_WRITER` (the default), `MANY_WRITERS` or `READER`, and refuses any other. A `sqlite` Table built for `MANY_WRITERS` keeps SQLite's own `wal_autocheckpoint`, because no Router tick checkpoints it, and its `flush()` deletes every row and member in one transaction and answers `{ rows }`, so a process holding the file open never reads what the flush removed; `Sqlite_Arm` takes the matching `many_writers` flag. A `READER` opens the file read-only, creates nothing and serves reads alone. Both refuse a process running as root.
+- **`Table_Node::add()` and `Durable_Arm::add()` take a `$purge` count**: a durable Table deletes up to that many expired rows and members in the add's own write scope.
+
+### Changed
+- **Command sessions live in SQLite by default, one file per install.** The session Table is `Command_Auth::session_store()`, `nodes-sessions-<install>` on `Cache_Backend::install_id()`, kept in `{base}/tables/nodes-sessions-<install>.p0.sqlite` unless `sessions_backend` is `wpdb`, so installs that share a base directory, as every unconfigured one shares `/tmp/newspack-nodes`, never read each other's sessions. Writes go through `session_table()`, built for `MANY_WRITERS`, and reads through the new `Command_Auth::session_reader()`, a `READER`, so a verify runs no DDL. A mint deletes up to 64 expired rows and members in its own write, one `BEGIN IMMEDIATE` on SQLite. Existing sessions are not carried over: every open dashboard and MCP client mints a new session once. A site whose web requests land on more than one host sets `sessions_backend` to `wpdb`.
+- **Switching `sessions_backend` flushes the store it leaves.** The option `newspack_nodes_sessions_in_use` records the backend whose store holds the sessions; the first session read or write that finds the setting naming another flushes the recorded store and records the new one, whichever config layer made the switch, so switching away and back revives no session.
+- **`wp nodes tables list`** lists this install's session store on the configured backend: on `sqlite` its file and that file's `Bytes` and `Disk`, still without opening it. A volatile Table's `Store` reads its backend, `memcache`, `apcu` or `auto`, where it read the wpdb table's name.
+- **The retention sweep keeps this install's session file** whatever `sessions_backend` reads, though no topology declares it, so a value the mint refuses never stops the sweep.
+- **Uninstall deletes this install's session file**, with its `-wal` and `-shm`, under the configured base directory or the schema default; every other Table's file stays for its declaring plugin's uninstall.
+- **The `wpdb-schema` health row** names command sessions among what fails only while `sessions_backend` is `wpdb`.
+
+### Removed
+- **`Command_Auth::SESSIONS_BACKEND`.** Read `Command_Auth::sessions_backend()`; name the session Table through `Command_Auth::session_store()`.
+
 ## [2.122.0] - 2026-10-21
 
 ### Added

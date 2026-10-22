@@ -36,7 +36,7 @@ class SessionCliCommandTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->use_wpdb();
+		$this->use_wpdb_sessions();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		foreach ( [ '_test_wp_cli_lines', '_test_wp_cli_logs', '_test_wp_cli_errors', '_test_wp_cli_warns', '_test_wp_cli_success', '_test_wp_cli_tables' ] as $global ) {
@@ -294,7 +294,7 @@ class SessionCliCommandTest extends TestCase {
 		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 6631';
 
 		$this->assertSame(
-			'Table nodes-sessions: flush failed: wpdb wp_newspack_nodes_table: [0] Lock wait timeout 6631',
+			'Table ' . Command_Auth::session_store() . ': flush failed: wpdb wp_newspack_nodes_table: [0] Lock wait timeout 6631',
 			$this->cli_error( static fn ( $cli ) => $cli->revoke( [], [ 'all' => true ] ) )
 		);
 	}

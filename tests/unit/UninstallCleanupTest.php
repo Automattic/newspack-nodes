@@ -117,6 +117,82 @@ final class UninstallCleanupTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( $base, 'the runtime tree must not survive plugin deletion' );
 	}
 
+	/**
+	 * The install's session store holds every live session key, recoverable,
+	 * so it goes; another install's store and another Table's file stay.
+	 */
+	public function test_delete_session_store_removes_this_installs_store_and_nothing_else(): void {
+		$base = $this->seed_runtime_tree();
+		\mkdir( "{$base}/tables" );
+		$session = "{$base}/tables/" . \Newspack_Nodes\Table_Node::stem( \Newspack_Nodes\Command_Auth::session_store(), 0 ) . '.sqlite';
+		foreach ( [ '', '-wal', '-shm' ] as $suffix ) {
+			\file_put_contents( $session . $suffix, 'kea-7187' );
+		}
+		$neighbour = "{$base}/tables/nodes-sessions-0123456789ab.p0.sqlite";
+		$other     = "{$base}/tables/lab-7:kea.p0.sqlite";
+		\file_put_contents( $neighbour, 'weka-7191' );
+		\file_put_contents( $other, 'weka-7189' );
+
+		\Newspack_Nodes\delete_session_store( $base );
+
+		foreach ( [ '', '-wal', '-shm' ] as $suffix ) {
+			$this->assertFileDoesNotExist( $session . $suffix );
+		}
+		$this->assertFileExists( $neighbour );
+		$this->assertFileExists( $other );
+		$this->rm_tree( $base );
+	}
+
+	public function test_delete_runtime_tree_removes_the_session_store_at_a_configured_base(): void {
+		$base = $this->seed_runtime_tree();
+		\mkdir( "{$base}/tables" );
+		\file_put_contents( "{$base}/tables/" . \Newspack_Nodes\Table_Node::stem( \Newspack_Nodes\Command_Auth::session_store(), 0 ) . '.sqlite', 'kea-7193' );
+
+		\Newspack_Nodes\delete_runtime_tree( $base );
+
+		$this->assertDirectoryDoesNotExist( $base );
+	}
+
+	/** A symlinked `tables` would aim the unlinks at its target. */
+	public function test_delete_session_store_refuses_a_symlinked_tables_dir(): void {
+		$base   = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-sessions-link-' . \uniqid();
+		$target = "{$base}-target";
+		\mkdir( $base, 0700, true );
+		\mkdir( $target, 0700, true );
+		$store = "{$target}/" . \Newspack_Nodes\Table_Node::stem( \Newspack_Nodes\Command_Auth::session_store(), 0 ) . '.sqlite';
+		\file_put_contents( $store, 'kea-7197' );
+		\symlink( $target, "{$base}/tables" );
+
+		\Newspack_Nodes\delete_session_store( $base );
+
+		$this->assertFileExists( $store );
+		\unlink( "{$base}/tables" );
+		$this->rm_tree( $base );
+		$this->rm_tree( $target );
+	}
+
+	/** With no base configured the store sits under the schema default, the one uninstall reaches for it. */
+	public function test_the_session_store_base_falls_back_to_the_schema_default(): void {
+		$GLOBALS['_wp_options'] = [];
+		$prev                   = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		try {
+			$this->assertSame( '/tmp/newspack-nodes', \Newspack_Nodes\session_store_base() );
+			\update_option( 'newspack_nodes_base_directory', '/custom/nodes-7199' );
+			$this->assertSame( '/custom/nodes-7199', \Newspack_Nodes\session_store_base() );
+		} finally {
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev ? '' : $prev ) );
+		}
+	}
+
+	/** Remove a scratch tree outright. */
+	private function rm_tree( string $dir ): void {
+		foreach ( \glob( "{$dir}/{,.}[!.]*", \GLOB_BRACE ) ?: [] as $entry ) {
+			\is_dir( $entry ) && ! \is_link( $entry ) ? $this->rm_tree( $entry ) : \unlink( $entry );
+		}
+		\rmdir( $dir );
+	}
+
 	public function test_delete_runtime_tree_spares_operator_files_beside_the_runtime(): void {
 		// Deletion is scoped to the KNOWN runtime subtrees — a base dir shared
 		// with operator files loses only the runtime's own dirs.

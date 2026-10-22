@@ -28,7 +28,7 @@ class SessionsTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->db        = $this->use_wpdb();
+		$this->db        = $this->use_wpdb_sessions();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 	}
@@ -42,7 +42,7 @@ class SessionsTest extends TestCase {
 
 	/** @return list<array<string,mixed>> The index's member rows. */
 	private function index_rows(): array {
-		return $this->db->get_results( "SELECT set_key, member, expires FROM wp_newspack_nodes_members WHERE namespace = '" . Command_Auth::SESSIONS_TABLE . "'" );
+		return $this->db->get_results( "SELECT set_key, member, expires FROM wp_newspack_nodes_members WHERE namespace = '" . Command_Auth::session_store() . "'" );
 	}
 
 	/** @return array<string,array<string,mixed>> Each listed row by handle. */
@@ -232,7 +232,7 @@ class SessionsTest extends TestCase {
 		} catch ( Session_Store_Unavailable $e ) {
 			$this->assertSame( 'could not index the session: wpdb wp_newspack_nodes_table: [0] Deadlock found 6613', $e->getMessage() );
 		}
-		$this->assertSame( [], $this->db->get_results( "SELECT cache_key FROM wp_newspack_nodes_table WHERE namespace = 'nodes-sessions'" ) );
+		$this->assertSame( [], $this->db->get_results( "SELECT cache_key FROM wp_newspack_nodes_table WHERE namespace = '" . Command_Auth::session_store() . "'" ) );
 	}
 
 	/** Past the index read's ceiling the listing refuses by name, never answers a part. */

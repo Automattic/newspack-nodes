@@ -26,7 +26,7 @@ class ServiceCiSessionTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->use_wpdb();
+		$this->use_base_dir( $this->make_temp_dir( 'ci-sessions-' ) );
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		// This file exercises the handshake, so it must start with NO session.

@@ -404,7 +404,7 @@ class HTTPInTest extends TestCase {
 	 * request's verifier is a batch verifier, built once per POST.
 	 */
 	public function test_a_post_of_three_session_commands_reads_the_session_once(): void {
-		$db = $this->use_wpdb();
+		$db = $this->use_wpdb_sessions();
 		$this->build_graph_sans_output();
 		$session = Command_Auth::mint_session( \Newspack_Nodes\Capabilities::MANAGE, 5400 );
 		Command_Auth::remember_session( 'kea-spoke-7731', $session['handle'], $session['secret'] );

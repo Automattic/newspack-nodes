@@ -63,6 +63,13 @@ class SettingsRendererTest extends TestCase {
 		$this->assertStringContainsString( 'class="small-text"', Settings_Renderer::number( 'f', 'o', '', 1, 1, 16, 'd', 'm' ) );
 	}
 
+	public function test_select_renders_each_choice_and_marks_the_stored_one(): void {
+		$html = Settings_Renderer::select( 'kea_mode', 'pfx_kea_mode', 'weka', [ '' => 'Default (kakapo)', 'kakapo' => 'Kakapo', 'weka' => 'Weka & co' ], 'Which bird.', 'mark-4471' );
+		$this->assertStringContainsString( '<select id="kea_mode" name="pfx_kea_mode"><option value="">Default (kakapo)</option><option value="kakapo">Kakapo</option><option value="weka" selected="selected">Weka &amp; co</option></select>', $html );
+		$this->assertStringContainsString( '<p class="description">Which bird.</p>', $html );
+		$this->assertStringContainsString( 'data-nn-reset="mark-4471"', $html );
+	}
+
 	public function test_directory_renders_text_input_with_default_placeholder(): void {
 		$html = Settings_Renderer::directory( 'base_directory', 'newspack_nodes_base_directory', '', '/tmp/newspack-nodes', 'Base directory.', 'mark' );
 		$this->assertStringContainsString( 'type="text"', $html );

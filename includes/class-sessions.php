@@ -81,7 +81,7 @@ class Sessions {
 	 *                                   or the index holds more than it reads.
 	 */
 	public static function listing(): array {
-		$table = Command_Auth::session_table();
+		$table = Command_Auth::session_reader();
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 		$index = $table->members_of( [ self::INDEX ], Table_Node::MAX_MEMBERS_LIMIT ) ?? throw new Session_Store_Unavailable( "could not read the session index: {$table->last_failure()}" );
 		if ( \array_key_exists( self::INDEX, $index ) && null === $index[ self::INDEX ] ) {

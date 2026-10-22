@@ -178,7 +178,8 @@ final class Health_Checks {
 	 * The shared wpdb tables, when one does not answer. Read live, one
 	 * statement over both, so the row reflects the tables rather than a
 	 * record of the last install. Absent while both answer; critical when
-	 * one does not, because every command session and wpdb Table then fails.
+	 * one does not, because every wpdb Table then fails, command sessions
+	 * too while `sessions_backend` is `wpdb`.
 	 *
 	 * @return list<HealthResult>
 	 */
@@ -193,13 +194,14 @@ final class Health_Checks {
 		if ( '' === $error ) {
 			return [];
 		}
+		$fails = 'wpdb' === Config::value( 'sessions_backend' ) ? 'command sessions and every wpdb Table fail' : 'every wpdb Table fails';
 		return [
 			self::result(
 				'wpdb-schema',
 				'Database tables',
 				self::STATUS_CRITICAL,
-				'The wpdb Tables ' . Wpdb_Arm::table() . ' and ' . Wpdb_Arm::members_table() . " do not answer ({$error}), so command sessions and every wpdb "
-					. 'Table fail. The next statement to find a table missing installs it; grant the '
+				'The wpdb Tables ' . Wpdb_Arm::table() . ' and ' . Wpdb_Arm::members_table() . " do not answer ({$error}), so {$fails}. "
+					. 'The next statement to find a table missing installs it; grant the '
 					. 'database user CREATE if that install is refused.'
 			),
 		];

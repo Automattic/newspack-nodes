@@ -360,6 +360,23 @@ class HealthChecksTest extends TestCase {
 		$this->assertStringContainsString( 'owl3_newspack_nodes_members', $row['messages'][0] );
 	}
 
+	/** Sessions fail with the tables only while they live on wpdb. */
+	public function test_a_missing_shared_table_names_command_sessions_only_on_the_wpdb_backend(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'owl5_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$db->query( 'DROP TABLE `owl5_newspack_nodes_members`' );
+
+		$sqlite = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema']['messages'][0] ?? '';
+		$GLOBALS['_wp_options']['newspack_nodes_sessions_backend'] = 'wpdb';
+		\Newspack_Nodes\Config::reset();
+		$wpdb = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema']['messages'][0] ?? '';
+
+		$this->assertStringContainsString( 'so every wpdb Table fails.', $sqlite );
+		$this->assertStringNotContainsString( 'command sessions', $sqlite );
+		$this->assertStringContainsString( 'so command sessions and every wpdb Table fail.', $wpdb );
+	}
+
 	/** The server's text is shaped, so the row names the tables itself. */
 	public function test_a_refused_probe_names_the_tables_and_shapes_the_servers_text(): void {
 		$db              = $this->use_wpdb();

@@ -42,7 +42,50 @@ class CacheBackendTest extends TestCase {
 		if ( \property_exists( Cache_Backend::class, 'apcu_sma_info' ) ) {
 			Cache_Backend::$apcu_sma_info = null;
 		}
+		Cache_Backend::$constant = null;
 		parent::tearDown();
+	}
+
+	/** The install id with `DB_HOST` and `ABSPATH` read as the map gives them. */
+	private static function install_id_with( array $constants ): string {
+		Cache_Backend::$constant = static fn ( string $name ): mixed => $constants[ $name ] ?? null;
+		return Cache_Backend::install_id();
+	}
+
+	/** Two Local sites share DB_NAME `local` and prefix `wp_`; their MySQL hosts differ. */
+	public function test_installs_differing_only_by_db_host_get_different_ids(): void {
+		$one = self::install_id_with( [ 'DB_HOST' => 'localhost:/run/mysqld-kea.sock', 'ABSPATH' => '/srv/kea/' ] );
+		$two = self::install_id_with( [ 'DB_HOST' => 'localhost:/run/mysqld-weka.sock', 'ABSPATH' => '/srv/kea/' ] );
+
+		$this->assertNotSame( $one, $two );
+	}
+
+	public function test_installs_differing_only_by_abspath_get_different_ids(): void {
+		$one = self::install_id_with( [ 'DB_HOST' => 'db-7741', 'ABSPATH' => '/srv/kea/public/' ] );
+		$two = self::install_id_with( [ 'DB_HOST' => 'db-7741', 'ABSPATH' => '/srv/weka/public/' ] );
+
+		$this->assertNotSame( $one, $two );
+	}
+
+	/** ABSPATH as written: a symlink to the same core is still the path the site names. */
+	public function test_the_install_id_reads_abspath_as_written(): void {
+		$dir  = $this->make_temp_dir( 'install-id-' );
+		$link = "{$dir}/core-link";
+		\symlink( $dir, $link );
+
+		$this->assertNotSame(
+			self::install_id_with( [ 'DB_HOST' => 'db-7743', 'ABSPATH' => "{$dir}/" ] ),
+			self::install_id_with( [ 'DB_HOST' => 'db-7743', 'ABSPATH' => "{$link}/" ] )
+		);
+	}
+
+	public function test_a_salt_rotation_leaves_the_install_id(): void {
+		$constants = [ 'DB_HOST' => 'db-7747', 'ABSPATH' => '/srv/kea-7747/' ];
+		$before    = self::install_id_with( $constants );
+
+		Cache_Backend::move_salt();
+
+		$this->assertSame( $before, self::install_id_with( $constants ) );
 	}
 
 	public function test_orderings_pick_one_live_backend(): void {

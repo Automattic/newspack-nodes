@@ -2,8 +2,8 @@
 /**
  * The settings-page markup every plugin on the substrate shares.
  *
- * Two surfaces live here. The field controls — number, directory, textarea,
- * checkbox and React mount — each render one setting inside the per-field reset
+ * Two surfaces live here. The field controls — number, directory, select,
+ * textarea, checkbox and React mount — each render one setting inside the per-field reset
  * row. The "Effective Configuration" panel renders below the form and reports
  * what the next worker will load. Both take the calling plugin's own Schema and
  * option prefix, so the substrate's settings page and every consumer's draw the
@@ -318,6 +318,40 @@ class Settings_Renderer {
 			. ' value="' . \esc_attr( $value ) . '"'
 			. ' class="regular-text code"'
 			. ' placeholder="' . \esc_attr( $default ) . '" />'
+			. '<p class="description">' . \esc_html( $description ) . '</p>';
+		return self::reset_wrapper( $mark_name, $inner );
+	}
+
+	/**
+	 * A choice of fixed values. A choice keyed `''` is the blank a reset
+	 * restores, so a save of it deletes the row through {@see Reset_Gate}
+	 * rather than storing a copy of the default.
+	 *
+	 * @param string               $id          Select element id.
+	 * @param string               $name        WP-option name the select posts under.
+	 * @param string               $value       Stored option value ('' when no row exists).
+	 * @param array<array-key,string> $choices Value => label, in display order; PHP keys a numeric value as an int.
+	 * @param string               $description Text rendered under the select.
+	 * @param string               $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).
+	 * @return string Escaped markup, wrapped in the reset row.
+	 */
+	public static function select(
+		string $id,
+		string $name,
+		string $value,
+		array $choices,
+		string $description,
+		string $mark_name
+	): string {
+		$options = '';
+		foreach ( $choices as $choice => $label ) {
+			$choice   = (string) $choice;
+			$options .= '<option value="' . \esc_attr( $choice ) . '"'
+				. ( $choice === $value ? ' selected="selected"' : '' ) . '>'
+				. \esc_html( $label ) . '</option>';
+		}
+		$inner = '<select id="' . \esc_attr( $id ) . '" name="' . \esc_attr( $name ) . '">'
+			. $options . '</select>'
 			. '<p class="description">' . \esc_html( $description ) . '</p>';
 		return self::reset_wrapper( $mark_name, $inner );
 	}
