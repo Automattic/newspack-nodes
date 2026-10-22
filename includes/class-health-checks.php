@@ -177,13 +177,17 @@ final class Health_Checks {
 	/**
 	 * The shared wpdb tables, when one does not answer. Read live, one
 	 * statement over both, so the row reflects the tables rather than a
-	 * record of the last install. Absent while both answer; critical when
-	 * one does not, because every wpdb Table then fails, command sessions
-	 * too while `sessions_backend` is `wpdb`.
+	 * record of the last install. Absent while both answer, and while no
+	 * wpdb Table has installed them, since nothing then uses them; critical
+	 * when one does not answer, because every wpdb Table then fails, command
+	 * sessions too while `sessions_backend` is `wpdb`.
 	 *
 	 * @return list<HealthResult>
 	 */
 	private static function wpdb_schema(): array {
+		if ( false === \get_option( Wpdb_Arm::SCHEMA_OPTION ) ) {
+			return [];
+		}
 		try {
 			$error = Wpdb_Arm::unavailable();
 		} catch ( Worker_Should_Stop $e ) {

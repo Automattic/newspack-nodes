@@ -751,30 +751,13 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( 'newspack_nodes/reconcile', $evt['hook'] );
 	}
 
-	public function test_activate_installs_the_wpdb_tables(): void {
+	/** A wpdb Table's first use installs the shared tables; activation does not. */
+	public function test_activate_sends_no_wpdb_ddl(): void {
 		$db              = $this->use_wpdb();
 		$db->base_prefix = 'kea714_';
 		Bootstrap::activate();
-		$this->assertCount( 2, \array_filter( $db->sent, static fn ( string $sql ): bool => \str_starts_with( $sql, 'CREATE TABLE IF NOT EXISTS `kea714_newspack_nodes_' ) ) );
-		$this->assertIsString( \get_option( \Newspack_Nodes\Wpdb_Arm::SCHEMA_OPTION ) );
-	}
-
-	/**
-	 * A server refusing the DDL costs the wpdb Tables, never the reconcile
-	 * cron or the admin: activation schedules first and logs the refusal
-	 * instead of throwing it on every admin page load.
-	 */
-	public function test_activate_schedules_the_cron_despite_a_refused_install(): void {
-		$db                       = $this->use_wpdb();
-		$db->deny['CREATE TABLE'] = 'CREATE command denied 9154';
-
-		$log = $this->stderr_during( static function (): void {
-			Bootstrap::activate();
-		} );
-
-		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] ?? null );
-		$this->assertStringContainsString( 'wpdb schema install failed: ', $log );
-		$this->assertStringContainsString( 'CREATE command denied 9154', $log );
+		$this->assertSame( [], \array_values( \array_filter( $db->sent, static fn ( string $sql ): bool => \str_contains( $sql, 'kea714_newspack_nodes_' ) ) ) );
+		$this->assertFalse( \get_option( \Newspack_Nodes\Wpdb_Arm::SCHEMA_OPTION ) );
 	}
 
 	public function test_activate_skipped_when_already_scheduled(): void {

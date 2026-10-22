@@ -347,6 +347,21 @@ class HealthChecksTest extends TestCase {
 		$this->assertStringContainsString( 'wpdb backend needs $wpdb', $row['messages'][0] );
 	}
 
+	/**
+	 * The schema option records that a wpdb Table installed the shared
+	 * tables. Without it nothing uses them, so their absence reports nothing.
+	 */
+	public function test_absent_tables_nothing_installed_report_no_schema_row(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'owl6_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$db->query( 'DROP TABLE `owl6_newspack_nodes_table`' );
+		$db->query( 'DROP TABLE `owl6_newspack_nodes_members`' );
+		\delete_option( \Newspack_Nodes\Wpdb_Arm::SCHEMA_OPTION );
+
+		$this->assertNotContains( 'wpdb-schema', \array_column( Health_Checks::evaluate( $this->good_runtime_results() ), 'id' ) );
+	}
+
 	/** A table that does not answer is critical, and the row names it. */
 	public function test_a_missing_shared_table_reports_critical_naming_it(): void {
 		$db              = $this->use_wpdb();
