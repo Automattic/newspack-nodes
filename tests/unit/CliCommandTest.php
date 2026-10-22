@@ -191,6 +191,34 @@ class CliCommandTest extends TestCase {
 		$ref->invoke( new CLI_Command(), [ 'missing.p0' ] );
 	}
 
+	/** A refused wake is the operator's one line, unescaped for HTML and safe for the terminal. */
+	public function test_prepare_repl_reports_a_refused_wake(): void {
+		CLI::$uid_provider               = static fn (): int => 1000;
+		$GLOBALS['_test_wp_cli_errors']  = [];
+		$saved                           = Core::$curl_exec;
+		Core::$curl_exec                 = static function ( \CurlHandle $ch, array $body, array $options ): int {
+			( $options[ \CURLOPT_WRITEFUNCTION ] )( $ch, (string) \wp_json_encode( [ 'code' => 'invalid_token', 'message' => "Invalid spawn token \033]0;plover-ebb\007 & co" ] ) );
+			return 403;
+		};
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'plover' => [ 'topology' => 'plover', 'num_partitions' => 1, 'on_demand_idle' => 23 ],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'plover' ];
+		try {
+			( new \ReflectionMethod( CLI_Command::class, 'prepare_repl' ) )->invoke( new CLI_Command(), [ 'plover.p0' ] );
+		} catch ( \RuntimeException $e ) {
+			unset( $e );
+		} finally {
+			Core::$curl_exec = $saved;
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		}
+
+		$this->assertSame( [ 'wake failed for plover.p0: HTTP 403: Invalid spawn token <1B>]0;plover-ebb<07> & co' ], $GLOBALS['_test_wp_cli_errors'] );
+	}
+
 	// ── build_repl_graph: bare and attached ───────────────────────────────────
 
 	public function test_build_repl_graph_bare_constructs_local_pipeline(): void {

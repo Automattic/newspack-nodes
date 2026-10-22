@@ -53,7 +53,7 @@
 <div class="lower">
   <div class="callout">
     <h4>Why the two red rows are the serious pair</h4>
-    <p><span class="mono">Spawn_Coordinator</span> POSTs to the spawn endpoint across that same loopback through <span class="mono">Core::fire_and_forget_post()</span>, which reads no HTTP status at all and counts a 401 as success once the body is on the wire. Behind HTTP auth or a staging password nothing spawns, nothing logs a refusal, and this row is the only place it shows.</p>
+    <p><span class="mono">Spawn_Coordinator</span> POSTs to the spawn endpoint across that same loopback through <span class="mono">Core::fire_and_forget_post()</span>. Behind HTTP auth or a staging password nothing spawns, the refusal reaches only a rate-limited <span class="mono">spawn failed</span> line on stderr, and this row is the only place it shows in <span class="mono">doctor</span>.</p>
   </div>
   <div class="note" style="margin-top:0">
     <h4>A monitor keyed on the exit code misses every one</h4>

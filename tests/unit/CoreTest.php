@@ -748,7 +748,137 @@ class CoreTest extends TestCase {
 	// ── fire_and_forget_post (shared raw-curl spawn POST helper) ───────────────
 
 	public function test_fire_and_forget_post_rejects_empty_url(): void {
-		$this->assertSame( 'empty url', Core::fire_and_forget_post( '', [ 'type' => 'x', 'partition' => 0 ], 'coordinator' ) );
+		$this->assertSame(
+			[ 'outcome' => Core::POST_FAILED, 'message' => 'empty url' ],
+			Core::fire_and_forget_post( '', [ 'type' => 'x', 'partition' => 0 ], 'coordinator' )
+		);
+	}
+
+	/**
+	 * Install a seam that answers the spawn POST the way libcurl would: the
+	 * body through the write callback the options carry, the status returned.
+	 */
+	private function endpoint_answers( int $status, string $body ): void {
+		Core::$curl_exec = static function ( \CurlHandle $ch, array $post, array $options ) use ( $status, $body ): int {
+			if ( '' !== $body ) {
+				( $options[ \CURLOPT_WRITEFUNCTION ] )( $ch, $body );
+			}
+			return $status;
+		};
+	}
+
+	/**
+	 * An endpoint that answers inside the budget must not print its answer into
+	 * whatever response this process is writing, a /command body above all.
+	 */
+	public function test_an_answered_post_writes_nothing_to_output(): void {
+		$this->endpoint_answers( 409, '{"code":"fleet_held","message":"fleet held since quokka-dawn","data":{"status":409}}' );
+
+		\ob_start();
+		$outcome = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' );
+		$printed = \ob_get_clean();
+
+		$this->assertSame( '', $printed );
+		$this->assertSame( [ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 409: fleet held since quokka-dawn' ], $outcome );
+	}
+
+	/** Another process already starting the worker is no failure. */
+	public function test_a_429_answer_is_throttled(): void {
+		$this->endpoint_answers( 429, '{"code":"spawn_throttled","message":"kea.p4 spawned less than 15s ago","data":{"status":429}}' );
+
+		$outcome = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' );
+
+		$this->assertSame( Core::POST_THROTTLED, $outcome['outcome'] );
+	}
+
+	/** A 429 the endpoint's own throttle did not send — a proxy, a WAF, a rate limit — is a failure. */
+	public function test_a_429_from_anything_but_the_spawn_throttle_is_failed(): void {
+		$this->endpoint_answers( 429, '{"code":"rate_limited","message":"Too many spawn requests; please wait a moment.","data":{"status":429}}' );
+		$this->assertSame(
+			[ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 429: Too many spawn requests; please wait a moment.' ],
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )
+		);
+
+		$this->endpoint_answers( 429, '<html>slow down, said the waf</html>' );
+		$this->assertSame(
+			[ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 429' ],
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )
+		);
+	}
+
+	/** WordPress's critical-error answer carries HTML; the message keeps its words alone. */
+	public function test_an_html_endpoint_message_is_stripped_to_its_words(): void {
+		$this->endpoint_answers(
+			500,
+			(string) \wp_json_encode( [
+				'code'    => 'internal_server_error',
+				'message' => '<p>There has been a critical error on this website.</p><p><a href="https://wordpress.org/documentation/article/faq-troubleshooting/">Learn more about troubleshooting WordPress.</a></p>',
+				'data'    => [ 'status' => 500 ],
+			] )
+		);
+
+		$this->assertSame(
+			[ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 500: There has been a critical error on this website. Learn more about troubleshooting WordPress.' ],
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )
+		);
+	}
+
+	/** The endpoint's message keeps its first line, cut to 200 bytes. */
+	public function test_an_endpoint_message_keeps_one_capped_line(): void {
+		$this->endpoint_answers( 403, (string) \wp_json_encode( [ 'message' => \str_repeat( 'q', 300 ) . "\nsecond line" ] ) );
+		$this->assertSame(
+			'HTTP 403: ' . \str_repeat( 'q', 200 ),
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )['message']
+		);
+
+		$this->endpoint_answers( 403, (string) \wp_json_encode( [ 'message' => "first of egret\r\nsecond of egret" ] ) );
+		$this->assertSame(
+			'HTTP 403: first of egret',
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )['message']
+		);
+	}
+
+	public function test_a_2xx_answer_or_none_is_delivered(): void {
+		$this->endpoint_answers( 201, '{"spawned":true}' );
+		$this->assertSame(
+			[ 'outcome' => Core::POST_DELIVERED, 'message' => '' ],
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )
+		);
+
+		$this->endpoint_answers( 0, '' );
+		$this->assertSame(
+			[ 'outcome' => Core::POST_DELIVERED, 'message' => '' ],
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )
+		);
+	}
+
+	/** An answer carrying no JSON message still names its status. */
+	public function test_a_failed_answer_without_a_message_names_its_status(): void {
+		$this->endpoint_answers( 502, '<html>bad gateway</html>' );
+
+		$this->assertSame(
+			[ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 502' ],
+			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )
+		);
+	}
+
+	/**
+	 * The answer is read into a capped buffer, but every byte is accepted:
+	 * a write callback that returns short makes libcurl abort the transfer.
+	 */
+	public function test_the_answer_buffer_is_capped_but_takes_every_byte(): void {
+		$taken           = [];
+		Core::$curl_exec = static function ( \CurlHandle $ch, array $post, array $options ) use ( &$taken ): int {
+			$write   = $options[ \CURLOPT_WRITEFUNCTION ];
+			$taken[] = $write( $ch, '{"message":"' . \str_repeat( 'w', 9000 ) );
+			$taken[] = $write( $ch, '"}' );
+			return 403;
+		};
+
+		$outcome = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' );
+
+		$this->assertSame( [ 9012, 2 ], $taken );
+		$this->assertSame( [ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 403' ], $outcome );
 	}
 
 	public function test_fire_and_forget_post_invokes_curl_exec_seam_with_url_and_body(): void {
@@ -761,10 +891,10 @@ class CoreTest extends TestCase {
 			return false; // fire-and-forget: no response expected.
 		};
 
-		$err = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'firehose', 'partition' => 2 ], 'coordinator' );
+		$outcome = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'firehose', 'partition' => 2 ], 'coordinator' );
 
-		// errno is 0 (the seam never raised one) → treated as success.
-		$this->assertNull( $err );
+		// errno is 0 and no status came back: delivered.
+		$this->assertSame( Core::POST_DELIVERED, $outcome['outcome'] );
 		$this->assertCount( 1, $seen );
 		$this->assertSame( 'http://example.test/spawn', $seen[0]['url'] );
 		$this->assertSame( [ 'type' => 'firehose', 'partition' => 2 ], $seen[0]['body'] );
@@ -774,9 +904,9 @@ class CoreTest extends TestCase {
 		// Use the real libcurl call (null seam) against an unsupported protocol so
 		// a deterministic, non-timeout errno exercises the error-classification branch.
 		Core::$curl_exec = null;
-		$err = Core::fire_and_forget_post( 'gopher-bogus://nowhere', [ 'type' => 'x', 'partition' => 0 ], 'coordinator' );
-		$this->assertNotNull( $err );
-		$this->assertNotSame( '', $err );
+		$outcome = Core::fire_and_forget_post( 'gopher-bogus://nowhere', [ 'type' => 'x', 'partition' => 0 ], 'coordinator' );
+		$this->assertSame( Core::POST_FAILED, $outcome['outcome'] );
+		$this->assertNotSame( '', $outcome['message'] );
 	}
 	/**
 	 * The spawn POST carries the rotating spawn token, and Spawn_Controller

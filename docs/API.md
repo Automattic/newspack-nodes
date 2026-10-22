@@ -279,9 +279,13 @@ the ruleset.
 The spawn endpoint's two limits are in the handshake above: one call per
 [`Spawn_Controller::RATE_LIMIT_S`](../includes/rest/class-spawn-controller.php) (2 seconds) per user on the WordPress-admin path,
 metered by `Rate_Limit` below and answering `429 rate_limited`, and the 15-second `{type}|{partition}` throttle
-([`Spawn_Coordinator::MIN_SPAWN_INTERVAL_S`](../includes/class-spawn-coordinator.php)) every spawner shares, recorded by
-`Spawn_Coordinator::record_spawn()` in memory and in the shared cache, with a
-transient fallback, at twice the window's TTL. Spawning is how the fleet
+([`Spawn_Coordinator::MIN_SPAWN_INTERVAL_S`](../includes/class-spawn-coordinator.php)) every spawner shares, taken by
+`Spawn_Coordinator::admit_spawn()` with one atomic `add()` in the shared cache, so of
+concurrent spawns for one slot exactly one is admitted and the rest answer
+`429 spawn_throttled`, or checked and then set in a transient where no shared cache
+exists. The key lives one second past the window, because memcached expires in whole
+seconds and a key stored for exactly 15 could lapse early. Only an admitted spawn takes
+it: a spawn refused for a bad partition or a hold leaves the slot free. Spawning is how the fleet
 revives itself, so where no shared cache can meter the admin path the spawn
 is admitted unmetered, with one rate-limited warning, rather than refused.
 
@@ -446,12 +450,20 @@ That mount is not a pure graph edit.
 `CLI::worker_id()` cannot write — a `/` or NUL in the type, a leading zero in the
 partition — then returns early when the partition is already mounted,
 and otherwise resolves the worker through
-[`Spawn_Coordinator::worker_channel()`](../includes/class-spawn-coordinator.php), which wakes
-a worker holding no lock dir — so attaching a browser console to
-an `idle` on-demand slot STARTS a process. A woken worker skips the
-`ipc/{id}/input` existence check, because it creates that directory only once it
-runs. Every refusal is silent, since the verb always answers an empty string, and
-the command behind it bounces `NOT_AVAILABLE` instead.
+[`Spawn_Coordinator::worker_channel()`](../includes/class-spawn-coordinator.php). A
+sleeping on-demand worker, which holds no lock dir, skips the `ipc/{id}/input`
+existence check, because it creates that directory only once it runs, and is
+woken through `Spawn_Coordinator::wake_channel()` once its input is mounted — so
+attaching a browser console to an `idle` on-demand slot STARTS a process. A mount
+refusal is silent, since the verb answers an empty string, and the command behind
+it bounces `NOT_AVAILABLE` instead. A wake the spawn endpoint refuses is not: the
+verb answers a `TM_COMMAND|TM_ERROR` to its FROM whose payload reads
+`wake failed for {id}: HTTP {status}: {the endpoint's message}`, or the transport's
+error when the POST never landed, in the same response body, and the commands
+behind it still land in the mounted input for when the worker starts. The endpoint's
+message is cut to its first line and 200 bytes, tags read as spaces. A
+`429 spawn_throttled` is another process starting that worker, and answers nothing;
+any other 429 is a refusal like the rest.
 
 `topologies mount_tables <topology>` also answers an empty string, but refuses
 out loud: an inactive topology draws a `TM_ERROR` reading

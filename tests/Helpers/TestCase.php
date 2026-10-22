@@ -75,6 +75,10 @@ abstract class TestCase extends PHPUnitTestCase {
 		}
 
 		parent::setUp();
+		// The bootstrap's ensure_runtime_wired() installs it before any test runs.
+		if ( \class_exists( '\Newspack_Nodes\Worker_Base', false ) ) {
+			\Newspack_Nodes\Worker_Base::$token_provider = null;
+		}
 		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
 			Core::reset();
 			// Snapshot the config-namespace registry (survives Core::reset) so

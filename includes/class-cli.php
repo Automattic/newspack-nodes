@@ -69,17 +69,19 @@ class CLI {
 	}
 
 	/**
-	 * Resolve the IPC channel of a `{type}.p{N}` reader id, spawning an
-	 * on-demand worker that is asleep, through
-	 * `Spawn_Coordinator::worker_channel()`.
+	 * Resolve the IPC channel of a `{type}.p{N}` reader id through
+	 * `Spawn_Coordinator::worker_channel()`, and wake an on-demand worker that
+	 * is asleep.
 	 *
 	 * @param string $worker_id Worker id in `{type}.p{N}` form.
 	 * @return array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}
 	 * @throws \InvalidArgumentException When the id will not parse, or names no worker that is running or wakeable.
+	 * @throws \Throwable The endpoint's refusal of the wake.
 	 */
 	public function attach_to_worker( string $worker_id ): array {
-		$channel = Spawn_Coordinator::worker_channel( $this->base_dir, $worker_id, Core::right_now() );
+		$channel = Spawn_Coordinator::worker_channel( $this->base_dir, $worker_id );
 		if ( null !== $channel ) {
+			Spawn_Coordinator::wake_channel( $this->base_dir, $channel, Core::right_now() );
 			return $channel;
 		}
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would mangle the text.

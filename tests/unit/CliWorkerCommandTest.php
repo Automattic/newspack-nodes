@@ -266,7 +266,7 @@ class CliWorkerCommandTest extends TestCase {
 		$this->register_topology( 'firehose-workers', 1 );
 		// No lock dirs at all: the predecessor is gone, the successor booting.
 		// Pin ONE coordinator so the in-flight mark stays instance-local: a
-		// persisted record_spawn would outlive the test in a shared cache tier.
+		// persisted admit_spawn would outlive the test in a shared cache tier.
 		$fleet = new \Newspack_Nodes\Spawn_Coordinator( $this->tmp, 'TEST_SALT' );
 		$fleet->spawn_each(
 			[ [ 'type' => 'firehose-workers', 'partition' => 0 ] ],

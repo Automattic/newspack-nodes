@@ -446,6 +446,38 @@ class BootstrapTest extends TestCase {
 		);
 	}
 
+	/**
+	 * A wake the endpoint refuses raises its refusal for the verb to answer,
+	 * but only once the input is mounted, so what the batch writes next still
+	 * lands for the worker to read when it does start.
+	 */
+	public function test_register_worker_partition_mounts_before_it_raises_a_refused_wake(): void {
+		$base = $this->make_temp_dir();
+		$this->use_base_dir( $base );
+		\Newspack_Nodes\Core::$curl_exec = static function ( \CurlHandle $ch, array $body, array $options ): int {
+			( $options[ \CURLOPT_WRITEFUNCTION ] )( $ch, '{"code":"invalid_token","message":"Invalid spawn token for heron-tide"}' );
+			return 403;
+		};
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'demo' => [ 'topology' => 'demo', 'num_partitions' => 1, 'on_demand_idle' => 23 ],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'demo' ];
+
+		$raised = null;
+		try {
+			Bootstrap::register_worker_partition( 'demo.p0', $base );
+		} catch ( \RuntimeException $e ) {
+			$raised = $e;
+		}
+
+		$this->assertNotNull( $raised );
+		$this->assertSame( 'wake failed for demo.p0: HTTP 403: Invalid spawn token for heron-tide', Core::message_of( $raised ) );
+		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, Core::node( 'demo.p0' ) );
+	}
+
 	/** A RESIDENT worker with no lock dir is a dead fleet, and still refused. */
 	public function test_register_worker_partition_still_refuses_a_resident_worker(): void {
 		$base = $this->make_temp_dir();

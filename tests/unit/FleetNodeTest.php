@@ -197,7 +197,7 @@ class FleetNodeTest extends TestCase {
 		// Seeded through the SHARED throttle store, not this node's memory —
 		// cross-process dedup is what makes N scanners safe.
 		$now = Core::right_now();
-		( new \Newspack_Nodes\Spawn_Coordinator( $this->tmp ) )->record_spawn( 'ledger-workers', 0, $now );
+		( new \Newspack_Nodes\Spawn_Coordinator( $this->tmp ) )->admit_spawn( 'ledger-workers', 0, $now );
 
 		$this->mount_fleet()->fire_cb();
 

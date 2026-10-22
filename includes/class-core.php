@@ -128,7 +128,11 @@ class Core {
 	 * `Spawn_Coordinator` (spawn fan-out) and `Worker_Base` (self-respawn)
 	 * reach it through the one `fire_and_forget_post()`.
 	 *
-	 * Signature: `function (\CurlHandle $ch, array $body, array $options): mixed`.
+	 * The replacement performs the transfer, handing any answer to the
+	 * options' CURLOPT_WRITEFUNCTION as libcurl would, and returns the HTTP
+	 * status, 0 when no answer arrived.
+	 *
+	 * Signature: `function (\CurlHandle $ch, array $body, array $options): int`.
 	 *
 	 * @var \Closure(\CurlHandle, array<string,mixed>, array<int,mixed>): mixed|null
 	 */
@@ -240,6 +244,21 @@ class Core {
 	 * call a half-sent body delivered.
 	 */
 	private const SPAWN_POST_TIMEOUT_MS = 250;
+
+	/** The most of an endpoint's answer the spawn POST keeps; a REST error is far smaller. */
+	private const SPAWN_ANSWER_MAX_BYTES = 4096;
+
+	/** The most of an endpoint's message a spawn outcome carries into a log or a reply. */
+	private const SPAWN_MESSAGE_MAX_BYTES = 200;
+
+	/** `fire_and_forget_post()` landed: a 2xx, or no answer inside the budget. */
+	public const POST_DELIVERED = 'delivered';
+
+	/** The spawn endpoint answered `spawn_throttled`: another process is starting that worker. */
+	public const POST_THROTTLED = 'throttled';
+
+	/** `fire_and_forget_post()` was refused, or never left. */
+	public const POST_FAILED = 'failed';
 
 	/**
 	 * Resolve a path template as a worker would — `resolve_partition()`, then
@@ -560,41 +579,84 @@ class Core {
 	/**
 	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
 	 * CURLOPT_NOSIGNAL + a sub-second TIMEOUT_MS means CURLE_OPERATION_TIMEDOUT is expected, and
-	 * `classify_post_result()` counts it as success once the whole body is on the wire.
+	 * `classify_post_result()` counts it as delivered once the whole body is on the wire.
+	 *
+	 * An endpoint that answers inside the budget — a refusal answers at once — has
+	 * its answer read into a capped buffer rather than printed into whatever
+	 * response this process is writing. Nothing here writes to output.
 	 *
 	 * @param string              $url    Target URL.
 	 * @param array<string,mixed> $body   POST body.
 	 * @param string              $role   Who is posting, `coordinator` or `self-respawn`; the
 	 *                                    User-Agent names it beside the body's slot, `firehose.p3`.
-	 * @return string|null Error string on failure, null on success.
+	 * @return array{outcome:string,message:string} `POST_DELIVERED` on a 2xx or no answer,
+	 *         `POST_THROTTLED` on the endpoint's own `spawn_throttled` 429, `POST_FAILED`
+	 *         otherwise; the message is the endpoint's own, or the transport's, for
+	 *         any outcome but delivered.
 	 */
-	public static function fire_and_forget_post( string $url, array $body, string $role ): ?string {
+	public static function fire_and_forget_post( string $url, array $body, string $role ): array {
 		if ( '' === $url ) {
-			return 'empty url';
+			return self::post_outcome( self::POST_FAILED, 'empty url' );
 		}
 		if ( ! \function_exists( 'curl_init' ) ) {
-			return 'curl extension not available';
+			return self::post_outcome( self::POST_FAILED, 'curl extension not available' );
 		}
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error,WordPress.WP.AlternativeFunctions.curl_curl_getinfo -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:431 does `$timeout = max($options['timeout'], 1)` and clamps any sub-second timeout up to 1 full second — defeating this helper's sub-second CURLOPT_TIMEOUT_MS fire-and-forget contract. Raw curl is the only path that honors a sub-second timeout.
 		$ch = \curl_init();
 		if ( false === $ch ) {
-			return 'curl_init failed';
+			return self::post_outcome( self::POST_FAILED, 'curl_init failed' );
 		}
 		$fields  = \http_build_query( $body );
 		$slot    = CLI::worker_id( self::as_string( $body['type'] ), self::as_int( $body['partition'] ) );
-		$options = self::post_curl_options( $url, $fields, "{$role}; {$slot}" );
+		$answer  = '';
+		$options = self::post_curl_options( $url, $fields, "{$role}; {$slot}" ) + [
+			// Every byte is taken, or libcurl aborts with CURLE_WRITE_ERROR.
+			\CURLOPT_WRITEFUNCTION => static function ( \CurlHandle $h, string $chunk ) use ( &$answer ): int {
+				$answer .= \substr( $chunk, 0, \max( 0, self::SPAWN_ANSWER_MAX_BYTES - \strlen( $answer ) ) );
+				return \strlen( $chunk );
+			},
+		];
 		\curl_setopt_array( $ch, $options );
 		// The default ignores $b and $o, already on $ch; mocks read them.
-		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b, array $o ) => \curl_exec( $h );
-		$exec( $ch, $body, $options );
-		$err = self::classify_post_result(
+		$exec   = self::$curl_exec ?? static function ( \CurlHandle $h, array $b, array $o ): int {
+			\curl_exec( $h );
+			return self::as_int( \curl_getinfo( $h, \CURLINFO_RESPONSE_CODE ) );
+		};
+		$status = self::as_int( $exec( $ch, $body, $options ) );
+		$err    = self::classify_post_result(
 			\curl_errno( $ch ),
 			\curl_getinfo( $ch, \CURLINFO_SIZE_UPLOAD_T ),
 			\strlen( $fields ),
 			\curl_error( $ch )
 		);
 		// phpcs:enable WordPress.WP.AlternativeFunctions
-		return $err;
+		if ( null !== $err ) {
+			return self::post_outcome( self::POST_FAILED, $err );
+		}
+		if ( 0 === $status || ( $status >= 200 && $status < 300 ) ) {
+			return self::post_outcome( self::POST_DELIVERED, '' );
+		}
+		$said      = \json_decode( $answer, true );
+		$said      = \is_array( $said ) ? $said : [];
+		$message   = \is_string( $said['message'] ?? null ) ? self::endpoint_message( $said['message'] ) : '';
+		$throttled = 429 === $status && 'spawn_throttled' === ( $said['code'] ?? null );
+		return self::post_outcome(
+			$throttled ? self::POST_THROTTLED : self::POST_FAILED,
+			'' === $message ? "HTTP {$status}" : "HTTP {$status}: {$message}"
+		);
+	}
+
+	/**
+	 * An endpoint's message as one short plain line: its first line, tags
+	 * read as spaces, cut to `SPAWN_MESSAGE_MAX_BYTES` on a character boundary.
+	 * A fatal's critical-error page answers HTML, and the line reaches a log.
+	 *
+	 * @param string $message The `message` of the endpoint's JSON answer.
+	 */
+	private static function endpoint_message( string $message ): string {
+		$line  = \preg_split( '/\R/', $message, 2 )[0] ?? '';
+		$words = \trim( (string) \preg_replace( '/\s+/', ' ', (string) \preg_replace( '/<[^>]*>/', ' ', $line ) ) );
+		return \mb_strcut( $words, 0, self::SPAWN_MESSAGE_MAX_BYTES, 'UTF-8' );
 	}
 
 	/**
@@ -646,7 +708,6 @@ class Core {
 			\CURLOPT_NOSIGNAL          => true,
 			\CURLOPT_TIMEOUT_MS        => self::SPAWN_POST_TIMEOUT_MS,
 			\CURLOPT_CONNECTTIMEOUT_MS => self::SPAWN_POST_TIMEOUT_MS,
-			\CURLOPT_RETURNTRANSFER    => false,
 			\CURLOPT_HEADER            => false,
 			\CURLOPT_SSL_VERIFYHOST    => $verify ? 2 : 0,
 			\CURLOPT_SSL_VERIFYPEER    => $verify,
@@ -673,6 +734,20 @@ class Core {
 	 */
 	public static function as_int( mixed $value, int $default = 0 ): int {
 		return \is_scalar( $value ) ? (int) $value : $default;
+	}
+
+	/**
+	 * One `fire_and_forget_post()` result.
+	 *
+	 * @param string $outcome A `POST_*` constant.
+	 * @param string $message Why, for any outcome but delivered.
+	 * @return array{outcome:string,message:string}
+	 */
+	private static function post_outcome( string $outcome, string $message ): array {
+		return [
+			'outcome' => $outcome,
+			'message' => $message,
+		];
 	}
 
 	/**

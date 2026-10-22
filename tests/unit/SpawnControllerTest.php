@@ -95,6 +95,70 @@ class SpawnControllerTest extends TestCase {
 		$this->assertSame( 1, $fired, 'the throttled spawn must not reach spawn_worker' );
 	}
 
+	/** Spawn POSTs for `claimant.p1`, each through its own controller, as concurrent requests are. */
+	private function spawn_claimant( array $extra = [] ): mixed {
+		return ( new Spawn_Controller( new Spawn_Coordinator( '/tmp', 'NONCE_SALT_FOR_TEST' ) ) )->spawn( $this->make_request( [
+			'type'      => 'claimant',
+			'partition' => 1,
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
+		] + $extra ) );
+	}
+
+	/**
+	 * The endpoint admits a slot with one atomic `add()` on its throttle key,
+	 * so of two POSTs for one slot, one runs the worker and the other answers
+	 * `spawn_throttled`.
+	 */
+	public function test_of_two_spawns_for_one_slot_the_endpoint_admits_one(): void {
+		$this->with_topology( [
+			'claimant' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+		$fired = 0;
+		\add_action( 'newspack_nodes/spawn_worker', function () use ( &$fired ): void {
+			++$fired;
+		} );
+		\Newspack_Nodes\Core::$memd = new InMemoryMemcached();
+		try {
+			$first  = $this->spawn_claimant();
+			$second = $this->spawn_claimant();
+		} finally {
+			\Newspack_Nodes\Core::$memd = null;
+		}
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $first );
+		$this->assertInstanceOf( \WP_Error::class, $second );
+		$this->assertSame( 'spawn_throttled', $second->get_error_code() );
+		$this->assertSame( 1, $fired );
+	}
+
+	/** A spawn refused before the throttle takes no slot, so it throttles nobody after it. */
+	public function test_a_spawn_refused_for_another_reason_leaves_no_slot_taken(): void {
+		$this->with_topology( [
+			'claimant' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+		$memd                        = new InMemoryMemcached();
+		\Newspack_Nodes\Core::$memd = $memd;
+		$key                         = \Newspack_Nodes\Cache_Backend::site_key( Spawn_Coordinator::SPAWN_TS_CACHE_KEY . 'claimant|1' );
+		try {
+			Spawn_Coordinator::set_hold( 1754500321 );
+			$held = $this->spawn_claimant();
+			Spawn_Coordinator::clear_hold();
+			$this->assertFalse( $memd->get( $key ), 'a held spawn takes no slot' );
+
+			$out_of_range = ( new Spawn_Controller( new Spawn_Coordinator( '/tmp', 'NONCE_SALT_FOR_TEST' ) ) )->spawn( $this->make_request( [
+				'type'      => 'claimant',
+				'partition' => 5,
+				'nonce'     => $this->fleet->generate_spawn_token( \time() ),
+			] ) );
+		} finally {
+			\Newspack_Nodes\Core::$memd = null;
+		}
+
+		$this->assertSame( 'fleet_held', $held->get_error_code() );
+		$this->assertSame( 'invalid_partition', $out_of_range->get_error_code() );
+		$this->assertSame( [], \array_keys( \array_filter( $memd->expiries() ) ) );
+	}
+
 	/**
 	 * The endpoint is the ONE gate every spawn path crosses — cron reconcile,
 	 * peer scan, partition wake and self-respawn alike — so a deploy hold is one

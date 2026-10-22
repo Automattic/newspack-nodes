@@ -38,7 +38,7 @@ import { Core } from './core';
 import { Node } from './node';
 import { RemoteLinkNode } from './remote-link-node';
 import { sessionHandle } from './command-auth';
-import { FROM, TO } from './message';
+import { FROM, TO, TYPE, TM_RESPONSE, TM_ERROR } from './message';
 import names from './reserved-node-names.json';
 
 /**
@@ -92,10 +92,20 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * POST. The mount rides once per batch, not once per send — `_http` owns
 	 * that claim, so it cannot outlive the batch it describes.
 	 *
+	 * A reply with no remainder answers the mount this node minted — the
+	 * server refusing it, or the worker's wake — and `_http` has already put
+	 * an error on the ERRORS tile, so it ends here rather than riding back out.
+	 *
 	 * @param {Array} message Positional Message; TO is the remainder past this node's name.
 	 */
 	fill( message ) {
 		this.counter++;
+		if (
+			'' === message[ TO ] &&
+			message[ TYPE ] & ( TM_RESPONSE | TM_ERROR )
+		) {
+			return;
+		}
 		const reader = this.reader;
 		this.connect();
 

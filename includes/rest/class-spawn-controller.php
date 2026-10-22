@@ -64,8 +64,9 @@ class Spawn_Controller {
 	 * Accept or refuse an authorized spawn, then run the worker.
 	 *
 	 * Three refusals, in order: a partition outside the type's range, a deploy
-	 * hold, and the shared 15-second throttle. Recording the accepted spawn
-	 * here is what gives every spawner one window to share.
+	 * hold, and the shared 15-second throttle. Admitting the spawn here, with
+	 * one atomic take of the slot, is what gives every spawner one window to
+	 * share and lets exactly one of concurrent spawns run.
 	 *
 	 * An admitted spawn tags the process with its worker identity before
 	 * `newspack_nodes/spawn_worker` runs the worker. It announces nothing:
@@ -94,7 +95,7 @@ class Spawn_Controller {
 			);
 		}
 
-		// Held here: self_respawn() never touches the coordinator.
+		// Held here too: a spawn posted just before the hold landed.
 		$held = Spawn_Coordinator::hold();
 		if ( $held > 0 ) {
 			return new \WP_Error(
@@ -104,15 +105,13 @@ class Spawn_Controller {
 			);
 		}
 
-		$now = Core::right_now();
-		if ( $this->coordinator->is_recently_spawned( $type, $partition, $now ) ) {
+		if ( ! $this->coordinator->admit_spawn( $type, $partition, Core::right_now() ) ) {
 			return new \WP_Error(
 				'spawn_throttled',
 				\sprintf( '%s spawned less than %ds ago', CLI::worker_id( $type, $partition ), Spawn_Coordinator::MIN_SPAWN_INTERVAL_S ),
 				[ 'status' => 429 ]
 			);
 		}
-		$this->coordinator->record_spawn( $type, $partition, $now );
 
 		\ignore_user_abort( true );
 		\set_time_limit( 0 );

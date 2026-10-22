@@ -144,6 +144,13 @@ class OnDemandWakeTest extends TestCase {
 		);
 	}
 
+	/** Resolve `$worker_id`'s channel and wake it, as the cli and the mount do. */
+	private function wake( string $worker_id ): void {
+		$channel = Spawn_Coordinator::worker_channel( $this->tmp, $worker_id );
+		$this->assertNotNull( $channel, "the fleet runs {$worker_id} on demand" );
+		Spawn_Coordinator::wake_channel( $this->tmp, $channel, (float) \time() );
+	}
+
 	private function coordinator(): Spawn_Coordinator {
 		return new Spawn_Coordinator( $this->tmp );
 	}
@@ -583,9 +590,8 @@ class OnDemandWakeTest extends TestCase {
 	public function test_waking_a_named_sleeping_worker_refuses_a_conflicting_set(): void {
 		$this->conflicting_pair();
 
-		$found = $this->coordinator()->wake_sleeping_worker( 'marmot-jobs', 1, (float) \time() );
+		$this->wake( 'marmot-jobs.p1' );
 
-		$this->assertTrue( $found, 'the worker is still named by the fleet' );
 		$this->assertSame( [], $this->woken() );
 	}
 
@@ -604,19 +610,59 @@ class OnDemandWakeTest extends TestCase {
 				'output'    => "{$this->tmp}/ipc/kea-7713.p3/output",
 				'sleeping'  => false,
 			],
-			Spawn_Coordinator::worker_channel( "{$this->tmp}/", 'kea-7713.p3', (float) \time() )
+			Spawn_Coordinator::worker_channel( "{$this->tmp}/", 'kea-7713.p3' )
 		);
 		$this->assertSame( [], $this->woken() );
 	}
 
-	/** A sleeping on-demand worker holds no lock: resolving its channel wakes it. */
+	/** A sleeping on-demand worker holds no lock: resolving names it, waking starts it. */
 	public function test_a_sleeping_workers_channel_wakes_it(): void {
 		$this->activate( 'marmot-ondemand', 23 );
 
-		$channel = Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-ondemand.p1', (float) \time() );
+		$channel = Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-ondemand.p1' );
 
 		$this->assertTrue( $channel['sleeping'] ?? null );
 		$this->assertSame( "{$this->tmp}/ipc/marmot-ondemand.p1/input", $channel['input'] ?? null );
+		$this->assertSame( [], $this->woken(), 'resolving posts nothing' );
+
+		Spawn_Coordinator::wake_channel( $this->tmp, $channel, (float) \time() );
+
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
+	/** Answer every spawn POST with `$status`, carrying `$message` as the endpoint's. */
+	private function endpoint_answers( int $status, string $message ): void {
+		$posts           = &$this->posts;
+		Core::$curl_exec = static function ( \CurlHandle $ch, array $body, array $options ) use ( &$posts, $status, $message ): int {
+			$posts[] = [ 'url' => '', 'body' => $body ];
+			( $options[ \CURLOPT_WRITEFUNCTION ] )( $ch, (string) \wp_json_encode( [ 'code' => 429 === $status ? 'spawn_throttled' : 'fleet_held', 'message' => $message ] ) );
+			return $status;
+		};
+	}
+
+	/** A wake the endpoint refuses raises the endpoint's own message. */
+	public function test_a_refused_wake_raises_the_endpoints_message(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->endpoint_answers( 409, 'fleet held since heron-dusk' );
+
+		$e = null;
+		try {
+			$this->wake( 'marmot-ondemand.p1' );
+		} catch ( \RuntimeException $caught ) {
+			$e = $caught;
+		}
+
+		$this->assertNotNull( $e );
+		$this->assertSame( 'wake failed for marmot-ondemand.p1: HTTP 409: fleet held since heron-dusk', Core::message_of( $e ) );
+	}
+
+	/** A throttled wake is another process starting the worker, and raises nothing. */
+	public function test_a_throttled_wake_raises_nothing(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->endpoint_answers( 429, 'marmot-ondemand.p1 spawned less than 15s ago' );
+
+		$this->wake( 'marmot-ondemand.p1' );
+
 		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
 	}
 
@@ -625,9 +671,120 @@ class OnDemandWakeTest extends TestCase {
 		$this->activate( 'marmot-resident', 0 );
 		\mkdir( "{$this->tmp}/locks/marmot-resident.p1.lock.d", 0755, true );
 
-		$this->assertNull( Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-resident.p01', (float) \time() ) );
-		$this->assertNull( Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-resident.p0', (float) \time() ) );
+		$this->assertNull( Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-resident.p01' ) );
+		$this->assertNull( Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-resident.p0' ) );
 		$this->assertSame( [], $this->woken() );
+	}
+
+	// ── a wake from /command ────────────────────────────────────────────────
+
+	/**
+	 * POST the console's attach batch for `marmot-ondemand.p1` — the mount,
+	 * then a command for the worker — to `/command`.
+	 *
+	 * @return array{0: list<int>, 1: list<array<int,mixed>>} Statuses sent, then the body's Messages.
+	 */
+	private function post_attach_batch(): array {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		\Newspack_Nodes\Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
+		Partition_Node::$on_shutdown            = static function ( \Closure $flush ): void {};
+		$GLOBALS['_wp_actions']                 = [];
+		$interpreter                            = Bootstrap::mount_request_graph();
+		\newspack_nodes_mount_substrate_cis( $interpreter );
+
+		$connect                   = \Newspack_Nodes\Message::new_message();
+		$connect[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND;
+		$connect[ \Newspack_Nodes\Message::FROM ]  = 'marmot-ondemand.p1';
+		$connect[ \Newspack_Nodes\Message::TO ]    = 'topologies';
+		$connect[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'connect_worker_input', 'arguments' => [ 'marmot-ondemand.p1' ] ];
+		$command                   = \Newspack_Nodes\Message::new_message();
+		$command[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND;
+		$command[ \Newspack_Nodes\Message::FROM ]  = '_sse:5eed5eed5eed5eed5eed5eed5eed5eed/_output';
+		$command[ \Newspack_Nodes\Message::TO ]    = 'marmot-ondemand.p1/_command_interpreter';
+		$command[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'dump_metadata', 'arguments' => [] ];
+		\Newspack_Nodes\Command_Auth::sign( $connect );
+		\Newspack_Nodes\Command_Auth::sign( $command );
+		$req = new \WP_REST_Request();
+		$req->set_body( \Newspack_Nodes\Message::packed( $connect ) . "\n" . \Newspack_Nodes\Message::packed( $command ) );
+
+		$statuses = [];
+		$ctrl     = new \Newspack_Nodes\Rest\HTTP_In_Node(
+			static function ( int $code ) use ( &$statuses ): void {
+				$statuses[] = $code;
+			}
+		);
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		try {
+			$ctrl->dispatch( $req );
+		} finally {
+			$body = (string) \ob_get_clean();
+			\Newspack_Nodes\Command_Auth::$claim_nonce = null;
+		}
+		$lines = \array_values( \array_filter( \explode( "\n", $body ) ) );
+		return [ $statuses, \array_map( static fn ( string $line ): array => \Newspack_Nodes\Message::unpacked( $line ), $lines ) ];
+	}
+
+	/** The commands written into `marmot-ondemand.p1`'s input, by verb. */
+	private function written_verbs(): array {
+		$consumer = new \Newspack_Nodes\Consumer_Node();
+		$consumer->arguments( [ "{$this->tmp}/ipc/marmot-ondemand.p1/input" ] );
+		$consumer->next_offset( 'start' );
+		$consumer->sink( $got = new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$this->pump_consumer( $consumer );
+		return \array_map( static fn ( array $m ): string => $m[ \Newspack_Nodes\Message::VALUE ]['name'], $got->captured );
+	}
+
+	/**
+	 * A wake the endpoint refuses answers the command that asked for it with a
+	 * TM_ERROR carrying the endpoint's message, through the same route every
+	 * verb failure takes; the command behind it still lands for the worker.
+	 */
+	public function test_a_refused_wake_from_command_answers_its_sender(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->endpoint_answers( 409, 'fleet held since heron-dusk' );
+
+		[ $statuses, $replies ] = $this->post_attach_batch();
+
+		$this->assertSame( [ 200 ], $statuses );
+		$this->assertCount( 1, $replies );
+		$this->assertSame( \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_ERROR, $replies[0][ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'marmot-ondemand.p1', $replies[0][ \Newspack_Nodes\Message::TO ] );
+		$this->assertSame( 'connect_worker_input', $replies[0][ \Newspack_Nodes\Message::VALUE ]['name'] );
+		$this->assertSame(
+			"wake failed for marmot-ondemand.p1: HTTP 409: fleet held since heron-dusk\n",
+			$replies[0][ \Newspack_Nodes\Message::VALUE ]['payload']
+		);
+		$this->assertSame( [ 'dump_metadata' ], $this->written_verbs() );
+	}
+
+	/** A throttled wake answers nothing: the batch routes onward as ever. */
+	public function test_a_throttled_wake_from_command_answers_nothing(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->endpoint_answers( 429, 'marmot-ondemand.p1 spawned less than 15s ago' );
+
+		[ $statuses, $replies ] = $this->post_attach_batch();
+
+		$this->assertSame( [ 202 ], $statuses );
+		$this->assertSame( [], $replies );
+		$this->assertSame( [ 'dump_metadata' ], $this->written_verbs() );
+	}
+
+	/** A wake that never reached the endpoint answers the transport's error. */
+	public function test_a_wake_lost_in_transport_answers_its_sender(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		Core::$curl_exec = static function ( \CurlHandle $ch ): int {
+			\curl_setopt( $ch, \CURLOPT_URL, 'gopher-bogus://heron-dusk' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
+			\curl_exec( $ch ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_exec
+			return 0;
+		};
+
+		[ , $replies ] = $this->post_attach_batch();
+
+		$this->assertCount( 1, $replies );
+		$this->assertSame( \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_ERROR, $replies[0][ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertStringStartsWith( 'wake failed for marmot-ondemand.p1: ', $replies[0][ \Newspack_Nodes\Message::VALUE ]['payload'] );
+		$this->assertSame( [ 'dump_metadata' ], $this->written_verbs() );
 	}
 
 	/**
