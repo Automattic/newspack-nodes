@@ -355,15 +355,11 @@ class Bootstrap {
 	}
 
 	/**
-	 * Schedule the reconcile cron at minute cadence, then install the wpdb
-	 * Tables' schema when its option records another — the activation hook,
-	 * and the self-heal re-arm, which so sends no DDL on an admin page load
-	 * while the schema is current. The `true` fifth argument asks
+	 * Schedule the reconcile cron at minute cadence: the activation hook and
+	 * the self-heal re-arm. The `true` fifth argument asks
 	 * `wp_schedule_event()` for a WP_Error, so a refused schedule reports its
-	 * own code and message rather than a bare false. A refused install is
-	 * logged rather than thrown, so activation and every admin page survive
-	 * it; a wpdb Table's first use installs again, and the `wpdb-schema`
-	 * health row reports a table that does not answer.
+	 * own code and message rather than a bare false. The wpdb Tables' shared
+	 * tables are a wpdb Table's to install, on its first use.
 	 */
 	public static function activate(): void {
 		// An unsalted install has a computable cache scope.
@@ -382,11 +378,6 @@ class Bootstrap {
 					)
 				);
 			}
-		}
-		try {
-			Wpdb_Arm::install_if_outdated();
-		} catch ( \RuntimeException $e ) {
-			Core::print_less_often( 'wpdb schema install failed: ', $e->getMessage() );
 		}
 	}
 

@@ -115,8 +115,8 @@ final class Wpdb_Arm extends Durable_Arm {
 
 	/**
 	 * Install the schema when the option records another: an autoloaded
-	 * option read, so an arm a request builds, and the `admin_init` re-arm,
-	 * run no statement while the schema is current.
+	 * option read, so an arm a request builds runs no statement while the
+	 * schema is current.
 	 *
 	 * @throws \RuntimeException When the schema is not installed and cannot be.
 	 */
@@ -515,8 +515,9 @@ final class Wpdb_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Create both shared tables and record the schema: plugin activation's
-	 * step, an arm's on the first use after an upgrade, and heal()'s.
+	 * Create both shared tables and record the schema: an arm's step on its
+	 * first use, and heal()'s. The option is what tells the `wpdb-schema`
+	 * health row that something uses the tables.
 	 *
 	 * @throws \RuntimeException When the server refuses a table.
 	 */

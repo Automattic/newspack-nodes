@@ -35,10 +35,20 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `Command_Auth::sessions_backend()`. The session Table's name is
   `Command_Auth::session_store()`, not `SESSIONS_TABLE`, and a session read
   goes through `Command_Auth::session_reader()`. Raise the caller's
-  `version_at_least()` floor to this release. No purge reaches the old
-  `nodes-sessions` namespace again; its expired wpdb rows stay until deleted:
-  `DELETE FROM {base_prefix}newspack_nodes_table WHERE namespace =
-  'nodes-sessions'`, and the same against `{base_prefix}newspack_nodes_members`.
+  `version_at_least()` floor to this release.
+
+- **The shared wpdb tables exist only while a wpdb Table uses them.**
+  Activation no longer creates `{base_prefix}newspack_nodes_table` and
+  `{base_prefix}newspack_nodes_members`; a wpdb Table's first use does, and
+  `wp nodes doctor` probes them only once the `newspack_nodes_wpdb_schema`
+  option records that install. On a site whose sessions moved to SQLite
+  and that declares no wpdb Table of its own, drop both tables and the
+  option, which also clears the old sessions no purge reaches again:
+  `DROP TABLE {base_prefix}newspack_nodes_table,
+  {base_prefix}newspack_nodes_members` and
+  `wp option delete newspack_nodes_wpdb_schema`. Dropping the tables while
+  the option stands leaves `wpdb-schema` critical until the next wpdb Table
+  recreates them. A site keeping `sessions_backend` at `wpdb` keeps both.
 
 - **`min_lifetime` defaults to 86400, and `lifetime` follows it.** A
   Partition, Topic or Log whose topology passes `<config:min_lifetime>` and
