@@ -15,7 +15,7 @@ class AuthControllerTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->use_wpdb();
+		$this->use_base_dir( $this->make_temp_dir( 'auth-sessions-' ) );
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];

@@ -82,8 +82,6 @@ class Tables_CLI_Command {
 		$stats   = $this->ask( self::owned_by_live( $slots ), $timeout );
 		$rows    = [];
 		foreach ( $slots as $stem => $slot ) {
-			$file   = Table_Node::file( $slot['name'], $slot['partition'] );
-			$size   = 'sqlite' === $slot['spec']['backend'] ? Sqlite_Arm::footprint( $file ) : null;
 			$rows[] = [
 				'Table'     => $slot['name'],
 				'Partition' => $slot['partition'],
@@ -91,22 +89,20 @@ class Tables_CLI_Command {
 				'TTL'       => $slot['schema'] ?? (string) $slot['spec']['ttl'],
 				'Owner'     => $slot['owner'] ?? '-',
 				'State'     => $slot['state'],
-				'Store'     => null === $size ? Wpdb_Arm::table() : $file,
-				'Bytes'     => $size['bytes'] ?? null,
-				'Disk'      => $size['disk'] ?? null,
+				...self::store( $slot['name'], $slot['partition'], $slot['spec']['backend'] ),
 				'Verbs'     => 'live' === $slot['state'] ? self::verbs( $slot, $stats[ $stem ] ?? null, $timeout ) : null,
 			];
 		}
+		$backend = Command_Auth::sessions_backend();
+		$store   = Command_Auth::session_store();
 		$rows[]  = [
-			'Table'     => Command_Auth::SESSIONS_TABLE,
+			'Table'     => $store,
 			'Partition' => 0,
-			'Backend'   => Command_Auth::SESSIONS_BACKEND,
+			'Backend'   => $backend,
 			'TTL'       => Command_Auth::SESSION_TTL_MIN_S . '-' . Command_Auth::SESSION_TTL_MAX_S,
 			'Owner'     => '-',
 			'State'     => '-',
-			'Store'     => Wpdb_Arm::table(),
-			'Bytes'     => null,
-			'Disk'      => null,
+			...self::store( $store, 0, $backend ),
 			'Verbs'     => null,
 		];
 		CLI::print_rows( $assoc_args, $rows, \array_keys( $rows[0] ), self::readable( ... ) );
@@ -173,6 +169,25 @@ class Tables_CLI_Command {
 	private static function refusal( array $reply ): string {
 		$value = $reply[ Message::VALUE ];
 		return \trim( Core::as_string( \is_array( $value ) ? $value['payload'] ?? null : $value ) );
+	}
+
+	/**
+	 * Where one Table partition keeps its rows, opening nothing: a `sqlite`
+	 * one's file with what it takes on disk, a `wpdb` one's shared table, and
+	 * for a volatile one its backend's name, `memcache`, `apcu` or `auto`.
+	 *
+	 * @param string $table     The Table.
+	 * @param int    $partition Its partition.
+	 * @param string $backend   Its backend.
+	 * @return array{Store:string,Bytes:int|null,Disk:int|null}
+	 */
+	private static function store( string $table, int $partition, string $backend ): array {
+		if ( 'sqlite' !== $backend ) {
+			return [ 'Store' => 'wpdb' === $backend ? Wpdb_Arm::table() : $backend, 'Bytes' => null, 'Disk' => null ];
+		}
+		$file = Table_Node::file( $table, $partition );
+		$size = Sqlite_Arm::footprint( $file );
+		return [ 'Store' => $file, 'Bytes' => $size['bytes'], 'Disk' => $size['disk'] ];
 	}
 
 	/**

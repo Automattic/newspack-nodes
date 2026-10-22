@@ -30,6 +30,7 @@ class SettingsSchemaTest extends TestCase {
 		'base_directory',
 		'memcache_servers',
 		'log_sources',
+		'sessions_backend',
 		'remote_segment_size',
 		'remote_min_segments',
 		'remote_num_segments',
@@ -66,6 +67,7 @@ class SettingsSchemaTest extends TestCase {
 		'newspack_nodes_base_directory',
 		'newspack_nodes_memcache_servers',
 		'newspack_nodes_log_sources',
+		'newspack_nodes_sessions_backend',
 		'newspack_nodes_remote_segment_size',
 		'newspack_nodes_remote_min_segments',
 		'newspack_nodes_remote_num_segments',
@@ -89,6 +91,7 @@ class SettingsSchemaTest extends TestCase {
 		'base_directory',
 		'memcache_servers',
 		'log_sources',
+		'sessions_backend',
 		'remote_segment_size',
 		'remote_min_segments',
 		'remote_num_segments',
@@ -137,6 +140,8 @@ class SettingsSchemaTest extends TestCase {
 		$this->assertSame( 'all', $schema->restart_for( 'base_directory' ) );
 		// Streams resolve the registry per-request; no worker holds it.
 		$this->assertSame( [], $schema->restart_for( 'log_sources' ) );
+		// Every worker's verifier holds the session Table it first opened.
+		$this->assertSame( 'all', $schema->restart_for( 'sessions_backend' ) );
 		$this->assertSame( [], $schema->restart_for( 'topologies' ) );
 		$this->assertSame( [], $schema->restart_for( 'missing_option' ) );
 	}
@@ -190,6 +195,15 @@ class SettingsSchemaTest extends TestCase {
 		$this->assertContains( 'remote_segment_size', $schema->overlay_keys() );
 		$this->assertContains( 'remote_min_lifetime', $schema->overlay_keys() );
 		$this->assertContains( 'remote_max_segments', $schema->overlay_keys() );
+	}
+
+	/** Sessions default to SQLite, a storage setting with its own sanitizer. */
+	public function test_sessions_backend_defaults_to_sqlite_in_the_storage_section(): void {
+		$field = Settings_Schema::get()->field_for_short( 'sessions_backend' );
+
+		$this->assertSame( 'sqlite', $field?->default );
+		$this->assertSame( 'newspack_nodes_storage_section', $field?->section );
+		$this->assertSame( 'wpdb', ( $field?->sanitize_callback() )( 'wpdb' ) );
 	}
 
 	public function test_prefix_is_the_substrate_prefix_and_get_is_memoized(): void {

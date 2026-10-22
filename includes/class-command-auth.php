@@ -108,21 +108,30 @@ class Command_Auth {
 	public const SESSION_TTL_MIN_S = 60;
 
 	/**
-	 * The session Table's namespace, one row per session keyed by its handle,
-	 * on the wpdb backend, because every web host mints and every host
-	 * verifies, which a host-local SQLite file cannot serve (ADR-24). `wp
-	 * nodes tables list` lists it by this name.
+	 * The session Table's name before `session_store()` scopes it to the
+	 * install: one row per session keyed by its handle, on the backend
+	 * `sessions_backend()` names (ADR-24).
 	 */
 	public const SESSIONS_TABLE = 'nodes-sessions';
 
-	/** The session Table's backend, which `wp nodes tables` lists beside it. */
-	public const SESSIONS_BACKEND = 'wpdb';
+	/** The backend whose store holds the sessions, so a switch flushes the one it leaves. */
+	public const SESSIONS_IN_USE_OPTION = 'newspack_nodes_sessions_in_use';
+
+	/**
+	 * The backends `sessions_backend` may name: `sqlite`, a file on this host,
+	 * or `wpdb`, which every web host shares. Both hold set members, which
+	 * the labelled index needs.
+	 */
+	public const SESSIONS_BACKENDS = [ 'sqlite', 'wpdb' ];
 
 	/** Every handle a mint makes: 32 lowercase hex digits. */
 	public const HANDLE_PATTERN = '/^[0-9a-f]{32}$/D';
 
-	/** The session Table, built on first use and shared by every caller. */
+	/** The session Table writes go through, built on first use. */
 	private static ?Table_Node $table = null;
+
+	/** The session Table reads go through, built on first use. */
+	private static ?Table_Node $reader = null;
 
 	/**
 	 * The sessions one batch has read, by handle.
@@ -310,11 +319,10 @@ class Command_Auth {
 			'l' => $label,
 			'c' => $now,
 		];
-		if ( ! $table->add( $handle, $row, $ttl ) ) {
+		if ( ! $table->add( $handle, $row, $ttl, self::SESSION_PURGE_ROWS ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new Session_Store_Unavailable( "could not store the session: {$table->last_failure()}" );
 		}
-		$table->purge( self::SESSION_PURGE_ROWS );
 		return [
 			'handle'     => $handle,
 			'secret'     => $key,
@@ -337,6 +345,22 @@ class Command_Auth {
 	 */
 	public static function revoke_session( string $handle ): ?bool {
 		return self::session_table()->forget( $handle );
+	}
+
+	/**
+	 * The session Table writes go through: `session_store()` on the
+	 * configured backend, built in code once a process for MANY_WRITERS,
+	 * because every web process mints into it and no tick reaches it. Every
+	 * entry states its own lifetime, so the Table's own is the default a mint
+	 * asks for.
+	 *
+	 * @api `Sessions::revoke_all()` flushes it.
+	 * @return Table_Node The Table.
+	 * @throws Session_Store_Unavailable When it will not open, or the config
+	 *                                   names no backend it can, naming why.
+	 */
+	public static function session_table(): Table_Node {
+		return self::$table ??= self::open_store( Table_Node::MANY_WRITERS );
 	}
 
 	/**
@@ -522,7 +546,7 @@ class Command_Auth {
 		if ( [] === $handles ) {
 			return [];
 		}
-		$table = self::session_table();
+		$table = self::session_reader();
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 		$entries = $table->lookup_entries( $handles ) ?? throw new Session_Store_Unavailable( "could not read the sessions: {$table->last_failure()}" );
 		$records = [];
@@ -543,21 +567,88 @@ class Command_Auth {
 	}
 
 	/**
-	 * The session Table: SESSIONS_TABLE on SESSIONS_BACKEND, built in code as
-	 * any Table outside a graph is, once a process. Every entry states its own
-	 * lifetime, so the Table's own is the default a mint asks for.
+	 * The session Table reads go through, built once a process: on SQLite a
+	 * READER, so a verify opens the file read-only, runs no DDL and creates
+	 * nothing, and reads nothing while no mint has made the file.
 	 *
-	 * @api `Sessions::revoke_all()` flushes it.
+	 * @api `Sessions::listing()` reads through it.
+	 * @return Table_Node The Table.
+	 * @throws Session_Store_Unavailable As `session_table()`.
+	 */
+	public static function session_reader(): Table_Node {
+		return self::$reader ??= self::open_store( Table_Node::READER );
+	}
+
+	/**
+	 * Open the session Table with `$access`, once the store a switch of
+	 * backend left behind is flushed.
+	 *
+	 * @param string $access A `Table_Node::table()` access.
 	 * @return Table_Node The Table.
 	 * @throws Session_Store_Unavailable When it will not open, naming why.
 	 */
-	public static function session_table(): Table_Node {
+	private static function open_store( string $access ): Table_Node {
 		try {
-			return self::$table ??= Table_Node::table( self::SESSIONS_TABLE, self::SESSION_TTL_S, self::SESSIONS_BACKEND );
+			$backend = self::sessions_backend();
+			self::leave_store( $backend );
+			return Table_Node::table( self::session_store(), self::SESSION_TTL_S, $backend, $access );
 		} catch ( \RuntimeException | \LogicException $e ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new Session_Store_Unavailable( 'the session store is unavailable: ' . $e->getMessage(), 0, $e );
 		}
+	}
+
+	/**
+	 * Flush the store of the backend SESSIONS_IN_USE_OPTION records when it is
+	 * not `$backend`, then record `$backend`, so a switch away and back
+	 * revives no session. Whichever config layer made the switch, the first
+	 * session read or write after it finds it.
+	 *
+	 * @param string $backend The configured backend.
+	 * @throws \RuntimeException When the left store will not flush, or the
+	 *                           record will not write.
+	 */
+	private static function leave_store( string $backend ): void {
+		$left = \get_option( self::SESSIONS_IN_USE_OPTION, '' );
+		if ( $backend === $left ) {
+			return;
+		}
+		if ( \is_string( $left ) && \in_array( $left, self::SESSIONS_BACKENDS, true ) ) {
+			Table_Node::table( self::session_store(), self::SESSION_TTL_S, $left, Table_Node::MANY_WRITERS )->flush();
+		}
+		if ( ! \update_option( self::SESSIONS_IN_USE_OPTION, $backend, true ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \RuntimeException( "could not record sessions on {$backend}" );
+		}
+	}
+
+	/**
+	 * The session Table's name, and on SQLite its file's stem: SESSIONS_TABLE
+	 * scoped by `Cache_Backend::install_id()`, which no salt rotation moves,
+	 * because installs whose base directories meet share one `tables/`.
+	 *
+	 * @api The retention sweep, uninstall and `wp nodes tables list` name it.
+	 * @return string `nodes-sessions-<install>`.
+	 * @throws \RuntimeException When the install cannot be identified.
+	 */
+	public static function session_store(): string {
+		return self::SESSIONS_TABLE . '-' . Cache_Backend::install_id();
+	}
+
+	/**
+	 * The session Table's backend, as the `sessions_backend` config key names
+	 * it: one of SESSIONS_BACKENDS.
+	 *
+	 * @api `wp nodes tables list` reads it.
+	 * @return string `sqlite` or `wpdb`.
+	 * @throws \UnexpectedValueException On any other value.
+	 */
+	public static function sessions_backend(): string {
+		$backend = Config::value( 'sessions_backend' );
+		if ( ! \is_string( $backend ) || ! \in_array( $backend, self::SESSIONS_BACKENDS, true ) ) {
+			throw new \UnexpectedValueException( \esc_html( 'sessions_backend must be one of ' . \implode( ', ', self::SESSIONS_BACKENDS ) . ', not ' . Core::as_string( $backend, \get_debug_type( $backend ) ) ) );
+		}
+		return $backend;
 	}
 
 	/**

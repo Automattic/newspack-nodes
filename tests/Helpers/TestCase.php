@@ -204,8 +204,9 @@ abstract class TestCase extends PHPUnitTestCase {
 		// A remembered session outlives its test and signs the next one's probes.
 		if ( \class_exists( '\Newspack_Nodes\Command_Auth', false ) ) {
 			( new \ReflectionProperty( \Newspack_Nodes\Command_Auth::class, 'sessions' ) )->setValue( null, [] );
-			// The memoized session Table would carry a closed test's arm onward.
+			// The memoized session Tables would carry a closed test's arms onward.
 			( new \ReflectionProperty( \Newspack_Nodes\Command_Auth::class, 'table' ) )->setValue( null, null );
+			( new \ReflectionProperty( \Newspack_Nodes\Command_Auth::class, 'reader' ) )->setValue( null, null );
 		}
 		if ( isset( $GLOBALS['_wp_actions'] ) ) {
 			$GLOBALS['_wp_actions'] = $this->saved_wp_actions;
@@ -382,6 +383,16 @@ abstract class TestCase extends PHPUnitTestCase {
 	 */
 	protected function use_wpdb(): Helpers\Sqlite_Wpdb {
 		return $GLOBALS['wpdb'] = new Helpers\Sqlite_Wpdb();
+	}
+
+	/**
+	 * `use_wpdb()`, with `sessions_backend` set to `wpdb`, so the command
+	 * sessions this test mints go through the fresh `$wpdb` it returns.
+	 */
+	protected function use_wpdb_sessions(): Helpers\Sqlite_Wpdb {
+		$GLOBALS['_wp_options']['newspack_nodes_sessions_backend'] = 'wpdb';
+		\Newspack_Nodes\Config::reset();
+		return $this->use_wpdb();
 	}
 
 	/**

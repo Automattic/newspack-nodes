@@ -1635,7 +1635,9 @@ classes is invisible to `ls`, `dump_node` and the console.
   one writer, unlinks the database and its `-wal` and `-shm` and opens a new file with the
   same pragmas and tables, a cost that never grows with the rows, and answers the bytes the
   old files held; a mount in another process that opened the old file reads its rows until
-  that request ends. A `wpdb` Table deletes its namespace's rows and answers how many,
+  that request ends. A `sqlite` Table `Table_Node::table()` builds for `MANY_WRITERS` has many writers, each
+  holding the file open, so its flush deletes every row and member in one transaction and
+  answers how many, and no writer goes on reading the old inode. A `wpdb` Table deletes its namespace's rows and answers how many,
   because every wpdb Table shares one MySQL table, which a TRUNCATE would empty for all of
   them. On eve a DELETE of 2,000,016 SQLite rows took 57.9 s and, sent to a live worker,
   held its drain loop until the fleet revived it; replacing the same 555 MB of files took
@@ -1646,15 +1648,35 @@ classes is invisible to `ls`, `dump_node` and the console.
   refuses it.
   An operator sends it as `cmd <table>:config flush` from `wp nodes cli <worker>`; `wp nodes
   tables list` asks the owners for their counters over the same command channel.
-- Command sessions live in a Table, `Table_Node::table( 'nodes-sessions', 3600, 'wpdb' )`,
-  one row per session keyed by its handle: every web host mints and every host verifies,
-  which one host's SQLite file cannot serve and an evicting cache loses. Every session read
+- Command sessions live in a Table named `Command_Auth::session_store()`,
+  `nodes-sessions-<install>`, where `<install>` is `Cache_Backend::install_id()`: twelve hex
+  characters of the MD5 of `DB_NAME`, the network's base prefix, `DB_HOST` and `ABSPATH`
+  as written, never resolved: the identity `site()` hashes with the cache salt, here
+  without it, so no salt rotation moves the store, and with the database host and the
+  install path beside it, so two sites naming one database and prefix on separate
+  servers, as Local sites do, stay apart. A resolved `ABSPATH` would move with every
+  core update where the path is a symlink to a versioned core. Installs that configure no base directory share `/tmp/newspack-nodes`, and the
+  name keeps each one's sessions to itself. One row per session, keyed by its handle,
+  on the durable backend the `sessions_backend` config key names: `sqlite`, the default,
+  the file `{base}/tables/nodes-sessions-<install>.p0.sqlite` on this host, or `wpdb`,
+  which every web host shares. An evicting cache would lose them, so neither volatile
+  backend is offered, and any other value fails the mint, naming it. Every session read
   and write goes through that Table, and `scripts/lint-contract.mjs`'s
   `durable-arm-outside-table` rule refuses a durable arm built anywhere else, so a topology declaring `make_node Table <name>
-  nodes-sessions <ttl> wpdb` reads the same rows under the same keys. A mint `add()`s its
-  row under the session's own TTL ([ADR-18](#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app)'s one parameter), never slid, and `purge()`s up to 64
-  expired rows, because no worker's tick purges a Table built in code. A process builds that
-  Table once. The row's expiry is
+  nodes-sessions-<install> <ttl> wpdb` reads the same rows under the same keys while sessions live on wpdb. Writes go
+  through `session_table()`, built for `MANY_WRITERS`; reads go through `session_reader()`, a
+  `READER`, which on SQLite opens the file read-only, so a verify runs no DDL and switches
+  no journal mode, and reads nothing until a mint has made the file. Both refuse a process
+  running as root, which would leave `-wal` and `-shm` files the web user cannot open. A
+  mint `add()`s its row under the session's own TTL ([ADR-18](#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app)'s one parameter), never slid, and
+  in the same write scope, one `BEGIN IMMEDIATE` on SQLite, deletes up to 64 expired rows
+  and members, because no worker's tick purges a Table built in code and a lock taken
+  once a mint is the least many web processes can contend over. A per-process time gate
+  would not bound it, because a web process lives one request. A process builds each
+  Table once. The option `newspack_nodes_sessions_in_use` records the backend whose store
+  holds the sessions; the first session read or write that finds `sessions_backend`
+  naming another flushes the store it names, then records the new one, so a switch away
+  and back revives no session, whichever config layer made the switch. The row's expiry is
   the one record of when a session lapses: `lookup_entries()` answers each live row with the
   whole seconds it has left, as a backing's restored entry carries its remaining `ttl`, and
   the row's value keeps no copy. The row carries the label and when it was minted, and a
@@ -1666,7 +1688,7 @@ classes is invisible to `ls`, `dump_node` and the console.
   refuses, naming the flush. A store that will not open fails the mint, naming why.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
   declared, once a minute, and `vacuum` is an operator verb, never automatic.
-- No COMMIT checkpoints a `sqlite` file. The writer turns `wal_autocheckpoint` off, and the
+- No COMMIT checkpoints a `sqlite` file a worker writes. The writer turns `wal_autocheckpoint` off, and the
   tick runs a `wal_checkpoint(PASSIVE)` per Table at most once every
   `Table_Node::CHECKPOINT_INTERVAL_S` (30 s), after the tick's timers have flushed and after
   the purge, inside the purge's deadline; a mount never checkpoints. On staging a 38 MB
@@ -1758,9 +1780,15 @@ classes is invisible to `ls`, `dump_node` and the console.
 - Once no active topology declares a `sqlite` Table, the retention sweep deletes its files an
   hour after their last write, so deactivating a topology reclaims its Tables' disk, and a
   co-tenant install sharing `{base}` deletes the other install's Tables the same way.
-- A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
-  every web and CLI process that builds it, so its file has no one writer. Such a Table names
-  `wpdb`.
+- A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite', $access )`, names
+  who writes it. `ONE_WRITER`, the default, is a worker's posture, and nothing but the
+  tick checkpoints its WAL. `MANY_WRITERS` is opened by every web and CLI process that
+  builds it, so its file has no one writer and no tick: its writers keep SQLite's own
+  `wal_autocheckpoint`, so a COMMIT past 1000 WAL pages checkpoints, and they serialize on
+  the write lock under `busy_timeout`, which a low-volume store such as the session store
+  does not reach. `READER` opens the file read-only and refuses every write. The file is on
+  one host, so a site whose web requests land on several hosts names `wpdb` for a store
+  every host must reach.
 - The purge walks the named Tables of a worker's graph and skips a request-graph mount. A
   durable Table that `table()` builds is never purged by the tick: reads ignore its expired
   rows, but they stay on disk until its own writer calls `purge()`, as the session mint
@@ -1769,13 +1797,20 @@ classes is invisible to `ls`, `dump_node` and the console.
   row, and `flush` empties the Table.
 - A flushed session store revokes every issued session at once; `wp nodes session revoke
   --all` is that flush.
+- The retention sweep keeps this install's session file, which no topology declares,
+  whatever `sessions_backend` reads, so a value the mint refuses never stops the sweep.
+  Uninstall deletes it, with its `-wal` and `-shm`, under the configured base or the
+  schema default alike, since its name is this install's alone; every other Table's file
+  waits for its declaring plugin's uninstall. Changing `sessions_backend` restarts every
+  worker, whose verifier holds the store it first opened, and drops every open session:
+  dashboards and MCP clients mint a new one.
 - A `wpdb` purge is scoped by the Table's own namespace, so rows under a namespace no active
   topology declares — a generation moved from `pyrobase:g47` to `pyrobase:g48` — are never
   reclaimed. Delete them by hand:
   `DELETE FROM {base_prefix}newspack_nodes_table WHERE namespace = '<old namespace>'`.
 
-**Revisit if:** a durable Table must be read from another host at volume, or a second writer
-per file appears.
+**Revisit if:** a durable Table must be read from another host at volume, or a Table built
+outside a graph writes at a rate its writers contend over.
 
 **Amendment:** a `sqlite` Table rewrites a row in place, prepares each fixed statement once,
 and runs the keys of one `RM` as one batch.

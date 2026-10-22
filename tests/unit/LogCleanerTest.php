@@ -1120,6 +1120,33 @@ class LogCleanerTest extends TestCase {
 		$this->assertFileDoesNotExist( $db );
 	}
 
+	/** No topology declares this install's session store, yet sessions live in it. */
+	public function test_keeps_the_installs_session_store_however_long_it_sat(): void {
+		$this->declare_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		$files = $this->seed_table_files( \Newspack_Nodes\Command_Auth::session_store(), 0, 7200 );
+		$other = $this->seed_table_files( \Newspack_Nodes\Command_Auth::SESSIONS_TABLE . '-0123456789ab', 0, 7200 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 0 );
+
+		foreach ( $files as $file ) {
+			$this->assertFileExists( $file );
+		}
+		$this->assertFileDoesNotExist( $other[0], "another install's store is not this sweep's to keep" );
+	}
+
+	/** Keeping the file costs nothing, so a backend the mint refuses never stops the sweep. */
+	public function test_a_sessions_backend_the_mint_refuses_leaves_the_sweep_running(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_sessions_backend'] = 'memcache-5521';
+		Config::reset();
+		[ $session ] = $this->seed_table_files( \Newspack_Nodes\Command_Auth::session_store(), 0, 7200 );
+		[ $ghost ]   = $this->seed_table_files( 'lab-3:emu', 0, 7200 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertFileExists( $session );
+		$this->assertFileDoesNotExist( $ghost );
+	}
+
 	public function test_an_unreadable_topology_refuses_the_table_sweep(): void {
 		$this->declare_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
 		$this->declare_topology( 'marmot-workers', "include orphaned-topology-4471\n" );

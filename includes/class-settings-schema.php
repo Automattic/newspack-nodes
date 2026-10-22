@@ -188,6 +188,18 @@ class Settings_Schema {
 					render: [ Admin::class, 'log_sources_callback' ],
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
+				new Field(
+					key: 'sessions_backend',
+					type: 'select',
+					default: 'sqlite',
+					label: static fn(): string => \__( 'Sessions Backend', 'newspack-nodes' ),
+					section: $storage,
+					// Each worker's verifier holds its session Table.
+					restart: 'all',
+					sanitize: [ Admin::class, 'sanitize_sessions_backend' ],
+					render: [ Admin::class, 'sessions_backend_callback' ],
+					register_args: [ 'type' => 'string' ],
+				),
 				// Spoke geometry the hub pushes; nothing local reads it.
 				new Field(
 					key: 'remote_segment_size',

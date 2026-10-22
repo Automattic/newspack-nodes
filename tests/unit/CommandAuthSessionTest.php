@@ -31,7 +31,7 @@ class CommandAuthSessionTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->db = $this->use_wpdb();
+		$this->db = $this->use_wpdb_sessions();
 		// Single-use claim is not what these tests exercise; keep it always-claimable.
 		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
 	}
@@ -57,12 +57,12 @@ class CommandAuthSessionTest extends TestCase {
 
 	/** The session store as any code-built Table naming its namespace opens it. */
 	private function store(): Table_Node {
-		return Table_Node::table( Command_Auth::SESSIONS_TABLE, 900, 'wpdb' );
+		return Table_Node::table( Command_Auth::session_store(), 900, 'wpdb' );
 	}
 
 	/** The session rows the store holds, handle => expires. */
 	private function rows(): array {
-		return \array_column( $this->db->get_results( "SELECT cache_key, expires FROM wp_newspack_nodes_table WHERE namespace = '" . Command_Auth::SESSIONS_TABLE . "'" ), 'expires', 'cache_key' );
+		return \array_column( $this->db->get_results( "SELECT cache_key, expires FROM wp_newspack_nodes_table WHERE namespace = '" . Command_Auth::session_store() . "'" ), 'expires', 'cache_key' );
 	}
 
 	public function test_a_mint_claims_its_handle_and_never_overwrites_one(): void {
@@ -361,7 +361,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->db->deny['CREATE TABLE'] = 'CREATE command denied 4816';
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'the session store is unavailable: Table nodes-sessions: wpdb backend could not create wp_newspack_nodes_table: [0] CREATE command denied 4816' );
+		$this->expectExceptionMessage( 'the session store is unavailable: Table ' . Command_Auth::session_store() . ': wpdb backend could not create wp_newspack_nodes_table: [0] CREATE command denied 4816' );
 		Command_Auth::mint_session();
 	}
 
@@ -532,7 +532,7 @@ class CommandAuthSessionTest extends TestCase {
 		try {
 			$table = new Table_Node();
 			$table->name( 'lab-7:sessions' );
-			$table->arguments( [ Command_Auth::SESSIONS_TABLE, '900', 'wpdb' ] );
+			$table->arguments( [ Command_Auth::session_store(), '900', 'wpdb' ] );
 		} finally {
 			unset( Core::$var['partition'] );
 		}

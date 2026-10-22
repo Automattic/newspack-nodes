@@ -14,7 +14,10 @@
  *
  * No COMMIT checkpoints: the writer turns `wal_autocheckpoint` off, and the
  * Router's tick calls `checkpoint()` instead, after the tick's writes, so a
- * write pays for its own frames and never for copying the WAL back.
+ * write pays for its own frames and never for copying the WAL back. A file
+ * many processes open as its writer, as a Table built outside any graph is,
+ * keeps SQLite's own COMMIT checkpoint, because no tick reaches it, and its
+ * flush empties the file in place, because the others hold it open.
  *
  * A write wrapped in `write_scope()` begins its own transaction, and a
  * rewrite is an UPSERT, updating the row it finds in place. Every fixed
@@ -233,6 +236,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param int       $busy_timeout_ms Wait on a held write lock, in milliseconds.
 	 * @param bool      $read_only       Open as a reader rather than the writer.
 	 * @param Rows|null $rows            The declared row tables, or none.
+	 * @param bool      $many_writers    Other processes open the file as its
+	 *                                   writer too, so no tick checkpoints it
+	 *                                   and a flush must keep its inode.
 	 * @throws \LogicException Without pdo_sqlite.
 	 * @throws \RuntimeException When the directory or a path SQLite cannot open.
 	 */
@@ -241,7 +247,8 @@ final class Sqlite_Arm extends Durable_Arm {
 		private readonly string $namespace,
 		private readonly int $busy_timeout_ms = self::BUSY_TIMEOUT_MS,
 		private readonly bool $read_only = false,
-		private readonly ?array $rows = null
+		private readonly ?array $rows = null,
+		private readonly bool $many_writers = false
 	) {
 		self::require_driver();
 		$this->releases = null === $rows ? [] : self::releases( $rows['tables'] );
@@ -608,36 +615,6 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * See Durable_Arm::write_scope(): one transaction holding the write lock
-	 * from its start, so a read inside sees what it writes over. This arm owns
-	 * the file, so no caller's transaction shares the connection.
-	 */
-	protected function write_scope( \Closure $work ): mixed {
-		$this->handle()->exec( 'BEGIN IMMEDIATE' );
-		try {
-			$out = $work();
-			$this->handle()->exec( 'COMMIT' );
-			return $out;
-		} catch ( \Throwable $e ) {
-			$this->rollback();
-			throw $e;
-		}
-	}
-
-	/**
-	 * End a failed transaction, whether it failed mid-way or at a COMMIT
-	 * SQLite answered BUSY, which leaves the transaction open.
-	 */
-	private function rollback(): void {
-		try {
-			$this->handle()->exec( 'ROLLBACK' );
-		} catch ( \PDOException ) {
-			// SQLite rolled back on its own error; nothing is left to end.
-			return;
-		}
-	}
-
-	/**
 	 * Open a reader across row-table files: a `:memory:` main with each
 	 * present file at `$version` attached read-only as `p{partition}`, each
 	 * with an 8 MiB page cache and mapped, and the connection set
@@ -747,7 +724,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * Running as root is for the operator to fix, never a backend to degrade
 	 * past, so the refusal is a plain \RuntimeException.
 	 *
-	 * @api Read by a mounted Table before its arm opens.
+	 * @api Read before its arm opens by a mounted Table, or one many processes write.
 	 * @param string $path The files the process would open, comma-joined.
 	 * @throws \RuntimeException In a process running as root.
 	 */
@@ -1029,14 +1006,21 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * connection and its prepared statements, and opens a new file with the
 	 * same pragmas and tables: a cost that never grows with the rows. A mount in
 	 * another process that opened the old file keeps reading its rows until
-	 * that request ends; one opened after reads the new file.
+	 * that request ends; one opened after reads the new file. A file many
+	 * processes write keeps its inode instead: one transaction deletes every
+	 * keyed row and member, so no other writer goes on reading what was
+	 * flushed or writing where no one reads.
 	 *
-	 * @return array{bytes:int} What the three files held before the unlink.
+	 * @return array{bytes:int}|array{rows:int} What the three files held
+	 *         before the unlink, or the rows deleted in place.
 	 * @throws \UnexpectedValueException On a reader, or a file that will not unlink.
 	 */
 	protected function discard(): array {
 		if ( $this->read_only ) {
 			throw new \UnexpectedValueException( 'a reader cannot flush' );
+		}
+		if ( $this->many_writers ) {
+			return [ 'rows' => Core::as_int( $this->write_scope( fn (): int => (int) $this->handle()->exec( 'DELETE FROM kv' ) + (int) $this->handle()->exec( 'DELETE FROM members' ) ) ) ];
 		}
 		$sizes = self::file_sizes( $this->path );
 		try {
@@ -1062,6 +1046,36 @@ final class Sqlite_Arm extends Durable_Arm {
 			'bytes' => \array_sum( \array_column( $sizes, 'bytes' ) ),
 			'disk'  => \array_sum( \array_column( $sizes, 'disk' ) ),
 		];
+	}
+
+	/**
+	 * See Durable_Arm::write_scope(): one transaction holding the write lock
+	 * from its start, so a read inside sees what it writes over. This arm owns
+	 * the file, so no caller's transaction shares the connection.
+	 */
+	protected function write_scope( \Closure $work ): mixed {
+		$this->handle()->exec( 'BEGIN IMMEDIATE' );
+		try {
+			$out = $work();
+			$this->handle()->exec( 'COMMIT' );
+			return $out;
+		} catch ( \Throwable $e ) {
+			$this->rollback();
+			throw $e;
+		}
+	}
+
+	/**
+	 * End a failed transaction, whether it failed mid-way or at a COMMIT
+	 * SQLite answered BUSY, which leaves the transaction open.
+	 */
+	private function rollback(): void {
+		try {
+			$this->handle()->exec( 'ROLLBACK' );
+		} catch ( \PDOException ) {
+			// SQLite rolled back on its own error; nothing is left to end.
+			return;
+		}
 	}
 
 	/** See Durable_Arm::purge_member_rows(); the table has no rowid to name. */
@@ -1235,7 +1249,9 @@ final class Sqlite_Arm extends Durable_Arm {
 			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$this->path}" );
 		}
 		$db->exec( 'PRAGMA synchronous = NORMAL' );
-		$db->exec( 'PRAGMA wal_autocheckpoint = 0' );
+		if ( ! $this->many_writers ) {
+			$db->exec( 'PRAGMA wal_autocheckpoint = 0' );
+		}
 		$db->exec( 'PRAGMA journal_size_limit = ' . self::WAL_LIMIT_BYTES );
 		$db->exec( self::CACHE_PRAGMA );
 		foreach ( self::KV_DDL as $sql ) {

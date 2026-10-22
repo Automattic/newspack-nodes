@@ -57,6 +57,10 @@ return [
     // Extra registry log sources, one 'name=/absolute/path' each.
     // 'log_sources'                => [],
 
+    // Where command sessions live: 'sqlite', a file on this host, or 'wpdb',
+    // a table every web host shares. A change drops every open session.
+    // 'sessions_backend'           => 'sqlite',
+
     // Fleet alerts, read live on every sweep. Consumer lag in bytes past which
     // a reader warns; the shipped 64 MiB is one segment.
     // 'alert_lag_threshold'        => 64 * 1024 * 1024,

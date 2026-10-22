@@ -895,6 +895,56 @@ class TableNodeTest extends TestCase {
 		}
 	}
 
+	/**
+	 * A Table built outside a graph for many writers is ticked by none of
+	 * them: COMMIT checkpoints, and a flush leaves each other writer reading
+	 * the emptied file.
+	 */
+	public function test_a_sqlite_table_declared_for_many_writers_checkpoints_and_flushes_in_place(): void {
+		$this->base_dir( 'table-many-writers-' );
+		$one = Table_Node::table( 'kea:m7', 5531, 'sqlite', Table_Node::MANY_WRITERS );
+		$two = Table_Node::table( 'kea:m7', 5531, 'sqlite', Table_Node::MANY_WRITERS );
+		$one->store( 'sku-5533', 'weka-5533' );
+
+		$this->assertSame( [ 'rows' => 1 ], $two->flush() );
+
+		$this->assertNull( $one->lookup( 'sku-5533' ), 'the flush reached a writer that opened before it' );
+		$this->assertSame( 1000, (int) self::pragma( $one, 'wal_autocheckpoint' ) );
+	}
+
+	/** Many writers is declared, never inferred from being built outside a graph. */
+	public function test_a_sqlite_table_built_outside_a_graph_keeps_one_writer_by_default(): void {
+		$this->base_dir( 'table-one-writer-' );
+		$table = Table_Node::table( 'kea:m9', 5537, 'sqlite' );
+		$table->store( 'sku-5539', 'weka-5539' );
+
+		$this->assertSame( 0, (int) self::pragma( $table, 'wal_autocheckpoint' ) );
+		$this->assertArrayHasKey( 'bytes', $table->flush(), 'the file is replaced, not emptied' );
+	}
+
+	public function test_a_reader_built_outside_a_graph_writes_nothing_and_creates_nothing(): void {
+		$dir    = $this->base_dir( 'table-reader-' );
+		$reader = Table_Node::table( 'kea:m11', 5541, 'sqlite', Table_Node::READER );
+
+		$this->assertNull( $reader->lookup( 'sku-5543' ) );
+		$this->assertDirectoryDoesNotExist( "{$dir}/tables" );
+		Table_Node::table( 'kea:m11', 5541, 'sqlite', Table_Node::MANY_WRITERS )->store( 'sku-5543', 'weka-5543' );
+		$this->assertSame( 'weka-5543', $reader->lookup( 'sku-5543' ) );
+	}
+
+	public function test_an_access_outside_the_three_is_refused(): void {
+		$this->base_dir( 'table-access-' );
+		$this->expectExceptionMessage( 'Table access must be one of one_writer, many_writers, reader, not writers-5547' );
+		Table_Node::table( 'kea:m13', 5549, 'sqlite', 'writers-5547' );
+	}
+
+	/** A pragma as a Table's SQLite connection answers it. */
+	private static function pragma( Table_Node $table, string $name ): mixed {
+		$arm = ( new \ReflectionMethod( $table, 'arm' ) )->invoke( $table );
+		$db  = ( new \ReflectionProperty( \Newspack_Nodes\Sqlite_Arm::class, 'db' ) )->getValue( $arm );
+		return $db->query( "PRAGMA {$name}" )->fetchColumn();
+	}
+
 	/** A refusal a driver threw names its code and none of its values. */
 	public function test_a_refusal_a_driver_threw_names_its_code_alone(): void {
 		$table = new Table_Node();

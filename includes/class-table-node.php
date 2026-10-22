@@ -49,6 +49,15 @@ class Table_Node extends Node {
 	/** Every backend a Table may name; `auto` is memcached, else APCu, per call. */
 	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
 
+	/** `table()` access: one process writes, a worker whose tick checkpoints. */
+	public const ONE_WRITER = 'one_writer';
+
+	/** `table()` access: every process building it writes, none ticks it. */
+	public const MANY_WRITERS = 'many_writers';
+
+	/** `table()` access: reads only, opening no writer. */
+	public const READER = 'reader';
+
 	/**
 	 * Most members one members_of() read answers for a set, or one SMOVE
 	 * moves: a ceiling on what one call may cost.
@@ -197,6 +206,9 @@ class Table_Node extends Node {
 
 	/** Whether this is a request-graph mount, which serves reads only. */
 	private bool $mounted = false;
+
+	/** Whether every process building it writes its file, as `table()` declared. */
+	private bool $many_writers = false;
 
 	/** The tick this Table's next purge is due, in epoch seconds. */
 	private int $purge_due = 0;
@@ -411,7 +423,7 @@ class Table_Node extends Node {
 			return match ( $backend ) {
 				'memcache' => Cache_Backend::memcache_arm() ?? throw new \LogicException( 'memcache backend has no memcached handle' ),
 				'apcu'     => Cache_Backend::apcu_arm() ?? throw new \LogicException( 'apcu backend is not usable here' ),
-				'sqlite'   => new Sqlite_Arm( $file, $namespace, read_only: $this->mounted, rows: $rows ),
+				'sqlite'   => new Sqlite_Arm( $file, $namespace, read_only: $this->mounted, rows: $rows, many_writers: $this->many_writers ),
 				'wpdb'     => new Wpdb_Arm( $namespace ),
 				default    => null === Cache_Backend::shared_first() ? throw new \LogicException( 'auto backend finds neither memcached nor APCu' ) : null,
 			};
@@ -429,7 +441,7 @@ class Table_Node extends Node {
 	 * `ensure_path()`, so a base or `{base}/tables` that is unusable refuses
 	 * the declaration before any arm opens. A mount creates nothing: it adopts
 	 * a directory that is there, and with none the mount reads as empty. A
-	 * mount refuses a process running as root, which is for the operator to
+	 * mount, or a file many processes write, refuses a process running as root, which is for the operator to
 	 * fix as a foreign `{base}/tables` is: SQLite can add `-wal` and `-shm` files
 	 * beside a WAL database, and root's would lock its worker out.
 	 *
@@ -441,7 +453,7 @@ class Table_Node extends Node {
 	private function sqlite_file(): string {
 		try {
 			$file = self::file( $this->table_name(), $this->file_partition() );
-			if ( $this->mounted ) {
+			if ( $this->mounted || $this->many_writers ) {
 				Sqlite_Arm::refuse_root_reader( $file );
 			}
 			if ( ! $this->mounted || \is_dir( \dirname( $file ) ) ) {
@@ -894,17 +906,27 @@ class Table_Node extends Node {
 	 * its own — ADR-18's one parameter, for a caller whose entries each live
 	 * as long as the thing they record. The same path the `ADD` request takes.
 	 *
+	 * With `$purge`, a durable Table deletes up to that many expired rows and
+	 * members in the same write, as a command session's mint does, since no
+	 * worker's tick purges a Table built in code.
+	 *
 	 * @api Non-graph writers claiming a key, a command session's mint among them.
 	 * @param string $key   Key within the table's namespace.
 	 * @param mixed  $value Value to store.
 	 * @param int    $ttl   The entry's lifetime in seconds, at least 1.
+	 * @param int    $purge Most expired rows and members to delete; 0 for none.
 	 * @return bool True when the entry was stored; false when a live one held
 	 *              the key or the backend refused, which `last_failure()` names.
 	 * @throws \InvalidArgumentException On a TTL below one second.
+	 * @throws \RuntimeException With `$purge` on a mount or a volatile backend.
 	 */
-	public function add( string $key, mixed $value, int $ttl ): bool {
+	public function add( string $key, mixed $value, int $ttl, int $purge = 0 ): bool {
 		if ( $ttl < 1 ) {
 			$this->refuse_ttl( (string) $ttl );
+		}
+		if ( 0 < $purge ) {
+			$this->refuse_if_mounted( 'purge' );
+			return $this->durable( 'purge' )->add( $this->key( $key ), $value, $ttl, $purge );
 		}
 		return [] !== $this->add_items( [ $key => [ $value, $ttl ] ] );
 	}
@@ -1246,8 +1268,8 @@ class Table_Node extends Node {
 	/**
 	 * Empty this Table's durable arm, every row and member, live or expired:
 	 * a `sqlite` Table replaces its file, answering the bytes the old one
-	 * held, and a `wpdb` Table deletes its namespace's rows, answering how
-	 * many. The state that described the old file — the checkpoint schedule,
+	 * held, and a `wpdb` Table, or a `sqlite` one built for MANY_WRITERS,
+	 * deletes its rows in place, answering how many. The state that described the old file — the checkpoint schedule,
 	 * the WAL stall count, a purge left behind — starts over. Verb-exposed
 	 * (`flush`).
 	 *
@@ -1788,15 +1810,23 @@ class Table_Node extends Node {
 	 * `forget()` exist for. Sugar for `new Table_Node()` plus `arguments()`.
 	 *
 	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
+	 * `$access` says who writes it: ONE_WRITER, the default, as a worker
+	 * would; MANY_WRITERS, every process building it, which no Router tick
+	 * reaches, so COMMIT checkpoints its WAL and a flush empties it in place;
+	 * or READER, which opens the file read-only, creates nothing, serves
+	 * reads alone and, as MANY_WRITERS does, refuses a process running as
+	 * root.
 	 *
 	 * @api Non-graph readers and writers reach a table without a live worker.
 	 * @param string $ns      Table namespace.
 	 * @param int    $ttl     Entry TTL in seconds, at least 1.
 	 * @param string $backend One of BACKENDS.
+	 * @param string $access  ONE_WRITER, MANY_WRITERS or READER.
 	 * @return self A table with no sink, so `lookup()` / `store()` / `forget()`
 	 *              work and `fill()` does not.
 	 * @throws \InvalidArgumentException With an empty namespace, a TTL below
-	 *                                   one second, or an unknown backend.
+	 *                                   one second, an unknown backend or an
+	 *                                   unknown access.
 	 * @throws \RuntimeException On a declaration a named backend refuses.
 	 * @throws Table_Unavailable When the backend cannot open on this host,
 	 *                           `auto` with no cache backend included; a caller
@@ -1804,10 +1834,16 @@ class Table_Node extends Node {
 	 *                           catches it, or guards on
 	 *                           `Cache_Backend::shared_first()` first.
 	 */
-	public static function table( string $ns, int $ttl, string $backend = 'auto' ): self {
-		$node            = new self();
-		$node->table     = $ns;
-		$node->partition = 0;
+	public static function table( string $ns, int $ttl, string $backend = 'auto', string $access = self::ONE_WRITER ): self {
+		$accesses = [ self::ONE_WRITER, self::MANY_WRITERS, self::READER ];
+		if ( ! \in_array( $access, $accesses, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( 'Table access must be one of ' . \implode( ', ', $accesses ) . ", not {$access}" ) );
+		}
+		$node               = new self();
+		$node->table        = $ns;
+		$node->partition    = 0;
+		$node->many_writers = self::MANY_WRITERS === $access;
+		$node->mounted      = self::READER === $access;
 		$node->arguments( [ $ns, (string) $ttl, $backend ] );
 		return $node;
 	}

@@ -24,7 +24,7 @@ class CommandAuthScopeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->use_wpdb();
+		$this->use_base_dir( $this->make_temp_dir( 'scope-sessions-' ) );
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;

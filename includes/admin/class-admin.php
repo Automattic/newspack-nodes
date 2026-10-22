@@ -19,6 +19,7 @@ use Newspack_Nodes\Capabilities;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
 use Newspack_Nodes\Config_System\Reset_Gate;
@@ -843,6 +844,27 @@ class Admin {
 		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
 
+	/**
+	 * Sessions backend field: a select of the backends, led by a blank choice
+	 * naming the default it restores, because a stored copy of the default
+	 * would shadow it.
+	 */
+	public static function sessions_backend_callback(): void {
+		$default = Core::as_string( Config::blank_value( 'sessions_backend' ) );
+		$html    = Settings_Renderer::select(
+			'sessions_backend',
+			'newspack_nodes_sessions_backend',
+			Core::as_string( \get_option( 'newspack_nodes_sessions_backend', '' ) ),
+			[
+				/* translators: %s: the backend a blank setting resolves to. */
+				'' => \sprintf( \__( 'Default (%s)', 'newspack-nodes' ), $default ),
+			] + \array_combine( Command_Auth::SESSIONS_BACKENDS, Command_Auth::SESSIONS_BACKENDS ),
+			\__( 'Where command sessions live: sqlite, a file on this host, or wpdb, a database table every web host shares. Changing it drops every open session; dashboards and MCP clients mint a new one.', 'newspack-nodes' ),
+			self::reset_mark_name( 'sessions_backend' )
+		);
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
+	}
+
 	/** Hidden-input name that flags $field for per-field reset (deleted on Save). */
 	private static function reset_mark_name( string $field ): string {
 		return Reset_Gate::mark_name( self::RESET_MARK_FIELD, self::OPTION_PREFIX . $field );
@@ -1349,6 +1371,18 @@ class Admin {
 			$sanitized_lines[] = $line;
 		}
 		return $sanitized_lines;
+	}
+
+	/**
+	 * Sanitize the sessions backend: one of `Command_Auth::SESSIONS_BACKENDS`,
+	 * else '', which `Reset_Gate` reads as a blank save and deletes, so the
+	 * declared default stands.
+	 *
+	 * @param mixed $value Input value.
+	 * @return string The backend, or ''.
+	 */
+	public static function sanitize_sessions_backend( $value ): string {
+		return \is_string( $value ) && \in_array( $value, Command_Auth::SESSIONS_BACKENDS, true ) ? $value : '';
 	}
 
 	/** Intro paragraph for the Storage section. */
