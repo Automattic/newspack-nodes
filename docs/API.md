@@ -24,7 +24,7 @@ that base is available and `ensure_runtime_wired()` has run.
 | [`/messages/stream`](#sse-stream) | GET | READ |
 | [`/health/runtime`](#internal-runtime-health) | POST | Internal HMAC token |
 
-![A grid of the seven routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/runtime registers first, and the entry points outside the namespace: the OAuth .well-known documents and the two admin-post.php actions.](img/api-route-gates.png)
+![A grid of the seven routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/runtime registers first, and the entry points outside the namespace: the OAuth .well-known documents, the two settings actions on admin-post.php gated by the manage role, and the OAuth approval page with its admin-post.php decision, gated by a nonce and the scope the user can grant, which redirects to the client's registered URI.](img/api-route-gates.png)
 
 The substrate is also its own client. [`HTTP_Out_Node`](../includes/class-http-out-node.php) POSTs batched JSONL
 command envelopes to a remote spoke's `/command` (`COMMAND_PATH`) and
@@ -448,7 +448,10 @@ URL with `Oauth_Server::resource_metadata_url( $resource )`.
 Dynamic client registration (RFC 7591), for public clients only. The JSON body,
 and nothing else (a query string is not read), names `client_name` and `redirect_uris`: one to five URIs, each `https://` or
 `http://` on `localhost` or `127.0.0.1`, with no userinfo, fragment or
-whitespace. A `token_endpoint_auth_method` other than `none` is refused. The
+whitespace, and none that `wp_sanitize_redirect()`, which `wp_redirect()` runs,
+would alter: a quote, a brace or a non-ASCII byte is refused, because the
+approval page would match the URI and then send the browser elsewhere. A
+`token_endpoint_auth_method` other than `none` is refused. The
 answer is **201** with `client_id`, `client_id_issued_at`, `client_name` (kept as
 a session label is), `redirect_uris`, `token_endpoint_auth_method: "none"`,
 `grant_types` and `response_types: ["code"]`; no secret is issued. A missing
@@ -457,6 +460,51 @@ name answers 400 `invalid_client_metadata`, a refused URI list 400
 
 Ten registrations an hour are admitted per caller address
 (`oauth-register:<ip>`); the eleventh answers **429** `rate_limited`.
+
+### Authorization: the approval page
+
+`authorization_endpoint` is a wp-admin page,
+`wp-admin/admin.php?page=newspack-nodes-authorize`, hidden from the menu and
+open to any user holding read's capability
+([`Admin\Oauth_Consent`](../includes/admin/class-oauth-consent.php)). wp-admin
+sends a visitor who is not logged in to `wp-login.php` and back. The query
+names:
+
+| Parameter | Must be |
+|---|---|
+| `response_type` | `code` |
+| `client_id` | A live registration |
+| `redirect_uri` | Byte for byte one the client registered |
+| `code_challenge_method` | `S256` |
+| `code_challenge` | Present |
+| `state` | Present |
+| `resource` | One an application declares through [`newspack_nodes/oauth_resources`](#filters) |
+
+The page also refuses plain HTTP, a multisite subsite, a parameter that would
+not come back unchanged through the form's hidden fields (an entity such as
+`&amp;` in a `state`, invalid UTF-8, or a control character such as a line
+break, which a redirect strips), and a user who can grant none of the scopes. A refusal is shown on the page and nothing is redirected, so an
+unregistered redirect URI is printed, never followed. Otherwise the page names
+the site, the client's self-declared name and, in large type, the redirect
+URI's host; a host other than `claude.ai`, `claude.com`, `localhost` or
+`127.0.0.1` carries the warning "This connection sends its credential to
+`<host>`, which is not Claude." It offers the scopes of `Oauth_Store::SCOPES`
+that `Oauth_Server::can_grant()` admits, each under its own label, the broadest
+checked, and asks for
+a connection name of up to `Sessions::MAX_LABEL` (64) bytes, which labels the
+grant and every session minted from it.
+
+Approve and Deny post to `admin-post.php` with
+`action=newspack_nodes_oauth_decide` and the nonce field
+`newspack_nodes_oauth_nonce`. The handler dies on a missing or wrong nonce,
+then checks every parameter again and dies on any refusal, or on a scope the
+user cannot grant. Deny, or a post naming no decision, redirects to the
+registered URI with `error=access_denied&state=<state>`. Approve naming no
+connection returns to the page, which asks for one; otherwise it issues a code
+that lives 60 seconds, bound to the client, the redirect URI, the challenge,
+the resource, the user, the scope and the name, and redirects to the registered
+URI with `code=<code>&state=<state>`. Both redirects go through
+`wp_redirect()`, because `wp_safe_redirect()` refuses every host but the site's.
 
 ### `POST /oauth/token`
 
@@ -473,7 +521,8 @@ requests a minute are then admitted per client (`oauth-token:<client>`).
 | `refresh_token` | `refresh_token`, optionally `resource` | The token rotates through `Oauth_Store::rotate()`: a retry within 60 s is answered with the same pair, and a token reused later revokes its grant. A token issued to another client, or a `resource` other than the grant's, is refused and spends nothing, a retry inside the 60 s included; a request naming no resource is bound to the grant's |
 
 Before either mints a session, the grant's user is signed in for the one check
-that they still hold its scope (`Capabilities::highest_held( $scope ) === $scope`),
+that they still hold its scope (`Oauth_Server::can_grant( $scope )`, the check
+the approval page offers scopes by),
 then signed out again. A user who lost it ends the grant and every session it
 minted. The answer is **200**:
 

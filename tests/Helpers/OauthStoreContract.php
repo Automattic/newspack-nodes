@@ -164,6 +164,9 @@ abstract class OauthStoreContract extends TestCase {
 			'a fragment'                 => [ 'Kea Desk 4410', [ 'https://claude.ai/cb#kea' ], $uris ],
 			'whitespace'                 => [ 'Kea Desk 4410', [ 'https://claude.ai/c b' ], $uris ],
 			'not a string'               => [ 'Kea Desk 4410', [ 4410 ], $uris ],
+			'a quote a redirect drops'   => [ 'Kea Desk 4410', [ "https://kea-desk.example/cb'4410" ], $uris ],
+			'a brace a redirect drops'   => [ 'Kea Desk 4410', [ 'https://kea-desk.example/cb{4410}' ], $uris ],
+			'non-ASCII a redirect encodes' => [ 'Kea Desk 4410', [ 'https://kea-desk.example/cb/tūī' ], $uris ],
 		];
 	}
 

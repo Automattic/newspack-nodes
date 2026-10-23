@@ -551,6 +551,18 @@ final class OauthServerTest extends TestCase {
 		$this->assertSame( [], Oauth_Store::grants() );
 	}
 
+	/** The page and the mint ask one question: does the user hold this scope's own capability? */
+	public function test_can_grant_asks_each_scope_its_own_capability(): void {
+		\add_filter( 'newspack_nodes/capability_map', static fn ( array $map ): array => [ Capabilities::READ => 'kea_read_4410' ] + $map );
+		$GLOBALS['_wp_test_current_user_id'] = self::USER;
+
+		$this->assertTrue( Oauth_Server::can_grant( Capabilities::TUNE ) );
+		$this->assertFalse( Oauth_Server::can_grant( Capabilities::READ ), 'tune held does not stand in for read' );
+
+		$GLOBALS['_wp_test_user_caps'][ self::USER ]['manage_options'] = true;
+		$this->assertFalse( Oauth_Server::can_grant( Capabilities::MANAGE ), 'outside Oauth_Store::SCOPES' );
+	}
+
 	/** A code whose scope OAuth may not grant opens no grant. */
 	public function test_a_code_for_a_scope_oauth_cannot_grant_opens_no_grant(): void {
 		$client                                      = self::client();

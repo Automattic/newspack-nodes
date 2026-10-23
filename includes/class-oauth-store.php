@@ -56,7 +56,7 @@ final class Oauth_Store {
 	private const MAX_REDIRECT_URIS = 5;
 
 	/** The hosts a plain-http redirect URI may name. */
-	private const LOOPBACK_HOSTS = [ 'localhost', '127.0.0.1' ];
+	public const LOOPBACK_HOSTS = [ 'localhost', '127.0.0.1' ];
 
 	/** The set whose members are every grant's id. */
 	private const GRANTS = 'oauth:grants';
@@ -74,7 +74,8 @@ final class Oauth_Store {
 	 * @param string       $name          The client's self-declared name.
 	 * @param array<mixed> $redirect_uris One to five URIs, each `https://` or
 	 *                                    `http://` on localhost or 127.0.0.1,
-	 *                                    with no userinfo, fragment or space.
+	 *                                    with no userinfo, fragment or space,
+	 *                                    and none `wp_redirect()` would alter.
 	 * @return array{id:string,name:string,redirect_uris:list<string>,created:int}
 	 *         The client as kept.
 	 * @throws \InvalidArgumentException With code REFUSED_NAME on an empty
@@ -111,12 +112,14 @@ final class Oauth_Store {
 	/**
 	 * Whether a redirect URI is one a public client may register: https to
 	 * any host, or plain http to a loopback host, with no userinfo to
-	 * disguise the host and no fragment, whitespace or control character.
+	 * disguise the host and no fragment, whitespace or control character,
+	 * and sent as registered: `wp_redirect()` runs `wp_sanitize_redirect()`,
+	 * which drops or encodes some bytes, so a URI it would alter is refused.
 	 *
 	 * @param string $uri The URI as registered.
 	 */
 	private static function is_redirect_uri( string $uri ): bool {
-		if ( 1 === \preg_match( '/[\s#[:cntrl:]]/', $uri ) ) {
+		if ( 1 === \preg_match( '/[\s#[:cntrl:]]/', $uri ) || \wp_sanitize_redirect( $uri ) !== $uri ) {
 			return false;
 		}
 		$parts = \wp_parse_url( $uri );

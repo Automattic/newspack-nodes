@@ -56,6 +56,9 @@ require_once NEWSPACK_NODES_DIR . 'vendor/autoload.php';
 if ( \function_exists( 'is_admin' ) && \is_admin() ) {
 	\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();
 	new \Newspack_Nodes\Admin\Admin();
+	// The OAuth authorize endpoint: the approval page and its decision.
+	\add_action( 'admin_menu', [ '\\Newspack_Nodes\\Admin\\Oauth_Consent', 'register' ] );
+	\add_action( 'admin_post_newspack_nodes_oauth_decide', [ '\\Newspack_Nodes\\Admin\\Oauth_Consent', 'decide' ] );
 }
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
