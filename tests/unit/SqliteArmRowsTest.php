@@ -189,6 +189,51 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertSame( [ [ 7341, 61.125, 17, null ] ], $this->all( 'SELECT bucket, low, mark, note FROM floors' ) );
 	}
 
+	/** A `set` on a lookup row keeps its id, so the rows naming it still join. */
+	public function test_set_keeps_a_lookup_rows_autoincrement_id(): void {
+		$arm = new Sqlite_Arm(
+			$this->path(),
+			'wombat:p3',
+			rows: [
+				'version' => 7,
+				'tables'  => [
+					'perches'  => [
+						'columns'       => [
+							'id'    => 'INTEGER',
+							'perch' => 'TEXT NOT NULL',
+							'tree'  => 'TEXT',
+						],
+						'key'           => [ 'perch' ],
+						'autoincrement' => 'id',
+					],
+					'landings' => [
+						'columns' => [
+							'rid'      => 'TEXT NOT NULL',
+							'perch_id' => 'INTEGER NOT NULL',
+						],
+						'key'     => [ 'rid' ],
+					],
+				],
+			]
+		);
+		$arm->write_rows(
+			[
+				[ 'ignore', 'perches', [ null, 'limb-4471', 'kauri-12' ] ],
+				[ 'insert', 'landings', [ 'land-7', null ], [], [ 1 => 0 ] ],
+			]
+		);
+		$arm->write_rows( [ [ 'set', 'perches', [ null, 'limb-4471', 'rimu-38' ] ] ] );
+
+		$this->assertSame( [ [ 'land-7', 'limb-4471', 'rimu-38' ] ], $this->all( 'SELECT l.rid, p.perch, p.tree FROM landings l JOIN perches p ON p.id = l.perch_id' ) );
+	}
+
+	public function test_set_on_a_table_of_its_key_and_autoincrement_column_is_refused_naming_it(): void {
+		$arm = $this->rows_arm();
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'burrows: no column to set' );
+		$arm->write_rows( [ [ 'set', 'burrows', [ null, 'kea-4471' ] ] ] );
+	}
+
 	public function test_set_inserts_a_missing_row(): void {
 		$out = $this->floors_arm()->write_rows( [ [ 'set', 'floors', [ 7343, 8.5, 4, 'new' ] ] ] );
 		$this->assertSame( 1, $out );

@@ -324,8 +324,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * it unless its key exists, and on a table with an `autoincrement` column
 	 * resolves the row's id, inserted or found; `add` writes it or folds its
 	 * `add` columns onto the row its key names; `set` writes it or replaces
-	 * every non-key column of the row its key names. `then` ops run only when their
-	 * op wrote its row, so a replayed batch adds nothing twice. `ids` fills a
+	 * every column of the row its key names but the key and the
+	 * `autoincrement` id, which rows elsewhere name. `then` ops run only when
+	 * their op wrote its row, so a replayed batch adds nothing twice. `ids` fills a
 	 * row position with the id an earlier `ignore` in the batch resolved,
 	 * named by its batch index, so one batch can name a row it creates.
 	 *
@@ -430,14 +431,15 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param Row_Spec $spec  Its declaration.
 	 * @return string The SQL.
 	 * @throws \RuntimeException On an op no statement answers, or a `set` on a
-	 *                           table declaring no key.
+	 *                           table declaring no key or no column beside
+	 *                           its key and `autoincrement` id.
 	 */
 	private function row_sql( string $op, string $table, array $spec ): string {
 		if ( isset( $this->row_sql[ "{$op} {$table}" ] ) ) {
 			return $this->row_sql[ "{$op} {$table}" ];
 		}
 		$columns  = \array_keys( $spec['columns'] );
-		$settable = \array_diff( $columns, $spec['key'] ?? [] );
+		$settable = \array_diff( $columns, $spec['key'] ?? [], [ $spec['autoincrement'] ?? '' ] );
 		if ( 'set' === $op && empty( $spec['key'] ) ) {
 			throw new \RuntimeException( "{$table}: no key to set by" );
 		}

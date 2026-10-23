@@ -31,8 +31,8 @@ interface Row_Schema {
 	 * ` NOT NULL`. `key` is the UNIQUE key an `ignore`, an `add` and a `set`
 	 * conflict on. `add` names the columns an `add` folds on conflict, by
 	 * `sum`, `max` or `min`; `max` and `min` let a null displace nothing. A
-	 * `set` replaces every non-key column, so it needs a `key` and a column
-	 * outside it. `retain` is `[ column, window, seconds per unit ]`: a row
+	 * `set` replaces every column but the key and an `autoincrement` id, so
+	 * it needs a `key` and a column outside both. `retain` is `[ column, window, seconds per unit ]`: a row
 	 * whose column is below `floor( now / unit ) − window` purges. `retained_by` is
 	 * a list of `[ table, its column, own column ]` references, where its
 	 * column leads an index or the key there and the own column is this

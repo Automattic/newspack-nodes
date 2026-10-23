@@ -2500,7 +2500,7 @@ answered.
 declares in the partition's SQLite file, `{base}/tables/{name}.p{N}.sqlite`. The partition's
 worker is its one writer, through `ROWS` (insert, ignore, add, set; a `then` op applies
 only when its parent wrote its row; an `add` folds by sum, max or min, and a `set`
-replaces every non-key column of the row its key names). A reader attaches every
+replaces every column of the row its key names but the key and an `autoincrement` id). A reader attaches every
 partition's file read-only into one connection and answers in one statement;
 `Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that under SQLite's ten attachments. A reader
 finds its table by schema, never by name. A verb answering from `read()` answers only rows
