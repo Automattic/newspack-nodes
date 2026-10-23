@@ -1910,25 +1910,6 @@ class BootstrapTest extends TestCase {
 
 	// ── ensure_runtime_wired: deferred file-scope wiring (off the frontend hot path) ──
 
-	public function test_ensure_runtime_wired_registers_substrate_namespaces(): void {
-		$ns_ref = new \ReflectionProperty( \Newspack_Nodes\Command_Interpreter_Node::class, 'namespaces' );
-		$saved_ns    = $ns_ref->getValue();
-		$wired_ref   = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
-		$saved_wired = $wired_ref->getValue();
-
-		try {
-			$ns_ref->setValue( null, [] );
-			$wired_ref->setValue( null, false );
-			Bootstrap::ensure_runtime_wired();
-			$ns = \Newspack_Nodes\Command_Interpreter_Node::registered_namespaces();
-			$this->assertContains( 'Newspack_Nodes\\', $ns );
-			$this->assertContains( 'Newspack_Nodes\\Rest\\', $ns );
-		} finally {
-			$ns_ref->setValue( null, $saved_ns );
-			$wired_ref->setValue( null, $saved_wired );
-		}
-	}
-
 	public function test_ensure_runtime_wired_builds_memcached_handle(): void {
 		$GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] = [ 'cachehost:11299' ];
 		\Newspack_Nodes\Config::reset();

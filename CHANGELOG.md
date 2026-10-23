@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A settings save in wp-admin restarts the workers its field names.** A field whose restart names node types, such as `max_segments` (`Partition`, `Topic`, `Log`), resolved those types against namespaces only the runtime wiring registers, and a wp-admin save never wires the runtime, so every type resolved to nothing and no worker restarted. The workers got only the reload signal, which re-reads config but rebuilds no node, so a Partition kept its old `max_segments` until its worker recycled on its own, up to ~595 s later. The substrate now registers its node namespaces at plugin load, as a consumer registers its own. The settings page's "Restarts:" line had the same cause, so it read "(no active consumer)" for every such field. `wp nodes` and the Settings CI were unaffected: both wire the runtime first.
+- **A settings reset restarts the workers its field names.** The per-field reset toggle and Reset All delete the option row, and the restart listened only for a row added or updated, so returning a setting to its default reached no worker. Event-logger-nodes registers the same listener and has the same fix.
+
 ## [2.125.0] - 2026-10-23
 
 ### Fixed

@@ -118,9 +118,10 @@ class Admin {
 		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_aggregator_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_topology_console_tab_bundle' ] );
 
-		// Both hooks so first + subsequent saves restart correctly.
+		// Every row write restarts: a first save, a later one, a reset.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 		\add_action( 'added_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
+		\add_action( 'deleted_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 
 		\add_action( 'newspack_nodes/settings_after_form', [ $this, 'render_effective_config_section' ] );
 
@@ -1403,9 +1404,9 @@ class Admin {
 	 * Drop the per-request config cache and ask `Restart_Planner` for whatever
 	 * recycle the saved option's restart classification calls for.
 	 *
-	 * Hooked to both `updated_option` and `added_option`: WordPress fires the
-	 * second one on a field's very first save, and hooking only the first would
-	 * silently skip the restart exactly once per setting.
+	 * Hooked to `updated_option`, `added_option` and `deleted_option`: WordPress
+	 * fires the second on a field's very first save and the third when a reset
+	 * deletes the row, and each one missed would skip the restart silently.
 	 *
 	 * A worker sees the request at its next continue check: between messages, and
 	 * inside a long unit of work wherever `Event_Framework::pump()` asks, which
