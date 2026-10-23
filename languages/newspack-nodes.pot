@@ -2,21 +2,21 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.125.0\n"
+"Project-Id-Version: Newspack Nodes 2.125.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-23T08:59:26+00:00\n"
+"POT-Creation-Date: 2026-10-23T10:14:21+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
 
 #. Plugin Name of the plugin
 #: newspack-nodes.php
-#: includes/class-bootstrap.php:1532
+#: includes/class-bootstrap.php:1530
 msgid "Newspack Nodes"
 msgstr ""
 
@@ -35,201 +35,201 @@ msgstr ""
 msgid "https://newspack.com/"
 msgstr ""
 
-#: includes/admin/class-admin.php:406
+#: includes/admin/class-admin.php:407
 msgid "Number of log partitions for parallel processing."
 msgstr ""
 
-#: includes/admin/class-admin.php:411
+#: includes/admin/class-admin.php:412
 msgid "Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:416
+#: includes/admin/class-admin.php:417
 msgid "Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:421
+#: includes/admin/class-admin.php:422
 msgid "True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments)."
 msgstr ""
 
-#: includes/admin/class-admin.php:426
+#: includes/admin/class-admin.php:427
 msgid "Maximum segment size in bytes."
 msgstr ""
 
-#: includes/admin/class-admin.php:431
+#: includes/admin/class-admin.php:432
 msgid "Floor for the count rule: keep segments younger than this many seconds even when over num segments. 0 = pure count-based."
 msgstr ""
 
-#: includes/admin/class-admin.php:436
+#: includes/admin/class-admin.php:437
 msgid "Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning)."
 msgstr ""
 
-#: includes/admin/class-admin.php:441
+#: includes/admin/class-admin.php:442
 msgid "Count-rule target: number of log segments to keep on remote servers (2-16)."
 msgstr ""
 
-#: includes/admin/class-admin.php:446
+#: includes/admin/class-admin.php:447
 msgid "Floor for the age rule: keep at least this many segments on remote servers even when pruning by lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:451
+#: includes/admin/class-admin.php:452
 msgid "Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled."
 msgstr ""
 
-#: includes/admin/class-admin.php:456
+#: includes/admin/class-admin.php:457
 msgid "True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments)."
 msgstr ""
 
-#: includes/admin/class-admin.php:461
+#: includes/admin/class-admin.php:462
 msgid "Segment size on remote servers in bytes (1MB-4GB)."
 msgstr ""
 
-#: includes/admin/class-admin.php:466
+#: includes/admin/class-admin.php:467
 msgid "Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based)."
 msgstr ""
 
-#: includes/admin/class-admin.php:471
+#: includes/admin/class-admin.php:472
 msgid "Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag."
 msgstr ""
 
-#: includes/admin/class-admin.php:476
+#: includes/admin/class-admin.php:477
 msgid "Warn when more than this many dead-letter records are quarantined. 0 = warn on the first."
 msgstr ""
 
-#: includes/admin/class-admin.php:481
+#: includes/admin/class-admin.php:482
 msgid "Minimum seconds between alert-action emission bursts (rate limit)."
 msgstr ""
 
 #. translators: %s: label of the setting this one follows
-#: includes/admin/class-admin.php:520
+#: includes/admin/class-admin.php:521
 #, php-format
 msgid "Blank follows %s."
 msgstr ""
 
-#: includes/admin/class-admin.php:789
+#: includes/admin/class-admin.php:790
 msgid "Base directory for logs, locks, and offsets."
 msgstr ""
 
 #. translators: %s: comma-separated default server list.
-#: includes/admin/class-admin.php:818
+#: includes/admin/class-admin.php:819
 #, php-format
 msgid "Memcache servers (one per line, format: host:port). Used for stats aggregation and SSE. Default: %s"
 msgstr ""
 
-#: includes/admin/class-admin.php:841
+#: includes/admin/class-admin.php:842
 msgid "Extra log sources for the Log Viewer (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included."
 msgstr ""
 
 #. translators: %s: the backend a blank setting resolves to.
-#: includes/admin/class-admin.php:860
+#: includes/admin/class-admin.php:861
 #, php-format
 msgid "Default (%s)"
 msgstr ""
 
-#: includes/admin/class-admin.php:862
+#: includes/admin/class-admin.php:863
 msgid "Where command sessions live: sqlite, a file on this host, or wpdb, a database table every web host shares. Changing it drops every open session; dashboards and MCP clients mint a new one."
 msgstr ""
 
 #. translators: 1: segment size in MB, 2: hard-cap segment count, 3: number of on-disk log partitions
-#: includes/admin/class-admin.php:915
+#: includes/admin/class-admin.php:916
 #, php-format
 msgid "Calculated as: %1$s MB segment × %2$s hard-cap segments × %3$s log partitions"
 msgstr ""
 
 #. translators: 1: number of active fleet alerts, 2: worst severity (warning|critical).
-#: includes/admin/class-admin.php:1004
+#: includes/admin/class-admin.php:1005
 #, php-format
 msgid "Newspack Nodes: %1$d fleet alert(s), worst severity %2$s."
 msgstr ""
 
-#: includes/admin/class-admin.php:1013
+#: includes/admin/class-admin.php:1014
 msgid "View fleet health"
 msgstr ""
 
-#: includes/admin/class-admin.php:1030
+#: includes/admin/class-admin.php:1031
 msgid "Nodes Station"
 msgstr ""
 
-#: includes/admin/class-admin.php:1031
+#: includes/admin/class-admin.php:1032
 msgid "Nodes"
 msgstr ""
 
-#: includes/admin/class-admin.php:1061
-#: includes/admin/class-admin.php:1097
+#: includes/admin/class-admin.php:1062
+#: includes/admin/class-admin.php:1098
 msgid "You do not have permission to access this page."
 msgstr ""
 
-#: includes/admin/class-admin.php:1078
-#: includes/admin/class-admin.php:1104
+#: includes/admin/class-admin.php:1079
+#: includes/admin/class-admin.php:1105
 msgid "Nodes Runtime Settings"
 msgstr ""
 
-#: includes/admin/class-admin.php:1079
+#: includes/admin/class-admin.php:1080
 msgid "Nodes Runtime"
 msgstr ""
 
-#: includes/admin/class-admin.php:1109
+#: includes/admin/class-admin.php:1110
 msgid "Caches flushed; every live worker was asked to restart."
 msgstr ""
 
-#: includes/admin/class-admin.php:1119
+#: includes/admin/class-admin.php:1120
 msgid "Save Settings"
 msgstr ""
 
-#: includes/admin/class-admin.php:1122
+#: includes/admin/class-admin.php:1123
 msgid "Reset to Defaults"
 msgstr ""
 
-#: includes/admin/class-admin.php:1123
+#: includes/admin/class-admin.php:1124
 msgid "Are you sure you want to reset all substrate settings to defaults? This cannot be undone."
 msgstr ""
 
-#: includes/admin/class-admin.php:1128
+#: includes/admin/class-admin.php:1129
 msgid "Flush Caches"
 msgstr ""
 
-#: includes/admin/class-admin.php:1165
-#: includes/admin/class-admin.php:1199
+#: includes/admin/class-admin.php:1166
+#: includes/admin/class-admin.php:1200
 msgid "Security check failed."
 msgstr ""
 
-#: includes/admin/class-admin.php:1168
-#: includes/admin/class-admin.php:1202
+#: includes/admin/class-admin.php:1169
+#: includes/admin/class-admin.php:1203
 msgid "You do not have permission to perform this action."
 msgstr ""
 
-#: includes/admin/class-admin.php:1390
+#: includes/admin/class-admin.php:1391
 msgid "Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker."
 msgstr ""
 
-#: includes/admin/class-admin.php:1395
+#: includes/admin/class-admin.php:1396
 msgid "Storage geometry pushed to remote spokes (may differ from hub settings). Blank fields use the config-file default."
 msgstr ""
 
-#: includes/admin/class-admin.php:1399
+#: includes/admin/class-admin.php:1400
 msgid "Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each fleet sweep; no worker restart. Blank fields use the config-file default."
 msgstr ""
 
 #. translators: 1: setting key, 2: why the running workers were not told.
-#: includes/admin/class-admin.php:1438
+#: includes/admin/class-admin.php:1439
 #, php-format
 msgid "Saved %1$s, but the running workers were not told: %2$s"
 msgstr ""
 
 #. translators: 1: consumer plugin name, 2: required version, 3: installed version.
-#: includes/class-bootstrap.php:1469
+#: includes/class-bootstrap.php:1467
 #, php-format
 msgid "%1$s requires Newspack Nodes %2$s or newer (found %3$s) and is dormant until Newspack Nodes is updated."
 msgstr ""
 
-#: includes/class-bootstrap.php:1492
+#: includes/class-bootstrap.php:1490
 msgid "Newspack Nodes health"
 msgstr ""
 
-#: includes/class-bootstrap.php:1528
+#: includes/class-bootstrap.php:1526
 msgid "Newspack Nodes is healthy"
 msgstr ""
 
-#: includes/class-bootstrap.php:1529
+#: includes/class-bootstrap.php:1527
 msgid "Newspack Nodes has health alerts"
 msgstr ""
 
@@ -1369,11 +1369,11 @@ msgstr ""
 msgid "Sessions"
 msgstr ""
 
-#: src/shared/components/AreaTimeChart.js:363
+#: src/shared/components/AreaTimeChart.js:353
 msgid "Overlay the series"
 msgstr ""
 
-#: src/shared/components/AreaTimeChart.js:364
+#: src/shared/components/AreaTimeChart.js:354
 msgid "Stack the series"
 msgstr ""
 
