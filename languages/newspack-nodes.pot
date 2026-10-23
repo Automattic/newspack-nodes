@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.124.0\n"
+"Project-Id-Version: Newspack Nodes 2.124.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-23T07:14:55+00:00\n"
+"POT-Creation-Date: 2026-10-23T08:17:14+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -1150,7 +1150,7 @@ msgid "Deactivate"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:58
-#: src/topology-console/TopologyConsole.js:2005
+#: src/topology-console/TopologyConsole.js:2008
 msgid "Activate"
 msgstr ""
 
@@ -1279,8 +1279,8 @@ msgstr ""
 #: src/topology-console/components/Modal.js:317
 #: src/topology-console/components/Modal.js:470
 #: src/topology-console/components/OpenTopologyModal.js:121
-#: src/topology-console/TopologyConsole.js:1955
-#: src/topology-console/TopologyConsole.js:2031
+#: src/topology-console/TopologyConsole.js:1958
+#: src/topology-console/TopologyConsole.js:2034
 #: src/vault/VaultAdmin.js:66
 #: src/vault/VaultAdmin.js:458
 msgid "Cancel"
@@ -2299,7 +2299,7 @@ msgid "Confirm"
 msgstr ""
 
 #: src/topology-console/components/Modal.js:316
-#: src/topology-console/TopologyConsole.js:1983
+#: src/topology-console/TopologyConsole.js:1986
 msgid "Save"
 msgstr ""
 
@@ -2746,7 +2746,7 @@ msgid "Failed to load topology."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:792
+#: src/topology-console/TopologyConsole.js:794
 #, js-format
 msgid "Saved layout for %s."
 msgstr ""
@@ -2803,67 +2803,67 @@ msgstr ""
 msgid "Activated %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1919
+#: src/topology-console/TopologyConsole.js:1922
 msgid "Discard unsaved changes?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1924
+#: src/topology-console/TopologyConsole.js:1927
 msgid "Discard"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1928
+#: src/topology-console/TopologyConsole.js:1931
 msgid "Keep editing"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1939
+#: src/topology-console/TopologyConsole.js:1942
 msgid "Delete topology?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1945
+#: src/topology-console/TopologyConsole.js:1948
 #, js-format
 msgid "Delete user-saved topology \"%s\"? This cannot be undone."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1951
+#: src/topology-console/TopologyConsole.js:1954
 msgid "Delete"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1966
+#: src/topology-console/TopologyConsole.js:1969
 msgid "Save topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1970
+#: src/topology-console/TopologyConsole.js:1973
 msgid "Choose a name. Letters, numbers, dash, underscore."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1974
+#: src/topology-console/TopologyConsole.js:1977
 msgid "my-topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1993
+#: src/topology-console/TopologyConsole.js:1996
 msgid "Activate now?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1999
+#: src/topology-console/TopologyConsole.js:2002
 #, js-format
 msgid "Topology \"%s\" was saved but is not running. Activate it now to spawn its workers?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2009
+#: src/topology-console/TopologyConsole.js:2012
 msgid "Not now"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2019
+#: src/topology-console/TopologyConsole.js:2022
 msgid "Reset to saved layout?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2023
+#: src/topology-console/TopologyConsole.js:2026
 msgid "This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2027
+#: src/topology-console/TopologyConsole.js:2030
 msgid "Reset"
 msgstr ""
 
