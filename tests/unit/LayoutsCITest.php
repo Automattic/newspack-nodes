@@ -308,21 +308,23 @@ class LayoutsCITest extends TestCase {
 		$this->assertCount( 4, $result['positions'] );
 	}
 
-	public function test_save_accepts_empty_positions(): void {
-		$result = VerbHarness::fire(
-			new Layouts_CI_Node(),
-			'layouts',
-			'save',
-			'empty ' . (string) \json_encode( [] )
-		);
+	/** A map placing no node is auto: saving one removes the file. */
+	public function test_save_of_an_empty_map_removes_the_layout(): void {
+		\mkdir( "{$this->base_dir}/layouts", 0755, true );
+		\file_put_contents( "{$this->base_dir}/layouts/empty-3309.layout", '{"positions":{"kea":[1.5,2.5]}}' );
 
-		$this->assertSame( [], $result['positions'] );
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'empty-3309', '{}' ] );
+
+		$this->assertSame( 'auto', $result['positions'] );
+		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/empty-3309.layout" );
 	}
 
-	public function test_save_accepts_an_empty_object_as_an_empty_map(): void {
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'empty-object', '{}' ] );
+	/** A map whose every entry fails validation places no node either. */
+	public function test_save_of_a_map_left_empty_by_validation_removes_the_layout(): void {
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'dropped-3310', '{"bad node!":[1,2]}' ] );
 
-		$this->assertSame( [], $result['positions'] );
+		$this->assertSame( 'auto', $result['positions'] );
+		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/dropped-3310.layout" );
 	}
 
 	/** Saving auto removes the file, so the layout reads auto again. */
@@ -367,6 +369,7 @@ class LayoutsCITest extends TestCase {
 	public static function malformed_positions_files(): array {
 		return [
 			'a string'           => [ '{"positions":"auto"}' ],
+			'an empty map'       => [ '{"positions":{}}' ],
 			'number'             => [ '{"positions":7}' ],
 			'list of pairs'      => [ '{"positions":[[31,47],[59,83]]}' ],
 		];

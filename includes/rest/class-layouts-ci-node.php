@@ -5,20 +5,22 @@
  * A layout is the arrangement of a topology's nodes on the console canvas,
  * stored apart from the graph it describes: one JSON file per name at
  * `<base_directory>/layouts/<name>.layout`, holding
- * `{ positions: { node_id: [x, y] } }`. No file is "auto", a layout the
- * console lays out afresh each time it loads one. The console asks
+ * `{ positions: { node_id: [x, y] } }`. A missing file reads as "auto", a
+ * layout the console lays out afresh each time it loads one. The console asks
  * for the layout under the topology name it is viewing, but the positions
  * never enter that .tsl — writing them there would route every drag through
  * `topologies save`, which restarts the matching active fleet.
  *
  * Verbs:
  *   get  — args `{name}`. Returns `{name, positions: object|"auto"}`. A
- *          missing, unreadable or malformed file answers "auto"; no other
- *          top-level key of the saved file is surfaced.
+ *          missing, unreadable or malformed file answers "auto", as does one
+ *          placing no node; no other top-level key of the saved file is
+ *          surfaced.
  *   save — args `{name, positions: {node_id: [x,y]} | "auto"}`. Returns
  *          `{name, path, positions}`, the positions being "auto" or what
  *          survived sanitizing — an entry that fails validation is dropped
- *          rather than refusing the write. Saving "auto" removes the file.
+ *          rather than refusing the write. Saving "auto", or a map that places
+ *          no node, removes the file at `path`.
  *
  * Each verb names its role in `node_schema()`, `get` READ and `save` TUNE, and
  * `dispatch()` refuses a caller below it (ADR-26). A refusal throws
@@ -47,7 +49,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	/**
 	 * The one `positions` value that is not a map: the layout is a fresh
 	 * autolayout of whatever graph the canvas draws. Matched exactly, and
-	 * never stored: it is what no file reads as.
+	 * never stored: a missing file reads as it.
 	 */
 	public const AUTO = 'auto';
 
@@ -73,8 +75,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * A missing file is an answer, not an error: it reads as AUTO, so the
 	 * canvas lays itself out. An unreadable or malformed file reads the same
 	 * way, so a truncated write costs the arrangement rather than the canvas;
-	 * a `positions` that is not a map is malformed. Only the `positions` key of
-	 * the file is returned.
+	 * a `positions` that is not a map is malformed, and an empty map places
+	 * no node. Only the `positions` key of the file is returned.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
@@ -92,7 +94,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 			if ( false !== $body ) {
 				$parsed = \json_decode( $body, true );
 				$saved = \is_array( $parsed ) ? ( $parsed['positions'] ?? null ) : null;
-				if ( self::is_map( $saved ) ) {
+				if ( self::is_map( $saved ) && [] !== $saved ) {
 					$positions = $saved;
 				}
 			}
@@ -106,7 +108,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 
 	/**
 	 * `save` verb — persist a layout's node positions, creating the layouts
-	 * directory on the first write, or remove the file for AUTO.
+	 * directory on the first write, or remove the file for AUTO or for a map
+	 * placing no node, which reads as AUTO.
 	 *
 	 * The cap measures the packed envelope before anything is decoded, so an
 	 * oversized blob is refused without parsing it. Measuring the envelope
@@ -118,7 +121,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * @param array<array-key,mixed>  $args     Bound verb arguments: name, and positions as one JSON token.
 	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, or [] for an inline dispatch.
 	 *
-	 * @return array<string,mixed> `{name, path, positions}`, positions being AUTO or what survived sanitizing.
+	 * @return array<string,mixed> `{name, path, positions}`, positions being AUTO, the file at `path` removed, or what survived sanitizing.
 	 * @throws \RuntimeException When the envelope exceeds the cap, the name is
 	 *                           invalid, the positions are neither an object nor
 	 *                           AUTO, the directory cannot be created, or the
@@ -132,8 +135,13 @@ class Layouts_CI_Node extends Service_CI_Node {
 		}
 		$name      = self::require_valid_name( Core::as_string( $args['name'] ) );
 		$positions = \json_decode( Core::as_string( $args['positions'] ), true );
-		$path      = self::layout_path( $name );
-		if ( self::AUTO === $positions ) {
+		if ( self::AUTO !== $positions && ! self::is_map( $positions ) ) {
+			throw new \RuntimeException( 'invalid arguments: positions must be an object or "auto"' );
+		}
+
+		$clean = self::is_map( $positions ) ? self::sanitize_positions( $positions ) : [];
+		$path  = self::layout_path( $name );
+		if ( [] === $clean ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			if ( \is_file( $path ) && ! @\unlink( $path ) ) {
 				throw new \RuntimeException( \esc_html( "failed to remove layout file: $path" ) );
@@ -144,12 +152,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 				'positions' => self::AUTO,
 			];
 		}
-		if ( ! self::is_map( $positions ) ) {
-			throw new \RuntimeException( 'invalid arguments: positions must be an object or "auto"' );
-		}
 
-		$clean = self::sanitize_positions( $positions );
-		$dir   = self::layouts_dir();
+		$dir = self::layouts_dir();
 		if ( ! \is_dir( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			$made = @\mkdir( $dir, 0700, true );
