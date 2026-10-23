@@ -2846,3 +2846,93 @@ describe( "CRT's data greens and the true-color variant", () => {
 		}
 	} );
 } );
+
+describe( "WordPress's accent follows the skin", () => {
+	const DEFAULT_SKIN = 'newspack';
+	// A hex literal, or the `rgb()` Sass writes for a color it computed.
+	const channels = ( value ) =>
+		value.startsWith( '#' )
+			? [ 1, 3, 5 ]
+					.map( ( at ) => parseInt( value.slice( at, at + 2 ), 16 ) )
+					.join( ', ' )
+			: /^rgb\((\d+, \d+, \d+)\)$/.exec( value )[ 1 ];
+	const lightness = ( rgb ) =>
+		rgb.split( ', ' ).reduce( ( sum, c ) => sum + Number( c ), 0 );
+
+	it.each( EXPECTED_SKINS.filter( ( s ) => DEFAULT_SKIN !== s ) )(
+		'%s sets the admin theme color and its darker shades from its accent',
+		( slug ) => {
+			const tokens = skinMaps.get( slug );
+			const accent = tokens[ '--cyan' ];
+			const darker = tokens[ '--cyan-dark' ];
+			expect( tokens[ '--wp-admin-theme-color' ] ).toBe( accent );
+			expect( tokens[ '--wp-admin-theme-color--rgb' ] ).toBe(
+				channels( accent )
+			);
+			expect( tokens[ '--wp-admin-theme-color-darker-10' ] ).toBe(
+				darker
+			);
+			expect( tokens[ '--wp-admin-theme-color-darker-10--rgb' ] ).toBe(
+				channels( darker )
+			);
+			const darkest = tokens[ '--wp-admin-theme-color-darker-20' ];
+			expect( tokens[ '--wp-admin-theme-color-darker-20--rgb' ] ).toBe(
+				channels( darkest )
+			);
+			expect( lightness( channels( darkest ) ) ).toBeLessThan(
+				lightness( channels( darker ) )
+			);
+		}
+	);
+
+	it( "the default skin leaves WordPress's own admin theme color", () => {
+		expect(
+			Object.keys( skinMaps.get( DEFAULT_SKIN ) ).filter( ( name ) =>
+				name.startsWith( '--wp-admin-theme-color' )
+			)
+		).toEqual( [] );
+	} );
+} );
+
+describe( 'Links hover in the skin', () => {
+	// WordPress's admin color scheme hard-codes `a:hover`: `colors.css`.
+	const WORDPRESS_HOVER = selectorSpecificity(
+		selectorParser().astSync( 'a:hover' ).first
+	);
+	// The least a component's own state colour takes, as in `.badge.down`.
+	const COMPONENT_RULE = selectorSpecificity(
+		selectorParser().astSync( '.newspack-nodes-status-badge.down' ).first
+	);
+
+	it( 'hovers a link in every skin but the default in its accent, over WordPress and under every component', () => {
+		const rules = [];
+		stylesheet.walkRules( ( rule ) => {
+			if (
+				/\ba[^,]*:hover/.test( rule.selector ) &&
+				rule.some( ( d ) => 'color' === d.prop )
+			) {
+				rules.push( rule );
+			}
+		} );
+		expect( rules ).toHaveLength( 1 );
+		const [ rule ] = rules;
+		expect( rule.selector ).toContain( ':not(.theme-newspack)' );
+		const color = rule.nodes.find( ( d ) => 'color' === d.prop ).value;
+		expect( color ).toBe( 'var(--wp-admin-theme-color)' );
+		for ( const selector of selectorParser().astSync( rule.selector )
+			.nodes ) {
+			expect(
+				compareSpecificity(
+					selectorSpecificity( selector ),
+					WORDPRESS_HOVER
+				)
+			).toBeGreaterThan( 0 );
+			expect(
+				compareSpecificity(
+					selectorSpecificity( selector ),
+					COMPONENT_RULE
+				)
+			).toBeLessThan( 0 );
+		}
+	} );
+} );

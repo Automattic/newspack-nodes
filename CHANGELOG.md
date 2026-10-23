@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **An operator's topology reads "user" in its source badge**, where it read "user only".
+- **WordPress's accent follows the skin.** Every skin but the default Newspack one sets `--wp-admin-theme-color`, its `-darker-10` and `-darker-20` shades and their `--rgb` channels from its own accent (`--cyan`, `--cyan-dark`, and `--cyan-dark` 5% darker), so a WordPress primary button and a focus ring paint in the skin's color where they painted WordPress's blue. A link hovers, focuses and activates in that color too: WordPress's admin color scheme hard-codes its link hover, so the skins carry a rule of their own, which outranks it and stays under any component's own two-class colour rule. A topology name's hover in CRT is phosphor green and in Newspack Brand Cobalt. The default Newspack skin keeps WordPress's own.
 
 ### Removed
 - **The `both` topology source and `save`'s `shadows_stock`.** A save refuses a stock name, and a stock topology resolves ahead of a user file sharing its name, so `dump` and `get` call that topology `stock`, the Overview's source badge loses "user ▸ shadows stock", the console's open dialog its `both` group, and `save` answers `{name, path, restarted_fleets}`.
