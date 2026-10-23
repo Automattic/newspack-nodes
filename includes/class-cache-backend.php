@@ -121,14 +121,14 @@ abstract class Cache_Backend {
 	public static ?\Closure $apcu_sma_info = null;
 
 	/**
-	 * Constant-read seam for `install_id()`'s `DB_HOST` and `ABSPATH`. Null
-	 * reads the real constant, or null when it is undefined; tests answer
-	 * two installs' values from one process.
-	 * Signature: `function (string $name): mixed`.
+	 * `DB_HOST` seam for `install_id()`. Replaces the read of the `DB_HOST`
+	 * constant, null when it is undefined; tests answer two installs' hosts
+	 * from one process.
+	 * Signature: `function (): mixed`.
 	 *
 	 * @var \Closure|null
 	 */
-	public static ?\Closure $constant = null;
+	public static ?\Closure $db_host = null;
 
 	/**
 	 * Key for a per-MACHINE budget, where the machine is the resource being
@@ -245,14 +245,16 @@ abstract class Cache_Backend {
 	}
 
 	/**
-	 * The install as `site()` reads it, with `DB_HOST` and `ABSPATH` beside,
-	 * and without the salt, so no rotation moves it: a durable store a
-	 * co-tenant could share takes its name from it, as the SQLite
-	 * command-session store under a shared base directory does. `DB_HOST`
-	 * parts two sites that name one database and prefix on separate servers,
-	 * as Local sites do. `ABSPATH` is read as written, never resolved: a
-	 * host whose path is a symlink to a versioned core would see a resolved
-	 * one move with every core update.
+	 * The install as `site()` reads it, with `DB_HOST` beside, and without
+	 * the salt, so no rotation moves it: a durable store a co-tenant could
+	 * share takes its name from it, as the SQLite command-session store
+	 * under a shared base directory does. `DB_HOST` parts two sites that name
+	 * one database and prefix on separate servers, as Local sites do. No
+	 * path enters it: sides that share a database, prefix and host share one
+	 * install's options, and WP Cloud's web tier names `ABSPATH` as the
+	 * versioned core it resolves to while WP-CLI names the docroot link, so
+	 * a path would part one install's web requests from its WP-CLI and move
+	 * the store on every core update.
 	 *
 	 * @api `Command_Auth::session_store()` names its file with it.
 	 * @return string Twelve hex characters.
@@ -264,10 +266,9 @@ abstract class Cache_Backend {
 		if ( '' === $identity ) {
 			throw new \RuntimeException( 'install unidentifiable: no DB_NAME and no $wpdb' );
 		}
-		$read = self::$constant ?? static fn ( string $name ): mixed => \defined( $name ) ? \constant( $name ) : null;
-		$host = Core::as_string( $read( 'DB_HOST' ), '' );
-		$path = Core::as_string( $read( 'ABSPATH' ), '' );
-		return \substr( \md5( "{$identity}:{$host}:{$path}" ), 0, 12 );
+		$read = self::$db_host ?? static fn (): mixed => \defined( 'DB_HOST' ) ? \constant( 'DB_HOST' ) : null;
+		$host = Core::as_string( $read(), '' );
+		return \substr( \md5( "{$identity}:{$host}" ), 0, 12 );
 	}
 
 	/**

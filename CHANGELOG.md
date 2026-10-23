@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A session minted from WP-CLI authenticates on the web again.** The SQLite session store is named by `Cache_Backend::install_id()`, which hashed `ABSPATH` as PHP writes it. WP Cloud's web tier writes the versioned core it resolves to, `/wordpress/core/7.1.3/`, while WP-CLI writes the docroot link, `/srv/htdocs/__wp__/`, so each side opened its own `nodes-sessions-<install>.p0.sqlite`: a session from `wp nodes session issue` was refused by the MCP door as unknown or expired, and the Sessions tab listed none. The install id hashes `DB_NAME`, the base prefix and `DB_HOST` alone, so both sides open one store and a core update no longer moves it. Two installs sharing a runtime directory must not also share those three. The store's name changes once, and it names the wpdb rows as well as the SQLite file, so every live session on either backend ends at this release and must be issued again.
+
 ## [2.126.0] - 2026-10-23
 
 ### Changed
