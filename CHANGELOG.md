@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A session a person carries is `read` or `tune`, never `manage`.** `Capabilities::CARRIED` names the scopes a carried session may hold, and `wp nodes session issue`, the Sessions tab's `create` and a labelled `POST /auth` default to `tune` and refuse `manage` (`unknown role: manage; use read or tune`, `unknown scope: manage`, 400 `invalid_scope`). The `list` verb serves `CARRIED` as `scopes`, so the tab's menu offers exactly those. An unlabelled `POST /auth`, the dashboard's and a hub's own session, still defaults to `manage`. Sessions already issued keep their scope. Restoring `manage` for carried sessions is one edit: append `Capabilities::MANAGE` to `CARRIED`.
+
 ## [2.126.1] - 2026-10-23
 
 ### Fixed

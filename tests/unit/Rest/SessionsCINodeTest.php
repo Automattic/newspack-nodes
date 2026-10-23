@@ -82,20 +82,29 @@ class SessionsCINodeTest extends TestCase {
 		$this->assertSame( [], $this->fire( 'list' )['sessions'] );
 	}
 
+	public function test_create_defaults_to_tune_and_lists_two_scopes(): void {
+		$this->assertSame( [ 'read', 'tune' ], $this->fire( 'list' )['scopes'] );
+		$this->assertSame( Capabilities::TUNE, $this->fire( 'create', [ 'Kea' ] )['scope'] );
+		$this->assertStringContainsString(
+			'unknown scope: manage',
+			(string) $this->fire( 'create', [ 'Kea', '--scope=manage' ] )
+		);
+	}
+
 	public function test_create_clamps_the_scope_to_the_minting_user(): void {
 		add_filter(
 			'newspack_nodes/capability_map',
-			static fn ( array $map ): array => [ 'manage' => 'edit_pages', 'tune' => 'edit_pages', 'read' => 'edit_pages' ] + $map
+			static fn ( array $map ): array => [ 'manage' => 'edit_pages', 'tune' => 'edit_posts', 'read' => 'edit_pages' ] + $map
 		);
-		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'manage_options' => false ];
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'edit_posts' => false, 'manage_options' => false ];
 
-		$created = $this->fire( 'create', [ 'clamped', '--scope=manage' ] );
-		$this->assertSame( Capabilities::MANAGE, $created['scope'] );
+		$created = $this->fire( 'create', [ 'clamped', '--scope=tune' ] );
+		$this->assertSame( Capabilities::READ, $created['scope'] );
 	}
 
 	public function test_create_refuses_an_unknown_scope(): void {
 		$this->assertStringContainsString(
-			'unknown session scope',
+			'unknown scope: wizard',
 			(string) $this->fire( 'create', [ 'bad', '--scope=wizard' ] )
 		);
 	}

@@ -97,13 +97,20 @@ class SessionCliCommandTest extends TestCase {
 		$this->assertSame( [ [ 'handle' => $handle, 'label' => 'kea-claude-7731', 'scope' => Capabilities::TUNE ] ], \array_map( static fn ( array $row ): array => \array_intersect_key( $row, [ 'handle' => 0, 'label' => 0, 'scope' => 0 ] ), Sessions::listing() ) );
 	}
 
-	public function test_role_and_ttl_default_to_manage_and_the_session_ttl(): void {
-		( new Session_CLI_Command() )->issue( [ 'kea-claude-7731' ], [] );
+	public function test_issue_defaults_to_tune(): void {
+		( new Session_CLI_Command() )->issue( [ 'Kea desk 4410' ], [] );
 
 		[ $handle ] = \explode( '.', $GLOBALS['_test_wp_cli_lines'][0] );
 		$record     = Command_Auth::load_session_record( $handle );
-		$this->assertSame( Capabilities::MANAGE, $record['scope'] );
+		$this->assertSame( Capabilities::TUNE, $record['scope'] );
 		$this->assertEqualsWithDelta( Command_Auth::SESSION_TTL_S, $record['ttl'], 5 );
+	}
+
+	public function test_issue_refuses_manage_naming_the_carried_roles(): void {
+		$this->assertStringContainsString(
+			'unknown role: manage; use read or tune',
+			$this->refusal( [ 'Kea desk 4410', 'manage' ] )
+		);
 	}
 
 	public function test_no_current_user_is_refused_naming_the_user_flag(): void {
@@ -114,15 +121,11 @@ class SessionCliCommandTest extends TestCase {
 
 	public function test_a_role_the_user_does_not_hold_is_refused_naming_the_highest_held(): void {
 		Roles::install();
-		$GLOBALS['_wp_test_current_user_can'] = [
-			Roles::CAP_READ => true,
-			Roles::CAP_TUNE => true,
-		];
+		$GLOBALS['_wp_test_current_user_can'] = [ Roles::CAP_READ => true ];
 
-		$message = $this->refusal( [ 'kea-claude-7731', 'manage' ] );
+		$message = $this->refusal( [ 'kea-claude-7731', 'tune' ] );
 
-		$this->assertStringContainsString( 'manage', $message );
-		$this->assertStringContainsString( 'tune', $message );
+		$this->assertStringContainsString( 'holds at most read, not tune', $message );
 	}
 
 	public function test_a_user_holding_no_role_is_refused(): void {

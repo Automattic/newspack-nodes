@@ -80,6 +80,24 @@ class AuthControllerScopeTest extends TestCase {
 		);
 	}
 
+	public function test_a_labelled_request_never_carries_manage(): void {
+		$body = ( new Auth_Controller() )->issue( $this->request( [ 'label' => 'Tui laptop' ] ) );
+		$this->assertSame( Capabilities::TUNE, $body['scope'] );
+
+		$result = ( new Auth_Controller() )->issue(
+			$this->request( [ 'label' => 'Tui laptop', 'scope' => Capabilities::MANAGE ] )
+		);
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'invalid_scope', $result->get_error_code() );
+		$this->assertSame( 400, $result->get_error_data()['status'] ?? null );
+	}
+
+	public function test_an_unlabelled_request_keeps_the_admins_manage(): void {
+		$body = ( new Auth_Controller() )->issue( $this->request( [ 'scope' => Capabilities::MANAGE ] ) );
+
+		$this->assertSame( Capabilities::MANAGE, $body['scope'] );
+	}
+
 	public function test_a_requested_scope_is_honoured(): void {
 		$body = ( new Auth_Controller() )->issue( $this->request( [ 'scope' => Capabilities::TUNE ] ) );
 

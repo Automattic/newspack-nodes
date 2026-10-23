@@ -52,7 +52,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 		return [
 			'sessions' => Sessions::listing(),
 			'ttl_max'  => Command_Auth::SESSION_TTL_MAX_S,
-			'scopes'   => [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ],
+			'scopes'   => Capabilities::CARRIED,
 		];
 	}
 
@@ -75,14 +75,14 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: label, scope, ttl.
 	 * @return array<string,mixed> The mint — handle, secret, scope, expires_in, now — plus the label.
-	 * @throws \RuntimeException On a scope off the ladder, or a user holding none of the three roles.
+	 * @throws \RuntimeException On a scope outside `Capabilities::CARRIED`, or a user holding none of the three roles.
 	 * @throws \Newspack_Nodes\Session_Store_Unavailable When the store cannot hold the session; the reply names why.
 	 */
 	public static function cmd_create( array $args ): array {
 		$label = Core::as_string( $args['label'] );
 		$scope = Core::as_string( $args['scope'] );
-		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
-			throw new \RuntimeException( \esc_html( "unknown session scope: {$scope}" ) );
+		if ( ! \in_array( $scope, Capabilities::CARRIED, true ) ) {
+			throw new \RuntimeException( \esc_html( "unknown scope: {$scope}" ) );
 		}
 
 		$granted = Capabilities::highest_held( $scope );
@@ -140,11 +140,11 @@ class Sessions_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'create',
-					'description' => 'Issue a session: `create [<label>] [<scope>] [<ttl>]`, each by position or as `--name=value`; scope is read, tune or manage. The key is shown once.',
+					'description' => 'Issue a session: `create [<label>] [<scope>] [<ttl>]`, each by position or as `--name=value`; scope is read or tune. The key is shown once.',
 					'capability'  => Capabilities::MANAGE,
 					'args'        => [
 						[ 'name' => 'label', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'scope', 'type' => 'string', 'required' => false, 'default' => Capabilities::MANAGE ],
+						[ 'name' => 'scope', 'type' => 'string', 'required' => false, 'default' => Capabilities::TUNE ],
 						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => Command_Auth::SESSION_TTL_S ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_create( $args ),
