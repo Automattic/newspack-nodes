@@ -402,18 +402,43 @@ if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
 }
 
 if ( ! function_exists( 'sanitize_text_field' ) ) {
-	// Mirrors WordPress's _sanitize_text_fields(), percent-octet removal too.
-	function sanitize_text_field( mixed $v ): string {
-		if ( ! is_string( $v ) ) {
+	/**
+	 * Core's `_sanitize_text_fields( $str, false )`, step for step
+	 * (wp-includes/formatting.php:5708-5747): invalid UTF-8 empties the value
+	 * (`wp_check_invalid_utf8()`, :1127), a lone `<` is escaped
+	 * (`wp_pre_kses_less_than()`, :5263) and tags with script and style bodies
+	 * are stripped (`wp_strip_all_tags()`, :5600), `[\r\n\t ]+` folds to one
+	 * space, then percent octets go. Every other control character, ESC and
+	 * C1 included, is kept, because core keeps it.
+	 *
+	 * @param mixed $str The value.
+	 * @return string The value as core sanitizes it, without the filter.
+	 */
+	function sanitize_text_field( mixed $str ): string {
+		if ( \is_object( $str ) || \is_array( $str ) ) {
 			return '';
 		}
-		$v = \strip_tags( $v );
-		$v = \preg_replace( '/[\x00-\x1F\x7F]/', '', $v ) ?? $v;
-		while ( \preg_match( '/%[a-f0-9]{2}/i', $v, $octet ) ) {
-			$v = \str_replace( $octet[0], '', $v );
+		$filtered = (string) $str;
+		if ( ! \mb_check_encoding( $filtered, 'UTF-8' ) ) {
+			return '';
 		}
-		$v = \preg_replace( '/\s+/', ' ', $v ) ?? $v;
-		return \trim( $v );
+		if ( \str_contains( $filtered, '<' ) ) {
+			$filtered = \preg_replace_callback(
+				'%<[^>]*?((?=<)|>|$)%',
+				static fn ( array $m ): string => \str_contains( $m[0], '>' ) ? $m[0] : \esc_html( $m[0] ),
+				$filtered
+			) ?? '';
+			$filtered = \preg_replace( '@<(script|style)[^>]*?>.*?</\\1>@si', '', $filtered ) ?? '';
+			$filtered = \trim( \strip_tags( $filtered ) );
+			$filtered = \str_replace( "<\n", "&lt;\n", $filtered );
+		}
+		$filtered = \trim( \preg_replace( '/[\r\n\t ]+/', ' ', $filtered ) ?? '' );
+		$found    = false;
+		while ( \preg_match( '/%[a-f0-9]{2}/i', $filtered, $match ) ) {
+			$filtered = \str_replace( $match[0], '', $filtered );
+			$found    = true;
+		}
+		return $found ? \trim( \preg_replace( '/ +/', ' ', $filtered ) ?? '' ) : $filtered;
 	}
 }
 

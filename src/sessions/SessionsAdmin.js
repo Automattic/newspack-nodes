@@ -3,9 +3,10 @@
  *
  * Vault's mirror: Vault lists the credentials this site sends OUT, this lists
  * the ones it hands to callers coming IN — an agent's MCP client, a script on
- * a laptop. `useSessionsGraph` owns the data and the transport, so every
- * component here is presentation over the model that hook returns and over the
- * two verbs it exposes.
+ * a laptop — and, below them, the OAuth connections people approved, each of
+ * which mints its own sessions. `useSessionsGraph` owns the data and the
+ * transport, so every component here is presentation over the model that hook
+ * returns and over the two verbs it exposes.
  *
  * The key is disclosed exactly once, in the create answer. The verifier
  * recomputes an HMAC from it, so it is stored recoverable rather than hashed
@@ -99,11 +100,90 @@ function when( seconds ) {
 }
 
 /**
- * One issued session: its label, scope, timestamps and a Revoke button.
+ * A scope as the tables show it, one badge class per scope.
  *
- * The row owns no answer state. A revoke answers once, naming its handle, and
- * the graph keeps that answer per handle, so a row keeps its own line while a
- * sibling is revoked in the same second.
+ * @param {Object} props
+ * @param {string} props.scope The scope name.
+ * @return {import('react').ReactElement} The badge.
+ */
+function ScopeBadge( { scope } ) {
+	return (
+		<span
+			className={ `newspack-nodes-badge nodes-sessions__scope is-${ scope }` }
+		>
+			{ scope }
+		</span>
+	);
+}
+
+/**
+ * A row's Revoke button, its last answer and the confirmation it asks first.
+ *
+ * The cell owns no answer state. A revoke answers once, naming the id it was
+ * about, and the graph keeps that answer per id, so a row keeps its own line
+ * while a sibling is revoked in the same second.
+ *
+ * @param {Object}   props
+ * @param {string}   props.id       The session handle or grant id to revoke.
+ * @param {?Object}  props.answer   This row's last answer, or null.
+ * @param {boolean}  props.busy     Whether a revoke of this row is outstanding.
+ * @param {Function} props.onRevoke Revoke callback, taking the id.
+ * @param {string}   props.title    The confirmation dialog's accessible name.
+ * @param {string}   props.warning  What revoking ends, as the dialog says it.
+ * @return {import('react').ReactElement} The rendered cell.
+ */
+function RevokeCell( { id, answer, busy, onRevoke, title, warning } ) {
+	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
+	const status = answerStatus( answer, REVOKE_TEXTS, busy ).text;
+
+	const confirmRevoke = () => {
+		setIsConfirmOpen( false );
+		onRevoke( id );
+	};
+
+	return (
+		<td>
+			<button
+				type="button"
+				className="button button-small button-link-delete"
+				disabled={ busy }
+				onClick={ () => setIsConfirmOpen( true ) }
+			>
+				{ __( 'Revoke', 'newspack-nodes' ) }
+			</button>
+			{ status && (
+				<div className="nodes-sessions__row-status">{ status }</div>
+			) }
+			{ isConfirmOpen && (
+				<Modal
+					ariaLabel={ title }
+					onClose={ () => setIsConfirmOpen( false ) }
+				>
+					<p>{ warning }</p>
+					<div className="newspack-nodes-modal__actions">
+						<button
+							type="button"
+							className="button"
+							onClick={ () => setIsConfirmOpen( false ) }
+						>
+							{ __( 'Cancel', 'newspack-nodes' ) }
+						</button>
+						<button
+							type="button"
+							className="button button-link-delete"
+							onClick={ confirmRevoke }
+						>
+							{ __( 'Revoke', 'newspack-nodes' ) }
+						</button>
+					</div>
+				</Modal>
+			) }
+		</td>
+	);
+}
+
+/**
+ * One issued session: its label, scope, timestamps and a Revoke button.
  *
  * Every listed row is live: `Sessions::listing()` lists a session only while
  * its row in the session store stands, and reads each fact from that row.
@@ -117,71 +197,103 @@ function when( seconds ) {
  */
 function SessionRow( { session, answer, busy, onRevoke } ) {
 	const { handle, label, scope, expires, created } = session;
-	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
-	const status = answerStatus( answer, REVOKE_TEXTS, busy ).text;
-
-	const confirmRevoke = () => {
-		setIsConfirmOpen( false );
-		onRevoke( handle );
-	};
-
 	return (
 		<tr data-session-handle={ handle }>
 			<td>
 				{ label || <em>{ __( '(unlabelled)', 'newspack-nodes' ) }</em> }
 			</td>
 			<td>
-				<span
-					className={ `newspack-nodes-badge nodes-sessions__scope is-${ scope }` }
-				>
-					{ scope }
-				</span>
+				<ScopeBadge scope={ scope } />
 			</td>
 			<td>{ when( created ) }</td>
 			<td>{ when( expires ) }</td>
-			<td>
-				<button
-					type="button"
-					className="button button-small button-link-delete"
-					disabled={ busy }
-					onClick={ () => setIsConfirmOpen( true ) }
-				>
-					{ __( 'Revoke', 'newspack-nodes' ) }
-				</button>
-				{ status && (
-					<div className="nodes-sessions__row-status">{ status }</div>
+			<RevokeCell
+				id={ handle }
+				answer={ answer }
+				busy={ busy }
+				onRevoke={ onRevoke }
+				title={ __( 'Revoke session', 'newspack-nodes' ) }
+				warning={ __(
+					'Revoking stops this key verifying immediately. Anything holding it will need a new one.',
+					'newspack-nodes'
 				) }
-				{ isConfirmOpen && (
-					<Modal
-						ariaLabel={ __( 'Revoke session', 'newspack-nodes' ) }
-						onClose={ () => setIsConfirmOpen( false ) }
-					>
-						<p>
-							{ __(
-								'Revoking stops this key verifying immediately. Anything holding it will need a new one.',
-								'newspack-nodes'
-							) }
-						</p>
-						<div className="newspack-nodes-modal__actions">
-							<button
-								type="button"
-								className="button"
-								onClick={ () => setIsConfirmOpen( false ) }
-							>
-								{ __( 'Cancel', 'newspack-nodes' ) }
-							</button>
-							<button
-								type="button"
-								className="button button-link-delete"
-								onClick={ confirmRevoke }
-							>
-								{ __( 'Revoke', 'newspack-nodes' ) }
-							</button>
-						</div>
-					</Modal>
-				) }
-			</td>
+			/>
 		</tr>
+	);
+}
+
+/**
+ * One OAuth connection: the name its approver gave it, the name its client
+ * registered, its scope, when it was approved and expires, and a Revoke
+ * button. A connection lists whether or not it holds a live session, and
+ * revoking it ends the grant and every session it minted.
+ *
+ * @param {Object}   props
+ * @param {Object}   props.connection A row from the view model.
+ * @param {?Object}  props.answer     This row's last answer, or null.
+ * @param {boolean}  props.busy       Whether a revoke of this row is outstanding.
+ * @param {Function} props.onRevoke   Revoke callback, taking the grant id.
+ * @return {import('react').ReactElement} The rendered row.
+ */
+function ConnectionRow( { connection, answer, busy, onRevoke } ) {
+	const { grant, name, client, scope, created, expires } = connection;
+	return (
+		<tr data-connection-grant={ grant }>
+			<td>{ name }</td>
+			<td>{ client || '—' }</td>
+			<td>
+				<ScopeBadge scope={ scope } />
+			</td>
+			<td>{ when( created ) }</td>
+			<td>{ when( expires ) }</td>
+			<RevokeCell
+				id={ grant }
+				answer={ answer }
+				busy={ busy }
+				onRevoke={ onRevoke }
+				title={ __( 'Revoke connection', 'newspack-nodes' ) }
+				warning={ __(
+					'Revoking ends this connection and every session it minted. The client must sign in again to reconnect.',
+					'newspack-nodes'
+				) }
+			/>
+		</tr>
+	);
+}
+
+/**
+ * A listing table: its header row, then its rows, or one row saying it is
+ * empty.
+ *
+ * @param {Object}                         props
+ * @param {string}                         props.className Names which listing it is.
+ * @param {Array<[string, string]>}        props.columns   Each header and its width.
+ * @param {string}                         props.empty     What an empty listing says.
+ * @param {import('react').ReactElement[]} props.rows      The rows.
+ * @return {import('react').ReactElement} The table.
+ */
+function ListTable( { className, columns, empty, rows } ) {
+	return (
+		<table className={ `newspack-nodes-table ${ className }` }>
+			<thead>
+				<tr>
+					{ columns.map( ( [ header, width ] ) => (
+						<th key={ header } style={ { width } }>
+							{ header }
+						</th>
+					) ) }
+				</tr>
+			</thead>
+			<tbody>
+				{ rows.length > 0 ? (
+					rows
+				) : (
+					<tr>
+						<td colSpan={ columns.length }>{ empty }</td>
+					</tr>
+				) }
+			</tbody>
+		</table>
 	);
 }
 
@@ -441,11 +553,12 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 	const [ answers, setAnswers ] = useState( {} );
 	const {
 		sessions,
+		connections,
 		scopes,
 		ttlMax,
 		error,
 		createSession,
-		revokeSession,
+		revoke,
 		pendingVerb,
 	} = useSessionsGraph( {
 		onAnswer: ( { verb, subject, error: refusal, result } ) => {
@@ -483,51 +596,49 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 				</div>
 			) }
 			<HeaderSlot slot={ headerControlsSlot }>{ controls }</HeaderSlot>
-			<table className="newspack-nodes-table">
-				<thead>
-					<tr>
-						<th style={ { width: '30%' } }>
-							{ __( 'Label', 'newspack-nodes' ) }
-						</th>
-						<th style={ { width: '12%' } }>
-							{ __( 'Scope', 'newspack-nodes' ) }
-						</th>
-						<th style={ { width: '20%' } }>
-							{ __( 'Issued', 'newspack-nodes' ) }
-						</th>
-						<th style={ { width: '20%' } }>
-							{ __( 'Expires', 'newspack-nodes' ) }
-						</th>
-						<th style={ { width: '18%' } }>
-							{ __( 'Actions', 'newspack-nodes' ) }
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{ sessions && sessions.length > 0 ? (
-						sessions.map( ( session ) => (
-							<SessionRow
-								key={ session.handle }
-								session={ session }
-								answer={ answers[ session.handle ] ?? null }
-								busy={ Boolean(
-									pendingVerb( session.handle )
-								) }
-								onRevoke={ revokeSession }
-							/>
-						) )
-					) : (
-						<tr>
-							<td colSpan={ 5 }>
-								{ __(
-									'No sessions issued.',
-									'newspack-nodes'
-								) }
-							</td>
-						</tr>
-					) }
-				</tbody>
-			</table>
+			<h3>{ __( 'Issued sessions', 'newspack-nodes' ) }</h3>
+			<ListTable
+				className="nodes-sessions__sessions"
+				columns={ [
+					[ __( 'Label', 'newspack-nodes' ), '30%' ],
+					[ __( 'Scope', 'newspack-nodes' ), '12%' ],
+					[ __( 'Issued', 'newspack-nodes' ), '20%' ],
+					[ __( 'Expires', 'newspack-nodes' ), '20%' ],
+					[ __( 'Actions', 'newspack-nodes' ), '18%' ],
+				] }
+				empty={ __( 'No sessions issued.', 'newspack-nodes' ) }
+				rows={ ( sessions ?? [] ).map( ( session ) => (
+					<SessionRow
+						key={ session.handle }
+						session={ session }
+						answer={ answers[ session.handle ] ?? null }
+						busy={ Boolean( pendingVerb( session.handle ) ) }
+						onRevoke={ revoke }
+					/>
+				) ) }
+			/>
+			<h3>{ __( 'Connections', 'newspack-nodes' ) }</h3>
+			<ListTable
+				className="nodes-sessions__connections"
+				columns={ [
+					[ __( 'Connection', 'newspack-nodes' ), '20%' ],
+					[ __( 'Client', 'newspack-nodes' ), '18%' ],
+					[ __( 'Scope', 'newspack-nodes' ), '10%' ],
+					[ __( 'Approved', 'newspack-nodes' ), '18%' ],
+					[ __( 'Expires', 'newspack-nodes' ), '18%' ],
+					[ __( 'Actions', 'newspack-nodes' ), '16%' ],
+				] }
+				empty={ __( 'No connections approved.', 'newspack-nodes' ) }
+				rows={ ( connections ?? [] ).map( ( connection ) => (
+					<ConnectionRow
+						key={ connection.grant }
+						connection={ connection }
+						answer={ answers[ connection.grant ] ?? null }
+						busy={ Boolean( pendingVerb( connection.grant ) ) }
+						onRevoke={ revoke }
+					/>
+				) ) }
+			/>
 
 			{ isCreateOpen && issued && (
 				<IssuedKeyModal session={ issued } onClose={ closeCreate } />

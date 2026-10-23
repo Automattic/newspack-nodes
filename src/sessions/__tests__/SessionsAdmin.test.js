@@ -40,8 +40,19 @@ const SESSIONS = [
 	},
 ];
 
+const CONNECTIONS = [
+	{
+		grant: 'g-7746',
+		name: 'Tui laptop',
+		client: 'Kea Desk 4410',
+		scope: 'read',
+		created: 1790027746,
+		expires: 1792619746,
+	},
+];
+
 let createSession;
-let revokeSession;
+let revoke;
 let graphOpts = {};
 // What the graph reports as outstanding; the screen asks rather than keeping a
 // flag of its own.
@@ -50,19 +61,20 @@ let pendingSubjects = [];
 beforeEach( () => {
 	Core.reset();
 	createSession = jest.fn();
-	revokeSession = jest.fn();
+	revoke = jest.fn();
 	graphOpts = {};
 	pendingSubjects = [];
 	useSessionsGraph.mockImplementation( ( opts = {} ) => {
 		graphOpts = opts;
 		return {
 			sessions: SESSIONS,
+			connections: CONNECTIONS,
 			scopes: [ 'read', 'tune' ],
 			ttlMax: 86400,
 			loading: false,
 			error: null,
 			createSession,
-			revokeSession,
+			revoke,
 			pendingVerb: ( subject ) =>
 				pendingSubjects.includes( subject ) ? 'revoke' : null,
 		};
@@ -74,7 +86,11 @@ beforeEach( () => {
 const answer = ( verb, { subject, error = null, result = null } ) =>
 	act( () => graphOpts.onAnswer?.( { verb, subject, error, result } ) );
 
-const rowsOf = ( container ) => container.querySelectorAll( 'tbody tr' );
+const rowsOf = ( container ) =>
+	container.querySelectorAll( '.nodes-sessions__sessions tbody tr' );
+
+const connectionRowsOf = ( container ) =>
+	container.querySelectorAll( '.nodes-sessions__connections tbody tr' );
 
 const clickRevoke = ( row ) =>
 	act( () =>
@@ -99,8 +115,8 @@ it( 'revokes the handle the row is about', () => {
 	clickRevoke( rowsOf( container )[ 0 ] );
 	confirmDialog();
 
-	expect( revokeSession ).toHaveBeenCalledWith( 'h-4471' );
-	expect( revokeSession ).toHaveBeenCalledTimes( 1 );
+	expect( revoke ).toHaveBeenCalledWith( 'h-4471' );
+	expect( revoke ).toHaveBeenCalledTimes( 1 );
 } );
 
 // @longform Two rows revoked in the same second are two subjects, and each row
@@ -207,7 +223,7 @@ it( 'takes the default scope once the list answers after the form opened', () =>
 		loading: false,
 		error: null,
 		createSession,
-		revokeSession,
+		revoke,
 		pendingVerb: () => null,
 	} );
 	useSessionsGraph.mockImplementation( () => graph( [] ) );
@@ -234,7 +250,7 @@ it( 'offers manage with its blurb once the server lists it', () => {
 			loading: false,
 			error: null,
 			createSession,
-			revokeSession,
+			revoke,
 			pendingVerb: () => null,
 		};
 	} );
@@ -351,9 +367,9 @@ it( 'renders each session with its scope and times', () => {
 
 it( 'lists no state column: every listed session is live', () => {
 	const { container } = render( <SessionsAdmin /> );
-	const headers = [ ...container.querySelectorAll( 'thead th' ) ].map(
-		( th ) => th.textContent
-	);
+	const headers = [
+		...container.querySelectorAll( '.nodes-sessions__sessions thead th' ),
+	].map( ( th ) => th.textContent );
 	expect( headers ).toEqual( [
 		'Label',
 		'Scope',
@@ -373,7 +389,7 @@ it( 'says so when no session has been issued', () => {
 			loading: false,
 			error: null,
 			createSession,
-			revokeSession,
+			revoke,
 			pendingVerb: () => null,
 		};
 	} );
@@ -391,7 +407,7 @@ it( 'surfaces a graph error in the banner', () => {
 			loading: false,
 			error: 'sessions unavailable',
 			createSession,
-			revokeSession,
+			revoke,
 			pendingVerb: () => null,
 		};
 	} );
@@ -409,6 +425,98 @@ it( 'cancels a revoke without sending it', () => {
 			new Event( 'click', { bubbles: true } )
 		)
 	);
-	expect( revokeSession ).not.toHaveBeenCalled();
+	expect( revoke ).not.toHaveBeenCalled();
 	expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+} );
+
+// A connection is listed by the name its approver gave it, idle or not, and
+// revoked by its grant: the verb ends the grant and every session it minted.
+it( 'lists each connection with its name, client, scope and times', () => {
+	const { container } = render( <SessionsAdmin /> );
+	const headers = [
+		...container.querySelectorAll(
+			'.nodes-sessions__connections thead th'
+		),
+	].map( ( th ) => th.textContent );
+	const row = connectionRowsOf( container )[ 0 ];
+
+	expect( headers ).toEqual( [
+		'Connection',
+		'Client',
+		'Scope',
+		'Approved',
+		'Expires',
+		'Actions',
+	] );
+	expect( row.textContent ).toContain( 'Tui laptop' );
+	expect( row.textContent ).toContain( 'Kea Desk 4410' );
+	expect( row.querySelector( '.nodes-sessions__scope' ).textContent ).toBe(
+		'read'
+	);
+	expect( row.textContent ).toContain(
+		new Date( 1790027746 * 1000 ).toLocaleString()
+	);
+	expect( row.textContent ).toContain(
+		new Date( 1792619746 * 1000 ).toLocaleString()
+	);
+} );
+
+it( 'revokes a connection by its grant', () => {
+	const { container } = render( <SessionsAdmin /> );
+	clickRevoke( connectionRowsOf( container )[ 0 ] );
+	expect( document.querySelector( '[role="dialog"]' ).textContent ).toMatch(
+		/every session it minted/i
+	);
+	confirmDialog();
+
+	expect( revoke ).toHaveBeenCalledWith( 'g-7746' );
+	expect( revoke ).toHaveBeenCalledTimes( 1 );
+} );
+
+it( 'shows a connection’s refusal on its own row', () => {
+	const { container } = render( <SessionsAdmin /> );
+	answer( 'revoke', { subject: 'g-7746', error: 'store refused 7746' } );
+
+	expect( connectionRowsOf( container )[ 0 ].textContent ).toContain(
+		'store refused 7746'
+	);
+} );
+
+it( 'names a connection whose client registration lapsed with a dash', () => {
+	useSessionsGraph.mockImplementation( () => ( {
+		sessions: [],
+		connections: [ { ...CONNECTIONS[ 0 ], client: '' } ],
+		scopes: [],
+		ttlMax: 0,
+		loading: false,
+		error: null,
+		createSession,
+		revoke,
+		pendingVerb: () => null,
+	} ) );
+	const { container } = render( <SessionsAdmin /> );
+
+	expect(
+		connectionRowsOf( container )[ 0 ].querySelectorAll( 'td' )[ 1 ]
+			.textContent
+	).toBe( '—' );
+} );
+
+it( 'says so when no connection has been approved', () => {
+	useSessionsGraph.mockImplementation( () => ( {
+		sessions: SESSIONS,
+		connections: [],
+		scopes: [],
+		ttlMax: 0,
+		loading: false,
+		error: null,
+		createSession,
+		revoke,
+		pendingVerb: () => null,
+	} ) );
+	const { container } = render( <SessionsAdmin /> );
+
+	expect( connectionRowsOf( container )[ 0 ].textContent ).toBe(
+		'No connections approved.'
+	);
 } );

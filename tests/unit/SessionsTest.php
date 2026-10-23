@@ -157,9 +157,22 @@ class SessionsTest extends TestCase {
 			Sessions::revoke( 'nsh-absent-3390' );
 			$this->fail( 'expected a refusal' );
 		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'no session with handle nsh-absent-3390', $e->getMessage() );
+			$this->assertSame( 'no session or connection with id nsh-absent-3390', $e->getMessage() );
 		}
 		$this->assertArrayHasKey( $bystander['handle'], self::listed(), 'a refused revoke touches no other session' );
+	}
+
+	/**
+	 * A kept name carries no C0 or C1 control character and no DEL, so no
+	 * label or client name can drive the terminal that lists it.
+	 */
+	public function test_a_kept_name_holds_no_control_character(): void {
+		$this->assertSame( 'Kea[2K 2J Desk', Sessions::clean_label( "Kea\x1b[2K \xC2\x9B2J Desk\x7F" ) );
+	}
+
+	/** ESC alone, which `sanitize_text_field()` keeps, never reaches storage. */
+	public function test_a_kept_name_holds_no_escape(): void {
+		$this->assertSame( 'Kea[2K Desk', Sessions::clean_label( "Kea\x1b[2K Desk" ) );
 	}
 
 	/** Only a handle reaches the store, so a revoke never deletes an OAuth row. */
@@ -168,7 +181,7 @@ class SessionsTest extends TestCase {
 
 		$refused = $this->caught( static fn () => Sessions::revoke( "oauth:client:{$client}" ), 'expected a refusal' );
 
-		$this->assertSame( "no session with handle oauth:client:{$client}", $refused->getMessage() );
+		$this->assertSame( "no session or connection with id oauth:client:{$client}", $refused->getMessage() );
 		$this->assertNotNull( Oauth_Store::client( $client ), 'the OAuth row survives' );
 	}
 
@@ -183,7 +196,7 @@ class SessionsTest extends TestCase {
 			Sessions::revoke( 'kaka-3390' );
 			$this->fail( 'expected a refusal' );
 		} catch ( \RuntimeException $e ) {
-			$this->assertSame( "no session with handle kaka-3390; the label kaka-3390 names {$newer['handle']}, {$older['handle']}", $e->getMessage() );
+			$this->assertSame( "no session or connection with id kaka-3390; the label kaka-3390 names {$newer['handle']}, {$older['handle']}", $e->getMessage() );
 		}
 		$this->assertArrayHasKey( $older['handle'], self::listed() );
 		$this->assertArrayHasKey( $newer['handle'], self::listed() );

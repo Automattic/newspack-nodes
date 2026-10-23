@@ -5,6 +5,9 @@
  * catalog in the substrate. `useCatalogSlice` owns the poll, so a refused tick
  * keeps what is on screen rather than emptying the table.
  *
+ * Revoke serves both tables: a session goes by its handle, an OAuth
+ * connection by its grant id, and the server tells the two apart.
+ *
  * ONE node per verb serves every row, because the SUBJECT rides in the ADDRESS.
  * A revoke of `h-4471` is minted FROM `sessions:revoke:in/h-4471`; the server
  * echoes TO = FROM; the Router peels `sessions:revoke:in` off and the answer
@@ -41,7 +44,7 @@ const LIST_INTERVAL_MS = 5000;
  *                                         reply's address. It is the first
  *                                         argument token, so a create answers
  *                                         to its label and a revoke to its
- *                                         handle.
+ *                                         handle or grant id.
  * @property {?Object}           result    What the verb returned, or null when
  *                                         it refused. A create's response is
  *                                         the only place the session key is
@@ -56,8 +59,8 @@ const LIST_INTERVAL_MS = 5000;
  * @param {(answer: SessionAnswer) => void} [o.onAnswer] Runs once per reply,
  *                                                       naming the row it was
  *                                                       about.
- * @return {{createSession: (fields: {label: string, scope: string, ttl: number}) => void, revokeSession: (handle: string) => void, pendingVerb: (subject: ?string) => ?string, sessions: ?Object[], scopes: string[], ttlMax: number, loading: boolean, error: ?string, refresh: () => void}}
- *   The table's model and the two verbs; each answer reaches the caller
+ * @return {{createSession: (fields: {label: string, scope: string, ttl: number}) => void, revoke: (id: string) => void, pendingVerb: (subject: ?string) => ?string, sessions: ?Object[], connections: ?Object[], scopes: string[], ttlMax: number, loading: boolean, error: ?string, refresh: () => void}}
+ *   The tables' model and the two verbs; each answer reaches the caller
  *   through `onAnswer`.
  */
 export function useSessionsGraph( { onAnswer } = {} ) {
@@ -83,14 +86,14 @@ export function useSessionsGraph( { onAnswer } = {} ) {
 		command: 'create',
 		onDone: answered( 'create' ),
 	} );
-	const revoke = useCommandOnce( {
+	const revocation = useCommandOnce( {
 		group: GROUP,
 		ci: SESSIONS_CI,
 		command: 'revoke',
 		onDone: answered( 'revoke' ),
 	} );
 	const { run: runCreate } = create;
-	const { run: runRevoke } = revoke;
+	const { run: runRevoke } = revocation;
 
 	// WHICH verb a row waits on; the outbox knows, so the screen asks.
 	const pendingVerb = useCallback(
@@ -98,9 +101,9 @@ export function useSessionsGraph( { onAnswer } = {} ) {
 			if ( create.isPending( subject ) ) {
 				return 'create';
 			}
-			return revoke.isPending( subject ) ? 'revoke' : null;
+			return revocation.isPending( subject ) ? 'revoke' : null;
 		},
-		[ create, revoke ]
+		[ create, revocation ]
 	);
 
 	const createSession = useCallback(
@@ -109,18 +112,19 @@ export function useSessionsGraph( { onAnswer } = {} ) {
 		[ runCreate ]
 	);
 
-	const revokeSession = useCallback(
-		( handle ) => runRevoke( formatCommandArgs( [ handle ] ) ),
+	const revoke = useCallback(
+		( id ) => runRevoke( formatCommandArgs( [ id ] ) ),
 		[ runRevoke ]
 	);
 
 	return {
 		...list,
 		sessions: list.sessions ?? null,
+		connections: list.connections ?? null,
 		scopes: list.scopes ?? [],
 		ttlMax: list.ttlMax ?? 0,
 		createSession,
-		revokeSession,
+		revoke,
 		pendingVerb,
 	};
 }

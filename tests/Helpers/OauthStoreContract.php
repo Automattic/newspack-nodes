@@ -488,8 +488,13 @@ abstract class OauthStoreContract extends TestCase {
 		$this->assertSame( [], \array_filter( $this->members(), static fn ( array $row ): bool => $row['member'] === $session['handle'] ) );
 	}
 
+	/**
+	 * A connection names its client by the name the client registered; one
+	 * whose registration lapsed names none.
+	 */
 	public function test_grants_lists_live_connections_newest_first_and_skips_revoked(): void {
-		$tui      = Oauth_Store::open_grant( self::approval( 'Tui laptop' ) );
+		$client   = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] )['id'];
+		$tui      = Oauth_Store::open_grant( [ 'client' => $client ] + self::approval( 'Tui laptop' ) );
 		$this->at = self::T0 + 10;
 		$kaka     = Oauth_Store::open_grant( self::approval( 'Kaka desk' ) );
 		$this->at = self::T0 + 20;
@@ -503,7 +508,7 @@ abstract class OauthStoreContract extends TestCase {
 				[
 					'grant'   => $weka['grant'],
 					'name'    => 'Weka phone',
-					'client'  => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+					'client'  => '',
 					'scope'   => Capabilities::READ,
 					'created' => self::T0 + 20,
 					'expires' => self::T0 + 20 + 30 * self::DAY,
@@ -511,7 +516,7 @@ abstract class OauthStoreContract extends TestCase {
 				[
 					'grant'   => $tui['grant'],
 					'name'    => 'Tui laptop',
-					'client'  => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+					'client'  => 'Kea Desk 4410',
 					'scope'   => Capabilities::READ,
 					'created' => self::T0,
 					'expires' => self::T0 + 30 * self::DAY,
@@ -519,6 +524,14 @@ abstract class OauthStoreContract extends TestCase {
 			],
 			Oauth_Store::grants()
 		);
+	}
+
+	/** A client's registered name keeps no escape sequence to print later. */
+	public function test_a_client_named_with_an_escape_stores_none(): void {
+		$client = Oauth_Store::register_client( "Kea\x1b[2K Desk\xC2\x9B", [ 'https://claude.ai/api/mcp/auth_callback' ] );
+
+		$this->assertSame( 'Kea[2K Desk', $client['name'] );
+		$this->assertSame( 'Kea[2K Desk', Oauth_Store::client( $client['id'] )['name'] ?? null );
 	}
 
 	public function test_revoke_all_sessions_empties_every_oauth_row(): void {

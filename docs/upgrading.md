@@ -6,6 +6,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`sessions revoke` takes `id`, not `handle`, and answers `{ id, revoked }`.**
+  A caller naming the argument sends `--id=<handle>`; a positional caller
+  changes nothing. Read `id` from the reply where it read `handle`. `wp nodes
+  session list --format=json` rows carry `id`, `kind` and `client` in place of
+  `handle`: read a session's handle from `id` where `kind` is `session`. The
+  refusal for an id naming nothing reads `no session or connection with id
+  <id>`, not `no session with handle <id>`, and `--all` prints `Revoked every
+  session and connection.`
 - **`Admin::maybe_request_worker_restart()` is removed; a settings page
   calls `Restart_Planner::listen( $schema )`.** Register it once where the
   page's hooks are wired, with the plugin's `Config_System\Schema`, whose
