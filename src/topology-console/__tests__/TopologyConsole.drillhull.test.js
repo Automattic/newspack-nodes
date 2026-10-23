@@ -255,7 +255,7 @@ describe( 'TopologyConsole — drilling into a hull', () => {
 		} );
 		await act( async () => {
 			globalThis.__drillHooks.onSaved( {
-				result: { name: 'beta', shadows_stock: false },
+				result: { name: 'beta' },
 				error: null,
 				args: [ 'beta' ],
 			} );
@@ -342,7 +342,7 @@ describe( 'TopologyConsole — drilling into a hull', () => {
 		} );
 		await act( async () => {
 			globalThis.__drillHooks.onSaved( {
-				result: { name: 'beta', shadows_stock: false },
+				result: { name: 'beta' },
 				error: null,
 				args: [ 'beta' ],
 			} );

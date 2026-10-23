@@ -595,3 +595,18 @@ describe( 'TopologyRow partition badges', () => {
 		expect( badge.getAttribute( 'href' ) ).toContain( 'partition=0' );
 	} );
 } );
+
+describe( 'TopologyRow source badge', () => {
+	it( "labels an operator's topology plainly as user", () => {
+		const props = rowProps();
+		props.topology = {
+			...props.topology,
+			name: 'kea-5512',
+			source: 'user',
+		};
+		const { container } = render( <TopologyRow { ...props } /> );
+		expect(
+			container.querySelector( '.nodes-tm__badge--user' ).textContent
+		).toBe( 'user' );
+	} );
+} );

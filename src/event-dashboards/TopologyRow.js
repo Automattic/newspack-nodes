@@ -65,27 +65,24 @@ export const consoleHref = (
 };
 
 /**
- * Provenance badge text per source: a topology a plugin ships, one the operator
- * wrote, or an operator file shadowing a stock topology of the same name.
+ * Provenance badge text per source: a topology a plugin ships, or one the
+ * operator wrote.
  *
  * @type {Object<string,string>}
  */
 const SOURCE_LABELS = {
 	stock: __( 'stock', 'newspack-nodes' ),
-	user: __( 'user only', 'newspack-nodes' ),
-	both: __( 'user ▸ shadows stock', 'newspack-nodes' ),
+	user: __( 'user', 'newspack-nodes' ),
 };
 
 /**
- * Badge tone per source. Shadowing is the warning tone because the topology
- * running is then not the one the plugin ships.
+ * Badge tone per source.
  *
  * @type {Object<string,string>}
  */
 const SOURCE_TONES = {
 	stock: 'is-info',
 	user: 'is-neutral',
-	both: 'is-warning',
 };
 
 /**

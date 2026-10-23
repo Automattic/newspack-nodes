@@ -679,14 +679,6 @@ describe( 'distinctive canonical roles', () => {
 			'--ink-3',
 			SENTINELS.ink3,
 		],
-		[
-			'both',
-			'is-warning',
-			'--brass-subtle',
-			SENTINELS.brassSubtle,
-			'--brass-text',
-			SENTINELS.brassText,
-		],
 	] )(
 		'renders %s provenance through the canonical status pill and semantic tone',
 		(

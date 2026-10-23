@@ -17,7 +17,7 @@ describe( 'OpenTopologyModal', () => {
 				topologies={ [
 					{
 						name: 'modal-contract-probe',
-						source: 'both',
+						source: 'stock',
 						active: true,
 					},
 				] }
@@ -103,7 +103,7 @@ describe( 'OpenTopologyModal', () => {
 			'.topology-open-group__title'
 		);
 		const titles = Array.from( groups ).map( ( g ) => g.textContent );
-		// Order = user / both / stock; "both" is skipped because empty.
+		// Order = user / stock.
 		expect( titles ).toEqual( [ 'user', 'stock' ] );
 	} );
 

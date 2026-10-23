@@ -26,7 +26,7 @@ import { TOPOLOGIES_CI } from './useCatalogs';
  *
  * @param {OnDone} [onDone] Runs once per reply. `args[0]` is the topology the
  *                          reply answered for, and `result` carries the verb's
- *                          `{name, path, shadows_stock, restarted_fleets}`;
+ *                          `{name, path, restarted_fleets}`;
  *                          `restarted_fleets` is what tells the operator which
  *                          workers the write took down and brought back.
  * @return {{save: ( o: {name: string, tsl: string} ) => void, pending: boolean}}

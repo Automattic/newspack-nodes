@@ -11,7 +11,7 @@
  * Verbs:
  *   dump   — no args. Returns `{topologies: [{name, source, active,
  *            num_partitions, frontmatter, includes}], user_dir}`. `source` is
- *            'user'|'stock'|'both'; `active` is the catalog narrowed by the
+ *            'user'|'stock'; `active` is the catalog narrowed by the
  *            `topologies` config key, which is what a spawn would start;
  *            `num_partitions` is the canonical count (Bootstrap::num_partitions_for).
  *   get    — args `{name}`. Returns `{name, source, tsl, includes, expanded,
@@ -19,8 +19,8 @@
  *            `expanded` contains only borrowed include members, while
  *            `resolved_config_edges` carries the whole topology's
  *            token-resolved config routing for the console's seed.
- *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
- *            restarted_fleets}`, under a 1 MiB envelope cap. The body is
+ *   save   — args `{name, tsl}`. Returns `{name, path, restarted_fleets}`,
+ *            under a 1 MiB envelope cap. The body is
  *            dry-run validated through Shell_Node::parse_statements and
  *            Topology_Analyzer::expand, which rejects an unknown include, a
  *            cycle, or a make_node the body and an include declare differently
@@ -195,20 +195,16 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
-	 * label (shared by dump+get so the source flag stays consistent).
+	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'
+	 * label (shared by dump+get so the source flag stays consistent). A stock
+	 * name is stock: the stock file resolves ahead of a user file beside it.
 	 *
 	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
 	 *
-	 * @return string One of 'user', 'stock' or 'both'.
+	 * @return string 'user' or 'stock'.
 	 */
 	private static function source_of( array $sources ): string {
-		$has_user  = null !== ( $sources['user'] ?? null );
-		$has_stock = ! empty( $sources['stock'] );
-		if ( $has_user && $has_stock ) {
-			return 'both';
-		}
-		return $has_user ? 'user' : 'stock';
+		return empty( $sources['stock'] ) ? 'user' : 'stock';
 	}
 
 	/**
@@ -223,7 +219,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @param array<array-key,mixed>  $args     Bound verb arguments: name, and the whole TSL body as tsl.
 	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, whose packed size the 1 MiB cap measures.
 	 *
-	 * @return array<int|string,mixed> `{name, path, shadows_stock, restarted_fleets}`.
+	 * @return array<int|string,mixed> `{name, path, restarted_fleets}`.
 	 * @throws \RuntimeException When the envelope exceeds the cap, the name is invalid or stock-owned, the body is empty or fails validation, or the dir or file cannot be written.
 	 */
 	public static function cmd_save( array $args, array $envelope = [] ): array {
@@ -285,8 +281,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 		return [
 			'name'             => $name,
 			'path'             => $path,
-			// Always false: a stock name is refused above, so nothing shadows.
-			'shadows_stock'    => false,
 			'restarted_fleets' => $restarted,
 		];
 	}

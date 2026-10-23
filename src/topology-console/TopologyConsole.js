@@ -1387,12 +1387,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const handleRemoveNode = canvasHandlers.onRemoveNode;
 	const handleRemoveEdge = canvasHandlers.onRemoveEdge;
 
-	// DELETE shows only for a topology with a user-saved copy (stock kept).
+	// DELETE shows only for a topology the operator saved.
 	const canDeleteCurrent = useMemo(
-		() =>
-			mode === 'edit' &&
-			!! editingName &&
-			( editingSource === 'user' || editingSource === 'both' ),
+		() => mode === 'edit' && !! editingName && editingSource === 'user',
 		[ mode, editingName, editingSource ]
 	);
 
@@ -1698,8 +1695,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				),
 			} );
 			setEditingName( result.name );
-			// Written user copy now deletable: 'both' if it shadows stock.
-			setEditingSource( result.shadows_stock ? 'both' : 'user' );
+			setEditingSource( 'user' );
 			// A save restarts the fleet — re-fetch the live catalog.
 			invalidateExpandedIncludes();
 			reloadCatalog();

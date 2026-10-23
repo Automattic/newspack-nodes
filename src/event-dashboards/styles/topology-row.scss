@@ -148,14 +148,11 @@
 		min-width: 70px;
 	}
 
-	// Fixed-width cell that pushes the provenance pill (and the controls after it)
-	// to the right edge. The provenance pill sits
-	// right-aligned inside at its NATURAL width (no stretched background), so a
-	// wide "USER ▸ SHADOWS STOCK" and a bare "STOCK" both end at the same x —
-	// which lines up the health (● OK), ETA and controls after them across rows.
+	// Pushes the provenance pill to the right edge, as wide as STOCK's (52.3px),
+	// so the health badge, ETA and controls after it line up across rows.
 	&__badge-cell {
 		margin-left: auto;
-		min-width: 160px;
+		min-width: 56px;
 		display: flex;
 		justify-content: flex-end;
 	}
