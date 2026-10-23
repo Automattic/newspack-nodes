@@ -11,7 +11,7 @@ import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCo
 import { useDeleteTopology } from '../useDeleteTopology';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
-const DELETED = { name: 'demo', stock_fallback: true };
+const DELETED = { name: 'demo', pruned_active: true };
 const REASON = 'no user copy of demo';
 
 let replyFor;

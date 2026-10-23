@@ -997,9 +997,9 @@ class TopologiesCITest extends TestCase {
 			'to-delete'
 		);
 
+		$this->assertSame( [ 'name', 'deleted', 'pruned_active', 'restarted_fleets' ], \array_keys( $result ) );
 		$this->assertSame( 'to-delete', $result['name'] );
 		$this->assertSame( $path, $result['deleted'] );
-		$this->assertFalse( $result['stock_fallback'] );
 		$this->assertFileDoesNotExist( $path );
 	}
 
@@ -1016,7 +1016,7 @@ class TopologiesCITest extends TestCase {
 		$this->assertFileExists( "{$other}/" . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
 	}
 
-	public function test_delete_prunes_active_entry_when_no_stock_fallback(): void {
+	public function test_delete_prunes_active_entry_when_no_stock_copy_remains(): void {
 		// User-only topology, in the active set. After delete there is no stock
 		// copy to fall back to, so a dangling active entry would be orphaned —
 		// the delete must prune it from newspack_nodes_topologies.
@@ -1030,7 +1030,6 @@ class TopologiesCITest extends TestCase {
 			'orphan'
 		);
 
-		$this->assertFalse( $result['stock_fallback'] );
 		$this->assertTrue( $result['pruned_active'] );
 		$this->assertSame(
 			[ 'other' ],
@@ -1038,10 +1037,10 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
-	public function test_delete_keeps_active_entry_when_stock_fallback_exists(): void {
-		// User copy shadows a stock copy, both active. Deleting the user copy
-		// leaves the stock version resolving + running, so the active entry
-		// must stay — pruning it would stop a topology that still exists.
+	public function test_delete_keeps_active_entry_when_a_stock_copy_exists(): void {
+		// A user file sits beside a stock copy of the same name. Deleting it
+		// leaves the stock version resolving and running, so the active entry
+		// must stay: pruning it would stop a topology that still exists.
 		\file_put_contents( "{$this->stock}/shadowed.tsl", "make_node Echo s\n" );
 		\file_put_contents( "{$this->user}/shadowed.tsl",  "make_node Echo u\n" );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'shadowed' ];
@@ -1053,26 +1052,11 @@ class TopologiesCITest extends TestCase {
 			'shadowed'
 		);
 
-		$this->assertTrue( $result['stock_fallback'] );
 		$this->assertFalse( $result['pruned_active'] );
 		$this->assertSame(
 			[ 'shadowed' ],
 			$GLOBALS['_wp_options']['newspack_nodes_topologies']
 		);
-	}
-
-	public function test_delete_reports_stock_fallback_true_when_stock_copy_exists(): void {
-		\file_put_contents( "{$this->stock}/shadowed.tsl", "make_node Echo s\n" );
-		\file_put_contents( "{$this->user}/shadowed.tsl",  "make_node Echo u\n" );
-
-		$result = VerbHarness::fire(
-			new Topologies_CI_Node(),
-			'topologies',
-			'delete',
-			'shadowed'
-		);
-
-		$this->assertTrue( $result['stock_fallback'] );
 	}
 
 	public function test_delete_fires_restart_fleet_for_active_topology(): void {
