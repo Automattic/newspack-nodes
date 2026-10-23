@@ -19,6 +19,10 @@ const normalize = ( value ) =>
 const matchingDeclarations = ( element ) => {
 	const matches = [];
 	stylesheet.walkRules( ( rule ) => {
+		// A pseudo-element's rule paints the pseudo-element, not the element.
+		if ( rule.selector.includes( '::' ) ) {
+			return;
+		}
 		for ( const selector of rule.selector.split( ',' ) ) {
 			try {
 				if ( element.matches( selector.trim() ) ) {
