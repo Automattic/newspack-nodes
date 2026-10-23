@@ -764,12 +764,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const effectiveTopologyName =
 		mode === 'edit' && editingName ? editingName : topology;
 
-	// A refusal is an answer: no saved layout, so the canvas auto-fits.
+	// A refusal reads as auto, as no saved file does: the canvas auto-fits.
 	const onLayoutFetched = useCallback(
 		( { result, args } ) =>
 			setSavedLayout( {
 				name: args[ 0 ],
-				positions: result?.positions || null,
+				positions: result?.positions ?? LAYOUT_AUTO,
 			} ),
 		[]
 	);
@@ -783,7 +783,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			setSavedLayout( ( current ) =>
 				current && current.name !== args[ 0 ]
 					? current
-					: { name: args[ 0 ], positions: result.positions || null }
+					: { name: args[ 0 ], positions: result.positions }
 			);
 			setToast( {
 				kind: 'success',
@@ -913,6 +913,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Save Layout chip gate: what Save would write differs from the save.
 	const layoutDivergesFromSaved = useMemo( () => {
 		const saved = savedPositions;
+		// Null only while the fetch is pending: nothing to diverge from yet.
+		if ( null === saved ) {
+			return false;
+		}
 		// Only ids still on the canvas; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const overrideIds = Object.keys( positionOverrides ).filter( ( id ) =>
@@ -924,11 +928,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( savedIsAuto ) {
 			return true;
 		}
-		const savedIds = saved ? Object.keys( saved ) : [];
-		if ( ! saved ) {
-			return overrideIds.length > 0;
-		}
-		if ( overrideIds.length !== savedIds.length ) {
+		if ( overrideIds.length !== Object.keys( saved ).length ) {
 			return true;
 		}
 		for ( const id of overrideIds ) {
@@ -951,12 +951,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	] );
 
 	// Reset Layout chip gating differs by mode (edit / server / local).
-	const editLayoutIsAutoLayout = serverSeedBlocked && ! canReset;
 	const showResetLayoutChip = ( () => {
 		if ( mode === 'edit' ) {
 			return (
-				Object.keys( positionOverrides ).length > 0 &&
-				! editLayoutIsAutoLayout
+				Object.keys( positionOverrides ).length > 0 && ! layoutIsAuto
 			);
 		}
 		if ( isServerScope ) {

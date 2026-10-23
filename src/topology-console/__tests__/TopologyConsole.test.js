@@ -858,8 +858,8 @@ describe( 'TopologyConsole boot', () => {
 		hooks.deleteTopology.mockReset();
 		hooks.deleteTopology.mockResolvedValue( null );
 		hooks.fetchLayout.mockReset();
-		// Default-resolve "no layout" so serverFetchResolved gate clears.
-		hooks.fetchLayout.mockResolvedValue( { positions: null } );
+		// Default-resolve the server's no-file answer so the gate clears.
+		hooks.fetchLayout.mockResolvedValue( { positions: LAYOUT_AUTO } );
 		hooks.saveLayout.mockReset();
 		hooks.saveLayout.mockResolvedValue( null );
 		hooks.topologies = [];
@@ -4569,15 +4569,33 @@ describe( 'TopologyConsole boot', () => {
 			return view;
 		};
 
-		it( 'Save Layout on an untouched autolaid edit canvas sends "auto"', async () => {
-			const { queryByText } = await openDemoInEdit();
+		it( 'an untouched autolaid edit canvas offers neither Save nor Reset', async () => {
+			const { getByText, queryByText } = await openDemoInEdit();
+			expect( queryByText( 'save-layout' ) ).toBeNull();
+			expect( queryByText( 'reset-layout' ) ).toBeNull();
 			await act( async () => {
-				fireEvent.click( queryByText( 'save-layout' ) );
+				fireEvent.click( getByText( 'move-n1' ) );
 			} );
-			expect( hooks.saveLayout ).toHaveBeenCalledWith( {
-				name: 'demo',
-				positions: LAYOUT_AUTO,
+			expect( queryByText( 'reset-layout' ) ).not.toBeNull();
+		} );
+
+		it( 'a worker canvas whose layout fetch is refused reads it as auto and offers no Reset', async () => {
+			hooks.fetchLayout.mockRejectedValue(
+				new Error( 'layouts get refused 4409' )
+			);
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const { queryByText } = render( <TopologyConsole /> );
+			act( () => {
+				lastReplProps.onSubmit( 'cd /demo.p0' );
 			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 10 ) );
+			} );
+			await publishMeta();
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 300 ) );
+			} );
+			expect( queryByText( 'reset-layout' ) ).toBeNull();
 		} );
 
 		it( 'Save Layout after a drag sends the map', async () => {

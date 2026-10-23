@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **No layout file reads as `auto`, and saving `auto` removes the file.** `layouts get` answers `"auto"` where no `<name>.layout` exists or the file is unreadable or holds no map, where it answered null, and `layouts save <name> "auto"` unlinks the file rather than writing `{"positions":"auto"}`, so a layout file only ever holds a map. The console reads a refused fetch as `auto` too, so a canvas nobody has saved a layout for no longer shows Reset Layout on load: in view mode it shows once the canvas diverges from the saved layout, and in edit mode once a card moves off an autolayout. A `.layout` file holding `"auto"` reads as one holding no map, which is `auto`.
+
 ## [2.124.0] - 2026-10-23
 
 ### Changed

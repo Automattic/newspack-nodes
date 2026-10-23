@@ -5,21 +5,20 @@
  * A layout is the arrangement of a topology's nodes on the console canvas,
  * stored apart from the graph it describes: one JSON file per name at
  * `<base_directory>/layouts/<name>.layout`, holding
- * `{ positions: { node_id: [x, y] } }`, or `{ positions: "auto" }` for a
- * layout the console lays out afresh each time it loads one. The console asks
+ * `{ positions: { node_id: [x, y] } }`. No file is "auto", a layout the
+ * console lays out afresh each time it loads one. The console asks
  * for the layout under the topology name it is viewing, but the positions
  * never enter that .tsl — writing them there would route every drag through
  * `topologies save`, which restarts the matching active fleet.
  *
  * Verbs:
- *   get  — args `{name}`. Returns `{name, positions: object|"auto"|null}`. A
- *          missing, unreadable or malformed file answers null, which tells the
- *          console to auto-fit; no other top-level key of the saved file is
- *          surfaced.
+ *   get  — args `{name}`. Returns `{name, positions: object|"auto"}`. A
+ *          missing, unreadable or malformed file answers "auto"; no other
+ *          top-level key of the saved file is surfaced.
  *   save — args `{name, positions: {node_id: [x,y]} | "auto"}`. Returns
  *          `{name, path, positions}`, the positions being "auto" or what
  *          survived sanitizing — an entry that fails validation is dropped
- *          rather than refusing the write.
+ *          rather than refusing the write. Saving "auto" removes the file.
  *
  * Each verb names its role in `node_schema()`, `get` READ and `save` TUNE, and
  * `dispatch()` refuses a caller below it (ADR-26). A refusal throws
@@ -47,7 +46,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 
 	/**
 	 * The one `positions` value that is not a map: the layout is a fresh
-	 * autolayout of whatever graph the canvas draws. Matched exactly.
+	 * autolayout of whatever graph the canvas draws. Matched exactly, and
+	 * never stored: it is what no file reads as.
 	 */
 	public const AUTO = 'auto';
 
@@ -70,30 +70,29 @@ class Layouts_CI_Node extends Service_CI_Node {
 	/**
 	 * `get` verb — the saved positions for one layout name.
 	 *
-	 * A missing file is an answer, not an error: the console asks before the
-	 * operator has dragged anything, and a null `positions` is what sends it to
-	 * auto-fit. An unreadable or malformed file reads the same way, so a
-	 * truncated write costs the arrangement rather than the canvas; a
-	 * `positions` that is neither a map nor exactly AUTO is malformed. Only the
-	 * `positions` key of the file is returned.
+	 * A missing file is an answer, not an error: it reads as AUTO, so the
+	 * canvas lays itself out. An unreadable or malformed file reads the same
+	 * way, so a truncated write costs the arrangement rather than the canvas;
+	 * a `positions` that is not a map is malformed. Only the `positions` key of
+	 * the file is returned.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
-	 * @return array<string,mixed> `{name, positions}`, positions a map, AUTO, or null when nothing is saved.
+	 * @return array<string,mixed> `{name, positions}`, positions a map or AUTO.
 	 * @throws \RuntimeException When the name is not file-name safe.
 	 */
 	public static function cmd_get( array $args ): array {
 		$name = self::require_valid_name( Core::as_string( $args['name'] ) );
 		$path = self::layout_path( $name );
 
-		$positions = null;
+		$positions = self::AUTO;
 		if ( \is_file( $path ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents,WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Path is always a local .layout file under base_directory.
 			$body = @\file_get_contents( $path );
 			if ( false !== $body ) {
 				$parsed = \json_decode( $body, true );
 				$saved = \is_array( $parsed ) ? ( $parsed['positions'] ?? null ) : null;
-				if ( self::is_positions( $saved ) ) {
+				if ( self::is_map( $saved ) ) {
 					$positions = $saved;
 				}
 			}
@@ -107,7 +106,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 
 	/**
 	 * `save` verb — persist a layout's node positions, creating the layouts
-	 * directory on the first write.
+	 * directory on the first write, or remove the file for AUTO.
 	 *
 	 * The cap measures the packed envelope before anything is decoded, so an
 	 * oversized blob is refused without parsing it. Measuring the envelope
@@ -123,7 +122,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * @throws \RuntimeException When the envelope exceeds the cap, the name is
 	 *                           invalid, the positions are neither an object nor
 	 *                           AUTO, the directory cannot be created, or the
-	 *                           write fails.
+	 *                           write or the removal fails.
 	 */
 	public static function cmd_save( array $args, array $envelope = [] ): array {
 		if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
@@ -133,11 +132,23 @@ class Layouts_CI_Node extends Service_CI_Node {
 		}
 		$name      = self::require_valid_name( Core::as_string( $args['name'] ) );
 		$positions = \json_decode( Core::as_string( $args['positions'] ), true );
-		if ( ! self::is_positions( $positions ) ) {
+		$path      = self::layout_path( $name );
+		if ( self::AUTO === $positions ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+			if ( \is_file( $path ) && ! @\unlink( $path ) ) {
+				throw new \RuntimeException( \esc_html( "failed to remove layout file: $path" ) );
+			}
+			return [
+				'name'      => $name,
+				'path'      => $path,
+				'positions' => self::AUTO,
+			];
+		}
+		if ( ! self::is_map( $positions ) ) {
 			throw new \RuntimeException( 'invalid arguments: positions must be an object or "auto"' );
 		}
 
-		$clean = \is_array( $positions ) ? self::sanitize_positions( $positions ) : self::AUTO;
+		$clean = self::sanitize_positions( $positions );
 		$dir   = self::layouts_dir();
 		if ( ! \is_dir( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -149,7 +160,6 @@ class Layouts_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		$path  = self::layout_path( $name );
 		$json  = (string) \wp_json_encode( [ 'positions' => $clean ] );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
 		$bytes = @\file_put_contents( $path, $json );
@@ -167,19 +177,17 @@ class Layouts_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Whether a layout may hold a decoded `positions` value: a map, or
-	 * exactly AUTO. A non-empty JSON list decodes to an array too, so the list
-	 * shape is refused; `{}` decodes to `[]`, which stands as the empty map.
+	 * Whether a decoded `positions` value is a map. A non-empty JSON list
+	 * decodes to an array too, so the list shape is refused; `{}` decodes to
+	 * `[]`, which stands as the empty map.
 	 *
 	 * @param mixed $positions The decoded `positions` value.
 	 *
-	 * @return bool True for a map or AUTO.
+	 * @phpstan-assert-if-true array<mixed,mixed> $positions
+	 * @return bool True for a map.
 	 */
-	private static function is_positions( mixed $positions ): bool {
-		if ( \is_array( $positions ) ) {
-			return [] === $positions || ! \array_is_list( $positions );
-		}
-		return self::AUTO === $positions;
+	private static function is_map( mixed $positions ): bool {
+		return \is_array( $positions ) && ( [] === $positions || ! \array_is_list( $positions ) );
 	}
 
 	/**
@@ -276,7 +284,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'save',
 					'capability'  => Capabilities::TUNE,
-					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`, the JSON an object or "auto". 1 MiB cap.',
+					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`, the JSON an object, or "auto" to remove the saved layout. 1 MiB cap.',
 					'args'        => [
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
