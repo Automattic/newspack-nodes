@@ -867,6 +867,34 @@ if ( ! function_exists( 'wp_safe_redirect' ) ) {
 		throw new \Newspack_Nodes\Tests\Helpers\RedirectException( $url );
 	}
 }
+if ( ! function_exists( 'wp_redirect' ) ) {
+	// The same sentinel as wp_safe_redirect(), for a redirect to any host.
+	function wp_redirect( string $location, int $status = 302 ): bool {
+		$GLOBALS['_last_redirect'] = $location;
+		throw new \Newspack_Nodes\Tests\Helpers\RedirectException( $location );
+	}
+}
+if ( ! function_exists( 'wp_sanitize_redirect' ) ) {
+	// Core's: spaces and UTF-8 percent-encoded, every other unlisted byte dropped.
+	function wp_sanitize_redirect( string $location ): string {
+		$location = \str_replace( ' ', '%20', $location );
+		$utf8     = '/((?:[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC][\x80-\xBF]{2}|\xED[\x80-\x9F][\x80-\xBF]|[\xEE-\xEF][\x80-\xBF]{2}|\xF0[\x90-\xBF][\x80-\xBF]{2}|[\xF1-\xF3][\x80-\xBF]{3}|\xF4[\x80-\x8F][\x80-\xBF]{2}){1,40})/';
+		$location = (string) \preg_replace_callback( $utf8, static fn ( array $m ): string => \urlencode( $m[0] ), $location );
+		$location = (string) \preg_replace( '|[^a-z0-9-~+_.?#=&;,/:%!*\[\]()@]|i', '', $location );
+		$location = (string) \preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $location );
+		$location = (string) \preg_replace( '/\\\\+0+/', '', $location );
+		do {
+			$before   = $location;
+			$location = \str_replace( [ '%0d', '%0a', '%0D', '%0A' ], '', $location );
+		} while ( $before !== $location );
+		return $location;
+	}
+}
+if ( ! function_exists( 'get_bloginfo' ) ) {
+	function get_bloginfo( string $show = '' ): string {
+		return 'name' === $show ? (string) ( $GLOBALS['_wp_test_blogname'] ?? 'Test Site' ) : '';
+	}
+}
 if ( ! function_exists( 'wp_die' ) ) {
 	function wp_die( string $message ): void {
 		throw new \RuntimeException( 'wp_die: ' . $message );
@@ -1004,8 +1032,9 @@ if ( ! function_exists( 'esc_textarea' ) ) {
 	}
 }
 if ( ! function_exists( 'esc_attr' ) ) {
+	// As core: an entity is not encoded twice, and invalid UTF-8 escapes to ''.
 	function esc_attr( $v ): string {
-		return \htmlspecialchars( (string) $v, ENT_QUOTES, 'UTF-8' );
+		return \htmlspecialchars( (string) $v, ENT_QUOTES, 'UTF-8', false );
 	}
 }
 if ( ! function_exists( 'esc_html__' ) ) {

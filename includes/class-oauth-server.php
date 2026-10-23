@@ -27,14 +27,15 @@ use Newspack_Nodes\Rest\Oauth_Controller;
 /**
  * Static calls from a request's parameters to its answer.
  *
- * @api `Rest\Oauth_Controller` answers with it; an MCP door names its
- *      metadata URL through `resource_metadata_url()`.
+ * @api `Rest\Oauth_Controller` answers with it, `Admin\Oauth_Consent`
+ *      checks a request and the scopes a user can grant through it, and an
+ *      MCP door names its metadata URL through `resource_metadata_url()`.
  * @phpstan-type Answer array{status:int,body:array<array-key,mixed>}
  */
 final class Oauth_Server {
 
 	/** The admin page on which a user approves a connection. */
-	private const AUTHORIZE_PAGE = 'newspack-nodes-authorize';
+	public const AUTHORIZE_PAGE = 'newspack-nodes-authorize';
 
 	/** Where RFC 8414 puts the authorization server's metadata. */
 	private const AUTHORIZATION_WELL_KNOWN = '/.well-known/oauth-authorization-server';
@@ -153,7 +154,7 @@ final class Oauth_Server {
 	public static function authorization_metadata(): array {
 		return [
 			'issuer'                                => self::issuer(),
-			'authorization_endpoint'                => \admin_url( 'admin.php?page=' . self::AUTHORIZE_PAGE ),
+			'authorization_endpoint'                => self::authorization_endpoint(),
 			'token_endpoint'                        => \rest_url( HTTP_In_Node::REST_NAMESPACE . Oauth_Controller::TOKEN_ROUTE ),
 			'registration_endpoint'                 => \rest_url( HTTP_In_Node::REST_NAMESPACE . Oauth_Controller::REGISTER_ROUTE ),
 			'response_types_supported'              => [ 'code' ],
@@ -162,6 +163,11 @@ final class Oauth_Server {
 			'token_endpoint_auth_methods_supported' => [ 'none' ],
 			'scopes_supported'                      => Oauth_Store::SCOPES,
 		];
+	}
+
+	/** The approval page's URL, which the metadata names as the authorize endpoint. */
+	public static function authorization_endpoint(): string {
+		return \admin_url( 'admin.php?page=' . self::AUTHORIZE_PAGE );
 	}
 
 	/** The issuer: the home URL, with no trailing slash. */
@@ -396,10 +402,22 @@ final class Oauth_Server {
 		$caller = \get_current_user_id();
 		\wp_set_current_user( $user );
 		try {
-			return Capabilities::highest_held( $scope ) === $scope;
+			return self::can_grant( $scope );
 		} finally {
 			\wp_set_current_user( $caller );
 		}
+	}
+
+	/**
+	 * Whether the current user can grant a scope through OAuth: one of
+	 * `Oauth_Store::SCOPES`, whose own capability they hold. A broader role
+	 * does not stand in for it: each verb checks its own role's capability.
+	 *
+	 * @api The approval page offers the scopes it admits.
+	 * @param string $scope The scope.
+	 */
+	public static function can_grant( string $scope ): bool {
+		return \in_array( $scope, Oauth_Store::SCOPES, true ) && Capabilities::can( $scope );
 	}
 
 	/**
