@@ -106,7 +106,7 @@ class SessionCliCommandTest extends TestCase {
 		$this->assertEqualsWithDelta( Command_Auth::SESSION_TTL_S, $record['ttl'], 5 );
 	}
 
-	public function test_issue_refuses_manage_naming_the_carried_roles(): void {
+	public function test_issue_refuses_manage_naming_the_labelled_roles(): void {
 		$this->assertStringContainsString(
 			'unknown role: manage; use read or tune',
 			$this->refusal( [ 'Kea desk 4410', 'manage' ] )

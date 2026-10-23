@@ -196,6 +196,74 @@ class SessionsTest extends TestCase {
 		$this->assertNull( Command_Auth::load_session_record( $session['handle'] ) );
 	}
 
+	/** Revoking a grant's session ends the grant, so no refresh mints another. */
+	public function test_revoking_a_grant_session_revokes_its_grant(): void {
+		$grant  = Oauth_Store::open_grant(
+			[
+				'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+				'user'     => 7746,
+				'scope'    => Capabilities::TUNE,
+				'resource' => 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp',
+				'name'     => 'Tui laptop',
+			]
+		)['grant'];
+		$first  = Command_Auth::mint_grant_session( $grant );
+		$second = Command_Auth::mint_grant_session( $grant );
+		$other  = Sessions::issue( 'ruru-7746', Capabilities::READ, 900 );
+
+		Sessions::revoke( $first['handle'] );
+
+		$this->assertNull( Oauth_Store::grant( $grant ) );
+		$this->assertNull( Command_Auth::load_session_record( $first['handle'] ) );
+		$this->assertNull( Command_Auth::load_session_record( $second['handle'] ), 'every session the grant minted' );
+		$this->assertNotNull( Command_Auth::load_session_record( $other['handle'] ), 'and no other' );
+	}
+
+	/** A grant revoke the store refuses midway reaches the caller; nothing reads it as done. */
+	public function test_revoke_propagates_a_grant_revoke_the_store_refuses(): void {
+		$grant   = Oauth_Store::open_grant(
+			[
+				'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+				'user'     => 7746,
+				'scope'    => Capabilities::TUNE,
+				'resource' => 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp',
+				'name'     => 'Kea desk 7746',
+			]
+		)['grant'];
+		$session = Command_Auth::mint_grant_session( $grant );
+		$this->db->deny[ "cache_key = '{$session['handle']}'" ] = 'Lock wait timeout 7746';
+
+		try {
+			Sessions::revoke( $session['handle'] );
+			$this->fail( 'expected the store refusal' );
+		} catch ( Session_Store_Unavailable $e ) {
+			$this->assertSame( 'the session store did not answer; a session the grant minted may still be live', $e->getMessage() );
+		}
+		$this->db->deny = [];
+		$this->assertNull( Oauth_Store::grant( $grant ), 'the grant went first' );
+		$this->assertNotNull( Command_Auth::load_session_record( $session['handle'] ), 'the session the store would not delete' );
+	}
+
+	/** A grant's hourly sessions carry its name but never list one by one. */
+	public function test_a_grant_session_is_labelled_with_its_grant_but_never_listed(): void {
+		$grant   = Oauth_Store::open_grant(
+			[
+				'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+				'user'     => 7746,
+				'scope'    => Capabilities::TUNE,
+				'resource' => 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp',
+				'name'     => 'Kea desk 7746',
+			]
+		)['grant'];
+		$session = Command_Auth::mint_grant_session( $grant );
+		$listed  = Sessions::issue( 'ruru-7746', Capabilities::READ, 900 );
+
+		$this->assertSame( 'Kea desk 7746', Command_Auth::load_session_record( $session['handle'] )['label'] ?? null );
+		$this->assertSame( [ $listed['handle'] ], \array_keys( self::listed() ) );
+		$labelled = \array_filter( $this->index_rows(), static fn ( array $row ): bool => 'labelled' === $row['set_key'] );
+		$this->assertSame( [ $listed['handle'] ], \array_values( \array_column( $labelled, 'member' ) ), 'only the issued session is in the labelled index' );
+	}
+
 	public function test_revoke_is_refused_when_the_store_did_not_answer(): void {
 		$session = Sessions::issue( 'weka-7718', Capabilities::TUNE, 900 );
 		$this->db->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 7718';

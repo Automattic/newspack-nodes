@@ -41,6 +41,8 @@ class Sessions {
 
 	/**
 	 * Revoke the session `$handle` names, so its key stops verifying at once.
+	 * A session an OAuth grant minted takes its grant first, and with it every
+	 * session the grant minted, so no refresh mints another.
 	 *
 	 * A store that did not answer is refused, because the key may still
 	 * verify. A handle that named nothing is refused too, and the refusal
@@ -51,15 +53,19 @@ class Sessions {
 	 *
 	 * @param string $handle Session handle.
 	 * @throws \RuntimeException When the store did not answer, or no session held the handle.
-	 * @throws Session_Store_Unavailable When the store will not open.
+	 * @throws Session_Store_Unavailable When the store will not open or answer the session's read.
 	 */
 	public static function revoke( string $handle ): void {
+		$grant = Command_Auth::load_session_records( [ $handle ] )[ $handle ]['grant'] ?? null;
+		if ( null !== $grant ) {
+			Oauth_Store::revoke_grant( $grant );
+		}
 		$revoked = Command_Auth::revoke_session( $handle );
 		if ( null === $revoked ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for CLI and CI consumers.
 			throw new \RuntimeException( "session store did not answer; {$handle} may still be live" );
 		}
-		if ( ! $revoked ) {
+		if ( ! $revoked && null === $grant ) {
 			$labelled = \array_column( \array_filter( self::listing(), static fn ( array $row ): bool => $row['label'] === $handle ), 'handle' );
 			$hint     = [] === $labelled ? '' : "; the label {$handle} names " . \implode( ', ', $labelled );
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for CLI and CI consumers.

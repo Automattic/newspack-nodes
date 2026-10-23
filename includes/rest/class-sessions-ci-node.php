@@ -52,7 +52,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 		return [
 			'sessions' => Sessions::listing(),
 			'ttl_max'  => Command_Auth::SESSION_TTL_MAX_S,
-			'scopes'   => Capabilities::CARRIED,
+			'scopes'   => Capabilities::LABELLED_SCOPES,
 		];
 	}
 
@@ -75,13 +75,13 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: label, scope, ttl.
 	 * @return array<string,mixed> The mint — handle, secret, scope, expires_in, now — plus the label.
-	 * @throws \RuntimeException On a scope outside `Capabilities::CARRIED`, or a user holding none of the three roles.
+	 * @throws \RuntimeException On a scope outside `Capabilities::LABELLED_SCOPES`, or a user holding none of the three roles.
 	 * @throws \Newspack_Nodes\Session_Store_Unavailable When the store cannot hold the session; the reply names why.
 	 */
 	public static function cmd_create( array $args ): array {
 		$label = Core::as_string( $args['label'] );
 		$scope = Core::as_string( $args['scope'] );
-		if ( ! \in_array( $scope, Capabilities::CARRIED, true ) ) {
+		if ( ! \in_array( $scope, Capabilities::LABELLED_SCOPES, true ) ) {
 			throw new \RuntimeException( \esc_html( "unknown scope: {$scope}" ) );
 		}
 

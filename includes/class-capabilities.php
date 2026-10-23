@@ -68,12 +68,12 @@ class Capabilities {
 	public const NONE = 'none';
 
 	/**
-	 * The scopes a carried session may hold: one a person keeps in a CLI
+	 * The scopes a labelled session may hold: one a person keeps in a CLI
 	 * history, an MCP client or a hub's vault. Restoring `manage` is one edit.
 	 *
 	 * @var list<string>
 	 */
-	public const CARRIED = [ self::READ, self::TUNE ];
+	public const LABELLED_SCOPES = [ self::READ, self::TUNE ];
 
 	/**
 	 * The roles in ascending blast radius. Position IS the ladder: a scope

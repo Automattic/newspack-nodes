@@ -1686,9 +1686,13 @@ classes is invisible to `ls`, `dump_node` and the console.
   the one record of when a session lapses: `lookup_entries()` answers each live row with the
   whole seconds it has left, as a backing's restored entry carries its remaining `ttl`, and
   the row's value keeps no copy. The row carries the label and when it was minted, and a
-  labelled session's handle is a member of the set `labelled` in the same Table under the
-  same TTL, because a key-range scan is refused and a set read by its key is how a durable
-  Table enumerates: the listing is `members_of()` then `lookup_entries()`, two statements
+  session an OAuth grant minted also carries the grant's id as `g` and the resource it was
+  issued for as `r`, which a reader takes only when non-empty; its label is the grant's
+  connection name, and it is a member of the set `oauth:grant-sessions:<grant>`, never of
+  `labelled`, under the grant's remaining life, which its own TTL never exceeds. A labelled
+  session's handle is a member of the set `labelled` in the same Table under the same TTL,
+  because a key-range scan is refused and a set read by its key is how a durable Table
+  enumerates: the listing is `members_of()` then `lookup_entries()`, two statements
   however long, and a flush empties the set with the rows. Nothing caps the labelled
   sessions; the set is read up to `MAX_MEMBERS_LIMIT` handles, and past that the listing
   refuses, naming the flush. A store that will not open fails the mint, naming why.

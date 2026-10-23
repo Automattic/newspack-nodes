@@ -36,7 +36,7 @@ namespace Newspack_Nodes;
  * it without wiring a node. Its one instance is a `/command` batch, bound
  * into the closure `batch_verifier()` answers.
  *
- * @phpstan-type Session_Record array{key:string,scope:string,user:int,ttl:int,label:string,created:int}
+ * @phpstan-type Session_Record array{key:string,scope:string,user:int,ttl:int,label:string,created:int,grant?:string,resource?:string}
  */
 class Command_Auth {
 
@@ -123,6 +123,12 @@ class Command_Auth {
 	 * the labelled index needs.
 	 */
 	public const SESSIONS_BACKENDS = [ 'sqlite', 'wpdb' ];
+
+	/** The optional row columns an OAuth session carries, each by its record field. */
+	private const BINDINGS = [
+		'g' => 'grant',
+		'r' => 'resource',
+	];
 
 	/** Every handle a mint makes: 32 lowercase hex digits. */
 	public const HANDLE_PATTERN = '/^[0-9a-f]{32}$/D';
@@ -285,13 +291,6 @@ class Command_Auth {
 	 * The reply discloses the key as `secret`, the name `Core::is_secret_property()`
 	 * masks, so no redactor on either side of the wire prints it.
 	 *
-	 * The row is claimed with `add()`, never `set()`: a handle can never
-	 * displace a live session, so a colliding mint fails rather than fixating
-	 * someone else's. It carries the key, the scope the verifier applies, the
-	 * minting user, the label and when it was minted, and expires with the
-	 * session, the one record of when it lapses; the same mint reclaims up to
-	 * SESSION_PURGE_ROWS rows already expired.
-	 *
 	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
 	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
 	 *                      it off the wire clamps through bounded_ttl() first.
@@ -304,33 +303,71 @@ class Command_Auth {
 	 *                                   the row, naming why.
 	 */
 	public static function mint_session( string $scope = Capabilities::MANAGE, int $ttl = self::SESSION_TTL_S, string $label = '' ): array {
-		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
+		return self::write_session( $scope, $ttl, Core::current_user_id(), $label, [] );
+	}
+
+	/**
+	 * Mint the session an OAuth grant issues, from the grant alone: for the
+	 * user who approved it, not whoever is current, with the approved scope,
+	 * labelled with the connection's name, bound to the grant and to the
+	 * resource it was issued for, and recorded in the grant's session index,
+	 * so revoking the grant revokes it. The `labelled` index never names it:
+	 * the grant is what lists. It lives SESSION_TTL_S, or what the grant has
+	 * left when that is less, so it outlives neither the grant nor the index.
+	 * A grant missing its resource or user, or holding a scope outside
+	 * `Oauth_Store::SCOPES`, mints nothing: a session naming no resource is admitted at every
+	 * door. A session the grant cannot record is revoked before the refusal,
+	 * so no live key escapes the grant.
+	 *
+	 * @api The OAuth token endpoint mints through it.
+	 * @param string $grant The grant's id.
+	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
+	 * @throws \RuntimeException When no live grant has the id.
+	 * @throws \UnexpectedValueException When the grant names no resource, no
+	 *                                   user, or a scope outside
+	 *                                   `Oauth_Store::SCOPES`.
+	 * @throws Session_Store_Unavailable When the store will not open, does not
+	 *                                   answer, refuses the row or the index,
+	 *                                   or does not answer the revoke of a
+	 *                                   session it could not record.
+	 */
+	public static function mint_grant_session( string $grant ): array {
+		$gone     = "no live grant {$grant}; no session was minted for it";
+		$approval = Oauth_Store::grant( $grant );
+		$now      = (int) Core::right_now();
+		if ( null === $approval || $approval['expires'] <= $now ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new \InvalidArgumentException( "unknown session scope: {$scope}" );
+			throw new \RuntimeException( $gone );
 		}
-		$handle = \bin2hex( \random_bytes( 16 ) );
-		$key    = \bin2hex( \random_bytes( 32 ) );
-		$now    = (int) Core::right_now();
-		$table  = self::session_table();
-		$row    = [
-			'k' => $key,
-			's' => $scope,
-			'u' => Core::current_user_id(),
-			'l' => $label,
-			'c' => $now,
-		];
-		if ( ! $table->add( $handle, $row, $ttl, self::SESSION_PURGE_ROWS ) ) {
+		$malformed = match ( true ) {
+			'' === $approval['resource'] => 'names no resource',
+			$approval['user'] < 1 => 'names no user',
+			! \in_array( $approval['scope'], Oauth_Store::SCOPES, true ) => "names the scope {$approval['scope']}; a grant holds " . \implode( ' or ', Oauth_Store::SCOPES ),
+			default => null,
+		};
+		if ( null !== $malformed ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new Session_Store_Unavailable( "could not store the session: {$table->last_failure()}" );
+			throw new \UnexpectedValueException( "grant {$grant} {$malformed}; no session was minted for it" );
 		}
-		return [
-			'handle'     => $handle,
-			'secret'     => $key,
-			'scope'      => $scope,
-			'expires_in' => $ttl,
-			// The minter signs TIMESTAMP; the client aligns to this clock.
-			'now'        => $now,
+		$binding = [
+			'grant'    => $grant,
+			'resource' => $approval['resource'],
 		];
+		$session = self::write_session( $approval['scope'], \min( self::SESSION_TTL_S, $approval['expires'] - $now ), $approval['user'], $approval['name'], $binding );
+		$bound   = false;
+		try {
+			$bound = Oauth_Store::bind_session( $grant, $session['handle'] );
+		} finally {
+			if ( ! $bound && null === self::revoke_session( $session['handle'] ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+				throw new Session_Store_Unavailable( "the session store did not answer; the session minted for grant {$grant} may still be live" );
+			}
+		}
+		if ( ! $bound ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \RuntimeException( $gone );
+		}
+		return $session;
 	}
 
 	/**
@@ -347,6 +384,61 @@ class Command_Auth {
 	 */
 	public static function revoke_session( string $handle ): ?bool {
 		return self::is_handle( $handle ) ? self::session_table()->forget( $handle ) : false;
+	}
+
+	/**
+	 * Store one session row, the one writer every mint shares. The row is
+	 * claimed with `add()`, never `set()`: a handle can never displace a live
+	 * session, so a colliding mint fails rather than fixating someone else's.
+	 * It carries the key, the scope the verifier applies, the user, the label
+	 * and when it was minted, plus each BINDINGS column `$binding` fills, and
+	 * expires with the session, the one record of when it lapses; the same
+	 * mint reclaims up to SESSION_PURGE_ROWS rows already expired.
+	 *
+	 * @param string                $scope   One of Capabilities::READ|TUNE|MANAGE.
+	 * @param int                   $ttl     Lifetime in seconds.
+	 * @param int                   $user    Whose authority the session spends.
+	 * @param string                $label   The operator's name for it, or empty.
+	 * @param array<string,string>  $binding The `grant` and `resource` an OAuth
+	 *                                       session names; empty otherwise.
+	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
+	 * @throws \InvalidArgumentException On a scope outside the ladder.
+	 * @throws Session_Store_Unavailable When the store will not open or refuses
+	 *                                   the row, naming why.
+	 */
+	private static function write_session( string $scope, int $ttl, int $user, string $label, array $binding ): array {
+		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \InvalidArgumentException( "unknown session scope: {$scope}" );
+		}
+		$handle = \bin2hex( \random_bytes( 16 ) );
+		$key    = \bin2hex( \random_bytes( 32 ) );
+		$now    = (int) Core::right_now();
+		$table  = self::session_table();
+		$row    = [
+			'k' => $key,
+			's' => $scope,
+			'u' => $user,
+			'l' => $label,
+			'c' => $now,
+		];
+		foreach ( self::BINDINGS as $column => $field ) {
+			if ( isset( $binding[ $field ] ) ) {
+				$row[ $column ] = $binding[ $field ];
+			}
+		}
+		if ( ! $table->add( $handle, $row, $ttl, self::SESSION_PURGE_ROWS ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new Session_Store_Unavailable( "could not store the session: {$table->last_failure()}" );
+		}
+		return [
+			'handle'     => $handle,
+			'secret'     => $key,
+			'scope'      => $scope,
+			'expires_in' => $ttl,
+			// The minter signs TIMESTAMP; the client aligns to this clock.
+			'now'        => $now,
+		];
 	}
 
 	/**
@@ -455,6 +547,18 @@ class Command_Auth {
 	}
 
 	/**
+	 * Whether a session may be spent at `$resource`: one naming no resource
+	 * is site-wide, and one naming a resource is spent there alone.
+	 *
+	 * @api The MCP door checks a session's audience through it.
+	 * @param Session_Record $record   The session, as `load_session_record()` answers it.
+	 * @param string         $resource The resource the caller is.
+	 */
+	public static function admits_resource( array $record, string $resource ): bool {
+		return ! isset( $record['resource'] ) || $resource === $record['resource'];
+	}
+
+	/**
 	 * `authorize_command()` for this batch: each session through the batch's
 	 * own reads, freshness judged at its arrival and bounded by the wall
 	 * clock at the command's turn.
@@ -536,7 +640,8 @@ class Command_Auth {
 
 	/**
 	 * Resolve a live session by handle: `{key, scope, user, ttl, label,
-	 * created}`, where `ttl` is the whole seconds its row has left. Null on
+	 * created}`, where `ttl` is the whole seconds its row has left, plus the
+	 * `grant` and `resource` an OAuth session names. Null on
 	 * a handle no mint could make, on a miss, on a row not shaped as
 	 * `mint_session()` writes it, and on a store that will not answer, which
 	 * is logged: a verifier fails closed rather than throw.
@@ -559,6 +664,7 @@ class Command_Auth {
 	 * `load_session_record()`'s shape; a handle no mint could make never
 	 * reaches the store, and one with no live row, or a row not shaped as a
 	 * mint writes it — key, scope, label and when it was minted — is absent.
+	 * A non-empty `g` or `r` reads back as `grant` or `resource`.
 	 *
 	 * @param list<string> $handles Session handles.
 	 * @return array<string,Session_Record>
@@ -582,6 +688,11 @@ class Command_Auth {
 					'label'   => $record['l'],
 					'created' => $record['c'],
 				];
+				foreach ( self::BINDINGS as $column => $field ) {
+					if ( \is_string( $record[ $column ] ?? null ) && '' !== $record[ $column ] ) {
+						$records[ (string) $handle ][ $field ] = $record[ $column ];
+					}
+				}
 			}
 		}
 		return $records;
