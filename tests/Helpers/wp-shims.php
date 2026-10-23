@@ -104,9 +104,14 @@ if ( ! function_exists( 'register_rest_route' ) ) {
 }
 
 if ( ! function_exists( 'rest_url' ) ) {
-	function rest_url( $path = '' ) {
+	// Tests set $GLOBALS['_wp_test_rest_base'] to control the request's base.
+	function rest_url( $path = '', $scheme = null ) {
+		$base = $GLOBALS['_wp_test_rest_base'] ?? 'http://localhost/wp-json/';
+		if ( 'https' === $scheme ) {
+			$base = (string) preg_replace( '#^\w+:#', 'https:', $base );
+		}
 		// Filtered as core filters it, so a test can resolve no endpoint.
-		return apply_filters( 'rest_url', 'http://localhost/wp-json/' . ltrim( $path, '/' ), $path );
+		return apply_filters( 'rest_url', $base . ltrim( $path, '/' ), $path, null, $scheme );
 	}
 }
 
