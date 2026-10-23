@@ -2629,7 +2629,9 @@ and every access token it issues is a command session.
 - **One list of OAuth scopes.** [`Oauth_Store::SCOPES`](../includes/class-oauth-store.php),
   `read` and `tune`, is what the metadata advertises, the approval page offers and
   `mint_grant_session()` accepts. `manage` is expected back through OAuth, for an MCP
-  cockpit on the substrate itself, and restoring it is one edit to that list.
+  cockpit on the substrate itself, and restoring it is one edit to that list:
+  the approval page describes a scope through `Capabilities::label()`, which
+  names every role on the ladder, so nothing else has to change with it.
 - **A session someone carries holds at most `tune`.** `wp nodes session issue`, the Sessions
   tab's create and a labelled `POST /auth` take a scope from `Capabilities::LABELLED_SCOPES`,
   `read` or `tune`, defaulting to `tune`. The unlabelled session a dashboard or a hub's

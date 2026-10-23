@@ -131,7 +131,7 @@ final class Oauth_Consent {
 				<?php foreach ( $scopes as $scope ) : ?>
 					<label>
 						<input type="radio" name="scope" value="<?php echo \esc_attr( $scope ); ?>"<?php \checked( $scope, $scopes[0] ); ?>>
-						<?php echo \esc_html( self::labels()[ $scope ] ?? throw new \LogicException( "no label for the OAuth scope {$scope}" ) ); ?>
+						<code><?php echo \esc_html( $scope ); ?></code> <?php echo \esc_html( Capabilities::label( $scope ) ); ?>
 					</label><br>
 				<?php endforeach; ?>
 			</fieldset>
@@ -146,18 +146,6 @@ final class Oauth_Consent {
 			</p>
 		</form>
 		<?php
-	}
-
-	/**
-	 * What the page calls each scope.
-	 *
-	 * @return array<string,string>
-	 */
-	private static function labels(): array {
-		return [
-			Capabilities::READ => \__( 'Read: read the dashboards', 'newspack-nodes' ),
-			Capabilities::TUNE => \__( 'Tune: read the dashboards, and change settings and logging rules', 'newspack-nodes' ),
-		];
 	}
 
 	/**

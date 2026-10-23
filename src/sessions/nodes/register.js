@@ -2,10 +2,11 @@
  * The Sessions tab's slice view, declared rather than subclassed.
  *
  * `SessionListView` owns the whole tab. One `sessions list` reply carries the
- * issued sessions, the OAuth connections, the TTL ceiling and the scope ladder
- * together, so both tables, the TTL bound and the scope picker read one slice. The bound and the
- * ladder come from the server because a second copy of them in JavaScript
- * drifts into offering a scope the mint refuses.
+ * issued sessions, the OAuth connections, the TTL ceiling and the scopes, each
+ * with its label, together, so both tables, the TTL bound and the scope picker
+ * read one slice. The bound, the scopes and their words come from the server
+ * because a second copy of them in JavaScript drifts into offering a scope the
+ * mint refuses, or describing it as the approval page does not.
  */
 
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
@@ -22,7 +23,7 @@ export const views = registerSliceViews( {
 		empty: {
 			sessions: null,
 			connections: null,
-			scopes: [],
+			scopes: {},
 			ttlMax: 0,
 			loading: true,
 			error: null,
@@ -36,7 +37,7 @@ export const views = registerSliceViews( {
 				? {
 						sessions: body.sessions,
 						connections: body.connections,
-						scopes: Array.isArray( body.scopes ) ? body.scopes : [],
+						scopes: isScopeMap( body.scopes ) ? body.scopes : {},
 						ttlMax: Number( body.ttl_max ) || 0,
 						loading: false,
 						error: null,
@@ -44,3 +45,13 @@ export const views = registerSliceViews( {
 				: null,
 	},
 } );
+
+/**
+ * Whether the `list` verb's `scopes` is the scope-to-label map it serves.
+ *
+ * @param {*} scopes The reply's `scopes`.
+ * @return {boolean} True for a plain object; a list names no labels.
+ */
+function isScopeMap( scopes ) {
+	return !! scopes && 'object' === typeof scopes && ! Array.isArray( scopes );
+}

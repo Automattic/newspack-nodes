@@ -27,7 +27,7 @@ const LISTING = {
 			expires: 1792619746,
 		},
 	],
-	scopes: [ 'read', 'tune', 'manage' ],
+	scopes: { read: 'Kea read 4471', tune: 'Kea tune 4471' },
 	ttl_max: 4471,
 };
 

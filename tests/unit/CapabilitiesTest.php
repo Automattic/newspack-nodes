@@ -210,4 +210,29 @@ class CapabilitiesTest extends TestCase {
 	public function test_labelled_scopes_are_read_and_tune(): void {
 		$this->assertSame( [ 'read', 'tune' ], Capabilities::LABELLED_SCOPES );
 	}
+
+	/**
+	 * Every role on the ladder carries its own label, so appending one to
+	 * `Oauth_Store::SCOPES` or `LABELLED_SCOPES` renders on every surface.
+	 */
+	public function test_every_role_on_the_ladder_has_its_own_label(): void {
+		$ladder = ( new \ReflectionClassConstant( Capabilities::class, 'LADDER' ) )->getValue();
+		$this->assertIsArray( $ladder );
+
+		$this->assertSame(
+			[
+				Capabilities::READ   => 'See the dashboards and the logged traffic; change nothing.',
+				Capabilities::TUNE   => 'See the dashboards and the logged traffic; change settings and application data.',
+				Capabilities::MANAGE => 'See and change everything, the fleet and the credential vault included.',
+			],
+			\array_combine( $ladder, \array_map( [ Capabilities::class, 'label' ], $ladder ) )
+		);
+	}
+
+	public function test_a_scope_off_the_ladder_has_no_label(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'unknown capability role: none' );
+
+		Capabilities::label( Capabilities::NONE );
+	}
 }

@@ -69,7 +69,7 @@ beforeEach( () => {
 		return {
 			sessions: SESSIONS,
 			connections: CONNECTIONS,
-			scopes: [ 'read', 'tune' ],
+			scopes: { read: 'Kea read 7746', tune: 'Kea tune 7746' },
 			ttlMax: 86400,
 			loading: false,
 			error: null,
@@ -213,6 +213,9 @@ it( 'offers exactly the scopes the list verb answered, tune selected', () => {
 	expect( document.querySelector( '#new-session-scope' ).value ).toBe(
 		'tune'
 	);
+	expect( document.querySelector( '[role="dialog"]' ).textContent ).toContain(
+		'Kea tune 7746'
+	);
 } );
 
 it( 'takes the default scope once the list answers after the form opened', () => {
@@ -226,10 +229,12 @@ it( 'takes the default scope once the list answers after the form opened', () =>
 		revoke,
 		pendingVerb: () => null,
 	} );
-	useSessionsGraph.mockImplementation( () => graph( [] ) );
+	useSessionsGraph.mockImplementation( () => graph( {} ) );
 	const { container, rerender } = render( <SessionsAdmin /> );
 	openCreate( container );
-	useSessionsGraph.mockImplementation( () => graph( [ 'read', 'tune' ] ) );
+	useSessionsGraph.mockImplementation( () =>
+		graph( { read: 'Kea read 7746', tune: 'Kea tune 7746' } )
+	);
 	rerender( <SessionsAdmin /> );
 	setInput( document.querySelector( '#new-session-label' ), 'late list' );
 
@@ -240,12 +245,16 @@ it( 'takes the default scope once the list answers after the form opened', () =>
 	);
 } );
 
-it( 'offers manage with its blurb once the server lists it', () => {
+it( 'offers manage with the label the server serves once it lists it', () => {
 	useSessionsGraph.mockImplementation( ( opts = {} ) => {
 		graphOpts = opts;
 		return {
 			sessions: SESSIONS,
-			scopes: [ 'read', 'tune', 'manage' ],
+			scopes: {
+				read: 'Kea read 7746',
+				tune: 'Kea tune 7746',
+				manage: 'Kea manage 7746',
+			},
 			ttlMax: 86400,
 			loading: false,
 			error: null,
@@ -264,7 +273,7 @@ it( 'offers manage with its blurb once the server lists it', () => {
 
 	expect( scopeOptions() ).toEqual( [ 'read', 'tune', 'manage' ] );
 	expect( document.querySelector( '[role="dialog"]' ).textContent ).toContain(
-		'Everything, including the fleet and the vault.'
+		'Kea manage 7746'
 	);
 } );
 
@@ -384,7 +393,7 @@ it( 'says so when no session has been issued', () => {
 		graphOpts = opts;
 		return {
 			sessions: [],
-			scopes: [],
+			scopes: {},
 			ttlMax: 0,
 			loading: false,
 			error: null,
@@ -402,7 +411,7 @@ it( 'surfaces a graph error in the banner', () => {
 		graphOpts = opts;
 		return {
 			sessions: SESSIONS,
-			scopes: [ 'read' ],
+			scopes: { read: 'Kea read 7746' },
 			ttlMax: 86400,
 			loading: false,
 			error: 'sessions unavailable',
@@ -486,7 +495,7 @@ it( 'names a connection whose client registration lapsed with a dash', () => {
 	useSessionsGraph.mockImplementation( () => ( {
 		sessions: [],
 		connections: [ { ...CONNECTIONS[ 0 ], client: '' } ],
-		scopes: [],
+		scopes: {},
 		ttlMax: 0,
 		loading: false,
 		error: null,
@@ -506,7 +515,7 @@ it( 'says so when no connection has been approved', () => {
 	useSessionsGraph.mockImplementation( () => ( {
 		sessions: SESSIONS,
 		connections: [],
-		scopes: [],
+		scopes: {},
 		ttlMax: 0,
 		loading: false,
 		error: null,

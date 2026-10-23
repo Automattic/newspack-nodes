@@ -323,7 +323,9 @@ class Command_Auth {
 	 * A grant missing its resource or user, or holding a scope outside
 	 * `Oauth_Store::SCOPES`, mints nothing: a session naming no resource is admitted at every
 	 * door. A session the grant cannot record is revoked before the refusal,
-	 * so no live key escapes the grant.
+	 * so no live key escapes the grant. The grant is read again once the
+	 * session is recorded: a revoke deletes the grant before it reads the
+	 * index, so either it sees this session or this read sees the grant gone.
 	 *
 	 * @api The OAuth token endpoint mints through it.
 	 * @param string $grant The grant's id.
@@ -362,7 +364,7 @@ class Command_Auth {
 		$session = self::write_session( $approval['scope'], \min( self::SESSION_TTL_S, $approval['expires'] - $now ), $approval['user'], $approval['name'], $binding );
 		$bound   = false;
 		try {
-			$bound = Oauth_Store::bind_session( $grant, $session['handle'] );
+			$bound = Oauth_Store::bind_session( $grant, $session['handle'] ) && null !== Oauth_Store::grant( $grant );
 		} finally {
 			if ( ! $bound && null === self::revoke_session( $session['handle'] ) ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.

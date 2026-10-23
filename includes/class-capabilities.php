@@ -263,4 +263,23 @@ class Capabilities {
 		$want = \array_search( $role, self::LADDER, true );
 		return false !== $held && false !== $want && $held >= $want;
 	}
+
+	/**
+	 * What a role admits, in the words of the person granting it: the one
+	 * wording the OAuth approval page and the Sessions tab show, so every
+	 * role on the ladder carries one whether or not a surface offers it yet.
+	 *
+	 * @param string $role One of READ|TUNE|MANAGE.
+	 * @return string The translated description.
+	 * @throws \InvalidArgumentException On a role off the ladder.
+	 */
+	public static function label( string $role ): string {
+		return match ( $role ) {
+			self::READ => \__( 'See the dashboards and the logged traffic; change nothing.', 'newspack-nodes' ),
+			self::TUNE => \__( 'See the dashboards and the logged traffic; change settings and application data.', 'newspack-nodes' ),
+			self::MANAGE => \__( 'See and change everything, the fleet and the credential vault included.', 'newspack-nodes' ),
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			default => throw new \InvalidArgumentException( "unknown capability role: {$role}" ),
+		};
+	}
 }

@@ -84,7 +84,14 @@ class SessionsCINodeTest extends TestCase {
 	}
 
 	public function test_create_defaults_to_tune_and_lists_two_scopes(): void {
-		$this->assertSame( [ 'read', 'tune' ], $this->fire( 'list' )['scopes'] );
+		$this->assertSame(
+			[
+				Capabilities::READ => Capabilities::label( Capabilities::READ ),
+				Capabilities::TUNE => Capabilities::label( Capabilities::TUNE ),
+			],
+			$this->fire( 'list' )['scopes'],
+			'each scope the tab offers, with the words the approval page uses'
+		);
 		$this->assertSame( Capabilities::TUNE, $this->fire( 'create', [ 'Kea' ] )['scope'] );
 		$this->assertStringContainsString(
 			'unknown scope: manage',

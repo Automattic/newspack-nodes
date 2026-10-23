@@ -459,7 +459,10 @@ name answers 400 `invalid_client_metadata`, a refused URI list 400
 `invalid_redirect_uri`. A client lapses 180 days after registering.
 
 Ten registrations an hour are admitted per caller address
-(`oauth-register:<ip>`); the eleventh answers **429** `rate_limited`.
+(`oauth-register:<ip>`); the eleventh answers **429** `rate_limited`. Claude
+Desktop and claude.ai register from Anthropic's servers, not from the person's
+machine, so every connector set up on one site shares that budget: an eleventh
+connection added within the hour is refused until the window passes.
 
 ### Authorization: the approval page
 
@@ -489,7 +492,8 @@ the site, the client's self-declared name and, in large type, the redirect
 URI's host; a host other than `claude.ai`, `claude.com`, `localhost` or
 `127.0.0.1` carries the warning "This connection sends its credential to
 `<host>`, which is not Claude." It offers the scopes of `Oauth_Store::SCOPES`
-that `Oauth_Server::can_grant()` admits, each under its own label, the broadest
+that `Oauth_Server::can_grant()` admits, each named and described by
+`Capabilities::label()`, as the Sessions tab describes it, the broadest
 checked, and asks for
 a connection name of up to `Sessions::MAX_LABEL` (64) bytes, which labels the
 grant and every session minted from it.
@@ -775,7 +779,7 @@ ago therefore lists as an orphan here while [`gc`](cli.md) would still leave it 
 reading this verb as "what the next sweep deletes" overcounts.
 
 **`sessions list` — the labelled sessions and the OAuth connections, never a
-key or a token.** It returns `{ sessions[], connections[], ttl_max, scopes[] }`,
+key or a token.** It returns `{ sessions[], connections[], ttl_max, scopes{} }`,
 each session `{ handle, label, scope, created, expires }` and each connection
 `{ grant, name, client, scope, created, expires }`: the grant id, the name its
 approver gave it, the name its client registered (empty once that registration
@@ -784,9 +788,11 @@ thirty days on. [`Oauth_Store::grants()`](../includes/class-oauth-store.php)
 lists a connection whether or not it holds a live session, reading the
 `oauth:grants` set, then every grant it names in one read, then their clients
 in one more; an ended grant is left out. `ttl_max` is `Command_Auth::SESSION_TTL_MAX_S` and
-`scopes` is `Capabilities::LABELLED_SCOPES`, `read` and `tune`, sent so a client draws its
-TTL bound and scope picker from the substrate rather than a second copy that
-drifts into offering a scope the mint refuses. Every row is live:
+`scopes` maps each of `Capabilities::LABELLED_SCOPES`, `read` and `tune`, to
+`Capabilities::label()`, the words the OAuth approval page shows for it, sent so
+a client draws its TTL bound, scope picker and scope descriptions from the
+substrate rather than a second copy that drifts into offering a scope the mint
+refuses. Every row is live:
 [`Sessions::listing()`](../includes/class-sessions.php) reads the session Table's
 `labelled` set, then every row it names in one read, takes each fact from the
 session's row, and leaves out a session whose row has gone — lapsed, a

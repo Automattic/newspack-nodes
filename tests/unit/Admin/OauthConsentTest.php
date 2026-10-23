@@ -42,8 +42,8 @@ final class OauthConsentTest extends TestCase {
 
 	/** What each scope of `Oauth_Store::SCOPES` is called on the page. */
 	private const LABELS = [
-		Capabilities::READ => 'Read: read the dashboards',
-		Capabilities::TUNE => 'Tune: read the dashboards, and change settings and logging rules',
+		Capabilities::READ => '<code>read</code> See the dashboards and the logged traffic; change nothing.',
+		Capabilities::TUNE => '<code>tune</code> See the dashboards and the logged traffic; change settings and application data.',
 	];
 
 	private Sqlite_Wpdb $db;
