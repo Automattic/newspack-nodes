@@ -121,11 +121,13 @@ For the full mental model, see [architecture-guide.md](docs/architecture-guide.m
 
 ## REST API
 
-The runtime ships five REST endpoints: the worker spawn handler; a session issuer that hands a client the key it signs commands with; a unified command-dispatch endpoint ([`HTTP_In_Node`](includes/rest/class-http-in-node.php), which routes a posted command envelope through the request-scope graph to a service CI); a server-sent-events stream ([`SSE_Out_Node`](includes/rest/class-sse-out-node.php) drains partitions and `sources:<name>` log sources to dashboards); and an internal loopback probe that reports the web runtime's cache posture to `wp nodes doctor`. An application extends that surface with service-CI verbs behind `/command` and dashboards subscribed to the streams, rather than with routes of its own — `newspack-event-logger-nodes` registers exactly one, [its MCP controller](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-mcp-controller.php).
+The runtime ships seven REST endpoints: the worker spawn handler; a session issuer that hands a client the key it signs commands with; the OAuth client registration and token endpoints, through which an MCP client such as a Claude connector signs in and is issued a command session, beside the `.well-known` metadata documents and an approval page in wp-admin; a unified command-dispatch endpoint ([`HTTP_In_Node`](includes/rest/class-http-in-node.php), which routes a posted command envelope through the request-scope graph to a service CI); a server-sent-events stream ([`SSE_Out_Node`](includes/rest/class-sse-out-node.php) drains partitions and `sources:<name>` log sources to dashboards); and an internal loopback probe that reports the web runtime's cache posture to `wp nodes doctor`. An application extends that surface with service-CI verbs behind `/command` and dashboards subscribed to the streams, rather than with routes of its own — `newspack-event-logger-nodes` registers exactly one, [its MCP controller](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-mcp-controller.php).
 
 ```
 POST  /wp-json/newspack-nodes/v1/workers/spawn
 POST  /wp-json/newspack-nodes/v1/auth
+POST  /wp-json/newspack-nodes/v1/oauth/register
+POST  /wp-json/newspack-nodes/v1/oauth/token
 POST  /wp-json/newspack-nodes/v1/command
 POST  /wp-json/newspack-nodes/v1/health/runtime
 GET   /wp-json/newspack-nodes/v1/messages/stream

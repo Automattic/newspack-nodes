@@ -14,6 +14,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   refusal for an id naming nothing reads `no session or connection with id
   <id>`, not `no session with handle <id>`, and `--all` prints `Revoked every
   session and connection.`
+- **A labelled session is `read` or `tune`.** `wp nodes session issue`, the
+  `sessions create` verb and a `POST /auth` carrying a `label` default to
+  `tune` and refuse `manage`. A script issuing a labelled `manage` session
+  asks for `tune`, which every MCP tool accepts; a session that must hold
+  `manage` is the unlabelled one `POST /auth` mints for a dashboard or a hub.
 - **`Admin::maybe_request_worker_restart()` is removed; a settings page
   calls `Restart_Planner::listen( $schema )`.** Register it once where the
   page's hooks are wired, with the plugin's `Config_System\Schema`, whose
