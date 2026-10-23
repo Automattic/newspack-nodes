@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.124.0] - 2026-10-23
+
 ### Changed
 - **An operator's topology reads "user" in its source badge**, where it read "user only".
 - **WordPress's accent follows the skin.** Every skin but the two Newspack ones sets `--wp-admin-theme-color`, its `-darker-10` and `-darker-20` shades and their `--rgb` channels from its own accent (`--cyan`, `--cyan-dark`, and `--cyan-dark` 5% darker), so a WordPress primary button and a focus ring paint in the skin's color where they painted WordPress's blue. A link hovers, focuses and activates in that color too: WordPress's admin color scheme hard-codes its link hover, so the skins carry a rule of their own, which outranks it and stays under any component's own two-class colour rule. A topology name's hover in CRT is phosphor green. The Newspack skins keep WordPress's own.
