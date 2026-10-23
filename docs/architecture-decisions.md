@@ -1651,13 +1651,18 @@ classes is invisible to `ls`, `dump_node` and the console.
   tables list` asks the owners for their counters over the same command channel.
 - Command sessions live in a Table named `Command_Auth::session_store()`,
   `nodes-sessions-<install>`, where `<install>` is `Cache_Backend::install_id()`: twelve hex
-  characters of the MD5 of `DB_NAME`, the network's base prefix, `DB_HOST` and `ABSPATH`
-  as written, never resolved: the identity `site()` hashes with the cache salt, here
-  without it, so no salt rotation moves the store, and with the database host and the
-  install path beside it, so two sites naming one database and prefix on separate
-  servers, as Local sites do, stay apart. A resolved `ABSPATH` would move with every
-  core update where the path is a symlink to a versioned core. Installs that configure no base directory share `/tmp/newspack-nodes`, and the
-  name keeps each one's sessions to itself. One row per session, keyed by its handle,
+  characters of the MD5 of `DB_NAME`, the network's base prefix and `DB_HOST`: the
+  identity `site()` hashes with the cache salt, here without it, so no salt rotation
+  moves the store, and with the database host beside it, so two sites naming one
+  database and prefix on separate servers, as Local sites do, stay apart. No path enters
+  it: sides sharing a database, prefix and host share one install's options, and WP
+  Cloud's web tier names `ABSPATH` as the versioned core it resolves to while WP-CLI
+  names the docroot link, so a path would part one install's web requests from its
+  WP-CLI and move the store on every core update. Installs that configure no base
+  directory share `/tmp/newspack-nodes`, and the name keeps each one's sessions to itself.
+  Two installs sharing a runtime directory must not also share `DB_NAME`, prefix and
+  `DB_HOST`, because only those three name the store, and a container-local host such as
+  `db` can make different servers spell them alike. One row per session, keyed by its handle,
   on the durable backend the `sessions_backend` config key names: `sqlite`, the default,
   the file `{base}/tables/nodes-sessions-<install>.p0.sqlite` on this host, or `wpdb`,
   which every web host shares. An evicting cache would lose them, so neither volatile
