@@ -764,15 +764,17 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const effectiveTopologyName =
 		mode === 'edit' && editingName ? editingName : topology;
 
-	// A refusal reads as auto, as no saved file does: the canvas auto-fits.
-	const onLayoutFetched = useCallback(
-		( { result, args } ) =>
-			setSavedLayout( {
-				name: args[ 0 ],
-				positions: result?.positions ?? LAYOUT_AUTO,
-			} ),
-		[]
-	);
+	// A refused fetch lays the canvas out afresh but marks the layout unknown.
+	const onLayoutFetched = useCallback( ( { result, error, args } ) => {
+		if ( error ) {
+			setToast( { kind: 'error', text: error } );
+		}
+		setSavedLayout( {
+			name: args[ 0 ],
+			positions: result?.positions ?? LAYOUT_AUTO,
+			refused: Boolean( error ),
+		} );
+	}, [] );
 	const { fetchLayout, saveLayout } = useLayout( {
 		onFetched: onLayoutFetched,
 		onSaved: ( { result, error, args } ) => {
@@ -1844,9 +1846,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									onResetLayout: showResetLayoutChip
 										? handleResetLayout
 										: null,
-									onSaveLayout: layoutDivergesFromSaved
-										? handleSaveLayout
-										: null,
+									// Never save over an unloaded layout.
+									onSaveLayout:
+										layoutDivergesFromSaved &&
+										! currentSavedLayout?.refused
+											? handleSaveLayout
+											: null,
 									// Only the local graph resets.
 									onResetGraph: canResetGraph
 										? handleResetGraph

@@ -4579,6 +4579,18 @@ describe( 'TopologyConsole boot', () => {
 			expect( queryByText( 'reset-layout' ) ).not.toBeNull();
 		} );
 
+		it( 'a refused layout fetch never offers Save, which would overwrite a layout it never loaded', async () => {
+			hooks.fetchLayout.mockRejectedValue(
+				new Error( 'layouts get refused 4410' )
+			);
+			const { getByText, queryByText } = await openDemoInEdit();
+			await act( async () => {
+				fireEvent.click( getByText( 'move-n1' ) );
+			} );
+			expect( queryByText( 'reset-layout' ) ).not.toBeNull();
+			expect( queryByText( 'save-layout' ) ).toBeNull();
+		} );
+
 		it( 'a worker canvas whose layout fetch is refused reads it as auto and offers no Reset', async () => {
 			hooks.fetchLayout.mockRejectedValue(
 				new Error( 'layouts get refused 4409' )

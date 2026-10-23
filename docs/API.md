@@ -769,9 +769,9 @@ matches the topology, and writes back only when a person clicks Save Layout —
 dragging autosaves nothing. A layout's `positions` is a node-id map or the
 string `"auto"`, which the canvas treats as a map holding a fresh autolayout of
 the graph it draws. `"auto"` is never stored: `get` answers it where no file is
-saved, or the file is unreadable or holds no map, and `save` given it removes
-the file, as Save Layout does while nobody has moved a card since the canvas
-laid itself out. `save` refuses any other value. Every other canvas in the substrate, the debug
+saved, or the file is unreadable or its map places no node, and `save` given it,
+or a map placing no node, removes the file, as Save Layout does while nobody has
+moved a card since the canvas laid itself out. `save` refuses any other value. Every other canvas in the substrate, the debug
 overlay's Inspector and each station tab graph included, persists positions to
 `localStorage` through the same hook and never reaches the server, so a
 dashboard wanting layout to survive a change of browser wires these two verbs up
