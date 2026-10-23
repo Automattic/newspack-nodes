@@ -6,6 +6,7 @@ use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Oauth_Store;
 use Newspack_Nodes\Session_Store_Unavailable;
 use Newspack_Nodes\Sessions;
 use Newspack_Nodes\Table_Node;
@@ -161,6 +162,16 @@ class SessionsTest extends TestCase {
 		$this->assertArrayHasKey( $bystander['handle'], self::listed(), 'a refused revoke touches no other session' );
 	}
 
+	/** Only a handle reaches the store, so a revoke never deletes an OAuth row. */
+	public function test_revoking_a_key_that_is_no_session_handle_deletes_nothing(): void {
+		$client = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] );
+
+		$refused = $this->caught( static fn () => Sessions::revoke( "oauth:client:{$client}" ), 'expected a refusal' );
+
+		$this->assertSame( "no session with handle oauth:client:{$client}", $refused->getMessage() );
+		$this->assertNotNull( Oauth_Store::client( $client ), 'the OAuth row survives' );
+	}
+
 	public function test_revoking_a_label_names_its_handles_newest_first_and_revokes_none(): void {
 		Core::$clock = static fn (): float => 1790003390.0;
 		$older       = Sessions::issue( 'kaka-3390', Capabilities::READ, 900 );
@@ -241,7 +252,7 @@ class SessionsTest extends TestCase {
 		$this->db->canned['FROM `wp_newspack_nodes_members`'] = \array_map( static fn ( int $n ): array => [ 'member' => "m-{$n}", 'value' => '', 'expires' => 1999999999 ], \range( 0, Table_Node::MAX_MEMBERS_LIMIT ) );
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'more than 10000 labelled sessions are indexed; `wp nodes session revoke --all` revokes every session' );
+		$this->expectExceptionMessage( 'more than 10000 members are indexed under labelled; `wp nodes session revoke --all` revokes every session' );
 		Sessions::listing();
 	}
 
@@ -250,7 +261,7 @@ class SessionsTest extends TestCase {
 		$this->db->deny['FROM `wp_newspack_nodes_members`'] = 'Lost connection 4471';
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'could not read the session index: wpdb wp_newspack_nodes_table: [0] Lost connection 4471' );
+		$this->expectExceptionMessage( 'could not read the session index labelled: wpdb wp_newspack_nodes_table: [0] Lost connection 4471' );
 		Sessions::listing();
 	}
 

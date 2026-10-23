@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **An OAuth store beside the command sessions.** `Oauth_Store` keeps registered public clients (180 days), single-use authorization codes (60 s), thirty-day grants that no use extends, and rotating refresh tokens in the session Table, under `oauth:` keys, so `wp nodes session revoke --all` and a `sessions_backend` switch reach them. Codes and refresh tokens are stored only as their SHA-256. A refresh runs whole inside `Oauth_Store::rotate()`, which claims each rotation with a 60-second grace row: a refresh retried or racing within 60 s is answered with the same pair, and a token reused later revokes its grant and every session the grant minted. Nothing calls it yet.
+
 ### Changed
+- **`Command_Auth::revoke_session()` refuses a key that is not a session handle**, answering false without touching the store, so `wp nodes session revoke` and the Sessions tab can no longer delete another row in the session Table, an OAuth row among them. The session store's read refusals name what they read: `could not read the session store: …`, `could not read the session index labelled: …` and `more than 10000 members are indexed under labelled; …`.
 - **A session a person carries is `read` or `tune`, never `manage`.** `Capabilities::CARRIED` names the scopes a carried session may hold, and `wp nodes session issue`, the Sessions tab's `create` and a labelled `POST /auth` default to `tune` and refuse `manage` (`unknown role: manage; use read or tune`, `unknown scope: manage`, 400 `invalid_scope`). The `list` verb serves `CARRIED` as `scopes`, so the tab's menu offers exactly those. An unlabelled `POST /auth`, the dashboard's and a hub's own session, still defaults to `manage`. Sessions already issued keep their scope. Restoring `manage` for carried sessions is one edit: append `Capabilities::MANAGE` to `CARRIED`.
 
 ## [2.126.1] - 2026-10-23
