@@ -3099,6 +3099,36 @@ class PartitionTest extends TestCase {
 		$this->assertStringContainsString( 'oversize', \reset( $dropped_traces ) );
 	}
 
+	/**
+	 * The oversize drop keys its throttle on the reason alone: two records of
+	 * different sizes in one window log one line, naming the first size in
+	 * the line's tail.
+	 */
+	public function test_oversize_drops_of_two_sizes_share_one_throttled_line(): void {
+		$router = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$router->name( '_router' );
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		$p->name( 'p-oversize-pair' );
+		$lines = [];
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( string $text ) use ( &$lines ): void {
+				$lines[] = $text;
+			}
+		);
+
+		$p->fill( $this->produce( \str_repeat( 'x', 5471 ) ) );
+		$p->fill( $this->produce( \str_repeat( 'y', 6582 ) ) );
+		$p->remove_node();
+
+		$drops = \array_values( \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, 'WARNING: oversize' ) ) );
+		$this->assertCount( 1, $drops );
+		$this->assertStringContainsString( 'WARNING: oversize - ', $drops[0] );
+		$this->assertMatchesRegularExpression( '/ size: (\d+) > ' . Partition_Node::MAX_LINE_SIZE . '$/', \rtrim( $drops[0] ) );
+		\preg_match( '/ size: (\d+) > /', $drops[0], $size );
+		$this->assertLessThan( 6582, (int) $size[1], 'the line names the first, smaller record' );
+	}
+
 	// ============================================================================
 	// Coverage: with_index callback exception-safety.
 	// ============================================================================

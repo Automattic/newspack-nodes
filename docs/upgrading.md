@@ -19,6 +19,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `tune` and refuse `manage`. A script issuing a labelled `manage` session
   asks for `tune`, which every MCP tool accepts; a session that must hold
   `manage` is the unlabelled one `POST /auth` mints for a dashboard or a hub.
+- **`Node::drop_message()` takes an optional `$tail`.** `drop_message(
+  $message, $error, $tail = '' )` prints the tail after the payload and keeps
+  it out of the throttle key. An existing call is unaffected, but a SUBCLASS
+  overriding the method must widen its signature to match and pass the tail
+  to the parent, or PHP fatals on the incompatible override.
 - **`Admin::maybe_request_worker_restart()` is removed; a settings page
   calls `Restart_Planner::listen( $schema )`.** Register it once where the
   page's hooks are wired, with the plugin's `Config_System\Schema`, whose

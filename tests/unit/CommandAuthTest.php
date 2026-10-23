@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Command_Auth;
@@ -317,6 +318,171 @@ class CommandAuthTest extends TestCase {
 		$this->assertStringContainsString( "feed7746-ci: WARNING: verification failed: {$reason}", $logged );
 		$this->assertSame( [], $sunk, 'the stderr sink' );
 		$this->assertSame( [], \preg_grep( '/verification failed/', Core::$recent_log ), 'the dmesg ring' );
+	}
+
+	/** A live session's handle: handle-shaped, distinct from any a mint makes. */
+	private const FEED_HANDLE = 'feed7746feed7746feed7746feed7746';
+
+	/** A second live session, for the throttle. */
+	private const FEED_OTHER = '7746feed7746feed7746feed7746feed';
+
+	/** A live grant session, which the substrate's doors refuse as none. */
+	private const FEED_GRANT = 'feedfeed7746feedfeed7746feedfeed';
+
+	/** The key both live sessions sign under. */
+	private const FEED_KEY = 'feed-key-7746-7746-7746-7746-7746';
+
+	/** A key no session holds. */
+	private const FEED_WRONG = 'feed-wrong-7746-7746-7746-7746-77';
+
+	/** The clock every handle-naming test runs at. */
+	private const FEED_NOW = 1790077460;
+
+	/**
+	 * A command signed for `$handle` under `$key` at `$ts`.
+	 *
+	 * @return array<int,mixed>
+	 */
+	private static function feed_command( string $handle, string $key, int $ts ): array {
+		$m                       = Message::new_message();
+		$m[ Message::TYPE ]      = Message::TM_COMMAND;
+		$m[ Message::FROM ]      = '_output/feed7746';
+		$m[ Message::TIMESTAMP ] = $ts;
+		$m[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [ 'feed7746' ] ];
+		Command_Auth::remember_session( 'feed-7746', $handle, $key );
+		Command_Auth::sign_for( 'feed-7746', $m );
+		return $m;
+	}
+
+	/**
+	 * Verify `$command` through `$interpreter`, where only the two feed
+	 * sessions are live, and answer what reached the error log.
+	 *
+	 * @param list<array<int,mixed>> $commands Commands to verify, in order.
+	 */
+	private static function error_log_of( Command_Interpreter_Node $interpreter, array $commands ): string {
+		$live = [ 'key' => self::FEED_KEY, 'scope' => 'tune', 'user' => 7746, 'ttl' => 4242, 'label' => 'feed-7746', 'created' => self::FEED_NOW ];
+		$load = static fn ( string $handle ): ?array => match ( $handle ) {
+			self::FEED_HANDLE, self::FEED_OTHER => $live,
+			self::FEED_GRANT                    => $live + [ 'grant' => 'feed7746-grant', 'resource' => 'https://feed7746.example/mcp' ],
+			default                             => null,
+		};
+		$log  = (string) \tempnam( \sys_get_temp_dir(), 'nodes-refusal-' );
+		$old  = \ini_set( 'error_log', $log );
+		try {
+			foreach ( $commands as $command ) {
+				Assert::assertFalse( Command_Auth::verify( $command, self::FEED_NOW, self::FEED_NOW, $interpreter, $load ) );
+			}
+		} finally {
+			\ini_set( 'error_log', false === $old ? '' : $old );
+		}
+		$logged = (string) \file_get_contents( $log );
+		\unlink( $log );
+		return $logged;
+	}
+
+	/**
+	 * Each refusal judged against a live session, beside the command earning it.
+	 *
+	 * @return array<string,array{0:string,1:\Closure():array<int,mixed>}>
+	 */
+	public static function live_session_refusals(): array {
+		return [
+			'wrong key'         => [ 'signature mismatch', static fn (): array => self::feed_command( self::FEED_HANDLE, self::FEED_WRONG, self::FEED_NOW ) ],
+			'stale timestamp'   => [ 'timestamp out of range', static fn (): array => self::feed_command( self::FEED_HANDLE, self::FEED_KEY, self::FEED_NOW - 3600 ) ],
+			'invalid signature' => [ 'invalid signature', static function (): array {
+				$m = self::feed_command( self::FEED_HANDLE, self::FEED_KEY, self::FEED_NOW );
+				$m[ Message::VALUE ]['arguments'] = [ "\xB1\x46" ];
+				return $m;
+			} ],
+		];
+	}
+
+	/**
+	 * A refusal judged against a live session names its handle in the line's
+	 * unkeyed tail, so an operator can tell which client is misconfigured,
+	 * and never its key or the signature or nonce it carried.
+	 *
+	 * @param string                      $reason  What the log line names.
+	 * @param \Closure():array<int,mixed> $command Builds the refused command.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'live_session_refusals' )]
+	public function test_a_refusal_names_a_live_sessions_handle_and_never_its_key( string $reason, \Closure $command ): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( 'feed7746-ci' );
+		$refused     = $command();
+		$logged      = self::error_log_of( $interpreter, [ $refused ] );
+		$interpreter->remove_node();
+
+		$this->assertStringContainsString( "feed7746-ci: WARNING: verification failed: {$reason} - TM_COMMAND", $logged );
+		$this->assertStringEndsWith( ' handle: ' . self::FEED_HANDLE . "\n", $logged );
+		$this->assertStringNotContainsString( self::FEED_KEY, $logged );
+		$this->assertStringNotContainsString( self::FEED_WRONG, $logged );
+		$this->assertStringNotContainsString( Core::as_string( $refused[ Message::VALUE ]['auth']['sig'] ), $logged );
+		$this->assertStringNotContainsString( Core::as_string( $refused[ Message::VALUE ]['auth']['nonce'] ), $logged );
+	}
+
+	/**
+	 * A handle naming no live site-wide session is named nowhere: neither a
+	 * dead one nor a grant's, which the verifier refuses as naming none.
+	 */
+	public function test_a_refusal_names_no_handle_without_a_live_session(): void {
+		$dead        = 'dead7746dead7746dead7746dead7746';
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( 'feed7746-ci' );
+		$logged      = self::error_log_of(
+			$interpreter,
+			[
+				self::feed_command( $dead, self::FEED_KEY, self::FEED_NOW - 3600 ),
+				self::feed_command( self::FEED_GRANT, self::FEED_KEY, self::FEED_NOW - 3600 ),
+			]
+		);
+		$interpreter->remove_node();
+
+		$this->assertStringContainsString( 'feed7746-ci: WARNING: verification failed: timestamp out of range - ', $logged );
+		$this->assertStringNotContainsString( 'handle:', $logged );
+		$this->assertStringNotContainsString( $dead, $logged );
+		$this->assertStringNotContainsString( self::FEED_GRANT, $logged );
+	}
+
+	/**
+	 * A refusal before the envelope is whole names no handle, even one
+	 * naming a live session.
+	 */
+	public function test_a_bad_envelope_names_no_handle(): void {
+		$envelope = self::feed_command( self::FEED_HANDLE, self::FEED_KEY, self::FEED_NOW );
+		unset( $envelope[ Message::VALUE ]['auth']['sig'] );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( 'feed7746-ci' );
+		$logged      = self::error_log_of( $interpreter, [ $envelope ] );
+		$interpreter->remove_node();
+
+		$this->assertStringContainsString( 'feed7746-ci: WARNING: verification failed: bad envelope - ', $logged );
+		$this->assertStringNotContainsString( self::FEED_HANDLE, $logged );
+	}
+
+	/**
+	 * The throttle keys on the reason alone, so sessions a caller mints
+	 * cannot multiply the lines: two live sessions refused for one reason
+	 * inside one window log one line, naming the first.
+	 */
+	public function test_the_refusal_throttle_keys_on_the_reason_alone(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( 'feed7746-ci' );
+		$logged      = self::error_log_of(
+			$interpreter,
+			[
+				self::feed_command( self::FEED_HANDLE, self::FEED_WRONG, self::FEED_NOW ),
+				self::feed_command( self::FEED_OTHER, self::FEED_WRONG, self::FEED_NOW ),
+				self::feed_command( self::FEED_HANDLE, self::FEED_WRONG, self::FEED_NOW ),
+				self::feed_command( self::FEED_OTHER, self::FEED_WRONG, self::FEED_NOW ),
+			]
+		);
+		$interpreter->remove_node();
+
+		$lines = \array_values( \preg_grep( '/verification failed/', \explode( "\n", $logged ) ) );
+		$this->assertCount( 1, $lines );
+		$this->assertStringEndsWith( ' handle: ' . self::FEED_HANDLE, $lines[0] );
 	}
 
 	public function test_sign_refuses_unencodable_arguments(): void {

@@ -538,9 +538,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new class() extends Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
-			public function drop_message( array $message, string $error ): void {
+			public function drop_message( array $message, string $error, string $tail = '' ): void {
 				$this->dropped[] = $error;
-				parent::drop_message( $message, $error );
+				parent::drop_message( $message, $error, $tail );
 			}
 		};
 		$interpreter->name( '_command_interpreter' );
@@ -567,9 +567,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new class() extends Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
-			public function drop_message( array $message, string $error ): void {
+			public function drop_message( array $message, string $error, string $tail = '' ): void {
 				$this->dropped[] = $error;
-				parent::drop_message( $message, $error );
+				parent::drop_message( $message, $error, $tail );
 			}
 		};
 		$interpreter->name( '_command_interpreter' );

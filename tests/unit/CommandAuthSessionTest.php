@@ -226,10 +226,10 @@ class CommandAuthSessionTest extends TestCase {
 		$this->session_at( $signed );
 		$command     = $this->signed_at( $signed );
 		$interpreter = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
-			/** @var string[] */
+			/** @var list<array{0:string,1:string}> */
 			public array $dropped = [];
-			public function drop_message( array $message, string $error ): void {
-				$this->dropped[] = $error;
+			public function drop_message( array $message, string $error, string $tail = '' ): void {
+				$this->dropped[] = [ $error, $tail ];
 			}
 		};
 
@@ -238,7 +238,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertTrue( $verify( $interpreter, $command ) );
 		Core::$clock = static fn (): float => (float) ( $signed + 4 + Command_Auth::NONCE_TTL_S + 7 );
 		$this->assertFalse( $verify( $interpreter, $command ), 'the replay outlived its claim' );
-		$this->assertSame( [ 'verification failed: timestamp out of range' ], $interpreter->dropped );
+		$this->assertSame( [ [ 'verification failed: timestamp out of range', 'handle: ' . $command[ Message::VALUE ]['auth']['handle'] ] ], $interpreter->dropped );
 	}
 
 	/**
@@ -434,17 +434,17 @@ class CommandAuthSessionTest extends TestCase {
 		$logger = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
-			public function drop_message( array $message, string $error ): void {
+			public function drop_message( array $message, string $error, string $tail = '' ): void {
 				$this->dropped[] = $error;
-				parent::drop_message( $message, $error );
+				parent::drop_message( $message, $error, $tail );
 			}
 		};
 		$root = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
-			public function drop_message( array $message, string $error ): void {
+			public function drop_message( array $message, string $error, string $tail = '' ): void {
 				$this->dropped[] = $error;
-				parent::drop_message( $message, $error );
+				parent::drop_message( $message, $error, $tail );
 			}
 		};
 		$root->name( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER );

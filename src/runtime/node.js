@@ -20,6 +20,7 @@ import {
 	TM_ERROR,
 	TM_INFO,
 	TM_REQUEST,
+	TM_RESPONSE,
 	newMessage,
 	typeLabels,
 	asString,
@@ -92,15 +93,20 @@ const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
  * and ascending where PHP keeps insertion order; such a map already breaks
  * the token-array contract.
  *
- * @param {*} value The redacted message VALUE.
+ * A request's object VALUE naming no verb is summarised all the same, its verb
+ * '', because a request is what carries the envelope; a response naming none
+ * prints whole.
+ *
+ * @param {*}       value   The redacted message VALUE.
+ * @param {boolean} request Whether the message is a request, not a reply.
  * @return {*} `name arguments`, quoted as PHP `Node::command_summary()` quotes
- *   them, for a command-shaped VALUE; else it unchanged.
+ *   them, for a request's object VALUE or a named one; else it unchanged.
  */
-function commandSummary( value ) {
+function commandSummary( value, request ) {
 	if (
 		null === value ||
 		'object' !== typeof value ||
-		! ( 'name' in value )
+		( ! request && ! ( 'name' in value ) )
 	) {
 		return value;
 	}
@@ -108,7 +114,10 @@ function commandSummary( value ) {
 		null !== value.arguments && 'object' === typeof value.arguments
 			? Object.values( value.arguments )
 			: [];
-	return serializeArgs( [ asString( value.name ), ...args.map( asString ) ] );
+	return serializeArgs( [
+		asString( value.name ?? '' ),
+		...args.map( asString ),
+	] );
 }
 
 /**
@@ -466,6 +475,7 @@ export class Node {
 
 	/**
 	 * Drop a message with a rate-limited audit line (PHP Node::drop_message).
+	 * PHP's `$tail` argument has no browser caller, so it has no twin here.
 	 *
 	 * @param {Array}  message The 7-field positional message being discarded.
 	 * @param {string} error   Reason; `NOT_AVAILABLE` prints without a WARNING.
@@ -488,7 +498,12 @@ export class Node {
 		if ( type & DROP_PAYLOAD_TYPES && '' !== value ) {
 			const redacted = redactSecrets( value );
 			const shown =
-				type & TM_COMMAND ? commandSummary( redacted ) : redacted;
+				type & TM_COMMAND
+					? commandSummary(
+							redacted,
+							0 === ( type & ( TM_RESPONSE | TM_ERROR ) )
+					  )
+					: redacted;
 			const valueStr =
 				null !== shown && 'object' === typeof shown
 					? JSON.stringify( shown )

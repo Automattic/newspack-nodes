@@ -953,7 +953,11 @@ Every failure refuses, and most name themselves through the handling interpreter
 `drop_message`: wrong type, bad envelope, stale or skewed timestamp, unencodable arguments
 (logged as `invalid signature`), signature mismatch. Each line goes to the error log
 alone, through `Core::error_log_only()`, so every refusal the verifier judges answers its
-caller exactly as an unknown handle does, naming neither the cause nor the process. An
+caller exactly as an unknown handle does, naming neither the cause nor the process. A
+line for a command naming a live site-wide session ends `handle: <handle>`, in the
+tail `drop_message()` prints outside its throttle key, so the log still keeps one line
+per reason per process, so once per POST in the request scope; a dead or grant handle
+is never named. An
 unknown or expired handle and a replayed nonce log nothing. A missing cache backend and a
 session store that will not answer log through `Core::print_less_often()`, environment
 faults rather than verdicts on the message, and those lines still reach the stderr sink.

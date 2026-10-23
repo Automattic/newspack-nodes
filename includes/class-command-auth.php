@@ -824,45 +824,50 @@ class Command_Auth {
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
 		if ( ! self::is_request_command( $type, $ts, $value ) ) {
-			return self::refuse( $interpreter, $message, 'verification failed: wrong type' );
+			return self::refuse( $interpreter, $message, 'verification failed: wrong type', null );
 		}
 		$ts   = (int) $ts; // Second granularity: sign/verify truncate alike.
 		$auth = $value['auth'] ?? null;
 		if ( ! \is_array( $auth )
 				|| ! isset( $auth['nonce'], $auth['sig'] ) ) {
-			return self::refuse( $interpreter, $message, 'verification failed: bad envelope' );
+			return self::refuse( $interpreter, $message, 'verification failed: bad envelope', null );
 		}
 		$nonce_in = $auth['nonce'];
 		$nonce    = Core::as_string( $nonce_in );
 
-		// Stale at arrival, implausibly ahead, or outliving its nonce claim.
-		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S || $turn - $ts >= self::BATCH_MAX_AGE_S ) {
-			return self::refuse( $interpreter, $message, self::STALE );
-		}
-
 		// A handle names a session; no handle means the per-site secret.
 		$handle = $auth['handle'] ?? null;
+		$record = null === $handle ? null : $load( Core::as_string( $handle ) );
+		// A grant session counts as no session, here and in the refusal line.
+		if ( null !== $record && ! self::admits_resource( $record, self::SITE_WIDE ) ) {
+			$record = null;
+		}
+		$named = null === $record ? null : Core::as_string( $handle );
+
+		// Stale at arrival, implausibly ahead, or outliving its nonce claim.
+		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S || $turn - $ts >= self::BATCH_MAX_AGE_S ) {
+			return self::refuse( $interpreter, $message, self::STALE, $named );
+		}
+
 		if ( null === $handle ) {
 			$key = self::secret();
 			// The per-site secret is the site's own authority: no ceiling.
 			Capabilities::$session_scope = null;
+		} elseif ( null === $record ) {
+			return false;
 		} else {
-			$record = $load( Core::as_string( $handle ) );
-			if ( null === $record || ! self::admits_resource( $record, self::SITE_WIDE ) ) {
-				return false;
-			}
 			$key = $record['key'];
 			Capabilities::$session_scope = $record['scope'];
 		}
 
 		$canon = self::canonical( $ts, $value, $nonce );
 		if ( null === $canon ) {
-			return self::refuse( $interpreter, $message, 'verification failed: invalid signature' );
+			return self::refuse( $interpreter, $message, 'verification failed: invalid signature', $named );
 		}
 		$expected = \hash_hmac( 'sha256', $canon, $key );
 		$sig      = $auth['sig'];
 		if ( ! \hash_equals( $expected, Core::as_string( $sig ) ) ) {
-			return self::refuse( $interpreter, $message, 'verification failed: signature mismatch' );
+			return self::refuse( $interpreter, $message, 'verification failed: signature mismatch', $named );
 		}
 
 		// Strict single-use. A claim fails on replay, or with no store.
@@ -915,6 +920,11 @@ class Command_Auth {
 		return false === $encoded ? null : $encoded;
 	}
 
+	/** Per-site HMAC secret, domain-separated from the spawn token. */
+	private static function secret(): string {
+		return \hash_hmac( 'sha256', 'nodes-command-v1', \wp_salt( 'nonce' ) );
+	}
+
 	/**
 	 * Whether a session may be spent at `$resource`: one naming no resource
 	 * is site-wide, and one naming a resource is spent there alone.
@@ -928,23 +938,26 @@ class Command_Auth {
 		return ! isset( $record['resource'] ) || $resource === $record['resource'];
 	}
 
-	/** Per-site HMAC secret, domain-separated from the spawn token. */
-	private static function secret(): string {
-		return \hash_hmac( 'sha256', 'nodes-command-v1', \wp_salt( 'nonce' ) );
-	}
-
 	/**
 	 * Log why a command was refused, through the interpreter that handled it,
 	 * to the error log alone: a line in the response, the stream or the ring
 	 * would tell a caller holding a handle without its key that it is live.
 	 *
+	 * The line names a live session's handle in its tail, so an operator can
+	 * tell which client is misconfigured. The tail stays out of the throttle
+	 * key, which is the reason alone: one line per reason a throttle window,
+	 * which in the request scope is the whole POST, naming the first session
+	 * refused for it, however many sessions a caller mints.
+	 *
 	 * @param Command_Interpreter_Node|null $interpreter Node to log through.
 	 * @param array<int,mixed>              $message     The refused command.
 	 * @param string                        $reason      Why it was refused.
+	 * @param string|null                   $handle      The live session the command named, if any.
 	 * @return false Always, the verdict check() answers.
 	 */
-	private static function refuse( ?Command_Interpreter_Node $interpreter, array $message, string $reason ): bool {
-		Core::error_log_only( static fn () => $interpreter?->drop_message( $message, $reason ) );
+	private static function refuse( ?Command_Interpreter_Node $interpreter, array $message, string $reason, ?string $handle ): bool {
+		$tail = null === $handle ? '' : "handle: {$handle}";
+		Core::error_log_only( static fn () => $interpreter?->drop_message( $message, $reason, $tail ) );
 		return false;
 	}
 
