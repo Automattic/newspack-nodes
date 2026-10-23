@@ -44,10 +44,10 @@ class Field_Reset_Assets {
 	 * defines it only where `plugin_dir_url()` exists, so a guarded no-op beats
 	 * enqueuing a src that 404s. The sheet goes by handle: nodes' admin registers
 	 * it on every admin page, and a page that already enqueued it is unchanged.
-	 * Call this from `admin_enqueue_scripts` after priority 2, where nodes'
-	 * admin registers the handle: the sheet then prints in `<head>` rather than
-	 * as a late style after the form it paints, and an enqueue ahead of the
-	 * registration would print nothing and drop every sheet depending on it.
+	 * Call this by `admin_enqueue_scripts`, so the sheet prints in `<head>`
+	 * rather than as a late style after the form it paints. Nodes' admin
+	 * registers the handle there at priority 2; an enqueue ahead of that waits
+	 * in WordPress's queue (5.9 and later) and prints once it is registered.
 	 */
 	public static function enqueue(): void {
 		if (
