@@ -1402,7 +1402,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [ editingName ] );
 
 	const onDeleted = useCallback(
-		( { result, error, args } ) => {
+		( { error, args } ) => {
 			const name = args?.[ 0 ];
 			if ( error ) {
 				setToast( { kind: 'error', text: error } );
@@ -1410,20 +1410,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 			setToast( {
 				kind: 'success',
-				text: result.stock_fallback
-					? sprintf(
-							// translators: %s: topology name.
-							__(
-								'Deleted user copy of %s; stock copy now active.',
-								'newspack-nodes'
-							),
-							name
-					  )
-					: sprintf(
-							// translators: %s: topology name.
-							__( 'Deleted %s.', 'newspack-nodes' ),
-							name
-					  ),
+				// translators: %s: topology name.
+				text: sprintf( __( 'Deleted %s.', 'newspack-nodes' ), name ),
 			} );
 			// A delete restarts the matching fleet — re-fetch the live catalog.
 			invalidateExpandedIncludes();

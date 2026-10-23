@@ -34,11 +34,11 @@
  *            through; `hulls` = the node set of every topology in the tree, one
  *            outline per include the canvas draws). Informational — the runtime
  *            is the Shell's `include`. The console's edit-mode baseline.
- *   delete — args `{name}`. Returns `{name, deleted, stock_fallback,
- *            pruned_active, restarted_fleets}`. User copy only (stock immutable);
- *            restarts the affected fleets (symmetry with save). When no stock
- *            fallback remains, prunes the now-orphaned name from the active
- *            set (`newspack_nodes_topologies`); `pruned_active` reports whether it
+ *   delete — args `{name}`. Returns `{name, deleted, pruned_active,
+ *            restarted_fleets}`. User copy only (stock immutable); restarts the
+ *            affected fleets (symmetry with save). When no stock copy resolves
+ *            the name, prunes it from the active set
+ *            (`newspack_nodes_topologies`); `pruned_active` reports whether it
  *            was present and removed.
  *   activate   — args `{name}`. Adds the name to the persisted active set
  *                (`newspack_nodes_topologies` option), invalidates the config
@@ -335,7 +335,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
-	 * @return array<int|string,mixed> `{name, deleted, stock_fallback, pruned_active, restarted_fleets}`.
+	 * @return array<int|string,mixed> `{name, deleted, pruned_active, restarted_fleets}`.
 	 * @throws \RuntimeException When the name is not file-name safe, no user copy exists, or the unlink fails.
 	 */
 	public static function cmd_delete( array $args ): array {
@@ -352,12 +352,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( "failed to unlink topology file: $path" )
 			);
 		}
-		// After unlink, resolve() returns the stock copy iff one exists.
-		$has_stock_fallback = null !== Topology_Registry::resolve( $name );
-
-		// No stock fallback → prune the name from the active set.
+		// No stock copy resolves the name now: prune it from the active set.
 		$pruned = false;
-		if ( ! $has_stock_fallback ) {
+		if ( null === Topology_Registry::resolve( $name ) ) {
 			$active = \array_values( \array_filter( (array) \get_option( 'newspack_nodes_topologies', [] ), '\is_string' ) );
 			$pruned = \in_array( $name, $active, true );
 			if ( $pruned ) {
@@ -378,7 +375,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 		return [
 			'name'             => $name,
 			'deleted'          => $path,
-			'stock_fallback'   => $has_stock_fallback,
 			'pruned_active'    => $pruned,
 			'restarted_fleets' => $restarted,
 		];

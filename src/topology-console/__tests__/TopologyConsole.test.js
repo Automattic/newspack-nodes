@@ -1927,7 +1927,7 @@ describe( 'TopologyConsole boot', () => {
 	it( 'deleting a topology refreshes the live catalog', async () => {
 		hooks.topologies = [ { name: 'demo', source: 'user' } ];
 		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
-		hooks.deleteTopology.mockResolvedValueOnce( { stock_fallback: false } );
+		hooks.deleteTopology.mockResolvedValueOnce( {} );
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
 			const { getByText } = render( <TopologyConsole /> );
@@ -3974,9 +3974,7 @@ describe( 'TopologyConsole boot', () => {
 			tsl: '',
 			name: 'demo',
 		} );
-		hooks.deleteTopology.mockResolvedValueOnce( {
-			stock_fallback: false,
-		} );
+		hooks.deleteTopology.mockResolvedValueOnce( {} );
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
 			const { container, getByText, queryByTestId } = render(

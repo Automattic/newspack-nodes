@@ -22,9 +22,7 @@ import { TOPOLOGIES_CI } from './useCatalogs';
  *
  * @param {OnDone} [onDone] Runs once per reply. `args[0]` is the topology the
  *                          reply answered for, and `result` carries the verb's
- *                          `{name, deleted, stock_fallback, pruned_active,
- *                          restarted_fleets}`; `stock_fallback` is what tells
- *                          the operator a stock copy took the name back over.
+ *                          `{name, deleted, pruned_active, restarted_fleets}`.
  * @return {{remove: ( o: {name: string} ) => void, pending: boolean}}
  *   `remove()` parks the delete for the next tick; `pending` holds while one is
  *   outstanding.
