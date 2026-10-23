@@ -44,7 +44,7 @@ export default function OpenTopologyModal( {
 		cancelRef.current?.focus();
 	}, [] );
 
-	const grouped = { user: [], both: [], stock: [] };
+	const grouped = { user: [], stock: [] };
 	for ( const t of topologies ) {
 		( grouped[ t.source ] || grouped.stock ).push( t );
 	}
@@ -72,7 +72,7 @@ export default function OpenTopologyModal( {
 					</div>
 				) }
 
-				{ [ 'user', 'both', 'stock' ].map( ( src ) => {
+				{ [ 'user', 'stock' ].map( ( src ) => {
 					const items = grouped[ src ];
 					if ( ! items.length ) {
 						return null;

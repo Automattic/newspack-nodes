@@ -13,7 +13,7 @@ import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCo
 import { useSaveTopology } from '../useSaveTopology';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
-const SAVED = { name: 'demo', path: '/user/demo.tsl', shadows_stock: false };
+const SAVED = { name: 'demo', path: '/user/demo.tsl' };
 const REASON = 'unknown node type "Bogus" at line 3';
 
 let replyFor;

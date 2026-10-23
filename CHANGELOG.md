@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **An operator's topology reads "user" in its source badge**, where it read "user only".
+
+### Removed
+- **The `both` topology source and `save`'s `shadows_stock`.** A save refuses a stock name, and a stock topology resolves ahead of a user file sharing its name, so `dump` and `get` call that topology `stock`, the Overview's source badge loses "user ▸ shadows stock", the console's open dialog its `both` group, and `save` answers `{name, path, restarted_fleets}`.
+
 ## [2.123.0] - 2026-10-22
 
 ### Added

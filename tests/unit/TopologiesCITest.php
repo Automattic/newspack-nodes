@@ -242,13 +242,13 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( 'user', $result['topologies'][0]['source'] );
 	}
 
-	public function test_dump_returns_both_when_user_shadows_stock(): void {
+	public function test_dump_names_a_stock_topology_stock_beside_an_inert_user_copy(): void {
 		\file_put_contents( "{$this->stock}/dual.tsl", "make_node Echo s\n" );
 		\file_put_contents( "{$this->user}/dual.tsl",  "make_node Echo u\n" );
 
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 
-		$this->assertSame( 'both', $result['topologies'][0]['source'] );
+		$this->assertSame( 'stock', $result['topologies'][0]['source'] );
 	}
 
 	public function test_dump_sorts_alphabetically(): void {
@@ -390,7 +390,7 @@ class TopologiesCITest extends TestCase {
 			'dual'
 		);
 
-		$this->assertSame( 'both', $result['source'] );
+		$this->assertSame( 'stock', $result['source'] );
 		$this->assertSame(
 			"make_node Echo stock\n",
 			$result['tsl']
@@ -454,7 +454,6 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( 'fresh', $result['name'] );
 		$this->assertSame( "{$this->user}/fresh.tsl", $result['path'] );
-		$this->assertFalse( $result['shadows_stock'] );
 		$this->assertSame( [], $result['restarted_fleets'] );
 		$this->assertSame(
 			"make_node Echo e\n",
@@ -483,18 +482,6 @@ class TopologiesCITest extends TestCase {
 			"make_node Tee t\nmake_node Echo e\n",
 			$result['tsl']
 		);
-	}
-
-	/** Nothing shadows: a save that lands is a name stock does not own. */
-	public function test_save_never_reports_shadowing_stock(): void {
-		$result = VerbHarness::fire(
-			new Topologies_CI_Node(),
-			'topologies',
-			'save',
-			[ 'not-a-stock-name', "make_node Echo u\n" ]
-		);
-
-		$this->assertFalse( $result['shadows_stock'] );
 	}
 
 	/**
