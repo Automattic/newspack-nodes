@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A chart draws no band where a series has nothing to show.** A series at zero still drew its band, a zero-height shape tracing the stack's top edge with its own outline, so a chart whose series are mostly empty laid a dozen outlines along one curve, which Firefox rasterizes as a hard, stepped line. `AreaTimeChart` now skips the inside of every zero run, keeping its first and last zero so a band still tapers to the baseline, and draws no band at all for a series zero in every slot. The legend and the tooltip are unchanged.
+
 ### Changed
 - **CRT's scanlines cover every skinned surface.** They drew over the topology canvas alone; the CRT and CRT Color skins now lay them over every page surface and modal too, so the station's tabs, the event logger's dashboards and each modal carry them, and clicks pass through. A skin root itself is boxless (`display: contents`), so the lines go on the boxes it provides, and the canvas keeps its own pass over them and reads denser. One `crt-scanlines` mixin paints both.
 
