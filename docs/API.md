@@ -347,7 +347,7 @@ fixate a live session.
 | Field | Meaning |
 |---|---|
 | `scope` | `read`, `tune` or `manage`. Defaults to `manage`, and is CLAMPED to the highest role the minting user holds, so the returned `scope` states authority rather than a request. An unrecognised value answers 400 `invalid_scope`. A request carrying a `label` is a session a person keeps, so it may hold only a [`Capabilities::LABELLED_SCOPES`](../includes/class-capabilities.php) scope, `read` or `tune`: it defaults to `tune`, and `manage` answers 400 `invalid_scope`. An unlabelled request keeps today's rules. |
-| `label` | How the session shows up in the Sessions tab. An empty label keeps it out of the listing. What is stored runs through [`sanitize_text_field()`](https://developer.wordpress.org/reference/functions/sanitize_text_field/) and is then truncated to [`Sessions::MAX_LABEL`](../includes/class-sessions.php) = 64 characters, so a listing can come back shorter than what was sent, or stripped of markup — the cap is there so a listing cannot be used as storage. `sessions create` echoes the label as SENT, so the two can disagree the moment the next `list` runs. |
+| `label` | How the session shows up in the Sessions tab. An empty label keeps it out of the listing. What is stored runs through [`sanitize_text_field()`](https://developer.wordpress.org/reference/functions/sanitize_text_field/), loses every C0 and C1 control character and DEL, which that function keeps, and is then truncated to [`Sessions::MAX_LABEL`](../includes/class-sessions.php) = 64 characters, so a listing can come back shorter than what was sent, or stripped of markup — the cap is there so a listing cannot be used as storage. `sessions create` echoes the label as SENT, so the two can disagree the moment the next `list` runs. |
 | `ttl` | Lifetime in seconds, clamped to `[ Command_Auth::SESSION_TTL_MIN_S, SESSION_TTL_MAX_S ]` = `[60, 86400]`. Defaults to `SESSION_TTL_S` = 3600. |
 
 A session the store cannot hold answers 503 `session_store_unavailable`:
@@ -774,10 +774,17 @@ itself makes, but the diagnostic applies NO grace window, where the sweep and
 ago therefore lists as an orphan here while [`gc`](cli.md) would still leave it alone, so
 reading this verb as "what the next sweep deletes" overcounts.
 
-**`sessions list` — the labelled sessions, never the keys.** It returns
-`{ sessions[], ttl_max, scopes[] }`, each row `{ handle, label, scope, created,
-expires }`. `ttl_max` is `Command_Auth::SESSION_TTL_MAX_S` and
-`scopes` the three `Capabilities` ladder constants, sent so a client draws its
+**`sessions list` — the labelled sessions and the OAuth connections, never a
+key or a token.** It returns `{ sessions[], connections[], ttl_max, scopes[] }`,
+each session `{ handle, label, scope, created, expires }` and each connection
+`{ grant, name, client, scope, created, expires }`: the grant id, the name its
+approver gave it, the name its client registered (empty once that registration
+has lapsed), the approved scope, when it was approved and when it expires,
+thirty days on. [`Oauth_Store::grants()`](../includes/class-oauth-store.php)
+lists a connection whether or not it holds a live session, reading the
+`oauth:grants` set, then every grant it names in one read, then their clients
+in one more; an ended grant is left out. `ttl_max` is `Command_Auth::SESSION_TTL_MAX_S` and
+`scopes` is `Capabilities::LABELLED_SCOPES`, `read` and `tune`, sent so a client draws its
 TTL bound and scope picker from the substrate rather than a second copy that
 drifts into offering a scope the mint refuses. Every row is live:
 [`Sessions::listing()`](../includes/class-sessions.php) reads the session Table's
@@ -791,14 +798,16 @@ than listing part or nothing. Reading the listing writes nothing.
 binds each arg by position or by name, so `create chris-claude tune 86400` and
 `create chris-claude --scope=tune --ttl=86400` mint the same session; `scope`
 defaults to `tune`, refuses `manage` (only `Capabilities::LABELLED_SCOPES` scopes) and is clamped to what the issuing user holds, and `ttl` to
-`Command_Auth::SESSION_TTL_MIN_S`–`SESSION_TTL_MAX_S`. `revoke <handle>` answers
-`{ handle, revoked: true }` only when it dropped a store row or a directory row.
-A store that did not answer refuses `session store did not answer; <h> may still
-be live` and leaves the listing as it was.
-A handle naming neither refuses `no session with handle <h>`, and when `<h>` is a
-session's LABEL — what an operator reading the Sessions tab types — the refusal
-names the handles carrying it: `no session with handle <h>; the label <h> names
-<handle>, …`.
+`Command_Auth::SESSION_TTL_MIN_S`–`SESSION_TTL_MAX_S`. `revoke <id>` takes a
+session's handle or a connection's grant id and answers `{ id, revoked: true }`
+only when it dropped a session's row or ended a grant. Revoking a connection
+ends its grant, so it refreshes no more, and every session it minted, as
+revoking one of those sessions does. A store that did not answer refuses
+`session store did not answer; <id> may still be live` and leaves the listing
+as it was. An id naming neither refuses `no session or connection with id
+<id>`, and when `<id>` is a session's LABEL — what an operator reading the
+Sessions tab types — the refusal names the handles carrying it: `no session or
+connection with id <id>; the label <id> names <handle>, …`.
 
 **`topologies expand` and `topologies get` compose different views.** `expand`
 returns [`Topology_Analyzer::expand()`](../includes/class-topology-analyzer.php)'s shape for an include SET —

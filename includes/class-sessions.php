@@ -39,38 +39,47 @@ class Sessions {
 	/** Longest label a session keeps, so a listing can't be used as storage. */
 	public const MAX_LABEL = 64;
 
+	/** C0 controls and DEL, and C1 controls as UTF-8 encodes them. */
+	private const CONTROL_CHARS = '/[\x00-\x1F\x7F]|\xC2[\x80-\x9F]/';
+
 	/**
-	 * Revoke the session `$handle` names, so its key stops verifying at once.
-	 * A session an OAuth grant minted takes its grant first, and with it every
-	 * session the grant minted, so no refresh mints another.
+	 * Revoke the session `$id` names, so its key stops verifying at once, or
+	 * else the OAuth connection: its grant and every session it minted. A
+	 * session a grant minted takes its grant first too, so no refresh mints
+	 * another.
 	 *
 	 * A store that did not answer is refused, because the key may still
-	 * verify. A handle that named nothing is refused too, and the refusal
+	 * verify. An id that named neither is refused too, and the refusal
 	 * names the handles of any session LABELLED with it, newest first, which
 	 * is what an operator reading the Sessions tab types; a label revokes
 	 * nothing. The index keeps the handle until it lapses, and the listing
 	 * skips it.
 	 *
-	 * @param string $handle Session handle.
-	 * @throws \RuntimeException When the store did not answer, or no session held the handle.
-	 * @throws Session_Store_Unavailable When the store will not open or answer the session's read.
+	 * @param string $id Session handle or grant id.
+	 * @throws \RuntimeException When the store did not answer, or no session or grant held the id.
+	 * @throws Session_Store_Unavailable When the store will not open or answer a read.
 	 */
-	public static function revoke( string $handle ): void {
-		$grant = Command_Auth::load_session_records( [ $handle ] )[ $handle ]['grant'] ?? null;
+	public static function revoke( string $id ): void {
+		$grant = Command_Auth::load_session_records( [ $id ] )[ $id ]['grant'] ?? null;
 		if ( null !== $grant ) {
 			Oauth_Store::revoke_grant( $grant );
 		}
-		$revoked = Command_Auth::revoke_session( $handle );
+		$revoked = Command_Auth::revoke_session( $id );
 		if ( null === $revoked ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for CLI and CI consumers.
-			throw new \RuntimeException( "session store did not answer; {$handle} may still be live" );
+			throw new \RuntimeException( "session store did not answer; {$id} may still be live" );
 		}
-		if ( ! $revoked && null === $grant ) {
-			$labelled = \array_column( \array_filter( self::listing(), static fn ( array $row ): bool => $row['label'] === $handle ), 'handle' );
-			$hint     = [] === $labelled ? '' : "; the label {$handle} names " . \implode( ', ', $labelled );
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for CLI and CI consumers.
-			throw new \RuntimeException( "no session with handle {$handle}{$hint}" );
+		if ( $revoked || null !== $grant ) {
+			return;
 		}
+		if ( null !== Oauth_Store::grant( $id ) ) {
+			Oauth_Store::revoke_grant( $id );
+			return;
+		}
+		$labelled = \array_column( \array_filter( self::listing(), static fn ( array $row ): bool => $row['label'] === $id ), 'handle' );
+		$hint     = [] === $labelled ? '' : "; the label {$id} names " . \implode( ', ', $labelled );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for CLI and CI consumers.
+		throw new \RuntimeException( "no session or connection with id {$id}{$hint}" );
 	}
 
 	/**
@@ -138,7 +147,9 @@ class Sessions {
 	}
 
 	/**
-	 * A name someone typed, made fit to keep and list: sanitized, then cut to
+	 * A name someone typed, made fit to keep and list: sanitized, stripped of
+	 * every C0 and C1 control character and DEL, which `sanitize_text_field()`
+	 * keeps and a terminal listing the name would act on, then cut to
 	 * MAX_LABEL bytes on a character boundary, so it stays UTF-8.
 	 *
 	 * @api `Oauth_Store` keeps a client's name through it.
@@ -146,7 +157,8 @@ class Sessions {
 	 * @return string The name as stored; empty when nothing survives.
 	 */
 	public static function clean_label( string $label ): string {
-		return \mb_strcut( \sanitize_text_field( $label ), 0, self::MAX_LABEL, 'UTF-8' );
+		$plain = \preg_replace( self::CONTROL_CHARS, '', \sanitize_text_field( $label ) ) ?? '';
+		return \mb_strcut( \trim( $plain ), 0, self::MAX_LABEL, 'UTF-8' );
 	}
 
 	/**

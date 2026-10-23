@@ -29,8 +29,6 @@ namespace Newspack_Nodes;
 /**
  * Static calls over the session Table's OAuth rows. Every failure of the store
  * throws `Session_Store_Unavailable`.
- *
- * @api The OAuth endpoints, the grant-session mint and the Sessions verbs.
  */
 final class Oauth_Store {
 
@@ -512,7 +510,9 @@ final class Oauth_Store {
 
 	/**
 	 * The live grants, newest first: the `oauth:grants` set, then every row
-	 * it names in one read.
+	 * it names in one read, then their clients' rows in one more. A grant
+	 * names its client by the name the client registered, or by none once
+	 * that registration has lapsed.
 	 *
 	 * @return list<array{grant:string,name:string,client:string,scope:string,created:int,expires:int}>
 	 * @throws Session_Store_Unavailable When the store does not answer, or the
@@ -523,18 +523,20 @@ final class Oauth_Store {
 		if ( [] === $ids ) {
 			return [];
 		}
-		$rows = self::rows( \array_map( static fn ( string $id ): string => "oauth:grant:{$id}", $ids ) );
-		$now  = self::now();
-		$list = [];
+		$rows    = self::rows( \array_map( static fn ( string $id ): string => "oauth:grant:{$id}", $ids ) );
+		$clients = self::rows( \array_values( \array_unique( \array_map( static fn ( array $found ): string => 'oauth:client:' . Core::str( $found['row']['client'] ?? null ), $rows ) ) ) );
+		$now     = self::now();
+		$list    = [];
 		foreach ( $ids as $id ) {
 			$found = $rows[ "oauth:grant:{$id}" ] ?? null;
 			if ( null === $found ) {
 				continue;
 			}
+			$client = 'oauth:client:' . Core::str( $found['row']['client'] ?? null );
 			$list[] = [
 				'grant'   => $id,
 				'name'    => Core::str( $found['row']['name'] ?? null ),
-				'client'  => Core::str( $found['row']['client'] ?? null ),
+				'client'  => Core::str( $clients[ $client ]['row']['name'] ?? null ),
 				'scope'   => Core::str( $found['row']['scope'] ?? null ),
 				'created' => Core::int( $found['row']['created'] ?? null ),
 				'expires' => $now + $found['ttl'],

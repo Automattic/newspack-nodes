@@ -17,6 +17,16 @@ import { useSessionsGraph } from '../useSessionsGraph';
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const LISTING = {
 	sessions: [ { handle: 'h-4471', label: 'hub-aggregator', scope: 'read' } ],
+	connections: [
+		{
+			grant: 'g-7746',
+			name: 'Tui laptop',
+			client: 'Kea Desk 4410',
+			scope: 'read',
+			created: 1790027746,
+			expires: 1792619746,
+		},
+	],
 	scopes: [ 'read', 'tune', 'manage' ],
 	ttl_max: 4471,
 };
@@ -34,6 +44,7 @@ it( 'lists on the first tick and publishes the table', async () => {
 		timeout: 6000,
 	} );
 	expect( result.current.sessions ).toEqual( LISTING.sessions );
+	expect( result.current.connections ).toEqual( LISTING.connections );
 	expect( result.current.scopes ).toEqual( LISTING.scopes );
 	expect( result.current.ttlMax ).toBe( 4471 );
 	expect(
@@ -61,8 +72,8 @@ it( 'names the handle each revoke answered, from the reply path', async () => {
 	await act( async () => {} );
 
 	act( () => {
-		result.current.revokeSession( 'h-4471' );
-		result.current.revokeSession( 'h-8823' );
+		result.current.revoke( 'h-4471' );
+		result.current.revoke( 'h-8823' );
 	} );
 
 	await waitFor( () => expect( answers.length ).toBe( 2 ), {
@@ -80,6 +91,31 @@ it( 'names the handle each revoke answered, from the reply path', async () => {
 	).toEqual( [ 'sessions:revoke:in/h-4471', 'sessions:revoke:in/h-8823' ] );
 }, 30000 );
 
+// A connection is revoked by its grant id, through the same verb a session is.
+it( 'revokes a connection by sending its grant id', async () => {
+	const answers = [];
+	const wire = installFakeCommandWire( () => LISTING );
+	const { result } = renderHook( () =>
+		useSessionsGraph( { onAnswer: ( a ) => answers.push( a ) } )
+	);
+	await act( async () => {} );
+
+	act( () => result.current.revoke( 'g-7746' ) );
+
+	await waitFor( () => expect( answers.length ).toBe( 1 ), {
+		timeout: 8000,
+	} );
+	expect( answers[ 0 ] ).toEqual(
+		expect.objectContaining( { verb: 'revoke', subject: 'g-7746' } )
+	);
+	const sent = wire.batches
+		.flat()
+		.filter( ( m ) => 'revoke' === m[ VALUE ]?.name );
+	expect( sent.map( ( m ) => m[ VALUE ].arguments ) ).toEqual( [
+		[ 'g-7746' ],
+	] );
+}, 30000 );
+
 // A revoke changes the table, so the answer re-lists rather than leaving the
 // row on screen until the cadence next comes round.
 it( 'lists again as soon as a revoke answers, ahead of the cadence', async () => {
@@ -93,7 +129,7 @@ it( 'lists again as soon as a revoke answers, ahead of the cadence', async () =>
 			.length;
 	const before = listed();
 
-	act( () => result.current.revokeSession( 'h-4471' ) );
+	act( () => result.current.revoke( 'h-4471' ) );
 
 	// Under the 5s list cadence, so only the answer can explain a fresh list.
 	await waitFor( () => expect( listed() ).toBeGreaterThan( before ), {
@@ -115,7 +151,7 @@ it( 'names the outstanding verb per handle, and nothing once answered', async ()
 
 	expect( result.current.pendingVerb( 'h-4471' ) ).toBeNull();
 
-	act( () => result.current.revokeSession( 'h-4471' ) );
+	act( () => result.current.revoke( 'h-4471' ) );
 	await waitFor( () =>
 		expect( result.current.pendingVerb( 'h-4471' ) ).toBe( 'revoke' )
 	);

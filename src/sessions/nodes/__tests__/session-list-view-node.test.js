@@ -35,6 +35,16 @@ const SAMPLE = {
 		},
 		{ handle: 'bbbb', label: 'kiwi', scope: 'read', expires: 4102448400 },
 	],
+	connections: [
+		{
+			grant: 'g-7746',
+			name: 'Tui laptop',
+			client: 'Kea Desk 4410',
+			scope: 'read',
+			created: 1790027746,
+			expires: 1792619746,
+		},
+	],
 	ttl_max: 86400,
 	scopes: [ 'read', 'tune', 'manage' ],
 };
@@ -51,6 +61,7 @@ test( 'the empty slice loads with no rows', () => {
 	const view = makeView();
 	expect( view.view ).toEqual( {
 		sessions: null,
+		connections: null,
 		scopes: [],
 		ttlMax: 0,
 		loading: true,
@@ -64,10 +75,20 @@ test( 'a list reply publishes the rows, the scopes and the ttl ceiling', () => {
 
 	expect( view.view.sessions ).toHaveLength( 2 );
 	expect( view.view.sessions[ 0 ].label ).toBe( 'laptop mcp' );
+	expect( view.view.connections ).toEqual( SAMPLE.connections );
 	expect( view.view.scopes ).toEqual( [ 'read', 'tune', 'manage' ] );
 	expect( view.view.ttlMax ).toBe( 86400 );
 	expect( view.view.loading ).toBe( false );
 	expect( view.view.error ).toBeNull();
+} );
+
+test( 'a reply missing either table keeps the prior slice', () => {
+	const view = makeView();
+	view.fill( reply( SAMPLE ) );
+	view.fill( reply( { ...SAMPLE, connections: undefined, sessions: [] } ) );
+
+	expect( view.view.sessions ).toHaveLength( 2 );
+	expect( view.view.connections ).toEqual( SAMPLE.connections );
 } );
 
 test( 'an error keeps the rows already on screen', () => {

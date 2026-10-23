@@ -6,6 +6,7 @@ use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Oauth_Store;
 use Newspack_Nodes\Rest\Sessions_CI_Node;
 use Newspack_Nodes\Sessions;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
@@ -128,8 +129,8 @@ class SessionsCINodeTest extends TestCase {
 		$this->assertNull( ( Command_Auth::load_session_record( $created['handle'] )['key'] ?? null ) );
 	}
 
-	public function test_revoke_requires_a_handle(): void {
-		$this->assertSame( "missing required argument: handle\n", $this->fire( 'revoke' ) );
+	public function test_revoke_requires_an_id(): void {
+		$this->assertSame( "missing required argument: id\n", $this->fire( 'revoke' ) );
 	}
 
 	/**
@@ -153,7 +154,7 @@ class SessionsCINodeTest extends TestCase {
 	public function test_revoke_refuses_a_handle_no_session_holds(): void {
 		$this->fire( 'create', [ 'bystander-5521', '--scope=read' ] );
 
-		$this->assertSame( "no session with handle nsh-absent-5521\n", $this->fire( 'revoke', [ 'nsh-absent-5521' ] ) );
+		$this->assertSame( "no session or connection with id nsh-absent-5521\n", $this->fire( 'revoke', [ 'nsh-absent-5521' ] ) );
 		$this->assertCount( 1, $this->fire( 'list' )['sessions'], 'a refused revoke touches no other session' );
 	}
 
@@ -165,7 +166,7 @@ class SessionsCINodeTest extends TestCase {
 		$reply = $this->fire( 'revoke', [ 'kaka-5521' ] );
 
 		$this->assertIsString( $reply );
-		$this->assertStringStartsWith( 'no session with handle kaka-5521; the label kaka-5521 names ', $reply );
+		$this->assertStringStartsWith( 'no session or connection with id kaka-5521; the label kaka-5521 names ', $reply );
 		$this->assertStringContainsString( $first['handle'], $reply );
 		$this->assertStringContainsString( $second['handle'], $reply );
 		$this->assertCount( 2, $this->fire( 'list' )['sessions'], 'naming a label revokes nothing' );
@@ -201,8 +202,83 @@ class SessionsCINodeTest extends TestCase {
 
 		$result = $this->fire( 'revoke', [ $created['handle'] ] );
 
-		$this->assertSame( [ 'handle' => $created['handle'], 'revoked' => true ], $result );
+		$this->assertSame( [ 'id' => $created['handle'], 'revoked' => true ], $result );
 		$this->assertNull( Command_Auth::load_session_record( $created['handle'] ) );
+	}
+
+	/**
+	 * An approved connection as the store holds it: a registered client and
+	 * a grant on it, each value distinct from every default.
+	 *
+	 * @return string The grant id.
+	 */
+	private static function connect( string $name = 'Tui laptop' ): string {
+		$client = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] )['id'];
+		return Oauth_Store::open_grant(
+			[
+				'client'   => $client,
+				'user'     => 7746,
+				'scope'    => Capabilities::READ,
+				'resource' => 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp',
+				'name'     => $name,
+			]
+		)['grant'];
+	}
+
+	/** A connection holding no live session is still listed, by its name. */
+	public function test_list_shows_an_idle_connection(): void {
+		Core::$clock = static fn (): float => 1790027746.0;
+		$grant       = self::connect();
+
+		$this->assertSame(
+			[
+				[
+					'grant'   => $grant,
+					'name'    => 'Tui laptop',
+					'client'  => 'Kea Desk 4410',
+					'scope'   => Capabilities::READ,
+					'created' => 1790027746,
+					'expires' => 1790027746 + 30 * DAY_IN_SECONDS,
+				],
+			],
+			$this->fire( 'list' )['connections']
+		);
+		$this->assertSame( [], $this->fire( 'list' )['sessions'], 'a grant is no labelled session' );
+	}
+
+	/** Revoking a connection ends the grant and every session it minted. */
+	public function test_revoke_takes_a_connection_id(): void {
+		$grant     = self::connect();
+		$session   = Command_Auth::mint_grant_session( $grant );
+		$bystander = self::connect( 'Kaka desk' );
+		$labelled  = Sessions::issue( 'kotare-7746', Capabilities::READ, 900 );
+
+		$this->assertSame( [ 'id' => $grant, 'revoked' => true ], $this->fire( 'revoke', [ $grant ] ) );
+
+		$this->assertNull( Oauth_Store::grant( $grant ) );
+		$this->assertNull( Command_Auth::load_session_record( $session['handle'] ), 'the session the grant minted' );
+		$this->assertSame( [ $bystander ], \array_column( $this->fire( 'list' )['connections'], 'grant' ) );
+		$this->assertSame( $labelled['secret'], Command_Auth::load_session_record( $labelled['handle'] )['key'] ?? null, 'a labelled session still verifies' );
+	}
+
+	/** Revoking a labelled session leaves every connection standing. */
+	public function test_revoking_a_labelled_session_leaves_the_connection_live(): void {
+		$grant    = self::connect();
+		$labelled = Sessions::issue( 'kotare-7746', Capabilities::READ, 900 );
+
+		$this->assertSame( [ 'id' => $labelled['handle'], 'revoked' => true ], $this->fire( 'revoke', [ $labelled['handle'] ] ) );
+
+		$this->assertNotNull( Oauth_Store::grant( $grant ) );
+		$this->assertSame( [ $grant ], \array_column( $this->fire( 'list' )['connections'], 'grant' ) );
+	}
+
+	/** An id shaped like a handle that names neither is refused, by that id. */
+	public function test_revoke_names_an_unknown_id(): void {
+		self::connect();
+		$absent = 'feed7746feed7746feed7746feed7746';
+
+		$this->assertSame( "no session or connection with id {$absent}\n", $this->fire( 'revoke', [ $absent ] ) );
+		$this->assertCount( 1, $this->fire( 'list' )['connections'], 'a refused revoke touches no connection' );
 	}
 
 	/** Handing out access is `manage`, for the same reason the vault is. */

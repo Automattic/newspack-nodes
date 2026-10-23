@@ -16,6 +16,10 @@
  *   - A session carries a SCOPE, clamped at mint to what the issuing user
  *     holds, so a listed scope states authority rather than a request.
  *
+ * Beside the sessions it lists the OAuth connections, one row per grant
+ * whether or not the grant holds a live session, and revokes a connection by
+ * its grant id as it revokes a session by its handle.
+ *
  * Every verb is `manage`: issuing a session hands out access, the same
  * boundary that keeps the vault at manage.
  *
@@ -28,19 +32,22 @@ use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Oauth_Store;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Sessions;
 
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The `list`, `create` and `revoke` verbs over `Sessions` and `Command_Auth`,
+ * The `list`, `create` and `revoke` verbs over `Sessions`, `Oauth_Store` and `Command_Auth`,
  * each declared once in `node_schema()` and gated there by `Service_CI_Node`.
  */
 class Sessions_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `list` verb handler — `Sessions::listing()`, newest first, never the keys.
+	 * `list` verb handler — `Sessions::listing()` and the OAuth connections,
+	 * `Oauth_Store::grants()`, each newest first, never a key or a token. A
+	 * connection lists whether or not it holds a live session.
 	 *
 	 * `ttl_max` and `scopes` ride along so the Sessions tab draws its TTL bound
 	 * and its scope picker from the substrate's own constants; a second copy
@@ -50,9 +57,10 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_list(): array {
 		return [
-			'sessions' => Sessions::listing(),
-			'ttl_max'  => Command_Auth::SESSION_TTL_MAX_S,
-			'scopes'   => Capabilities::LABELLED_SCOPES,
+			'sessions'    => Sessions::listing(),
+			'connections' => Oauth_Store::grants(),
+			'ttl_max'     => Command_Auth::SESSION_TTL_MAX_S,
+			'scopes'      => Capabilities::LABELLED_SCOPES,
 		];
 	}
 
@@ -93,18 +101,19 @@ class Sessions_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `revoke` verb handler — `revoke <handle>`, through `Sessions::revoke()`,
-	 * which refuses when the store did not answer or the handle named nothing.
+	 * `revoke` verb handler — `revoke <id>`, a session handle or a
+	 * connection's grant id, through `Sessions::revoke()`, which refuses when
+	 * the store did not answer or the id named neither.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: handle.
-	 * @return array<string,mixed> The handle, and `revoked`.
-	 * @throws \RuntimeException When the store did not answer, or no session held the handle.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id.
+	 * @return array<string,mixed> The id, and `revoked`.
+	 * @throws \RuntimeException When the store did not answer, or no session or connection held the id.
 	 */
 	public static function cmd_revoke( array $args ): array {
-		$handle = Core::as_string( $args['handle'] );
-		Sessions::revoke( $handle );
+		$id = Core::as_string( $args['id'] );
+		Sessions::revoke( $id );
 		return [
-			'handle'  => $handle,
+			'id'      => $id,
 			'revoked' => true,
 		];
 	}
@@ -128,12 +137,12 @@ class Sessions_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
-			'description' => 'Command sessions this site has issued: list, create, revoke.',
+			'description' => 'Command sessions and OAuth connections this site has issued: list, create, revoke.',
 			'arguments'   => [],
 			'commands'    => [
 				[
 					'name'        => 'list',
-					'description' => 'Issued sessions, newest first, with liveness. Never the keys.',
+					'description' => 'Issued sessions and OAuth connections, each newest first. Never a key or a token.',
 					'capability'  => Capabilities::MANAGE,
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): array => self::cmd_list(),
@@ -151,9 +160,9 @@ class Sessions_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'revoke',
-					'description' => 'Revoke a session by handle; its key stops verifying immediately.',
+					'description' => 'Revoke a session by handle, or a connection by grant id with every session it minted; each key stops verifying immediately.',
 					'capability'  => Capabilities::MANAGE,
-					'args'        => [ [ 'name' => 'handle', 'type' => 'string', 'required' => true ] ],
+					'args'        => [ [ 'name' => 'id', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_revoke( $args ),
 				],
 			],

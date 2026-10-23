@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Oauth_Store;
 use Newspack_Nodes\Roles;
 use Newspack_Nodes\Session_CLI_Command;
 use Newspack_Nodes\Sessions;
@@ -195,11 +196,23 @@ class SessionCliCommandTest extends TestCase {
 		( new Session_CLI_Command() )->list_( [], [ 'format' => 'json' ] );
 
 		$table = $GLOBALS['_test_wp_cli_tables'][0];
+		$row   = Sessions::listing()[0];
 		$this->assertSame( 'json', $table['format'] );
-		$this->assertSame( Sessions::listing(), $table['items'] );
-		$this->assertSame( $session['handle'], $table['items'][0]['handle'] );
-		$this->assertSame( 'tieke-8840', $table['items'][0]['label'] );
-		$this->assertSame( [ 'handle', 'label', 'scope', 'created', 'expires' ], $table['fields'] );
+		$this->assertSame(
+			[
+				[
+					'id'      => $session['handle'],
+					'kind'    => 'session',
+					'label'   => 'tieke-8840',
+					'client'  => '',
+					'scope'   => Capabilities::TUNE,
+					'created' => $row['created'],
+					'expires' => $row['expires'],
+				],
+			],
+			$table['items']
+		);
+		$this->assertSame( [ 'id', 'kind', 'label', 'client', 'scope', 'created', 'expires' ], $table['fields'] );
 		$this->assertStringNotContainsString( $session['secret'], (string) \wp_json_encode( $GLOBALS['_test_wp_cli_tables'] ) );
 		$this->assertStringNotContainsString( $session['secret'], \implode( "\n", $GLOBALS['_test_wp_cli_lines'] ) );
 	}
@@ -230,8 +243,10 @@ class SessionCliCommandTest extends TestCase {
 		$this->assertSame( 'table', $table['format'] );
 		$this->assertEquals(
 			[
-				'handle'  => $session['handle'],
+				'id'      => $session['handle'],
+				'kind'    => 'session',
 				'label'   => 'hihi-8840',
+				'client'  => '',
 				'scope'   => Capabilities::READ,
 				'created' => \gmdate( 'Y-m-d H:i:s', $row['created'] ) . ' UTC',
 				'expires' => \gmdate( 'Y-m-d H:i:s', $row['expires'] ) . ' UTC',
@@ -239,6 +254,84 @@ class SessionCliCommandTest extends TestCase {
 			$table['items'][0]
 		);
 		$this->assertStringNotContainsString( $session['secret'], \implode( "\n", $GLOBALS['_test_wp_cli_lines'] ) );
+	}
+
+	/**
+	 * A connection lists beside the sessions under its grant id, which is
+	 * what `revoke` takes, its name and its client's.
+	 */
+	public function test_list_prints_connections(): void {
+		Core::$clock = static fn (): float => 1790028840.0;
+		$session     = Sessions::issue( 'kotare-8840', Capabilities::TUNE, 900 );
+		$grant       = self::connect();
+
+		( new Session_CLI_Command() )->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame(
+			[
+				[
+					'id'      => $session['handle'],
+					'kind'    => 'session',
+					'label'   => 'kotare-8840',
+					'client'  => '',
+					'scope'   => Capabilities::TUNE,
+					'created' => 1790028840,
+					'expires' => 1790028840 + 900,
+				],
+				[
+					'id'      => $grant,
+					'kind'    => 'connection',
+					'label'   => 'Tui laptop',
+					'client'  => 'Kea Desk 4410',
+					'scope'   => Capabilities::READ,
+					'created' => 1790028840,
+					'expires' => 1790028840 + 30 * DAY_IN_SECONDS,
+				],
+			],
+			$GLOBALS['_test_wp_cli_tables'][0]['items']
+		);
+	}
+
+	/**
+	 * A stored label or client name bearing an escape prints as the visible
+	 * `<1B>`, never as the byte a terminal acts on; the JSON keeps the value.
+	 */
+	public function test_list_as_a_table_prints_no_control_character(): void {
+		$client = 'feed8840feed8840feed8840feed8840';
+		Command_Auth::session_table()->add( "oauth:client:{$client}", [ 'name' => "Kea\x1b[2K Desk", 'redirect_uris' => [], 'created' => 1790028840 ], 3600 );
+		Oauth_Store::open_grant(
+			[
+				'client'   => $client,
+				'user'     => 7746,
+				'scope'    => Capabilities::READ,
+				'resource' => 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp',
+				'name'     => "Tui\x1b[7m laptop",
+			]
+		);
+
+		( new Session_CLI_Command() )->list_( [], [] );
+
+		$row = $GLOBALS['_test_wp_cli_tables'][0]['items'][0];
+		$this->assertSame( 'Tui<1B>[7m laptop', $row['label'] );
+		$this->assertSame( 'Kea<1B>[2K Desk', $row['client'] );
+	}
+
+	/**
+	 * An approved connection, each value distinct from every default.
+	 *
+	 * @return string The grant id.
+	 */
+	private static function connect(): string {
+		$client = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] )['id'];
+		return Oauth_Store::open_grant(
+			[
+				'client'   => $client,
+				'user'     => 7746,
+				'scope'    => Capabilities::READ,
+				'resource' => 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp',
+				'name'     => 'Tui laptop',
+			]
+		)['grant'];
 	}
 
 	public function test_list_of_nothing_prints_the_header_alone(): void {
@@ -265,6 +358,17 @@ class SessionCliCommandTest extends TestCase {
 		$this->assertSame( [ $bystander['handle'] ], \array_keys( self::listed() ) );
 	}
 
+	public function test_revoke_takes_a_connection_id(): void {
+		$grant   = self::connect();
+		$session = Command_Auth::mint_grant_session( $grant );
+
+		( new Session_CLI_Command() )->revoke( [ $grant ], [] );
+
+		$this->assertSame( [ "Revoked {$grant}." ], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertNull( Oauth_Store::grant( $grant ) );
+		$this->assertNull( Command_Auth::load_session_record( $session['handle'] ), 'the session the grant minted' );
+	}
+
 	public function test_revoke_all_revokes_every_session_and_empties_the_listing(): void {
 		$labelled = Sessions::issue( 'ruru-8840', Capabilities::TUNE, 900 );
 		$bare     = Command_Auth::mint_session();
@@ -272,7 +376,7 @@ class SessionCliCommandTest extends TestCase {
 
 		( new Session_CLI_Command() )->revoke( [], [ 'all' => true ] );
 
-		$this->assertSame( [ 'Revoked every session.' ], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertSame( [ 'Revoked every session and connection.' ], $GLOBALS['_test_wp_cli_success'] );
 		$this->assertNull( Command_Auth::load_session_record( $labelled['handle'] ) );
 		$this->assertNull( Command_Auth::load_session_record( $bare['handle'] ) );
 		$this->assertSame( [], Sessions::listing() );
@@ -283,14 +387,14 @@ class SessionCliCommandTest extends TestCase {
 		$session = Sessions::issue( 'tui-8840', Capabilities::READ, 900 );
 
 		$this->assertSame(
-			'name a handle or pass --all, not both',
+			'name an id or pass --all, not both',
 			$this->cli_error( static fn ( $cli ) => $cli->revoke( [ $session['handle'] ], [ 'all' => true ] ) )
 		);
 		$this->assertCount( 1, Sessions::listing() );
 	}
 
 	public function test_revoke_refuses_neither_a_handle_nor_all(): void {
-		$this->assertSame( 'name a handle or pass --all', $this->cli_error( static fn ( $cli ) => $cli->revoke( [], [] ) ) );
+		$this->assertSame( 'name an id or pass --all', $this->cli_error( static fn ( $cli ) => $cli->revoke( [], [] ) ) );
 	}
 
 	public function test_revoke_all_fails_naming_why_the_store_refused(): void {
@@ -308,7 +412,7 @@ class SessionCliCommandTest extends TestCase {
 
 		$message = $this->cli_error( static fn ( $cli ) => $cli->revoke( [ 'kokako-8840' ], [] ) );
 
-		$this->assertStringStartsWith( 'no session with handle kokako-8840; the label kokako-8840 names ', $message );
+		$this->assertStringStartsWith( 'no session or connection with id kokako-8840; the label kokako-8840 names ', $message );
 		$this->assertStringContainsString( $first['handle'], $message );
 		$this->assertStringContainsString( $second['handle'], $message );
 		$this->assertCount( 2, Sessions::listing(), 'naming a label revokes nothing' );
@@ -316,7 +420,7 @@ class SessionCliCommandTest extends TestCase {
 
 	public function test_revoke_of_a_handle_no_session_holds_fails(): void {
 		$this->assertSame(
-			'no session with handle nsh-absent-8840',
+			'no session or connection with id nsh-absent-8840',
 			$this->cli_error( static fn ( $cli ) => $cli->revoke( [ 'nsh-absent-8840' ], [] ) )
 		);
 	}
