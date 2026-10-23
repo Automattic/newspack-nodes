@@ -61,7 +61,7 @@ class Auth_Controller {
 	 *
 	 * Three optional request fields shape the session. `scope` defaults to
 	 * `manage` (`tune` for a labelled request, which may hold only a
-	 * `Capabilities::CARRIED` scope) and is CLAMPED to the highest role the
+	 * `Capabilities::LABELLED_SCOPES` scope) and is CLAMPED to the highest role the
 	 * minting user actually holds, so the Sessions tab lists a session's real
 	 * authority rather than what it asked for; an unrecognised scope is
 	 * refused outright. `ttl` is clamped to
@@ -90,7 +90,7 @@ class Auth_Controller {
 		}
 		$known = '' === $label
 			? Capabilities::scope_covers( $requested, Capabilities::READ )
-			: \in_array( $requested, Capabilities::CARRIED, true );
+			: \in_array( $requested, Capabilities::LABELLED_SCOPES, true );
 		if ( ! $known ) {
 			return new \WP_Error( 'invalid_scope', 'Unknown session scope.', [ 'status' => 400 ] );
 		}

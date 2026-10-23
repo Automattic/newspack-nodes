@@ -34,6 +34,12 @@ namespace Newspack_Nodes;
  */
 final class Oauth_Store {
 
+	/**
+	 * The one list of scopes OAuth, and through it MCP, may grant: read and
+	 * tune. Restoring `manage` is one edit to this list.
+	 */
+	public const SCOPES = [ Capabilities::READ, Capabilities::TUNE ];
+
 	/** A registered client's lifetime, from registration. */
 	private const CLIENT_TTL_S = 180 * DAY_IN_SECONDS;
 

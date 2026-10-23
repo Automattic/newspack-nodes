@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb;
 use Newspack_Nodes\Capabilities;
@@ -9,6 +10,7 @@ use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Oauth_Store;
 use Newspack_Nodes\Session_Store_Unavailable;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -22,6 +24,16 @@ class CommandAuthSessionTest extends TestCase {
 	private const HANDLE = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
 
 	private const APCU_HANDLE = '7319cafebabefeed0123456789abcdef';
+
+	/** The MCP door a grant names, and another it does not. */
+	private const RESOURCE = 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp';
+	private const ELSEWHERE = 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/other';
+
+	/** The approving user, distinct from the current user these tests log in. */
+	private const GRANT_USER = 7746;
+
+	/** The connection name the approver gave the grant. */
+	private const GRANT_NAME = 'Tui laptop 7746';
 
 	/** Distinct from anything secret() could produce. */
 	private const KEY   = 'first-key-4242-4242-4242-4242-4242';
@@ -739,6 +751,210 @@ class CommandAuthSessionTest extends TestCase {
 		);
 		$this->assertSame( Command_Auth::SESSION_TTL_MIN_S, Command_Auth::bounded_ttl( 1 ) );
 		$this->assertSame( self::TTL, Command_Auth::bounded_ttl( self::TTL ) );
+	}
+
+	/** Open a grant for GRANT_USER on RESOURCE named GRANT_NAME, answering its id. */
+	private static function open_grant( string $scope = Capabilities::TUNE ): string {
+		return Oauth_Store::open_grant(
+			[
+				'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+				'user'     => self::GRANT_USER,
+				'scope'    => $scope,
+				'resource' => self::RESOURCE,
+				'name'     => self::GRANT_NAME,
+			]
+		)['grant'];
+	}
+
+	/** @return list<string> The session handles the store holds, OAuth rows aside. */
+	private function session_handles(): array {
+		return \array_values( \array_filter( \array_map( 'strval', \array_keys( $this->rows() ) ), static fn ( string $key ): bool => ! \str_starts_with( $key, 'oauth:' ) ) );
+	}
+
+	/** A grant session spends the grant's user, scope, resource and name, not the current user's. */
+	public function test_a_grant_session_carries_its_grant_and_resource(): void {
+		$GLOBALS['_wp_test_current_user_id'] = 1;
+		Core::$clock = static fn (): float => 1790004242.0;
+		$grant       = self::open_grant();
+
+		$session = Command_Auth::mint_grant_session( $grant );
+
+		$this->assertSame(
+			[ 'key' => $session['secret'], 'scope' => Capabilities::TUNE, 'user' => self::GRANT_USER, 'ttl' => Command_Auth::SESSION_TTL_S, 'label' => self::GRANT_NAME, 'created' => 1790004242, 'grant' => $grant, 'resource' => self::RESOURCE ],
+			Command_Auth::load_session_record( $session['handle'] )
+		);
+		$this->assertSame( [ 'k', 's', 'u', 'l', 'c', 'g', 'r' ], \array_keys( Core::arr( $this->store()->lookup( $session['handle'] ) ) ) );
+		$this->assertSame( [ $session['handle'] => 1 ], Command_Auth::session_members( "oauth:grant-sessions:{$grant}" ), 'revoking the grant reaches it' );
+	}
+
+	public function test_a_hand_minted_session_names_no_resource_and_admits_any(): void {
+		$record = Command_Auth::load_session_record( Command_Auth::mint_session( Capabilities::TUNE, self::TTL, 'kea-4242' )['handle'] );
+
+		$this->assertNotNull( $record );
+		$this->assertArrayNotHasKey( 'grant', $record );
+		$this->assertArrayNotHasKey( 'resource', $record );
+		$this->assertTrue( Command_Auth::admits_resource( $record, self::RESOURCE ) );
+		$this->assertTrue( Command_Auth::admits_resource( $record, self::ELSEWHERE ) );
+	}
+
+	public function test_admits_resource_refuses_another_resource(): void {
+		$record = Command_Auth::load_session_record( Command_Auth::mint_grant_session( self::open_grant( Capabilities::READ ) )['handle'] );
+
+		$this->assertNotNull( $record );
+		$this->assertTrue( Command_Auth::admits_resource( $record, self::RESOURCE ) );
+		$this->assertFalse( Command_Auth::admits_resource( $record, self::ELSEWHERE ) );
+		$this->assertFalse( Command_Auth::admits_resource( $record, self::RESOURCE . '/' ), 'exactly the resource, nothing like it' );
+	}
+
+	/** An empty grant or resource column binds nothing, as a hand mint's absence does. */
+	public function test_an_empty_grant_or_resource_column_is_not_read(): void {
+		$this->seed( '77460000000000000000000000000001', [ 'k' => self::KEY, 's' => 'read', 'u' => 0, 'l' => '', 'c' => 1000, 'g' => '', 'r' => '' ] );
+
+		$record = Command_Auth::load_session_record( '77460000000000000000000000000001' );
+
+		$this->assertNotNull( $record );
+		$this->assertSame( [ 'key', 'scope', 'user', 'ttl', 'label', 'created' ], \array_keys( $record ) );
+	}
+
+	/** No grant session outlives its grant, nor the index revoking the grant reaches. */
+	public function test_a_grant_sessions_life_is_clamped_to_what_its_grant_has_left(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$grant       = self::open_grant();
+		Core::$clock = static fn (): float => 1790000000.0 + 30 * DAY_IN_SECONDS - 1234;
+
+		$session = Command_Auth::mint_grant_session( $grant );
+
+		$this->assertSame( 1234, $session['expires_in'] );
+		$this->assertSame( 1234, Command_Auth::load_session_record( $session['handle'] )['ttl'] ?? null );
+	}
+
+	public function test_a_grant_with_no_life_left_refuses_to_mint(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$grant       = self::open_grant();
+		Core::$clock = static fn (): float => 1790000000.0 + 30 * DAY_IN_SECONDS;
+
+		try {
+			Command_Auth::mint_grant_session( $grant );
+			$this->fail( 'a lapsed grant mints nothing' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertNotInstanceOf( Session_Store_Unavailable::class, $e );
+			$this->assertSame( "no live grant {$grant}; no session was minted for it", $e->getMessage() );
+		}
+		$this->assertSame( [], $this->session_handles() );
+	}
+
+	/** A grant never opened mints nothing, so nothing is written or revoked. */
+	public function test_a_grant_never_opened_refuses_to_mint_and_writes_nothing(): void {
+		Command_Auth::session_table();
+		$before = \count( $this->db->sent );
+
+		try {
+			Command_Auth::mint_grant_session( '77467746774677467746774677467746' );
+			$this->fail( 'a grant no approval opened mints nothing' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertNotInstanceOf( Session_Store_Unavailable::class, $e );
+			$this->assertSame( 'no live grant 77467746774677467746774677467746; no session was minted for it', $e->getMessage() );
+		}
+		$this->assertSame( [], \array_values( \array_filter( \array_slice( $this->db->sent, $before ), static fn ( string $sql ): bool => ! \str_starts_with( $sql, 'SELECT' ) ) ), 'only the grant is read' );
+	}
+
+	/** A grant revoked between the mint and its bind leaves no session behind. */
+	public function test_a_grant_gone_before_its_bind_revokes_the_session_and_refuses(): void {
+		$grant = self::open_grant();
+		$this->db->before['INSERT IGNORE'] = static fn () => Oauth_Store::revoke_grant( $grant );
+
+		try {
+			Command_Auth::mint_grant_session( $grant );
+			$this->fail( 'a session its grant cannot reach must not be handed back' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertNotInstanceOf( Session_Store_Unavailable::class, $e );
+			$this->assertSame( "no live grant {$grant}; no session was minted for it", $e->getMessage() );
+		}
+		$this->assertSame( [], $this->session_handles() );
+	}
+
+	public function test_a_bind_the_store_refuses_revokes_the_session_and_raises(): void {
+		$grant = self::open_grant();
+		$this->db->deny['INSERT INTO `wp_newspack_nodes_members`'] = 'Deadlock found 7746';
+
+		try {
+			Command_Auth::mint_grant_session( $grant );
+			$this->fail( 'an unbound session must not be handed back' );
+		} catch ( Session_Store_Unavailable $e ) {
+			$this->assertStringContainsString( 'Deadlock found 7746', $e->getMessage() );
+		}
+		$this->assertSame( [], $this->session_handles() );
+	}
+
+	/** A minted session the store cannot revoke again is named, never left silent. */
+	public function test_an_unbound_session_the_store_will_not_revoke_raises(): void {
+		$grant = self::open_grant();
+		$this->db->before['INSERT IGNORE'] = function () use ( $grant ): void {
+			Oauth_Store::revoke_grant( $grant );
+			$this->db->before['SELECT'] = function (): void {
+				$this->db->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 7746';
+			};
+		};
+
+		try {
+			Command_Auth::mint_grant_session( $grant );
+			$this->fail( 'expected the store failure' );
+		} catch ( Session_Store_Unavailable $e ) {
+			$this->assertSame( "the session store did not answer; the session minted for grant {$grant} may still be live", $e->getMessage() );
+		}
+	}
+
+	/** @return array<string,array{array<string,mixed>,string}> A grant row with one field malformed, and the field's refusal. */
+	public static function malformed_grants(): array {
+		$row = [
+			'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+			'user'     => self::GRANT_USER,
+			'scope'    => Capabilities::TUNE,
+			'resource' => self::RESOURCE,
+			'name'     => self::GRANT_NAME,
+			'created'  => 1790000000,
+		];
+		$without = static function ( string $field ) use ( $row ): array {
+			unset( $row[ $field ] );
+			return $row;
+		};
+		return [
+			'no resource'               => [ $without( 'resource' ), 'names no resource' ],
+			'an empty resource'         => [ [ 'resource' => '' ] + $row, 'names no resource' ],
+			'no user'                   => [ $without( 'user' ), 'names no user' ],
+			'user 0'                    => [ [ 'user' => 0 ] + $row, 'names no user' ],
+			'a user as a string'        => [ [ 'user' => '7746' ] + $row, 'names no user' ],
+			'manage'                    => [ [ 'scope' => Capabilities::MANAGE ] + $row, 'names the scope manage; a grant holds read or tune' ],
+			'a scope outside the ladder' => [ [ 'scope' => 'kea-7746' ] + $row, 'names the scope kea-7746; a grant holds read or tune' ],
+		];
+	}
+
+	/**
+	 * A grant row missing what the session needs refuses before anything is
+	 * written: a session naming no resource would be admitted at every door.
+	 *
+	 * @param array<string,mixed> $row     The grant row as stored.
+	 * @param string              $refusal What the refusal says of it.
+	 */
+	#[DataProvider( 'malformed_grants' )]
+	public function test_a_malformed_grant_refuses_before_any_write( array $row, string $refusal ): void {
+		$grant = '7746beef7746beef7746beef7746beef';
+		$this->seed( "oauth:grant:{$grant}", $row, 30 * DAY_IN_SECONDS );
+		$before = \count( $this->db->sent );
+
+		try {
+			Command_Auth::mint_grant_session( $grant );
+			$this->fail( 'a malformed grant mints nothing' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertNotInstanceOf( Session_Store_Unavailable::class, $e );
+			$this->assertSame( "grant {$grant} {$refusal}; no session was minted for it", $e->getMessage() );
+		}
+		$this->assertSame( [], \array_values( \array_filter( \array_slice( $this->db->sent, $before ), static fn ( string $sql ): bool => ! \str_starts_with( $sql, 'SELECT' ) ) ), 'only the grant is read' );
+		$this->assertSame( [], $this->session_handles() );
+	}
+
+	public function test_oauth_grants_read_and_tune(): void {
+		$this->assertSame( [ Capabilities::READ, Capabilities::TUNE ], Oauth_Store::SCOPES );
 	}
 
 	/** A row not shaped as a mint writes it verifies nothing; it is not a session. */

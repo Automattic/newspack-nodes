@@ -344,7 +344,7 @@ fixate a live session.
 
 | Field | Meaning |
 |---|---|
-| `scope` | `read`, `tune` or `manage`. Defaults to `manage`, and is CLAMPED to the highest role the minting user holds, so the returned `scope` states authority rather than a request. An unrecognised value answers 400 `invalid_scope`. A request carrying a `label` is a session a person keeps, so it may hold only a [`Capabilities::CARRIED`](../includes/class-capabilities.php) scope, `read` or `tune`: it defaults to `tune`, and `manage` answers 400 `invalid_scope`. An unlabelled request keeps today's rules. |
+| `scope` | `read`, `tune` or `manage`. Defaults to `manage`, and is CLAMPED to the highest role the minting user holds, so the returned `scope` states authority rather than a request. An unrecognised value answers 400 `invalid_scope`. A request carrying a `label` is a session a person keeps, so it may hold only a [`Capabilities::LABELLED_SCOPES`](../includes/class-capabilities.php) scope, `read` or `tune`: it defaults to `tune`, and `manage` answers 400 `invalid_scope`. An unlabelled request keeps today's rules. |
 | `label` | How the session shows up in the Sessions tab. An empty label keeps it out of the listing. What is stored runs through [`sanitize_text_field()`](https://developer.wordpress.org/reference/functions/sanitize_text_field/) and is then truncated to [`Sessions::MAX_LABEL`](../includes/class-sessions.php) = 64 characters, so a listing can come back shorter than what was sent, or stripped of markup — the cap is there so a listing cannot be used as storage. `sessions create` echoes the label as SENT, so the two can disagree the moment the next `list` runs. |
 | `ttl` | Lifetime in seconds, clamped to `[ Command_Auth::SESSION_TTL_MIN_S, SESSION_TTL_MAX_S ]` = `[60, 86400]`. Defaults to `SESSION_TTL_S` = 3600. |
 
@@ -653,7 +653,7 @@ than listing part or nothing. Reading the listing writes nothing.
 **`sessions create` and `sessions revoke`.** `create [<label>] [<scope>] [<ttl>]`
 binds each arg by position or by name, so `create chris-claude tune 86400` and
 `create chris-claude --scope=tune --ttl=86400` mint the same session; `scope`
-defaults to `tune`, refuses `manage` (only `Capabilities::CARRIED` scopes) and is clamped to what the issuing user holds, and `ttl` to
+defaults to `tune`, refuses `manage` (only `Capabilities::LABELLED_SCOPES` scopes) and is clamped to what the issuing user holds, and `ttl` to
 `Command_Auth::SESSION_TTL_MIN_S`–`SESSION_TTL_MAX_S`. `revoke <handle>` answers
 `{ handle, revoked: true }` only when it dropped a store row or a directory row.
 A store that did not answer refuses `session store did not answer; <h> may still

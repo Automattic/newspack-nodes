@@ -107,7 +107,7 @@ class Session_CLI_Command {
 		$highest = Capabilities::highest_held();
 		$refusal = match ( true ) {
 			'' === $label => 'usage: wp nodes session issue <label> [<role>] [<ttl>]; the label is what the Sessions tab lists',
-			! \in_array( $role, Capabilities::CARRIED, true ) => "unknown role: {$role}; use " . \implode( ' or ', Capabilities::CARRIED ),
+			! \in_array( $role, Capabilities::LABELLED_SCOPES, true ) => "unknown role: {$role}; use " . \implode( ' or ', Capabilities::LABELLED_SCOPES ),
 			$ttl < Command_Auth::SESSION_TTL_MIN_S || $ttl > Command_Auth::SESSION_TTL_MAX_S => 'ttl must be whole seconds from ' . Command_Auth::SESSION_TTL_MIN_S . ' to ' . Command_Auth::SESSION_TTL_MAX_S . ', got ' . ( $args[2] ?? '' ),
 			0 === \get_current_user_id() => 'a session acts as the user who mints it; pass --user=<login>',
 			null === $highest => 'that user holds no Newspack Nodes role',
