@@ -15,6 +15,7 @@ namespace Newspack_Nodes;
 
 use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Rest\Auth_Controller;
+use Newspack_Nodes\Rest\Oauth_Controller;
 use Newspack_Nodes\Rest\Health_Runtime_Controller;
 use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
@@ -1155,6 +1156,7 @@ class Bootstrap {
 		SSE_Slot_Pool::wire();
 		( new Spawn_Controller( self::spawn_coordinator() ) )->register_routes();
 		( new Auth_Controller() )->register_routes();
+		( new Oauth_Controller() )->register_routes();
 		( new SSE_Out_Node() )->register_routes();
 		( new HTTP_In_Node() )->register_routes();
 	}

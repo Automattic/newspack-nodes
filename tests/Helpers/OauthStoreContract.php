@@ -23,6 +23,9 @@ abstract class OauthStoreContract extends TestCase {
 
 	private const RESOURCE = 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp';
 
+	/** The client every approval names. */
+	protected const CLIENT = 'c0ffee00c0ffee00c0ffee00c0ffee00';
+
 	protected Sqlite_Wpdb $db;
 
 	private int $at = self::T0;
@@ -57,7 +60,7 @@ abstract class OauthStoreContract extends TestCase {
 	/** The grant fields an approval carries, distinct from every default. */
 	protected static function approval( string $name = 'Tui laptop' ): array {
 		return [
-			'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+			'client'   => self::CLIENT,
 			'user'     => 7746,
 			'scope'    => Capabilities::READ,
 			'resource' => self::RESOURCE,
@@ -102,30 +105,30 @@ abstract class OauthStoreContract extends TestCase {
 	public function test_a_registered_client_keeps_its_name_and_exact_uris(): void {
 		$uris = [ 'https://claude.ai/api/mcp/auth_callback', 'http://localhost:4410/callback?kea=1' ];
 
-		$id = Oauth_Store::register_client( 'Kea Desk 4410', $uris );
+		$this->at = self::T0 + 17;
+		$client   = Oauth_Store::register_client( 'Kea Desk 4410', [ 'kea' => $uris[0], 'kaka' => $uris[1] ] );
 
-		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}$/D', $id );
-		$this->assertSame(
-			[
-				'name'          => 'Kea Desk 4410',
-				'redirect_uris' => $uris,
-				'created'       => self::T0,
-			],
-			Oauth_Store::client( $id )
-		);
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}$/D', $client['id'] );
+		$kept = [
+			'name'          => 'Kea Desk 4410',
+			'redirect_uris' => $uris,
+			'created'       => self::T0 + 17,
+		];
+		$this->assertSame( [ 'id' => $client['id'] ] + $kept, $client, 'registration answers with what it kept' );
+		$this->assertSame( $kept, Oauth_Store::client( $client['id'] ) );
 		$this->assertNull( Oauth_Store::client( 'feedfacefeedfacefeedfacefeedface' ), 'an unregistered id names no client' );
 		$this->assertNull( Oauth_Store::client( "kea desk\n4410" ), 'an id no registration could make never reaches the store' );
 	}
 
 	public function test_a_client_name_is_cut_like_a_session_label(): void {
-		$id = Oauth_Store::register_client( '<b>Kea</b> ' . \str_repeat( 'é', 40 ), [ 'https://claude.ai/api/mcp/auth_callback' ] );
+		$client = Oauth_Store::register_client( '<b>Kea</b> ' . \str_repeat( 'é', 40 ), [ 'https://claude.ai/api/mcp/auth_callback' ] );
 
-		$this->assertSame( Sessions::clean_label( '<b>Kea</b> ' . \str_repeat( 'é', 40 ) ), Oauth_Store::client( $id )['name'] );
-		$this->assertSame( 'Kea ' . \str_repeat( 'é', 30 ), Oauth_Store::client( $id )['name'] );
+		$this->assertSame( Sessions::clean_label( '<b>Kea</b> ' . \str_repeat( 'é', 40 ) ), Oauth_Store::client( $client['id'] )['name'] );
+		$this->assertSame( 'Kea ' . \str_repeat( 'é', 30 ), $client['name'] );
 	}
 
 	public function test_a_client_lapses_180_days_after_registration(): void {
-		$id = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] );
+		$id = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] )['id'];
 
 		$this->at = self::T0 + 180 * self::DAY - 1;
 		$this->assertNotNull( Oauth_Store::client( $id ) );
@@ -135,36 +138,40 @@ abstract class OauthStoreContract extends TestCase {
 
 	public function test_registration_refuses_a_plain_http_redirect_that_is_not_loopback(): void {
 		foreach ( [ 'http://127.0.0.1:4410/cb', 'https://claude.ai/api/mcp/auth_callback', 'http://localhost/cb' ] as $uri ) {
-			$this->assertNotNull( Oauth_Store::client( Oauth_Store::register_client( 'Kea Desk 4410', [ $uri ] ) ), "{$uri} registers" );
+			$this->assertNotNull( Oauth_Store::client( Oauth_Store::register_client( 'Kea Desk 4410', [ $uri ] )['id'] ), "{$uri} registers" );
 		}
 
 		$this->expectException( \InvalidArgumentException::class );
 		Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback', 'http://kea.example/cb' ] );
 	}
 
-	/** @return array<string,array{string,list<mixed>}> */
+	/** @return array<string,array{string,list<mixed>,int}> */
 	public static function refused_registrations(): array {
-		$six = \array_map( static fn ( int $n ): string => "https://kea.example/cb{$n}", \range( 1, 6 ) );
+		$six  = \array_map( static fn ( int $n ): string => "https://kea.example/cb{$n}", \range( 1, 6 ) );
+		$name = Oauth_Store::REFUSED_NAME;
+		$uris = Oauth_Store::REFUSED_REDIRECT_URIS;
 		return [
-			'an empty name'              => [ '', [ 'https://claude.ai/api/mcp/auth_callback' ] ],
-			'a name that sanitizes away' => [ '<b></b>', [ 'https://claude.ai/api/mcp/auth_callback' ] ],
-			'no redirect at all'         => [ 'Kea Desk 4410', [] ],
-			'six redirects'              => [ 'Kea Desk 4410', $six ],
-			'plain http elsewhere'       => [ 'Kea Desk 4410', [ 'http://kea.example/cb' ] ],
-			'a loopback-looking host'    => [ 'Kea Desk 4410', [ 'http://localhost.kea.example/cb' ] ],
-			'userinfo before the host'   => [ 'Kea Desk 4410', [ 'http://localhost@kea.example/cb' ] ],
-			'userinfo disguising a host' => [ 'Kea Desk 4410', [ 'https://claude.ai@kea.example/cb' ] ],
-			'https with no host'         => [ 'Kea Desk 4410', [ 'https:///cb' ] ],
-			'a script scheme'            => [ 'Kea Desk 4410', [ 'javascript:alert(4410)' ] ],
-			'a fragment'                 => [ 'Kea Desk 4410', [ 'https://claude.ai/cb#kea' ] ],
-			'whitespace'                 => [ 'Kea Desk 4410', [ 'https://claude.ai/c b' ] ],
-			'not a string'               => [ 'Kea Desk 4410', [ 4410 ] ],
+			'an empty name'              => [ '', [ 'https://claude.ai/api/mcp/auth_callback' ], $name ],
+			'a name that sanitizes away' => [ '<b></b>', [ 'https://claude.ai/api/mcp/auth_callback' ], $name ],
+			'no redirect at all'         => [ 'Kea Desk 4410', [], $uris ],
+			'six redirects'              => [ 'Kea Desk 4410', $six, $uris ],
+			'plain http elsewhere'       => [ 'Kea Desk 4410', [ 'http://kea.example/cb' ], $uris ],
+			'a loopback-looking host'    => [ 'Kea Desk 4410', [ 'http://localhost.kea.example/cb' ], $uris ],
+			'userinfo before the host'   => [ 'Kea Desk 4410', [ 'http://localhost@kea.example/cb' ], $uris ],
+			'userinfo disguising a host' => [ 'Kea Desk 4410', [ 'https://claude.ai@kea.example/cb' ], $uris ],
+			'https with no host'         => [ 'Kea Desk 4410', [ 'https:///cb' ], $uris ],
+			'a script scheme'            => [ 'Kea Desk 4410', [ 'javascript:alert(4410)' ], $uris ],
+			'a fragment'                 => [ 'Kea Desk 4410', [ 'https://claude.ai/cb#kea' ], $uris ],
+			'whitespace'                 => [ 'Kea Desk 4410', [ 'https://claude.ai/c b' ], $uris ],
+			'not a string'               => [ 'Kea Desk 4410', [ 4410 ], $uris ],
 		];
 	}
 
+	/** The code names what was refused, so a registration answers the right RFC 7591 error. */
 	#[DataProvider( 'refused_registrations' )]
-	public function test_registration_refuses_what_no_public_client_may_hold( string $name, array $uris ): void {
+	public function test_registration_refuses_what_no_public_client_may_hold( string $name, array $uris, int $refused ): void {
 		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionCode( $refused );
 		Oauth_Store::register_client( $name, $uris );
 	}
 
@@ -192,11 +199,22 @@ abstract class OauthStoreContract extends TestCase {
 		$this->assertNull( Oauth_Store::take_code( $late ), 'a code lives sixty seconds' );
 	}
 
+	/** The connection name labels every session the grant mints, so it is cut as a label is. */
+	public function test_a_code_keeps_its_connection_name_cut_like_a_session_label(): void {
+		$typed = '<i>Tui</i>   laptop ' . \str_repeat( 'ō', 40 );
+
+		$code = Oauth_Store::issue_code( [ 'name' => $typed ] + self::approval() + [ 'redirect_uri' => 'http://127.0.0.1:4410/cb', 'challenge' => 'kea' ] );
+
+		$name = Oauth_Store::take_code( $code )['name'] ?? null;
+		$this->assertSame( Sessions::clean_label( $typed ), $name );
+		$this->assertSame( 'Tui laptop ' . \str_repeat( 'ō', 26 ), $name );
+	}
+
 	/** The grace row's answer is the one plaintext refresh token the store holds. */
 	public function test_secrets_are_stored_only_as_their_hashes(): void {
 		$code   = Oauth_Store::issue_code( self::approval() + [ 'redirect_uri' => 'http://127.0.0.1:4410/cb', 'challenge' => 'kea' ] );
 		$first  = Oauth_Store::open_grant( self::approval() );
-		$answer = Oauth_Store::rotate( $first['refresh'], $this->answer() );
+		$answer = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() );
 		$next   = $answer['refresh_token'];
 
 		$stored = (string) \wp_json_encode( $this->rows() );
@@ -222,13 +240,13 @@ abstract class OauthStoreContract extends TestCase {
 		);
 
 		$this->at = self::T0 + 29 * self::DAY;
-		$next     = Oauth_Store::rotate( $first['refresh'], $this->answer() )['refresh_token'];
+		$next     = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() )['refresh_token'];
 		$this->assertSame( self::T0 + 30 * self::DAY, Oauth_Store::grant( $first['grant'] )['expires'], 'a rotation never extends the grant' );
 		$this->assertSame( self::T0 + 30 * self::DAY, \max( \array_map( 'intval', \array_column( $this->rows(), 'expires' ) ) ), 'no row the grant wrote outlives it' );
 
 		$this->at = self::T0 + 30 * self::DAY + 1;
 		$this->assertNull( Oauth_Store::grant( $first['grant'] ) );
-		$this->assertNull( Oauth_Store::rotate( $next, $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $next, self::CLIENT, null, $this->no_answer() ) );
 	}
 
 	public function test_rotation_spends_the_old_token_and_answers_with_the_next(): void {
@@ -238,7 +256,7 @@ abstract class OauthStoreContract extends TestCase {
 		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/D', $first['refresh'] );
 
 		$this->at = self::T0 + 900;
-		$answer   = Oauth_Store::rotate( $first['refresh'], $this->answer() );
+		$answer   = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() );
 
 		$this->assertCount( 1, $this->answered );
 		$this->assertSame( $first['grant'], $this->answered[0]['grant_id'] );
@@ -246,22 +264,45 @@ abstract class OauthStoreContract extends TestCase {
 		$this->assertSame( $this->answered[0]['next'], $answer['refresh_token'] );
 		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/D', $answer['refresh_token'] );
 		$this->assertNotSame( $first['refresh'], $answer['refresh_token'] );
-		$this->assertNotNull( Oauth_Store::rotate( $answer['refresh_token'], $this->answer() ), 'the next token rotates in turn' );
-		$this->assertNull( Oauth_Store::rotate( \str_repeat( 'ab', 32 ), $this->no_answer() ), 'a token no grant issued is unknown' );
+		$this->assertNotNull( Oauth_Store::rotate( $answer['refresh_token'], self::CLIENT, null, $this->answer() ), 'the next token rotates in turn' );
+		$this->assertNull( Oauth_Store::rotate( \str_repeat( 'ab', 32 ), self::CLIENT, null, $this->no_answer() ), 'a token no grant issued is unknown' );
 	}
 
 	public function test_a_refresh_retried_within_the_grace_answers_the_same_pair(): void {
 		$first  = Oauth_Store::open_grant( self::approval() );
-		$answer = Oauth_Store::rotate( $first['refresh'], $this->answer() );
+		$answer = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() );
 
 		$this->at = self::T0 + 59;
-		$retry    = Oauth_Store::rotate( $first['refresh'], $this->no_answer() );
+		$retry    = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->no_answer() );
 
 		$this->assertSame( $answer, $retry );
 		$this->assertCount( 1, $this->answered, 'a retry mints nothing' );
 		$this->assertNotNull( Oauth_Store::grant( $first['grant'] ), 'the grant outlives a forgiven retry' );
 		$this->assertNotNull( Command_Auth::load_session_record( $this->answered[0]['handle'] ), 'the session the retry was answered with is live' );
-		$this->assertNotNull( Oauth_Store::rotate( $answer['refresh_token'], $this->answer() ), 'the pair the retry was answered with still works' );
+		$this->assertNotNull( Oauth_Store::rotate( $answer['refresh_token'], self::CLIENT, null, $this->answer() ), 'the pair the retry was answered with still works' );
+	}
+
+	/** A token presented by another client, or for another resource, rotates nothing. */
+	public function test_a_refresh_by_another_client_or_for_another_resource_spends_nothing(): void {
+		$first = Oauth_Store::open_grant( self::approval() );
+
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], 'feedfacefeedfacefeedfacefeedface', null, $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, 'https://kea.example/wp-json/kea-other/v1/mcp', $this->no_answer() ) );
+
+		$this->assertNotNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, self::RESOURCE, $this->answer() ), 'the token is still live' );
+	}
+
+	/** The grace replays its answer to the grant's own client and resource alone. */
+	public function test_a_retry_by_another_client_or_for_another_resource_replays_nothing(): void {
+		$first  = Oauth_Store::open_grant( self::approval() );
+		$answer = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() );
+
+		$this->at = self::T0 + 30;
+
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], 'feedfacefeedfacefeedfacefeedface', null, $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, 'https://kea.example/wp-json/kea-other/v1/mcp', $this->no_answer() ) );
+		$this->assertSame( $answer, Oauth_Store::rotate( $first['refresh'], self::CLIENT, self::RESOURCE, $this->no_answer() ), 'the honest retry still replays' );
+		$this->assertNotNull( Oauth_Store::grant( $first['grant'] ) );
 	}
 
 	/**
@@ -274,11 +315,11 @@ abstract class OauthStoreContract extends TestCase {
 		$winner = null;
 		$racing = $this->answer();
 		$loser  = function ( array $grant, string $grant_id, string $next ) use ( $first, $racing, &$winner ): array {
-			$winner = Oauth_Store::rotate( $first['refresh'], $racing );
+			$winner = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $racing );
 			return $racing( $grant, $grant_id, $next );
 		};
 
-		$answer = Oauth_Store::rotate( $first['refresh'], $loser );
+		$answer = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $loser );
 
 		$this->assertNotNull( $winner );
 		$this->assertSame( $winner, $answer );
@@ -287,9 +328,26 @@ abstract class OauthStoreContract extends TestCase {
 		$this->assertNotNull( Command_Auth::load_session_record( $won['handle'] ) );
 		$this->assertNull( Command_Auth::load_session_record( $lost['handle'] ), 'the loser revokes the session it minted' );
 		$this->assertStringNotContainsString( \hash( 'sha256', $lost['next'] ), (string) \wp_json_encode( $this->rows() ), 'the loser drops the refresh token it issued' );
-		$this->assertNull( Oauth_Store::rotate( $lost['next'], $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $lost['next'], self::CLIENT, null, $this->no_answer() ) );
 		$this->assertNotNull( Oauth_Store::grant( $first['grant'] ) );
-		$this->assertNotNull( Oauth_Store::rotate( $won['next'], $this->answer() ) );
+		$this->assertNotNull( Oauth_Store::rotate( $won['next'], self::CLIENT, null, $this->answer() ) );
+	}
+
+	/**
+	 * A race loser answers the winner's pair only while the grant is live: a
+	 * grant revoked mid-race leaves the loser nothing, its session revoked.
+	 */
+	public function test_a_refresh_that_loses_the_claim_to_a_revoked_grant_answers_nothing(): void {
+		$first  = Oauth_Store::open_grant( self::approval() );
+		$racing = $this->answer();
+		$loser  = function ( array $grant, string $grant_id, string $next ) use ( $first, $racing ): array {
+			Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $racing );
+			Oauth_Store::revoke_grant( $grant_id );
+			return $racing( $grant, $grant_id, $next );
+		};
+
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $loser ) );
+		$this->assertNull( Command_Auth::load_session_record( $this->answered[1]['handle'] ), 'the loser revokes the session it minted' );
 	}
 
 	/**
@@ -299,27 +357,27 @@ abstract class OauthStoreContract extends TestCase {
 	 */
 	public function test_a_retry_after_the_claim_replays_while_the_live_row_stands(): void {
 		$first  = Oauth_Store::open_grant( self::approval() );
-		$answer = Oauth_Store::rotate( $first['refresh'], $this->answer() );
+		$answer = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() );
 		Command_Auth::session_table()->add( 'oauth:refresh:' . \hash( 'sha256', $first['refresh'] ), [ 'grant' => $first['grant'] ], 30 * self::DAY );
 
 		$this->at = self::T0 + 3;
 
-		$this->assertSame( $answer, Oauth_Store::rotate( $first['refresh'], $this->no_answer() ) );
+		$this->assertSame( $answer, Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->no_answer() ) );
 		$this->assertCount( 1, $this->answered );
 	}
 
 	/** A spent token whose grace row lapsed within the minute: refused, never revoking. */
 	public function test_a_spent_token_whose_grace_row_lapsed_revokes_nothing(): void {
 		$first  = Oauth_Store::open_grant( self::approval() );
-		$answer = Oauth_Store::rotate( $first['refresh'], $this->answer() );
+		$answer = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() );
 		Command_Auth::session_table()->forget( 'oauth:grace:' . \hash( 'sha256', $first['refresh'] ) );
 
 		$this->at = self::T0 + 5;
 
-		$this->assertNull( Oauth_Store::rotate( $first['refresh'], $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->no_answer() ) );
 		$this->assertNotNull( Oauth_Store::grant( $first['grant'] ) );
 		$this->assertNotNull( Command_Auth::load_session_record( $this->answered[0]['handle'] ) );
-		$this->assertNotNull( Oauth_Store::rotate( $answer['refresh_token'], $this->answer() ) );
+		$this->assertNotNull( Oauth_Store::rotate( $answer['refresh_token'], self::CLIENT, null, $this->answer() ) );
 	}
 
 	/** A refresh whose answer throws drops the token it issued; the old one still works. */
@@ -331,6 +389,8 @@ abstract class OauthStoreContract extends TestCase {
 			static function () use ( $first, &$issued ): void {
 				Oauth_Store::rotate(
 					$first['refresh'],
+					self::CLIENT,
+					null,
 					static function ( array $grant, string $grant_id, string $next ) use ( &$issued ): array {
 						$issued = $next;
 						throw new \RuntimeException( 'kea mint 4410 failed' );
@@ -343,22 +403,22 @@ abstract class OauthStoreContract extends TestCase {
 		$this->assertSame( 'kea mint 4410 failed', $thrown->getMessage() );
 		$this->assertNotNull( $issued );
 		$this->assertStringNotContainsString( \hash( 'sha256', $issued ), (string) \wp_json_encode( $this->rows() ) );
-		$this->assertNotNull( Oauth_Store::rotate( $first['refresh'], $this->answer() ), 'the live token was never spent' );
+		$this->assertNotNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() ), 'the live token was never spent' );
 	}
 
 	public function test_a_spent_token_after_the_grace_revokes_the_grant(): void {
 		$first   = Oauth_Store::open_grant( self::approval() );
 		$session = Command_Auth::mint_session( Capabilities::READ, 3600 );
 		Oauth_Store::bind_session( $first['grant'], $session['handle'] );
-		$next = Oauth_Store::rotate( $first['refresh'], $this->answer() )['refresh_token'];
+		$next = Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() )['refresh_token'];
 
 		$this->at = self::T0 + 61;
 
-		$this->assertNull( Oauth_Store::rotate( $first['refresh'], $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->no_answer() ) );
 		$this->assertNull( Oauth_Store::grant( $first['grant'] ) );
 		$this->assertNull( Command_Auth::load_session_record( $session['handle'] ), 'a reused token ends every session the grant minted' );
 		$this->assertNull( Command_Auth::load_session_record( $this->answered[0]['handle'] ) );
-		$this->assertNull( Oauth_Store::rotate( $next, $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $next, self::CLIENT, null, $this->no_answer() ) );
 	}
 
 	public function test_a_revoked_grant_refuses_its_refresh_token(): void {
@@ -366,18 +426,18 @@ abstract class OauthStoreContract extends TestCase {
 
 		Oauth_Store::revoke_grant( $first['grant'] );
 
-		$this->assertNull( Oauth_Store::rotate( $first['refresh'], $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->no_answer() ) );
 		$this->assertNull( Oauth_Store::grant( $first['grant'] ) );
 	}
 
 	public function test_a_retry_after_the_grant_was_revoked_replays_nothing(): void {
 		$first = Oauth_Store::open_grant( self::approval() );
-		Oauth_Store::rotate( $first['refresh'], $this->answer() );
+		Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() );
 
 		Oauth_Store::revoke_grant( $first['grant'] );
 		$this->at = self::T0 + 5;
 
-		$this->assertNull( Oauth_Store::rotate( $first['refresh'], $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->no_answer() ) );
 	}
 
 	public function test_revoking_a_grant_revokes_every_session_it_minted(): void {
@@ -459,7 +519,7 @@ abstract class OauthStoreContract extends TestCase {
 	}
 
 	public function test_revoke_all_sessions_empties_every_oauth_row(): void {
-		$client = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] );
+		$client = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] )['id'];
 		$first  = Oauth_Store::open_grant( self::approval() );
 
 		Sessions::revoke_all();
@@ -467,6 +527,6 @@ abstract class OauthStoreContract extends TestCase {
 		$this->assertNull( Oauth_Store::client( $client ) );
 		$this->assertNull( Oauth_Store::grant( $first['grant'] ) );
 		$this->assertSame( [], Oauth_Store::grants() );
-		$this->assertNull( Oauth_Store::rotate( $first['refresh'], $this->no_answer() ) );
+		$this->assertNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->no_answer() ) );
 	}
 }

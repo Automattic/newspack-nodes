@@ -142,6 +142,15 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 
 if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
+	// OAuth metadata lives at /.well-known/; a page view loads no OAuth class.
+	\add_action(
+		'parse_request',
+		static function ( \WP $wp ): void {
+			if ( \str_starts_with( $wp->request, '.well-known/oauth-' ) ) {
+				\Newspack_Nodes\Rest\Oauth_Controller::serve_well_known( $wp );
+			}
+		}
+	);
 	\add_action( 'newspack_nodes/reconcile', [ '\\Newspack_Nodes\\Bootstrap', 'reconcile_fleet' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );

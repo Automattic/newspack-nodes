@@ -1302,6 +1302,16 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_register_rest_routes_opens_the_oauth_doors(): void {
+		$GLOBALS['_wp_test_registered_routes'] = [];
+
+		Bootstrap::register_rest_routes();
+
+		$routes = \array_column( $GLOBALS['_wp_test_registered_routes'], 'route' );
+		$this->assertContains( '/oauth/register', $routes );
+		$this->assertContains( '/oauth/token', $routes );
+	}
+
 	public function test_no_route_answers_the_deleted_log_stream(): void {
 		$GLOBALS['_wp_test_registered_routes'] = [];
 

@@ -61,6 +61,12 @@ final class Oauth_Store {
 	/** The set whose members are every grant's id. */
 	private const GRANTS = 'oauth:grants';
 
+	/** `register_client()`'s refusal code for a name that cleans to nothing. */
+	public const REFUSED_NAME = 1;
+
+	/** `register_client()`'s refusal code for its redirect URIs. */
+	public const REFUSED_REDIRECT_URIS = 2;
+
 	/**
 	 * Register a public client. Its name is kept as a session label is,
 	 * through `Sessions::clean_label()`, because registration is open to anyone.
@@ -69,37 +75,37 @@ final class Oauth_Store {
 	 * @param array<mixed> $redirect_uris One to five URIs, each `https://` or
 	 *                                    `http://` on localhost or 127.0.0.1,
 	 *                                    with no userinfo, fragment or space.
-	 * @return string The client id.
-	 * @throws \InvalidArgumentException On an empty name, a count outside one
-	 *                                   to five, or a URI neither https nor loopback.
+	 * @return array{id:string,name:string,redirect_uris:list<string>,created:int}
+	 *         The client as kept.
+	 * @throws \InvalidArgumentException With code REFUSED_NAME on an empty
+	 *                                   name, REFUSED_REDIRECT_URIS on a count
+	 *                                   outside one to five or a URI neither
+	 *                                   https nor loopback.
 	 * @throws Session_Store_Unavailable When the store refuses the row.
 	 */
-	public static function register_client( string $name, array $redirect_uris ): string {
+	public static function register_client( string $name, array $redirect_uris ): array {
 		$name = Sessions::clean_label( $name );
 		if ( '' === $name ) {
-			throw new \InvalidArgumentException( 'a client needs a name' );
+			throw new \InvalidArgumentException( 'a client needs a name', self::REFUSED_NAME );
 		}
 		if ( [] === $redirect_uris || \count( $redirect_uris ) > self::MAX_REDIRECT_URIS ) {
-			throw new \InvalidArgumentException( 'a client registers one to five redirect URIs' );
+			throw new \InvalidArgumentException( 'a client registers one to five redirect URIs', self::REFUSED_REDIRECT_URIS );
 		}
 		$uris = [];
 		foreach ( $redirect_uris as $uri ) {
 			if ( ! \is_string( $uri ) || ! self::is_redirect_uri( $uri ) ) {
-				throw new \InvalidArgumentException( 'a redirect URI is https, or http on localhost or 127.0.0.1' );
+				throw new \InvalidArgumentException( 'a redirect URI is https, or http on localhost or 127.0.0.1', self::REFUSED_REDIRECT_URIS );
 			}
 			$uris[] = $uri;
 		}
-		$id = self::new_id();
-		self::add(
-			"oauth:client:{$id}",
-			[
-				'name'          => $name,
-				'redirect_uris' => $uris,
-				'created'       => self::now(),
-			],
-			self::CLIENT_TTL_S
-		);
-		return $id;
+		$id     = self::new_id();
+		$client = [
+			'name'          => $name,
+			'redirect_uris' => $uris,
+			'created'       => self::now(),
+		];
+		self::add( "oauth:client:{$id}", $client, self::CLIENT_TTL_S );
+		return [ 'id' => $id ] + $client;
 	}
 
 	/**
@@ -143,14 +149,17 @@ final class Oauth_Store {
 	}
 
 	/**
-	 * Issue a single-use authorization code bound to an approval.
+	 * Issue a single-use authorization code bound to an approval. The
+	 * connection name labels every session the grant mints, so it is kept
+	 * as a session label is, through `Sessions::clean_label()`.
 	 *
 	 * @param array{client:string,redirect_uri:string,challenge:string,resource:string,user:int,scope:string,name:string} $grant What the code is bound to.
 	 * @return string The code, disclosed here alone.
 	 * @throws Session_Store_Unavailable When the store refuses the row.
 	 */
 	public static function issue_code( array $grant ): string {
-		$code = \bin2hex( \random_bytes( 32 ) );
+		$code          = \bin2hex( \random_bytes( 32 ) );
+		$grant['name'] = Sessions::clean_label( $grant['name'] );
 		self::add( 'oauth:code:' . self::digest( $code ), $grant, self::CODE_TTL_S );
 		return $code;
 	}
@@ -216,28 +225,37 @@ final class Oauth_Store {
 	 * grant. A request that loses the claim to another revokes the session it
 	 * minted, drops the token it issued and answers the winner's answer. A
 	 * spent token whose grace row has lapsed answers null within GRACE_S of
-	 * its spend; one spent more than GRACE_S earlier revokes its grant.
+	 * its spend; one spent more than GRACE_S earlier revokes its grant. A
+	 * token is rotated or replayed only for the client its grant was issued
+	 * to, and for the grant's resource when the request names one; any other
+	 * request answers null and spends nothing.
 	 *
-	 * @param string   $refresh The refresh token a client presented.
-	 * @param \Closure $answer  `function ( array $grant, string $grant_id, string $next_refresh ): array{answer: array, handle: string}`:
+	 * @param string      $refresh  The refresh token a client presented.
+	 * @param string      $client   The client presenting it.
+	 * @param string|null $resource The resource the request names, if any.
+	 * @param \Closure    $answer   `function ( array $grant, string $grant_id, string $next_refresh ): array{answer: array, handle: string}`:
 	 *                          the `grant()` record, its id and the next token
 	 *                          in; the token response and the handle of the
 	 *                          session it minted out.
 	 * @return array<array-key,mixed>|null The token response; null for a token
 	 *                                     unknown, refused or reused.
 	 * @throws Session_Store_Unavailable When the store does not answer or refuses a row.
+	 * @throws \RuntimeException What `$answer` throws, once the token it was
+	 *                           handed is dropped.
 	 */
-	public static function rotate( string $refresh, \Closure $answer ): ?array {
+	public static function rotate( string $refresh, string $client, ?string $resource, \Closure $answer ): ?array {
 		$hash  = self::digest( $refresh );
 		$live  = "oauth:refresh:{$hash}";
 		$spent = "oauth:spent:{$hash}";
 		$grace = "oauth:grace:{$hash}";
 		$rows  = self::rows( [ $live, $spent, $grace ] );
 		if ( isset( $rows[ $grace ] ) ) {
-			return self::replay( $rows[ $grace ]['row'] );
+			return self::replay( $rows[ $grace ]['row'], $client, $resource );
 		}
 		if ( isset( $rows[ $live ] ) ) {
-			return self::spend( $hash, Core::str( $rows[ $live ]['row']['grant'] ?? null ), $answer );
+			$grant = Core::str( $rows[ $live ]['row']['grant'] ?? null );
+			$found = self::issued_grant( $grant, $client, $resource );
+			return null === $found ? null : self::spend( $hash, $grant, $found, $client, $resource, $answer );
 		}
 		if ( ! isset( $rows[ $spent ] ) ) {
 			return null;
@@ -273,17 +291,17 @@ final class Oauth_Store {
 	 * row and record the spend. Until the claim lands nothing names the next
 	 * token, so any exit before it, a throw included, deletes its row.
 	 *
-	 * @param string   $hash   The token's digest.
-	 * @param string   $grant  The grant its row names.
-	 * @param \Closure $answer As `rotate()` takes it.
-	 * @return array<array-key,mixed>|null The token response; null when the grant is gone.
+	 * @param string                                    $hash   The token's digest.
+	 * @param string                                    $grant  The grant its row names.
+	 * @param array{row:array<array-key,mixed>,ttl:int} $found    The grant's row and the life it has left.
+	 * @param string                                    $client   The client presenting the token.
+	 * @param string|null                               $resource The resource the request names, if any.
+	 * @param \Closure                                  $answer   As `rotate()` takes it.
+	 * @return array<array-key,mixed>|null The token response; null when the
+	 *                                     claim's winner names a grant now gone.
 	 * @throws Session_Store_Unavailable When the store does not answer or refuses a row.
 	 */
-	private static function spend( string $hash, string $grant, \Closure $answer ): ?array {
-		$found = self::row_by_id( 'grant', $grant );
-		if ( null === $found ) {
-			return null;
-		}
+	private static function spend( string $hash, string $grant, array $found, string $client, ?string $resource, \Closure $answer ): ?array {
 		$next    = self::issue_refresh( $grant, $found['ttl'] );
 		$table   = Command_Auth::session_table();
 		$minted  = [];
@@ -302,7 +320,7 @@ final class Oauth_Store {
 			}
 		}
 		if ( ! $claimed ) {
-			return self::yield_claim( $hash, Core::str( $minted['handle'] ?? null ), $table->last_failure() );
+			return self::yield_claim( $hash, Core::str( $minted['handle'] ?? null ), $table->last_failure(), $client, $resource );
 		}
 		self::forget( "oauth:refresh:{$hash}" );
 		self::add(
@@ -321,14 +339,16 @@ final class Oauth_Store {
 	 * dropped the token this one issued: revoke the session this one minted
 	 * and answer the winner's.
 	 *
-	 * @param string $hash    The token's digest.
-	 * @param string $handle  The session this rotation minted.
-	 * @param string $failure Why the claim was refused, for a store that held none.
+	 * @param string      $hash     The token's digest.
+	 * @param string      $handle   The session this rotation minted.
+	 * @param string      $failure  Why the claim was refused, for a store that held none.
+	 * @param string      $client   The client presenting the token.
+	 * @param string|null $resource The resource the request names, if any.
 	 * @return array<array-key,mixed>|null The winner's token response, or null.
 	 * @throws Session_Store_Unavailable When no claim was held, so the store
 	 *                                   refused it, or the store does not answer.
 	 */
-	private static function yield_claim( string $hash, string $handle, string $failure ): ?array {
+	private static function yield_claim( string $hash, string $handle, string $failure, string $client, ?string $resource ): ?array {
 		$grace  = "oauth:grace:{$hash}";
 		$winner = self::rows( [ $grace ] )[ $grace ]['row'] ?? null;
 		if ( null === Command_Auth::revoke_session( $handle ) ) {
@@ -338,21 +358,38 @@ final class Oauth_Store {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new Session_Store_Unavailable( "could not store an OAuth row: {$failure}" );
 		}
-		return self::replay( $winner );
+		return self::replay( $winner, $client, $resource );
 	}
 
 	/**
-	 * The answer a grace row claimed, while its grant is live.
+	 * The answer a grace row claimed, while its grant is live and was issued
+	 * to `$client`, for `$resource` when one is named.
 	 *
-	 * @param array<array-key,mixed>|null $claim The grace row, `{ grant, answer }`.
+	 * @param array<array-key,mixed> $claim    The grace row, `{ grant, answer }`.
+	 * @param string                 $client   The client asking.
+	 * @param string|null            $resource The resource asked for, if any.
 	 * @return array<array-key,mixed>|null The token response, or null.
 	 * @throws Session_Store_Unavailable When the store does not answer.
 	 */
-	private static function replay( ?array $claim ): ?array {
-		if ( null === $claim || null === self::row_by_id( 'grant', Core::str( $claim['grant'] ?? null ) ) ) {
+	private static function replay( array $claim, string $client, ?string $resource ): ?array {
+		return null === self::issued_grant( Core::str( $claim['grant'] ?? null ), $client, $resource ) ? null : Core::arr( $claim['answer'] ?? null );
+	}
+
+	/**
+	 * A live grant issued to `$client`, and for `$resource` when one is named.
+	 *
+	 * @param string      $grant    Grant id.
+	 * @param string      $client   The client asking.
+	 * @param string|null $resource The resource asked for, if any.
+	 * @return array{row:array<array-key,mixed>,ttl:int}|null Null for any other.
+	 * @throws Session_Store_Unavailable When the store does not answer.
+	 */
+	private static function issued_grant( string $grant, string $client, ?string $resource ): ?array {
+		$found = self::row_by_id( 'grant', $grant );
+		if ( null === $found || Core::str( $found['row']['client'] ?? null ) !== $client ) {
 			return null;
 		}
-		return Core::arr( $claim['answer'] ?? null );
+		return null === $resource || Core::str( $found['row']['resource'] ?? null ) === $resource ? $found : null;
 	}
 
 	/**
