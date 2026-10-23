@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **CRT's scanlines cover every skinned surface.** They drew over the topology canvas alone; the CRT and CRT Color skins now lay them over the outermost skin root too, so the station's tabs, the event logger's dashboards and each modal carry them, and clicks pass through. A root inside another draws none, so the lines never stack, while the canvas keeps its own pass over them and reads denser. One `crt-scanlines` mixin paints both.
+- **CRT's scanlines cover every skinned surface.** They drew over the topology canvas alone; the CRT and CRT Color skins now lay them over every page surface and modal too, so the station's tabs, the event logger's dashboards and each modal carry them, and clicks pass through. A skin root itself is boxless (`display: contents`), so the lines go on the boxes it provides, and the canvas keeps its own pass over them and reads denser. One `crt-scanlines` mixin paints both.
 
 ## [2.124.1] - 2026-10-23
 

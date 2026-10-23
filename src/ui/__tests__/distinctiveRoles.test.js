@@ -1439,19 +1439,20 @@ describe( 'CRT scanlines', () => {
 	const declared = ( rule, prop ) =>
 		rule.nodes.find( ( d ) => prop === d.prop )?.value;
 
-	it( 'covers the outermost skin root, not only the canvas, and lets clicks through', () => {
+	// A skin root is boxless (`display: contents`), so the lines go on the
+	// boxes it provides: a page surface and a modal.
+	it( 'covers every page surface and modal, not only the canvas, and lets clicks through', () => {
 		const [ lines, ...extra ] = rulesMatching(
 			( s ) =>
 				s.includes( '.theme-crt' ) &&
-				s.includes( '.newspack-nodes-skin-root' ) &&
-				s.includes( '::after' )
+				s.includes( '::after' ) &&
+				! s.includes( 'topology-canvas' )
 		);
 		expect( extra ).toEqual( [] );
 		expect( lines.selector ).toContain( '.theme-crt-color' );
-		// A root inside another draws none, so the lines never stack.
-		expect( lines.selector ).toContain(
-			':not(.newspack-nodes-skin-root .newspack-nodes-skin-root)'
-		);
+		expect( lines.selector ).toContain( '.newspack-nodes-page-surface' );
+		expect( lines.selector ).toContain( '.newspack-nodes-modal' );
+		expect( lines.selector ).not.toContain( '.newspack-nodes-skin-root' );
 		expect( declared( lines, 'background' ) ).toContain(
 			'repeating-linear-gradient'
 		);
@@ -1460,12 +1461,12 @@ describe( 'CRT scanlines', () => {
 		expect( declared( lines, 'inset' ) ).toBe( '0' );
 	} );
 
-	it( 'anchors the lines on a root only where nothing else positions it', () => {
+	it( 'anchors the lines on a box only where nothing else positions it', () => {
 		const [ anchor ] = rulesMatching(
 			( s ) =>
 				s.startsWith( ':where(' ) &&
 				s.includes( '.theme-crt' ) &&
-				s.includes( '.newspack-nodes-skin-root' ) &&
+				s.includes( '.newspack-nodes-modal' ) &&
 				! s.includes( '::after' )
 		);
 		expect( declared( anchor, 'position' ) ).toBe( 'relative' );

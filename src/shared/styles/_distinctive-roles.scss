@@ -378,14 +378,17 @@
 	letter-spacing: 0.04em;
 }
 
-// CRT's scanlines cover every skinned surface. A root inside another draws
-// none, so they never stack, and `:where()` yields to a root positioned already.
-:where(:is(.theme-crt, .theme-crt-color) .newspack-nodes-skin-root) {
+// @longform CRT's scanlines cover every surface a skin root provides: the
+// root itself is boxless, so they go on its page surface and its modals,
+// each the UI root or inside one. `:where()` yields to a box positioned
+// already, as the fixed page is.
+$crt-surface: ":is(.newspack-nodes-page-surface, .newspack-nodes-modal):where(.newspack-nodes-ui, .newspack-nodes-ui *)";
+
+:where(:is(.theme-crt, .theme-crt-color) #{$crt-surface}) {
 	position: relative;
 }
 
-:is(.theme-crt, .theme-crt-color)
-	.newspack-nodes-skin-root:not(.newspack-nodes-skin-root .newspack-nodes-skin-root)::after {
+:is(.theme-crt, .theme-crt-color) #{$crt-surface}::after {
 	@include mix.crt-scanlines;
 }
 
