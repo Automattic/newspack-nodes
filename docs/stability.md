@@ -160,8 +160,8 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
      five controls `number()`, `directory()`, `textarea()`, `checkbox()` and
      `react_mount()`, and the `reset_wrapper()` / `reset_toggle()` pair every
      control goes out through.
-   - [`Restart_Planner`](../includes/config-system/class-restart-planner.php) — `plan()`, `request_restarts()`, `request_reloads()`
-     and `topologies_for()`.
+   - [`Restart_Planner`](../includes/config-system/class-restart-planner.php) — `listen()`, `plan()`, `request_restarts()`,
+     `request_reloads()` and `topologies_for()`.
 
    The first five carry a second guarantee — they stay loadable without the
    substrate, so a consumer's hermetic harness can require the five files

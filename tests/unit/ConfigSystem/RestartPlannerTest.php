@@ -6,8 +6,12 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Failures;
+use Newspack_Nodes\Config_System\Field;
 use Newspack_Nodes\Config_System\Restart_Planner;
+use Newspack_Nodes\Config_System\Schema;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Settings_Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\TestCase;
@@ -324,6 +328,145 @@ class RestartPlannerTest extends TestCase {
 		$base = $this->make_temp_dir( 'kea-7713-base-' );
 		$this->assertSame( 1, $this->catalog_builds( static fn () => Restart_Planner::request_reloads( $base ) ) );
 		$this->rmdir_recursive( $base );
+	}
+
+	/**
+	 * A listened site with live lock dirs for `combined` and `job-worker`.
+	 *
+	 * @return string The locks directory.
+	 */
+	private function listened_site(): string {
+		$base = $this->make_temp_dir( 'listen-base-' );
+		$this->use_base_dir( $base );
+		\mkdir( "{$base}/locks/combined.p0.lock.d", 0777, true );
+		\mkdir( "{$base}/locks/job-worker.p0.lock.d", 0777, true );
+		Restart_Planner::listen( Settings_Schema::get() );
+		return "{$base}/locks";
+	}
+
+	/** @return array<string,array{string}> */
+	public static function option_writes(): array {
+		return [
+			'a first save' => [ 'added_option' ],
+			'a later save' => [ 'updated_option' ],
+			'a reset'      => [ 'deleted_option' ],
+		];
+	}
+
+	#[DataProvider( 'option_writes' )]
+	public function test_every_option_write_restarts_what_its_field_names( string $hook ): void {
+		$locks = $this->listened_site();
+
+		\do_action( $hook, 'newspack_nodes_max_segments' );
+		\do_action( 'shutdown' );
+
+		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileDoesNotExist( "{$locks}/job-worker.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( "{$locks}/job-worker.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+	}
+
+	public function test_a_request_signals_nothing_before_it_ends(): void {
+		$locks = $this->listened_site();
+
+		\do_action( 'deleted_option', 'newspack_nodes_max_segments' );
+
+		$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		\do_action( 'shutdown' );
+	}
+
+	public function test_every_change_a_request_makes_signals_once(): void {
+		$locks = $this->listened_site();
+		$once  = $this->catalog_builds( static fn () => Restart_Planner::plan( [ 'Partition', 'Topic', 'Log' ] ) );
+		\unlink( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+
+		\do_action( 'added_option', 'newspack_nodes_num_partitions' );
+		\do_action( 'updated_option', 'newspack_nodes_max_segments' );
+		\do_action( 'deleted_option', 'newspack_nodes_segment_size' );
+
+		$this->assertSame( $once, $this->catalog_builds( static fn () => \do_action( 'shutdown' ) ) );
+		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+	}
+
+	public function test_a_change_restarting_all_restarts_every_topology_beside_a_typed_one(): void {
+		$locks = $this->listened_site();
+
+		\do_action( 'updated_option', 'newspack_nodes_max_segments' );
+		\do_action( 'updated_option', 'newspack_nodes_memcache_servers' );
+		\do_action( 'shutdown' );
+
+		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( "{$locks}/job-worker.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+	}
+
+	public function test_an_option_outside_the_prefix_signals_nothing(): void {
+		$locks = $this->listened_site();
+
+		\do_action( 'updated_option', 'blogname' );
+		\do_action( 'shutdown' );
+
+		$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+	}
+
+	public function test_a_failed_signal_leaves_its_user_one_notice_naming_every_change(): void {
+		Restart_Planner::listen( Settings_Schema::get() );
+		$conf = $this->make_temp_dir( 'listen-conf-' ) . '/bad-base-dir.php';
+		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => \"/tmp/kea\\0-8812\" ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		$GLOBALS['_wp_test_current_user_id'] = 4471;
+		\do_action( 'updated_option', 'newspack_nodes_lifetime' );
+		\do_action( 'shutdown' );
+
+		\do_action( 'updated_option', 'newspack_nodes_max_segments' );
+		\do_action( 'deleted_option', 'newspack_nodes_segment_size' );
+		\do_action( 'shutdown' );
+
+		\ob_start();
+		\do_action( 'admin_notices' );
+		$first = (string) \ob_get_clean();
+		$this->assertStringContainsString( 'Changed lifetime, but', $first, 'an earlier failure waits beside a later one' );
+		\ob_start();
+		\do_action( 'admin_notices' );
+		$second = (string) \ob_get_clean();
+		$this->assertStringContainsString( 'Changed max_segments, segment_size, but the running workers were not told', $first );
+		$this->assertStringContainsString( 'notice-error', $first );
+		$this->assertSame( '', $second );
+	}
+
+	public function test_two_plugins_naming_one_short_key_keep_both_restarts(): void {
+		$locks = $this->listened_site();
+		$field = static fn ( array|string $restart ): Field => new Field(
+			key: 'shared_key',
+			type: 'int',
+			label: 'Shared',
+			section: 'storage',
+			restart: $restart,
+			sanitize: static fn ( $v ) => $v,
+			render: static function (): void {},
+		);
+		Restart_Planner::listen( new Schema( 'alpha_', [ $field( 'all' ) ] ) );
+		Restart_Planner::listen( new Schema( 'beta_', [ $field( [ 'Tee' ] ) ] ) );
+
+		\do_action( 'updated_option', 'alpha_shared_key' );
+		\do_action( 'updated_option', 'beta_shared_key' );
+		\do_action( 'shutdown' );
+
+		$this->assertFileExists( "{$locks}/job-worker.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+	}
+
+	public function test_the_signal_lands_before_wordpress_flushes_the_response(): void {
+		$saved                               = $GLOBALS['_wp_action_registrations'] ?? [];
+		$GLOBALS['_wp_action_registrations'] = [];
+		$GLOBALS['_wp_record_registrations'] = true;
+		try {
+			Restart_Planner::listen( Settings_Schema::get() );
+			[ $registration ] = $GLOBALS['_wp_action_registrations']['shutdown'];
+		} finally {
+			unset( $GLOBALS['_wp_record_registrations'] );
+			$GLOBALS['_wp_action_registrations'] = $saved;
+		}
+
+		$this->assertLessThan( 1, $registration['priority'], 'wp_ob_end_flush_all runs at 1' );
 	}
 
 	public function test_request_reloads_is_a_no_op_off_the_fleet_site(): void {

@@ -35,6 +35,50 @@ use Newspack_Nodes\Worker_Should_Stop;
 
 class Restart_Planner {
 
+	/** User meta holding a user's failed-signal notices until they are shown. */
+	private const NOTICE_META = 'newspack_nodes_restart_notice';
+
+	/**
+	 * Settings this request changed, by full option name, each with its
+	 * unprefixed key and restart classification; `flush()` signals them once.
+	 *
+	 * @var array<string,array{0:string,1:array<int,string>|string}>
+	 */
+	private static array $changed = [];
+
+	/**
+	 * Run one `plan()` over every setting this request changed: `'all'` if any
+	 * of them restarts all, else the union of their node types. A failure is
+	 * reported, never raised, since the save has already happened.
+	 */
+	public static function flush(): void {
+		$changed       = self::$changed;
+		self::$changed = [];
+		if ( [] === $changed ) {
+			return;
+		}
+		$restarts = \array_column( $changed, 1 );
+		$fields   = \implode( ', ', \array_column( $changed, 0 ) );
+		try {
+			self::plan(
+				\in_array( 'all', $restarts, true )
+					? 'all'
+					: \array_values( \array_unique( \array_merge( ...\array_filter( $restarts, 'is_array' ) ) ) )
+			);
+		} catch ( \Throwable $e ) {
+			Worker_Should_Stop::report( 'settings', [ $fields => $e ] );
+			$user = \get_current_user_id();
+			if ( 0 < $user ) {
+				$notices = Core::arr( \get_user_meta( $user, self::NOTICE_META, true ) );
+				foreach ( Worker_Should_Stop::causes_of( $e ) as $cause ) {
+					/* translators: 1: comma-separated setting keys, 2: why the running workers were not told. */
+					$notices[] = \sprintf( \__( 'Changed %1$s, but the running workers were not told: %2$s', 'newspack-nodes' ), $fields, Core::message_of( $cause ) );
+				}
+				\update_user_meta( $user, self::NOTICE_META, $notices );
+			}
+		}
+	}
+
 	/**
 	 * The whole settings-save recipe, for every door a setting comes through:
 	 * recycle the workers the classification names, then tell every live worker
@@ -216,5 +260,51 @@ class Restart_Planner {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The wp-admin door: hear every write of an option under the schema's
+	 * prefix — a first save, a later one, a reset — and signal the fleet once
+	 * when the request ends, for every setting it changed. options.php and a
+	 * Reset All handler both redirect and exit, and `shutdown` still runs.
+	 *
+	 * The flush runs at `shutdown` priority 0, before `wp_ob_end_flush_all()`
+	 * at 1 sends the redirect, so the page it lands on can show the notice a
+	 * failed signal leaves its user.
+	 *
+	 * A worker sees its flag at its next continue check: between messages, and
+	 * inside a long unit of work wherever `Event_Framework::pump()` asks.
+	 *
+	 * @param Schema $schema The schema whose prefix and Fields name each key.
+	 */
+	public static function listen( Schema $schema ): void {
+		$heard = static function ( string $option ) use ( $schema ): void {
+			$short = $schema->short_of( $option );
+			if ( null === $short ) {
+				return;
+			}
+			Config::reset();
+			self::$changed[ $option ] = [ $short, $schema->restart_for( $short ) ];
+		};
+		foreach ( [ 'added_option', 'updated_option', 'deleted_option' ] as $hook ) {
+			\add_action( $hook, $heard, 10, 1 );
+		}
+		\add_action( 'shutdown', [ self::class, 'flush' ], 0 );
+		\add_action( 'admin_notices', [ self::class, 'render_notice' ] );
+	}
+
+	/**
+	 * Show the current user the notices their failed signals left, once.
+	 */
+	public static function render_notice(): void {
+		$user    = \get_current_user_id();
+		$notices = 0 < $user ? Core::arr( \get_user_meta( $user, self::NOTICE_META, true ) ) : [];
+		if ( [] === $notices ) {
+			return;
+		}
+		\delete_user_meta( $user, self::NOTICE_META );
+		foreach ( $notices as $notice ) {
+			\printf( '<div class="notice notice-error"><p>%s</p></div>', \esc_html( Core::as_string( $notice ) ) );
+		}
 	}
 }

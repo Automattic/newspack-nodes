@@ -76,6 +76,11 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			);
 		}
 
+		public function test_short_of_strips_the_prefix_and_refuses_an_option_outside_it(): void {
+			$this->assertSame( 'max_segments', $this->sample_schema()->short_of( 'pfx_max_segments' ) );
+			$this->assertNull( $this->sample_schema()->short_of( 'other_max_segments' ) );
+		}
+
 		public function test_overlay_keys_include_every_option_even_overlay_only(): void {
 			// All real options (key !== ''), incl. the ui=false allowed_users;
 			// excludes the display-only total_storage (no key).

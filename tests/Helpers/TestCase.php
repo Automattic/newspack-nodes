@@ -100,6 +100,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['_wp_options']         = [];
 		$GLOBALS['_wp_option_autoload'] = [];
 		$GLOBALS['_wp_cache_flushes']   = [];
+		$GLOBALS['_wp_user_meta']       = [];
 		$this->saved_wp_actions         = $GLOBALS['_wp_actions'] ?? [];
 
 		// Service_CI verbs are gated by default; start every test denied so a

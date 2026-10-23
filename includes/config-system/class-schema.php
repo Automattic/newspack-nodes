@@ -296,6 +296,16 @@ class Schema {
 	}
 
 	/**
+	 * The unprefixed key of a full option name, or null for an option outside
+	 * this schema's prefix.
+	 *
+	 * @param string $option Full option name.
+	 */
+	public function short_of( string $option ): ?string {
+		return \str_starts_with( $option, $this->prefix ) ? \substr( $option, \strlen( $this->prefix ) ) : null;
+	}
+
+	/**
 	 * Every key that follows $key, in declaration order; none when nothing
 	 * does.
 	 *

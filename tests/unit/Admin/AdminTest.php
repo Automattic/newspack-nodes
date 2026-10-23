@@ -505,27 +505,37 @@ class AdminTest extends TestCase {
 		( new Admin() )->handle_flush_cache();
 	}
 
-	// ---- maybe_request_worker_restart ------------------------------------
+	/**
+	 * One wp-admin request that writes $option through $hook, then ends.
+	 *
+	 * @param string $option Full option name.
+	 * @param string $hook   The option action WordPress fires for the write.
+	 */
+	private function save_in_admin( string $option, string $hook = 'updated_option' ): void {
+		new Admin();
+		\do_action( $hook, $option );
+		\do_action( 'shutdown' );
+	}
 
-	public function test_maybe_request_worker_restart_no_op_for_unrelated_option(): void {
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'completely_unrelated_option' );
+	// ---- worker restart on save -----------------------------------------
+
+	public function test_a_save_no_op_for_unrelated_option(): void {
+		$this->save_in_admin( 'completely_unrelated_option' );
 
 		// No lock dir created — nothing happened.
 		$this->assertFalse( \is_dir( $this->base_dir . '/locks' ) );
 	}
 
-	public function test_maybe_request_worker_restart_no_op_for_application_option(): void {
+	public function test_a_save_no_op_for_application_option(): void {
 		// Application-prefixed options are not the substrate Admin's
 		// concern; it must early-return on prefix mismatch.
 		$this->prepare_lock_dir( 'request-workers', 0 );
-		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_event_logger_nodes_log_events' );
+		$this->save_in_admin( 'newspack_event_logger_nodes_log_events' );
 
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
 	}
 
-	public function test_maybe_request_worker_restart_no_op_for_no_restart_options(): void {
+	public function test_a_save_no_op_for_no_restart_options(): void {
 		// num_partitions restarts NOTHING — even with a live
 		// topology present that the classification would otherwise resolve
 		// against. The fleet refreshes config each loop; touching a worker
@@ -533,7 +543,7 @@ class AdminTest extends TestCase {
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_num_partitions' );
+		$this->save_in_admin( 'newspack_nodes_num_partitions' );
 
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
@@ -546,27 +556,27 @@ class AdminTest extends TestCase {
 		$this->prepare_lock_dir( 'combined', 0 );
 		$this->prepare_lock_dir( 'aggregator', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_num_partitions' );
+		$this->save_in_admin( 'newspack_nodes_num_partitions' );
 
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
 		$this->assertFileExists( "{$this->base_dir}/locks/aggregator.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG, 're-read, never recycle' );
 	}
 
-	public function test_maybe_request_worker_restart_memcache_servers_restarts_all_live_topologies(): void {
+	public function test_a_save_memcache_servers_restarts_all_live_topologies(): void {
 		// memcache_servers is 'all' → every active topology restarts (the
 		// Memcached handle lives in every long-lived worker process).
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );
 		$this->prepare_lock_dir( 'aggregator', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
+		$this->save_in_admin( 'newspack_nodes_memcache_servers' );
 
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileExists( "{$this->base_dir}/locks/aggregator.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
-	public function test_maybe_request_worker_restart_iterates_all_partitions(): void {
+	public function test_a_save_iterates_all_partitions(): void {
 		// The 'multipart' fixture declares num_partitions=3 → every partition
 		// lock dir of a consuming topology is flagged.
 		$this->register_fixture_topologies();
@@ -574,7 +584,7 @@ class AdminTest extends TestCase {
 			$this->prepare_lock_dir( 'multipart', $p );
 		}
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
+		$this->save_in_admin( 'newspack_nodes_memcache_servers' );
 
 		for ( $p = 0; $p < 3; $p++ ) {
 			$this->assertFileExists( "{$this->base_dir}/locks/multipart.p{$p}.lock.d/" . Lock_Node::RESTART_FLAG );
@@ -589,7 +599,7 @@ class AdminTest extends TestCase {
 		$this->prepare_lock_dir( 'combined', 0 );
 		$this->prepare_lock_dir( 'request-workers', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_max_segments' );
+		$this->save_in_admin( 'newspack_nodes_max_segments' );
 
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/request-workers.p0.lock.d/" . Lock_Node::RESTART_FLAG );
@@ -599,50 +609,47 @@ class AdminTest extends TestCase {
 		// A reset deletes the row, which fires deleted_option, not updated_option.
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );
-		$GLOBALS['_wp_actions'] = [];
-		new Admin();
 
-		\do_action( 'deleted_option', 'newspack_nodes_max_segments' );
+		$this->save_in_admin( 'newspack_nodes_max_segments', 'deleted_option' );
 
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
-	public function test_maybe_request_worker_restart_all_restarts_every_live_topology(): void {
+	public function test_a_save_all_restarts_every_live_topology(): void {
 		// base_directory is 'all' → every active topology restarts.
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );
 		$this->prepare_lock_dir( 'aggregator', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+		$this->save_in_admin( 'newspack_nodes_base_directory' );
 
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileExists( "{$this->base_dir}/locks/aggregator.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
-	public function test_maybe_request_worker_restart_no_op_when_no_live_topology_consumes(): void {
+	public function test_a_save_no_op_when_no_live_topology_consumes(): void {
 		// remote_* fields classify [] → nothing restarts even with a live topology.
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_remote_max_segments' );
+		$this->save_in_admin( 'newspack_nodes_remote_max_segments' );
 
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
 	/**
-	 * The hook runs inside wp-admin's own options save, where a raise ends as
-	 * a critical-error page: every readable topology still takes its flag,
-	 * and each unresolved one is a stderr line naming the setting.
+	 * A save signals after its response has gone, so it reports rather than
+	 * raises: every readable topology still takes its flag, and each
+	 * unresolved one is a stderr line naming the setting.
 	 */
 	public function test_saving_a_setting_with_an_unresolved_topology_reports_it_and_flags_the_rest(): void {
 		$this->register_fixture_topologies();
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'heron-9933';
 		Config::reset();
 		$this->prepare_lock_dir( 'combined', 0 );
-		$lines                       = $this->capture_stderr();
-		$GLOBALS['_settings_errors'] = [];
+		$lines = $this->capture_stderr();
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_max_segments' );
+		$this->save_in_admin( 'newspack_nodes_max_segments' );
 
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$reported = self::stderr_lines( $lines, 'heron-9933' );
@@ -652,23 +659,23 @@ class AdminTest extends TestCase {
 
 	/**
 	 * options.php redirects after the save, so a stderr line alone never
-	 * reaches the operator who saved: the failure also rides the page's
-	 * settings errors, escaped, one notice per cause.
+	 * reaches the operator who saved: the failure waits for their next admin
+	 * page as a notice, escaped, one per cause.
 	 */
-	public function test_saving_a_setting_the_fleet_never_hears_of_shows_a_settings_error(): void {
+	public function test_saving_a_setting_the_fleet_never_hears_of_leaves_a_notice(): void {
 		$this->register_fixture_topologies();
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'heron-9936';
 		Config::reset();
-		$GLOBALS['_settings_errors'] = [];
+		$GLOBALS['_wp_test_current_user_id'] = 5521;
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_max_segments' );
+		$this->save_in_admin( 'newspack_nodes_max_segments' );
 
-		$errors = $GLOBALS['_settings_errors'];
-		$this->assertCount( 1, $errors );
-		$this->assertSame( 'newspack_nodes_max_segments', $errors[0]['setting'] );
-		$this->assertSame( 'error', $errors[0]['type'] );
-		$this->assertStringContainsString( 'max_segments', $errors[0]['message'] );
-		$this->assertStringContainsString( 'unknown topology &#039;heron-9936&#039;', $errors[0]['message'], 'escaped, because settings_errors() prints it raw' );
+		\ob_start();
+		\do_action( 'admin_notices' );
+		$html = (string) \ob_get_clean();
+		$this->assertSame( 1, \substr_count( $html, 'notice-error' ) );
+		$this->assertStringContainsString( 'Changed max_segments, but the running workers were not told', $html );
+		$this->assertStringContainsString( 'unknown topology &#039;heron-9936&#039;', $html );
 	}
 
 	// ---- render_settings_page --------------------------------------------
@@ -1330,9 +1337,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		}
 	}
 
-	// ---- maybe_request_worker_restart (configuration-error path) --------
+	// ---- worker restart on save (configuration-error path) --------------
 
-	public function test_maybe_request_worker_restart_reports_an_unconfigurable_base_dir(): void {
+	public function test_a_save_reports_an_unconfigurable_base_dir(): void {
 		// Force Config::get_base_directory() to throw by writing a config file
 		// whose `base_directory` contains a null byte — Config::ensure_path()
 		// rejects these immediately. The option row is already written, so the
@@ -1343,7 +1350,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		Config::reset();
 		$lines = $this->capture_stderr();
 
-		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+		$this->save_in_admin( 'newspack_nodes_base_directory' );
 
 		$this->assertCount( 1, self::stderr_lines( $lines, 'settings: base_directory: ' ), 'the failure is one line naming the setting' );
 	}

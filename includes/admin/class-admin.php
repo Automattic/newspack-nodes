@@ -6,9 +6,9 @@
  *
  * Owns no field list of its own. `Settings_Schema` declares every substrate
  * setting and carries its default in code (ADR-20), and this class derives the
- * register, render and reset loops from that declaration. Saving a
- * restart-classified field hands the classification to `Restart_Planner`,
- * which recycles the partitions running a node that consumes the field.
+ * register, render and reset loops from that declaration. Every
+ * setting a request changes reaches `Restart_Planner::listen()`, which
+ * recycles the partitions running a node that consumes it.
  *
  * @package Newspack_Nodes
  */
@@ -30,7 +30,6 @@ use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Settings_Schema;
 use Newspack_Nodes\Worker_Base;
-use Newspack_Nodes\Worker_Should_Stop;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -118,10 +117,7 @@ class Admin {
 		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_aggregator_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_topology_console_tab_bundle' ] );
 
-		// Every row write restarts: a first save, a later one, a reset.
-		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
-		\add_action( 'added_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
-		\add_action( 'deleted_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
+		Restart_Planner::listen( Settings_Schema::get() );
 
 		\add_action( 'newspack_nodes/settings_after_form', [ $this, 'render_effective_config_section' ] );
 
@@ -1398,49 +1394,6 @@ class Admin {
 	/** Intro paragraph for the Alerting section. */
 	public static function alerting_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each fleet sweep; no worker restart. Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
-	}
-
-	/**
-	 * Drop the per-request config cache and ask `Restart_Planner` for whatever
-	 * recycle the saved option's restart classification calls for.
-	 *
-	 * Hooked to `updated_option`, `added_option` and `deleted_option`: WordPress
-	 * fires the second on a field's very first save and the third when a reset
-	 * deletes the row, and each one missed would skip the restart silently.
-	 *
-	 * A worker sees the request at its next continue check: between messages, and
-	 * inside a long unit of work wherever `Event_Framework::pump()` asks, which
-	 * unwinds `fill()` by raising `Worker_Should_Stop`.
-	 *
-	 * A top-level boundary inside wp-admin's save: it reports what `plan()`
-	 * raises, each cause also a settings error options.php carries onto the page.
-	 *
-	 * @param string $option Option name (the full WP option key).
-	 */
-	public function maybe_request_worker_restart( string $option ): void {
-		if ( ! \str_starts_with( $option, self::OPTION_PREFIX ) ) {
-			return;
-		}
-
-		Config::reset();
-
-		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );
-
-		try {
-			Restart_Planner::plan( Settings_Schema::get()->restart_for( $short ) );
-		} catch ( \Throwable $e ) {
-			Worker_Should_Stop::report( 'settings', [ $short => $e ] );
-			foreach ( Worker_Should_Stop::causes_of( $e ) as $cause ) {
-				\add_settings_error(
-					$option,
-					'newspack_nodes_restart_signal',
-					\esc_html(
-						/* translators: 1: setting key, 2: why the running workers were not told. */
-						\sprintf( \__( 'Saved %1$s, but the running workers were not told: %2$s', 'newspack-nodes' ), $short, Core::message_of( $cause ) )
-					)
-				);
-			}
-		}
 	}
 
 }

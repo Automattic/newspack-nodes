@@ -48,10 +48,10 @@
 <div class="card" style="margin-top:14px">
   <h3>What a save does, in order</h3>
   <div class="seq">
-    <div class="st"><span class="n">1</span><b>the option row changes</b><span class="mono">updated_<wbr>option</span> AND <span class="mono">added_<wbr>option</span>, since WordPress fires the second on a field's very first save</div>
-    <div class="st"><span class="n">2</span><b><span class="mono">Admin::<wbr>maybe_<wbr>request_<wbr>worker_<wbr>restart()</span></b>for any option under <span class="mono">newspack_<wbr>nodes_</span>; door 2 repeats steps 3 and 4 itself</div>
+    <div class="st"><span class="n">1</span><b>the option row changes</b><span class="mono">added_<wbr>option</span>, <span class="mono">updated_<wbr>option</span> or <span class="mono">deleted_<wbr>option</span>: a first save, a later one, a reset</div>
+    <div class="st"><span class="n">2</span><b><span class="mono">Restart_Planner::<wbr>listen()</span></b>hears any option under the prefix each plugin's settings schema declares and queues its restart class for the request's end; door 2 runs steps 3 and 4 itself, at once</div>
     <div class="st"><span class="n">3</span><b><span class="mono">Config::<wbr>reset()</span></b>drops the per-request cache and fires <span class="mono">RESET_ACTION</span>: <span class="mono">Log_Discovery::<wbr>reset</span>, <span class="mono">Topology_Registry::<wbr>reset_<wbr>basename_<wbr>cache</span>, <span class="mono">Vault::<wbr>reset</span></div>
-    <div class="st"><span class="n">4</span><b><span class="mono">Restart_Planner::<wbr>plan( restart_<wbr>for( $key ) )</span></b>raise the restart flag on the workers the class names, then write a reload watermark into every active topology's lock dirs; a throw is logged, never fatal</div>
+    <div class="st"><span class="n">4</span><b><span class="mono">Restart_Planner::<wbr>flush()</span> at <span class="mono">shutdown</span></b>one <span class="mono">plan()</span> for every key the request changed: raise the restart flag on the workers their classes name, then write a reload watermark into every active topology's lock dirs; a throw is logged and left as a notice for the user's next page</div>
     <div class="st"><span class="n">5</span><b>each live worker's <span class="mono">_fleet</span></b>within 15 s takes the watermark, runs <span class="mono">invalidate_<wbr>config_<wbr>cache()</span> and notifies RELOAD; the next generation boots on the new config regardless</div>
   </div>
   <div class="cls">

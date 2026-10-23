@@ -291,6 +291,26 @@ if ( ! function_exists( 'set_transient' ) ) {
 	}
 }
 
+// ── User meta: one store per test, reset by TestCase::setUp() ─────────────────
+
+if ( ! function_exists( 'get_user_meta' ) ) {
+	function get_user_meta( $user_id, $key = '', $single = false ) {
+		return $GLOBALS['_wp_user_meta'][ $user_id ][ $key ] ?? ( $single ? '' : [] );
+	}
+}
+if ( ! function_exists( 'update_user_meta' ) ) {
+	function update_user_meta( $user_id, $key, $value ) {
+		$GLOBALS['_wp_user_meta'][ $user_id ][ $key ] = $value;
+		return true;
+	}
+}
+if ( ! function_exists( 'delete_user_meta' ) ) {
+	function delete_user_meta( $user_id, $key ) {
+		unset( $GLOBALS['_wp_user_meta'][ $user_id ][ $key ] );
+		return true;
+	}
+}
+
 // Each flush records `runtime` or its group; see wp-object-cache-stub.
 if ( ! function_exists( 'wp_using_ext_object_cache' ) ) {
 	function wp_using_ext_object_cache(): bool {
@@ -745,16 +765,6 @@ if ( ! function_exists( 'add_settings_field' ) ) {
 			'callback' => $cb,
 			'page'     => $page,
 			'section'  => $section,
-		];
-	}
-}
-if ( ! function_exists( 'add_settings_error' ) ) {
-	function add_settings_error( string $setting, string $code, string $message, string $type = 'error' ): void {
-		$GLOBALS['_settings_errors'][] = [
-			'setting' => $setting,
-			'code'    => $code,
-			'message' => $message,
-			'type'    => $type,
 		];
 	}
 }
