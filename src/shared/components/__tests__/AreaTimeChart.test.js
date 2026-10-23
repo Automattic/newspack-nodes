@@ -479,3 +479,40 @@ describe( 'AreaTimeChart', () => {
 		).toBe( 'bytes' );
 	} );
 } );
+
+describe( 'AreaTimeChart empty stretches', () => {
+	const five = [ 0, 1, 2, 3, 4 ].map(
+		( i ) => new Date( 1700000000000 + i * 60000 )
+	);
+	const seriesOf = ( label, values ) => ( {
+		label,
+		values: five.map( ( date, i ) => ( { date, value: values[ i ] } ) ),
+	} );
+	const subpaths = ( path ) =>
+		( path.getAttribute( 'd' ).match( /M/g ) ?? [] ).length;
+
+	// Each empty band traces the stack's top edge, and stacked outlines step.
+	it( 'draws no band for a series that is zero in every slot', () => {
+		const { container } = mount( {
+			series: [
+				seriesOf( 'live-kea', [ 4, 6, 3, 5, 2 ] ),
+				seriesOf( 'empty-ruru', [ 0, 0, 0, 0, 0 ] ),
+			],
+		} );
+		expect( bands( container ) ).toHaveLength( 1 );
+		expect( bands( container )[ 0 ].style.fill ).toBe( '#111111' );
+	} );
+
+	it( 'skips a run of zeros inside a band, which still tapers to zero at each end', () => {
+		const { container } = mount( {
+			series: [ seriesOf( 'tui-4', [ 5, 0, 0, 0, 5 ] ) ],
+		} );
+		const [ band ] = bands( container );
+		expect( subpaths( band ) ).toBe( 2 );
+		// Each piece reaches the baseline at the run's first and last zero.
+		const ys = [
+			...band.getAttribute( 'd' ).matchAll( /(-?[\d.]+),(-?[\d.]+)/g ),
+		].map( ( m ) => Number( m[ 2 ] ) );
+		expect( Math.max( ...ys ) ).toBeCloseTo( INNER_H, 3 );
+	} );
+} );

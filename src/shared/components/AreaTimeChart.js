@@ -235,11 +235,13 @@ function AreaTimeChart( {
 				.y0( ( d ) => y( d.y0 ) )
 				.y1( ( d ) => y( d.y1 ) )
 				// A null value is a gap: the band splits, never dips to 0.
-				.defined( ( d ) => d.defined )
+				.defined( ( d ) => d.drawn )
 				.curve( d3.curveMonotoneX );
 
 			// The overlaid mark trades fill for outline, so bands stay apart.
 			drawn.forEach( ( s ) => {
+				const empty = ( idx ) =>
+					! ( ( s.values[ idx ]?.value ?? 0 ) > 0 );
 				const band = s.values.map( ( v, idx ) => {
 					const y0 = stacked ? baseline[ idx ] : 0;
 					baseline[ idx ] = y0 + ( v.value || 0 );
@@ -248,17 +250,29 @@ function AreaTimeChart( {
 						y0,
 						y1: baseline[ idx ],
 						defined: null !== v.value,
+						// @longform A zero run's inside only retraces the edge
+						// below it, and stacked outlines on one curve step in
+						// Firefox; its first and last zero keep the taper.
+						drawn:
+							null !== v.value &&
+							! (
+								empty( idx - 1 ) &&
+								empty( idx ) &&
+								empty( idx + 1 )
+							),
 					};
 				} );
-				g.append( 'path' )
-					.datum( band )
-					.style( 'fill', s.color )
-					.style( 'stroke', s.color )
-					.attr( 'fill-opacity', stacked ? 0.7 : 0.5 )
-					.attr( 'stroke-width', stacked ? 0.5 : 1 )
-					// Hit tests stroke the curve; the overlay owns the pointer.
-					.attr( 'pointer-events', 'none' )
-					.attr( 'd', area );
+				if ( band.some( ( point ) => point.drawn ) ) {
+					g.append( 'path' )
+						.datum( band )
+						.style( 'fill', s.color )
+						.style( 'stroke', s.color )
+						.attr( 'fill-opacity', stacked ? 0.7 : 0.5 )
+						.attr( 'stroke-width', stacked ? 0.5 : 1 )
+						// Hit tests stroke the curve; the overlay owns it.
+						.attr( 'pointer-events', 'none' )
+						.attr( 'd', area );
+				}
 				// A lone measured slot has a zero-width area, so it gets a dot.
 				band.forEach( ( point, idx ) => {
 					if (
