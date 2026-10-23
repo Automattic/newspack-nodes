@@ -28,14 +28,13 @@ import { LAYOUTS_CI } from './useCatalogs';
  *
  * @param {Object} [o]           Reply handlers, each run once per reply.
  * @param {OnDone} [o.onFetched] Runs on the get's reply. `result` is `{name,
- *                               positions}`, and a null `positions` means
- *                               nothing is saved under that name, LAYOUT_AUTO
- *                               a fresh autolayout; `args[0]` names the
- *                               topology it was asked for.
+ *                               positions}`, `positions` a map or LAYOUT_AUTO,
+ *                               which is also what no saved file answers;
+ *                               `args[0]` names the topology it was asked for.
  * @param {OnDone} [o.onSaved]   Runs on the save's reply. `result` is `{name,
  *                               path, positions}`, the positions being
- *                               LAYOUT_AUTO or the entries that survived the
- *                               server's validation.
+ *                               LAYOUT_AUTO, the file removed, or the entries
+ *                               that survived the server's validation.
  * @return {{fetchLayout: (name: string) => void, saveLayout: (o: {name: string, positions: Object|string}) => void}}
  *   `fetchLayout()` asks for a topology's saved positions; `saveLayout()`
  *   writes them, `positions` keying each node id to its `[x, y]` pair or

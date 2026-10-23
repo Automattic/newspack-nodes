@@ -31,7 +31,7 @@ globalThis.__newHooks = {
 		source: 'user',
 		tsl: '',
 	} ),
-	fetchLayout: jest.fn().mockResolvedValue( { positions: null } ),
+	fetchLayout: jest.fn().mockResolvedValue( { positions: 'auto' } ),
 	saveLayout: jest.fn().mockResolvedValue( null ),
 };
 jest.mock( '../hooks/useCatalogs', () => ( {

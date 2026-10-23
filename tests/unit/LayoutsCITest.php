@@ -57,7 +57,8 @@ class LayoutsCITest extends TestCase {
 		$this->assertNotEmpty( $schema['description'] );
 	}
 
-	public function test_get_returns_null_positions_when_file_missing(): void {
+	/** No file reads as one saying auto: the canvas lays itself out. */
+	public function test_get_answers_auto_when_file_missing(): void {
 		$result = VerbHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
@@ -67,7 +68,7 @@ class LayoutsCITest extends TestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'never-saved', $result['name'] );
-		$this->assertNull( $result['positions'] );
+		$this->assertSame( 'auto', $result['positions'] );
 	}
 
 	public function test_get_returns_saved_positions(): void {
@@ -93,7 +94,7 @@ class LayoutsCITest extends TestCase {
 		);
 	}
 
-	public function test_get_returns_null_positions_when_file_is_garbage_json(): void {
+	public function test_get_answers_auto_when_file_is_garbage_json(): void {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents( "{$this->base_dir}/layouts/garbage.layout", '{not json}' );
 
@@ -105,10 +106,10 @@ class LayoutsCITest extends TestCase {
 		);
 
 		$this->assertSame( 'garbage', $result['name'] );
-		$this->assertNull( $result['positions'] );
+		$this->assertSame( 'auto', $result['positions'] );
 	}
 
-	public function test_get_returns_null_positions_when_positions_key_absent(): void {
+	public function test_get_answers_auto_when_positions_key_absent(): void {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents(
 			"{$this->base_dir}/layouts/no-positions.layout",
@@ -122,7 +123,7 @@ class LayoutsCITest extends TestCase {
 			'no-positions'
 		);
 
-		$this->assertNull( $result['positions'] );
+		$this->assertSame( 'auto', $result['positions'] );
 	}
 
 	public function test_get_strips_extra_top_level_keys(): void {
@@ -324,39 +325,40 @@ class LayoutsCITest extends TestCase {
 		$this->assertSame( [], $result['positions'] );
 	}
 
-	public function test_save_auto_writes_the_marker_and_returns_it(): void {
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'spokes-auto', '"auto"' ] );
+	/** Saving auto removes the file, so the layout reads auto again. */
+	public function test_save_auto_unlinks_the_saved_layout(): void {
+		\mkdir( "{$this->base_dir}/layouts", 0755, true );
+		\file_put_contents( "{$this->base_dir}/layouts/spokes-4412.layout", '{"positions":{"kea":[3.5,7.25]}}' );
+
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'spokes-4412', '"auto"' ] );
 
 		$this->assertSame( 'auto', $result['positions'] );
-		$this->assertSame(
-			'{"positions":"auto"}',
-			(string) \file_get_contents( "{$this->base_dir}/layouts/spokes-auto.layout" )
-		);
+		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/spokes-4412.layout" );
+		$this->assertSame( 'auto', Layouts_CI_Node::cmd_get( [ 'name' => 'spokes-4412' ] )['positions'] );
 	}
 
-	public function test_get_answers_auto_for_an_auto_file(): void {
-		\mkdir( "{$this->base_dir}/layouts", 0755, true );
-		\file_put_contents( "{$this->base_dir}/layouts/hub-auto.layout", '{"positions":"auto"}' );
-
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'get', 'hub-auto' );
+	/** Saving auto where nothing is saved writes nothing, and succeeds. */
+	public function test_save_auto_with_nothing_saved_writes_nothing(): void {
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'hub-7708', '"auto"' ] );
 
 		$this->assertSame( 'auto', $result['positions'] );
+		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/hub-7708.layout" );
 	}
 
 	/**
-	 * A file holding neither a map nor the exact marker is malformed, and
-	 * answers null like any other malformed file.
+	 * A file whose `positions` is not a map is malformed, and reads auto like
+	 * any other.
 	 *
 	 * @param string $body Raw layout file contents.
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'malformed_positions_files' )]
-	public function test_get_answers_null_for_a_positions_value_that_is_neither( string $body ): void {
+	public function test_get_answers_auto_for_a_positions_value_that_is_not_a_map( string $body ): void {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents( "{$this->base_dir}/layouts/odd.layout", $body );
 
 		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'get', 'odd' );
 
-		$this->assertNull( $result['positions'] );
+		$this->assertSame( 'auto', $result['positions'] );
 	}
 
 	/**
@@ -364,7 +366,7 @@ class LayoutsCITest extends TestCase {
 	 */
 	public static function malformed_positions_files(): array {
 		return [
-			'capitalised marker' => [ '{"positions":"Auto"}' ],
+			'a string'           => [ '{"positions":"auto"}' ],
 			'number'             => [ '{"positions":7}' ],
 			'list of pairs'      => [ '{"positions":[[31,47],[59,83]]}' ],
 		];
