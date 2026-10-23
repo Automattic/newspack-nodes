@@ -6,6 +6,8 @@
  * theme/_skins.scss.
  */
 
+@use "../../shared/styles/mixins" as mix;
+
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
 // through to the final CSS without trying to inline it.
@@ -2152,16 +2154,9 @@
 // 01 — Cyanotype Blueprint
 // 02 — CRT Phosphor Terminal
 :is(.theme-crt, .theme-crt-color) .topology-app {
+	// Over the skin root's lines, so the canvas reads denser.
 	.topology-canvas::after {
-		content: "";
-		position: absolute;
-		inset: 0;
-		z-index: 5;
-		pointer-events: none;
-		background: repeating-linear-gradient(
-			rgba(0, 0, 0, 0) 0 2px,
-			rgba(0, 0, 0, 0.26) 2px 3px
-		);
+		@include mix.crt-scanlines;
 	}
 
 	// Phosphor bloom — an over-driven beam bleeds bright glyphs' light into the

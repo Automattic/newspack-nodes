@@ -9,6 +9,19 @@
 
 @use "tokens" as *;
 
+// CRT's scanlines: a click-through overlay over the positioned box it is in.
+@mixin crt-scanlines {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	pointer-events: none;
+	background: repeating-linear-gradient(
+		rgba(0, 0, 0, 0) 0 2px,
+		rgba(0, 0, 0, 0.26) 2px 3px
+	);
+}
+
 // Dark theme error banner
 @mixin dark-error-banner {
 	background: $error-bg;

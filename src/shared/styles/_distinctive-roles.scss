@@ -5,6 +5,7 @@
  */
 
 @use "button-roles" as role;
+@use "mixins" as mix;
 
 :where(.newspack-nodes-ui) {
 	.newspack-nodes-disclosure {
@@ -375,6 +376,17 @@
 .theme-blueprint :where(.newspack-nodes-ui) .topology-brand {
 	font-weight: 700;
 	letter-spacing: 0.04em;
+}
+
+// CRT's scanlines cover every skinned surface. A root inside another draws
+// none, so they never stack, and `:where()` yields to a root positioned already.
+:where(:is(.theme-crt, .theme-crt-color) .newspack-nodes-skin-root) {
+	position: relative;
+}
+
+:is(.theme-crt, .theme-crt-color)
+	.newspack-nodes-skin-root:not(.newspack-nodes-skin-root .newspack-nodes-skin-root)::after {
+	@include mix.crt-scanlines;
 }
 
 :is(.theme-crt, .theme-crt-color) :where(.newspack-nodes-ui) .topology-brand {

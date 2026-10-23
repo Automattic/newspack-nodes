@@ -1425,3 +1425,49 @@ describe( 'distinctive canonical roles', () => {
 		} );
 	} );
 } );
+
+describe( 'CRT scanlines', () => {
+	const rulesMatching = ( test ) => {
+		const found = [];
+		uiStylesheet.walkRules( ( rule ) => {
+			if ( test( rule.selector ) ) {
+				found.push( rule );
+			}
+		} );
+		return found;
+	};
+	const declared = ( rule, prop ) =>
+		rule.nodes.find( ( d ) => prop === d.prop )?.value;
+
+	it( 'covers the outermost skin root, not only the canvas, and lets clicks through', () => {
+		const [ lines, ...extra ] = rulesMatching(
+			( s ) =>
+				s.includes( '.theme-crt' ) &&
+				s.includes( '.newspack-nodes-skin-root' ) &&
+				s.includes( '::after' )
+		);
+		expect( extra ).toEqual( [] );
+		expect( lines.selector ).toContain( '.theme-crt-color' );
+		// A root inside another draws none, so the lines never stack.
+		expect( lines.selector ).toContain(
+			':not(.newspack-nodes-skin-root .newspack-nodes-skin-root)'
+		);
+		expect( declared( lines, 'background' ) ).toContain(
+			'repeating-linear-gradient'
+		);
+		expect( declared( lines, 'pointer-events' ) ).toBe( 'none' );
+		expect( declared( lines, 'position' ) ).toBe( 'absolute' );
+		expect( declared( lines, 'inset' ) ).toBe( '0' );
+	} );
+
+	it( 'anchors the lines on a root only where nothing else positions it', () => {
+		const [ anchor ] = rulesMatching(
+			( s ) =>
+				s.startsWith( ':where(' ) &&
+				s.includes( '.theme-crt' ) &&
+				s.includes( '.newspack-nodes-skin-root' ) &&
+				! s.includes( '::after' )
+		);
+		expect( declared( anchor, 'position' ) ).toBe( 'relative' );
+	} );
+} );
