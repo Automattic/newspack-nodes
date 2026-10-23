@@ -1027,7 +1027,10 @@ through `verify()`, the one refusal exit, which leaves `Capabilities::NONE` stan
 session through `Command_Auth::mint_grant_session()`, stored, verified and revoked as every
 other session is. Its row also names the grant and the resource it was issued for, and a door
 that is a resource admits it through `Command_Auth::admits_resource()` only when that
-resource is its own.
+resource is its own. No substrate door is a resource: the verifier behind `/command`, the
+workers and the SSE stream, and the stream's own `session` check, each ask
+`admits_resource()` against `Command_Auth::SITE_WIDE`, so a grant session signs nothing
+there and is refused as a handle naming no session is.
 
 ---
 
@@ -2615,8 +2618,12 @@ and every access token it issues is a command session.
 - **A session names its audience.** Its row carries its grant as `g` and the resource it was
   issued for as `r`. `Command_Auth::admits_resource()` admits a session naming a resource at
   that resource alone and one naming none, issued by hand, everywhere; a grant naming no
-  resource mints nothing. An application declares each resource through the
-  `newspack_nodes/oauth_resources` filter, and event-logger-nodes pins its door's URI to
+  resource mints nothing. The substrate's own doors are `Command_Auth::SITE_WIDE`, no
+  resource at all: `check()`, under both `verifier()` and `batch_verifier()`, and the SSE
+  stream's session check refuse a grant session before its key is read, exactly as they
+  refuse a handle naming no session, so they never confirm a grant key. An application
+  declares each resource through the `newspack_nodes/oauth_resources` filter, and
+  event-logger-nodes pins its door's URI to
   https, the host lowercased and no trailing slash, so the approval page and the door spell
   it alike.
 - **One list of OAuth scopes.** [`Oauth_Store::SCOPES`](../includes/class-oauth-store.php),

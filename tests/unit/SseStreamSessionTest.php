@@ -88,6 +88,40 @@ class SseStreamSessionTest extends TestCase {
 		$this->assertSame( [], $calls );
 	}
 
+	/**
+	 * An OAuth grant session belongs to the resource it names, and the stream
+	 * is not that resource: its own user is refused as for a dead handle.
+	 */
+	public function test_a_grant_session_is_refused_as_a_dead_handle_is(): void {
+		$GLOBALS['_wp_test_current_user_id'] = 7746;
+		$grant                               = \Newspack_Nodes\Oauth_Store::open_grant(
+			[
+				'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+				'user'     => 7746,
+				'scope'    => \Newspack_Nodes\Capabilities::READ,
+				'resource' => 'https://kea.example/wp-json/kea/v1/mcp',
+				'name'     => 'Kea laptop 7746',
+			]
+		)['grant'];
+		$session                             = Command_Auth::mint_grant_session( $grant );
+
+		[ $result, $calls ] = $this->stream_refused_at_acquire(
+			[ 'subscribe' => 'firehose.*', 'session' => $session['handle'] ]
+		);
+		[ $dead ] = $this->stream_refused_at_acquire(
+			[ 'subscribe' => 'firehose.*', 'session' => 'deadbeefdeadbeefdeadbeefdeadbeef' ]
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sse_session_refused', $result->get_error_code() );
+		$this->assertSame(
+			[ $dead->get_error_code(), $dead->get_error_message(), $dead->get_error_data() ],
+			[ $result->get_error_code(), $result->get_error_message(), $result->get_error_data() ],
+			'no oracle'
+		);
+		$this->assertSame( [], $calls, 'a refused stream must not take a slot' );
+	}
+
 	public function test_a_revoked_session_is_refused(): void {
 		$session = Command_Auth::mint_session();
 		Command_Auth::revoke_session( $session['handle'] );

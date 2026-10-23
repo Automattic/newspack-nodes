@@ -310,9 +310,10 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * The command session a stream presents, which its replies are addressed
-	 * to. It must be a handle `POST /auth` could have issued, still live, and
+	 * to. It must be a handle `POST /auth` could have issued, still live,
 	 * minted by the user this request authenticated as — so a leaked handle
-	 * alone cannot open another user's replies.
+	 * alone cannot open another user's replies — and site-wide, because an
+	 * OAuth grant session is spent only at the resource it names.
 	 *
 	 * @param string $handle The `session` query parameter, empty when absent.
 	 * @return array{handle:string,ttl:int}|false|null The handle and the
@@ -324,7 +325,7 @@ class SSE_Out_Node extends Node {
 			return null;
 		}
 		$record = Command_Auth::load_session_record( $handle );
-		if ( null === $record || Core::current_user_id() !== $record['user'] ) {
+		if ( null === $record || Core::current_user_id() !== $record['user'] || ! Command_Auth::admits_resource( $record, Command_Auth::SITE_WIDE ) ) {
 			return false;
 		}
 		return [

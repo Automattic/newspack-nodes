@@ -29,6 +29,9 @@ class CommandAuthSessionTest extends TestCase {
 	private const RESOURCE = 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp';
 	private const ELSEWHERE = 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/other';
 
+	/** A resource a grant names that no substrate door is. */
+	private const KEA_MCP = 'https://kea.example/wp-json/kea/v1/mcp';
+
 	/** The approving user, distinct from the current user these tests log in. */
 	private const GRANT_USER = 7746;
 
@@ -753,14 +756,14 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertSame( self::TTL, Command_Auth::bounded_ttl( self::TTL ) );
 	}
 
-	/** Open a grant for GRANT_USER on RESOURCE named GRANT_NAME, answering its id. */
-	private static function open_grant( string $scope = Capabilities::TUNE ): string {
+	/** Open a grant for GRANT_USER on `$resource` named GRANT_NAME, answering its id. */
+	private static function open_grant( string $scope = Capabilities::TUNE, string $resource = self::RESOURCE ): string {
 		return Oauth_Store::open_grant(
 			[
 				'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
 				'user'     => self::GRANT_USER,
 				'scope'    => $scope,
-				'resource' => self::RESOURCE,
+				'resource' => $resource,
 				'name'     => self::GRANT_NAME,
 			]
 		)['grant'];
@@ -804,6 +807,72 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertTrue( Command_Auth::admits_resource( $record, self::RESOURCE ) );
 		$this->assertFalse( Command_Auth::admits_resource( $record, self::ELSEWHERE ) );
 		$this->assertFalse( Command_Auth::admits_resource( $record, self::RESOURCE . '/' ), 'exactly the resource, nothing like it' );
+	}
+
+	/** @return array<string,array{\Closure(): \Closure}> Each substrate verifier, built fresh. */
+	public static function substrate_verifiers(): array {
+		return [
+			'verifier'       => [ static fn (): \Closure => Command_Auth::verifier() ],
+			'batch_verifier' => [ static fn (): \Closure => Command_Auth::batch_verifier() ],
+		];
+	}
+
+	/**
+	 * The reply an interpreter guarded by `$authorize` answers to an `uptime`
+	 * signed for `$destination`.
+	 *
+	 * @return array{0:int,1:mixed} The reply's TYPE and VALUE.
+	 */
+	private function reply_under( \Closure $authorize, string $destination ): array {
+		$sink        = new Capture_Sink_Node();
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$interpreter->name( "door-{$destination}" );
+		$interpreter->sink( $sink );
+		$interpreter->authorize = $authorize;
+
+		$m                       = Message::new_message();
+		$m[ Message::TYPE ]      = Message::TM_COMMAND;
+		$m[ Message::FROM ]      = '_http';
+		$m[ Message::TIMESTAMP ] = (int) Core::right_now();
+		$m[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [] ];
+		Command_Auth::sign_for( $destination, $m );
+		$interpreter->fill( $m );
+
+		$this->assertCount( 1, $sink->captured, 'one reply' );
+		return [ $sink->captured[0][ Message::TYPE ], $sink->captured[0][ Message::VALUE ] ];
+	}
+
+	/**
+	 * A grant session belongs to the resource it was issued for, and no
+	 * substrate door is that resource: its key signs nothing here, and the
+	 * refusal reads exactly as a wrong key's does, so it is no oracle.
+	 */
+	#[DataProvider( 'substrate_verifiers' )]
+	public function test_a_grant_session_is_refused_at_a_substrate_verifier_as_a_wrong_key_is( \Closure $verifier ): void {
+		Core::$clock = static fn (): float => 1790007746.0;
+		$grant       = Command_Auth::mint_grant_session( self::open_grant( Capabilities::TUNE, self::KEA_MCP ) );
+		$hand        = Command_Auth::mint_session( Capabilities::TUNE, self::TTL, 'kea-4242' );
+		Command_Auth::remember_session( 'kea-grant', $grant['handle'], $grant['secret'] );
+		Command_Auth::remember_session( 'kea-wrong', $hand['handle'], self::OTHER );
+		Command_Auth::remember_session( 'kea-hand', $hand['handle'], $hand['secret'] );
+
+		$refused = $this->reply_under( $verifier(), 'kea-grant' );
+
+		$this->assertSame( [ Message::TM_COMMAND | Message::TM_ERROR, [ 'name' => 'uptime', 'arguments' => [], 'payload' => "unauthorized: uptime\n" ] ], $refused );
+		$this->assertSame( $this->reply_under( $verifier(), 'kea-wrong' ), $refused, 'no oracle' );
+		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $this->reply_under( $verifier(), 'kea-hand' )[0], 'a hand-issued session still signs' );
+	}
+
+	/** `verify()` refuses the grant session and closes the ceiling, as for a wrong key. */
+	public function test_verify_refuses_a_grant_session_and_closes_the_ceiling(): void {
+		$grant = Command_Auth::mint_grant_session( self::open_grant( Capabilities::TUNE, self::KEA_MCP ) );
+		Command_Auth::remember_session( 'kea-grant', $grant['handle'], $grant['secret'] );
+		$m = $this->command();
+		Command_Auth::sign_for( 'kea-grant', $m );
+		Capabilities::$session_scope = Capabilities::TUNE;
+
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
+		$this->assertSame( Capabilities::NONE, Capabilities::$session_scope );
 	}
 
 	/** An empty grant or resource column binds nothing, as a hand mint's absence does. */
