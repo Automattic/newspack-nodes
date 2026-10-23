@@ -45,7 +45,7 @@ namespace Newspack_Nodes;
  * @phpstan-type Row_Spec array{
  *   columns: array<string,string>,
  *   key?: list<string>,
- *   add?: array<string,'sum'|'max'>,
+ *   add?: array<string,'sum'|'max'|'min'>,
  *   indexes?: array<string,list<string>>,
  *   retain?: array{0:string,1:int,2:int},
  *   retained_by?: list<array{0:string,1:string,2:string}>,
@@ -129,7 +129,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	];
 
 	/** The row ops a batch may name. */
-	private const ROW_OPS = [ 'insert', 'ignore', 'add' ];
+	private const ROW_OPS = [ 'insert', 'ignore', 'add', 'set' ];
 
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
 	private const IN_CHUNK = 500;
@@ -323,7 +323,8 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * table's declared column order. `insert` writes the row; `ignore` writes
 	 * it unless its key exists, and on a table with an `autoincrement` column
 	 * resolves the row's id, inserted or found; `add` writes it or folds its
-	 * `add` columns onto the row its key names. `then` ops run only when their
+	 * `add` columns onto the row its key names; `set` writes it or replaces
+	 * every non-key column of the row its key names. `then` ops run only when their
 	 * op wrote its row, so a replayed batch adds nothing twice. `ids` fills a
 	 * row position with the id an earlier `ignore` in the batch resolved,
 	 * named by its batch index, so one batch can name a row it creates.
@@ -421,27 +422,36 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * One statement's SQL for a declared table, built once: `insert`,
-	 * `ignore` and `add` write a row, and `id` reads an existing row's
+	 * `ignore`, `add` and `set` write a row, and `id` reads an existing row's
 	 * `autoincrement` id by its key.
 	 *
 	 * @param string   $op    The statement.
 	 * @param string   $table The table.
 	 * @param Row_Spec $spec  Its declaration.
 	 * @return string The SQL.
-	 * @throws \RuntimeException On an op no statement answers.
+	 * @throws \RuntimeException On an op no statement answers, or a `set` on a
+	 *                           table declaring no key.
 	 */
 	private function row_sql( string $op, string $table, array $spec ): string {
 		if ( isset( $this->row_sql[ "{$op} {$table}" ] ) ) {
 			return $this->row_sql[ "{$op} {$table}" ];
 		}
+		$columns  = \array_keys( $spec['columns'] );
+		$settable = \array_diff( $columns, $spec['key'] ?? [] );
+		if ( 'set' === $op && empty( $spec['key'] ) ) {
+			throw new \RuntimeException( "{$table}: no key to set by" );
+		}
+		if ( 'set' === $op && [] === $settable ) {
+			throw new \RuntimeException( "{$table}: no column to set" );
+		}
 		$t       = self::quote( $table );
-		$columns = \array_keys( $spec['columns'] );
 		$key     = self::quoted_list( $spec['key'] ?? [] );
 		$insert  = "INSERT INTO {$t} ( " . self::quoted_list( $columns ) . ' ) VALUES ( ' . \implode( ', ', \array_fill( 0, \count( $columns ), '?' ) ) . ' )';
 		return $this->row_sql[ "{$op} {$table}" ] = match ( $op ) {
 			'insert'      => $insert,
 			'ignore'      => "{$insert} ON CONFLICT ( {$key} ) DO NOTHING",
-			'add'         => "{$insert} ON CONFLICT ( {$key} ) DO UPDATE SET " . \implode( ', ', \array_map( self::fold( ... ), \array_keys( $spec['add'] ?? [] ), $spec['add'] ?? [] ) ),
+			'add'         => "{$insert} ON CONFLICT ( {$key} ) DO UPDATE SET " . \implode( ', ', \array_map( static fn ( string $c, string $how ): string => self::fold( $c, $how, $spec['columns'][ $c ] ), \array_keys( $spec['add'] ?? [] ), $spec['add'] ?? [] ) ),
+			'set'         => "{$insert} ON CONFLICT ( {$key} ) DO UPDATE SET " . \implode( ', ', \array_map( static fn ( string $c ): string => self::quote( $c ) . ' = excluded.' . self::quote( $c ), $settable ) ),
 			'id'          => 'SELECT ' . self::quote( $spec['autoincrement'] ?? '' ) . " FROM {$t} WHERE " . \implode( ' AND ', \array_map( static fn ( string $c ): string => self::quote( $c ) . ' = ?', $spec['key'] ?? [] ) ),
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
 			default       => throw new \RuntimeException( "{$table}: no such row op {$op}" ),
@@ -450,17 +460,27 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * One `add` column's fold onto the row its key names: `sum` adds, `max`
-	 * keeps the larger; no other fold has a statement.
+	 * keeps the larger and `min` the smaller. A null never displaces a value,
+	 * where SQLite's own two-argument MAX() and MIN() answer null. A numeric
+	 * column's incoming value is cast to NUMERIC, which applies the column's
+	 * own affinity: on a table keyed by one INTEGER column, its rowid alias,
+	 * `excluded` carries the bound text of a float, and text outranks
+	 * any number. No other fold has a statement.
 	 *
-	 * @param string      $column The column.
-	 * @param 'sum'|'max' $how    The fold.
+	 * @param string            $column The column.
+	 * @param 'sum'|'max'|'min' $how    The fold.
+	 * @param string            $type   The column's declared type.
 	 * @return string The SET clause.
 	 */
-	private static function fold( string $column, string $how ): string {
-		$c = self::quote( $column );
+	private static function fold( string $column, string $how, string $type ): string {
+		$c        = self::quote( $column );
+		$numeric  = \str_starts_with( $type, 'INTEGER' ) || \str_starts_with( $type, 'REAL' );
+		$incoming = $numeric ? "CAST( excluded.{$c} AS NUMERIC )" : "excluded.{$c}";
+		$pick     = static fn ( string $function ): string => "CASE WHEN {$c} IS NULL THEN {$incoming} WHEN {$incoming} IS NULL THEN {$c} ELSE {$function}( {$c}, {$incoming} ) END";
 		return "{$c} = " . match ( $how ) {
 			'sum' => "{$c} + excluded.{$c}",
-			'max' => "MAX( {$c}, excluded.{$c} )",
+			'max' => $pick( 'MAX' ),
+			'min' => $pick( 'MIN' ),
 		};
 	}
 

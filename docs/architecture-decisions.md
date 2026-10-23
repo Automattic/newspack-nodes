@@ -2476,12 +2476,14 @@ answered.
 
 **Decision:** `make_node Row_Table <name> <Schema>` keeps the tables a `<Word>_Row_Schema`
 declares in the partition's SQLite file, `{base}/tables/{name}.p{N}.sqlite`. The partition's
-worker is its one writer, through `ROWS` (insert, ignore, add; an ignore's `then` ops apply
-only when it inserted). A reader attaches every partition's file read-only into one
-connection and answers in one statement; `Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that
-under SQLite's ten attachments. A reader finds its table by schema, never by name. A verb answering from `read()` answers only rows its declared
-role may read, as [ADR-23](#adr-23-a-request-carries-no-authority-of-its-own) bounds what a
-verb's mount may expose. A schema version mismatch discards the file at open.
+worker is its one writer, through `ROWS` (insert, ignore, add, set; a `then` op applies
+only when its parent wrote its row; an `add` folds by sum, max or min, and a `set`
+replaces every non-key column of the row its key names). A reader attaches every
+partition's file read-only into one connection and answers in one statement;
+`Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that under SQLite's ten attachments. A reader
+finds its table by schema, never by name. A verb answering from `read()` answers only rows
+its declared role may read, as [ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)
+bounds what a verb's mount may expose. A schema version mismatch discards the file at open.
 Retention is declared per table and runs on the Table tick, as a `retain` window or a
 `retained_by` list of `[ table, its column, own column ]` references. The referencing column
 leads an index or the key in its table, and the own column is the lookup table's

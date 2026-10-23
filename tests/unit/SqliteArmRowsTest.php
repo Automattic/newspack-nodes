@@ -82,7 +82,7 @@ final class SqliteArmRowsTest extends TestCase {
 		);
 	}
 
-	public function test_an_add_fold_outside_sum_and_max_folds_nothing(): void {
+	public function test_an_undeclared_fold_folds_nothing(): void {
 		$tables                           = Wombat_Row_Schema::tables();
 		$tables['tallies']['add']['peak'] = 'avg';
 		$arm                              = new Sqlite_Arm( $this->path(), 'wombat:p3', rows: [ 'version' => 7, 'tables' => $tables ] );
@@ -90,7 +90,129 @@ final class SqliteArmRowsTest extends TestCase {
 		$arm->write_rows( [ [ 'add', 'tallies', [ 7341, 'heron', 3, 41.5 ] ] ] );
 	}
 
-	public function test_an_op_outside_insert_ignore_and_add_is_refused_naming_it(): void {
+	/**
+	 * An arm over the wombat tables plus `floors`, a keyed table whose `low`
+	 * column folds by `min` and `mark` by `sum`; `peaks`, whose `high` folds by
+	 * `max`; `bare`, all key; and `loose`, a keyless one.
+	 */
+	private function floors_arm(): Sqlite_Arm {
+		$tables           = Wombat_Row_Schema::tables();
+		$tables['floors'] = [
+			'columns' => [
+				'bucket' => 'INTEGER NOT NULL',
+				'low'    => 'REAL',
+				'mark'   => 'INTEGER',
+				'note'   => 'TEXT',
+			],
+			'key'     => [ 'bucket' ],
+			'add'     => [
+				'low'  => 'min',
+				'mark' => 'sum',
+			],
+		];
+		$tables['peaks']  = [
+			'columns' => [
+				'bucket' => 'INTEGER NOT NULL',
+				'high'   => 'REAL',
+			],
+			'key'     => [ 'bucket' ],
+			'add'     => [ 'high' => 'max' ],
+		];
+		$tables['bare']   = [
+			'columns' => [ 'bucket' => 'INTEGER NOT NULL' ],
+			'key'     => [ 'bucket' ],
+		];
+		$tables['loose']  = [ 'columns' => [ 'n' => 'INTEGER' ] ];
+		return new Sqlite_Arm( $this->path(), 'wombat:p3', rows: [ 'version' => 7, 'tables' => $tables ] );
+	}
+
+	public function test_the_min_fold_keeps_the_smaller(): void {
+		$this->floors_arm()->write_rows(
+			[
+				[ 'add', 'floors', [ 7341, 413.25, 1, 'a' ] ],
+				[ 'add', 'floors', [ 7341, 97.5, 1, 'b' ] ],
+				[ 'add', 'floors', [ 7341, 201.75, 1, 'c' ] ],
+			]
+		);
+		$this->assertSame( [ [ 97.5, 3 ] ], $this->all( 'SELECT low, mark FROM floors' ) );
+	}
+
+	public function test_the_min_fold_ignores_a_null(): void {
+		$this->floors_arm()->write_rows(
+			[
+				[ 'add', 'floors', [ 7341, 97.5, 1, null ] ],
+				[ 'add', 'floors', [ 7341, null, 1, null ] ],
+				[ 'add', 'floors', [ 7342, null, 1, null ] ],
+				[ 'add', 'floors', [ 7342, 97.5, 1, null ] ],
+			]
+		);
+		$this->assertSame( [ [ 7341, 97.5 ], [ 7342, 97.5 ] ], $this->all( 'SELECT bucket, low FROM floors ORDER BY bucket' ) );
+	}
+
+	public function test_the_max_fold_keeps_the_larger(): void {
+		$this->floors_arm()->write_rows(
+			[
+				[ 'add', 'peaks', [ 7341, 413.25 ] ],
+				[ 'add', 'peaks', [ 7341, 97.5 ] ],
+			]
+		);
+		$this->assertSame( [ [ 413.25 ] ], $this->all( 'SELECT high FROM peaks' ) );
+	}
+
+	public function test_the_max_fold_ignores_a_null(): void {
+		$this->floors_arm()->write_rows(
+			[
+				[ 'add', 'peaks', [ 7341, 97.5 ] ],
+				[ 'add', 'peaks', [ 7341, null ] ],
+				[ 'add', 'peaks', [ 7342, null ] ],
+				[ 'add', 'peaks', [ 7342, 97.5 ] ],
+			]
+		);
+		$this->assertSame( [ [ 7341, 97.5 ], [ 7342, 97.5 ] ], $this->all( 'SELECT bucket, high FROM peaks ORDER BY bucket' ) );
+	}
+
+	public function test_set_on_a_table_of_key_columns_alone_is_refused_naming_it(): void {
+		$arm = $this->floors_arm();
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'bare: no column to set' );
+		$arm->write_rows( [ [ 'set', 'bare', [ 7341 ] ] ] );
+	}
+
+	public function test_set_replaces_every_non_key_column(): void {
+		$this->floors_arm()->write_rows(
+			[
+				[ 'add', 'floors', [ 7341, 413.25, 6, 'first' ] ],
+				[ 'add', 'floors', [ 7341, 97.5, 5, 'second' ] ],
+				[ 'set', 'floors', [ 7341, 61.125, 17, null ] ],
+			]
+		);
+		$this->assertSame( [ [ 7341, 61.125, 17, null ] ], $this->all( 'SELECT bucket, low, mark, note FROM floors' ) );
+	}
+
+	public function test_set_inserts_a_missing_row(): void {
+		$out = $this->floors_arm()->write_rows( [ [ 'set', 'floors', [ 7343, 8.5, 4, 'new' ] ] ] );
+		$this->assertSame( 1, $out );
+		$this->assertSame( [ [ 7343, 8.5, 4, 'new' ] ], $this->all( 'SELECT bucket, low, mark, note FROM floors' ) );
+	}
+
+	public function test_set_runs_as_a_then_op(): void {
+		$this->floors_arm()->write_rows(
+			[
+				[ 'ignore', 'visits', [ 'r-1', 7344, 1, 3.5 ], [ [ 'set', 'floors', [ 7344, 2.25, 9, 'then' ] ] ] ],
+				[ 'ignore', 'visits', [ 'r-1', 7344, 1, 3.5 ], [ [ 'set', 'floors', [ 7344, 99.0, 99, 'dup' ] ] ] ],
+			]
+		);
+		$this->assertSame( [ [ 7344, 2.25, 9, 'then' ] ], $this->all( 'SELECT bucket, low, mark, note FROM floors' ) );
+	}
+
+	public function test_set_on_a_table_with_no_key_is_refused_naming_it(): void {
+		$arm = $this->floors_arm();
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'loose: no key to set by' );
+		$arm->write_rows( [ [ 'set', 'loose', [ 5 ] ] ] );
+	}
+
+	public function test_an_undeclared_op_is_refused_naming_it(): void {
 		$arm = $this->rows_arm();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'burrows: no such row op id' );

@@ -3,7 +3,7 @@
  * Row_Schema: the declared tables a SQLite Table file holds beside `kv`.
  *
  * A schema names its tables, each one's columns in row order, the key its
- * `ignore` and `add` ops resolve conflicts on, the columns an `add` folds,
+ * `ignore`, `add` and `set` ops resolve conflicts on, the columns an `add` folds,
  * its indexes, its retention, and an FTS5 shadow over chosen columns.
  * `Sqlite_Arm` declares the tables at open and stamps the file's
  * `user_version` with `version()`; a file stamped with another version is
@@ -28,10 +28,12 @@ interface Row_Schema {
 	/**
 	 * The declared tables, keyed by name. `columns` lists each column's SQLite
 	 * type in row order, `INTEGER`, `REAL`, `TEXT` or `BLOB` with an optional
-	 * ` NOT NULL`. `key` is the UNIQUE key an `ignore` and an `add` conflict
-	 * on. `add` names the columns an `add` folds on conflict, by `sum` or
-	 * `max`. `retain` is `[ column, window, seconds per unit ]`: a row whose
-	 * column is below `floor( now / unit ) − window` purges. `retained_by` is
+	 * ` NOT NULL`. `key` is the UNIQUE key an `ignore`, an `add` and a `set`
+	 * conflict on. `add` names the columns an `add` folds on conflict, by
+	 * `sum`, `max` or `min`; `max` and `min` let a null displace nothing. A
+	 * `set` replaces every non-key column, so it needs a `key` and a column
+	 * outside it. `retain` is `[ column, window, seconds per unit ]`: a row
+	 * whose column is below `floor( now / unit ) − window` purges. `retained_by` is
 	 * a list of `[ table, its column, own column ]` references, where its
 	 * column leads an index or the key there and the own column is this
 	 * table's `autoincrement` column or one-column key: a row is released
@@ -48,7 +50,7 @@ interface Row_Schema {
 	 * @return array<string, array{
 	 *   columns: array<string,string>,
 	 *   key?: list<string>,
-	 *   add?: array<string,'sum'|'max'>,
+	 *   add?: array<string,'sum'|'max'|'min'>,
 	 *   indexes?: array<string,list<string>>,
 	 *   retain?: array{0:string,1:int,2:int},
 	 *   retained_by?: list<array{0:string,1:string,2:string}>,
