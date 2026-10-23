@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.125.0] - 2026-10-23
+
 ### Fixed
 - **A chart draws no band where a series has nothing to show.** A series at zero still drew its band, a zero-height shape tracing the stack's top edge with its own outline, so a chart whose series are mostly empty laid a dozen outlines along one curve, which Firefox rasterizes as a hard, stepped line. `AreaTimeChart` now skips the inside of every zero run, keeping its first and last zero so a band still tapers to the baseline, and draws no band at all for a series zero in every slot. The legend and the tooltip are unchanged.
 

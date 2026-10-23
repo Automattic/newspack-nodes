@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.124.1\n"
+"Project-Id-Version: Newspack Nodes 2.125.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-23T08:17:14+00:00\n"
+"POT-Creation-Date: 2026-10-23T08:59:26+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -1369,11 +1369,11 @@ msgstr ""
 msgid "Sessions"
 msgstr ""
 
-#: src/shared/components/AreaTimeChart.js:349
+#: src/shared/components/AreaTimeChart.js:363
 msgid "Overlay the series"
 msgstr ""
 
-#: src/shared/components/AreaTimeChart.js:350
+#: src/shared/components/AreaTimeChart.js:364
 msgid "Stack the series"
 msgstr ""
 
