@@ -669,7 +669,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->db->deny['SELECT cache_key'] = 'Lost connection 4817';
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'could not read the sessions: wpdb wp_newspack_nodes_table: [0] Lost connection 4817' );
+		$this->expectExceptionMessage( 'could not read the session store: wpdb wp_newspack_nodes_table: [0] Lost connection 4817' );
 		Command_Auth::load_session_records( [ $handle ] );
 	}
 

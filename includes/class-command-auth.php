@@ -335,7 +335,9 @@ class Command_Auth {
 
 	/**
 	 * Drop a session so its key stops verifying immediately. The row IS the
-	 * session; an index member naming it lists nothing once it is gone.
+	 * session; an index member naming it lists nothing once it is gone. A
+	 * handle no mint could make never reaches the store, so no other row in
+	 * it, an OAuth row among them, can be deleted through here.
 	 *
 	 * @param string $handle Session handle.
 	 * @return bool|null True when a live row went, false when none was there,
@@ -344,7 +346,7 @@ class Command_Auth {
 	 * @throws Session_Store_Unavailable When the store will not open.
 	 */
 	public static function revoke_session( string $handle ): ?bool {
-		return self::session_table()->forget( $handle );
+		return self::is_handle( $handle ) ? self::session_table()->forget( $handle ) : false;
 	}
 
 	/**
@@ -361,6 +363,28 @@ class Command_Auth {
 	 */
 	public static function session_table(): Table_Node {
 		return self::$table ??= self::open_store( Table_Node::MANY_WRITERS );
+	}
+
+	/**
+	 * A set's live members in the session Table, member => value, read up to
+	 * `Table_Node::MAX_MEMBERS_LIMIT`; past that the read refuses, naming the
+	 * `revoke --all` that clears it, rather than answering a part.
+	 *
+	 * @api `Sessions::listing()` and `Oauth_Store` read their indexes through it.
+	 * @param string $set Set key.
+	 * @return array<array-key,mixed> Empty for a set with no live member.
+	 * @throws Session_Store_Unavailable When the store will not open or does
+	 *                                   not answer, or the set holds more.
+	 */
+	public static function session_members( string $set ): array {
+		$table = self::session_reader();
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+		$found = $table->members_of( [ $set ], Table_Node::MAX_MEMBERS_LIMIT ) ?? throw new Session_Store_Unavailable( "could not read the session index {$set}: {$table->last_failure()}" );
+		if ( \array_key_exists( $set, $found ) && null === $found[ $set ] ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new Session_Store_Unavailable( 'more than ' . Table_Node::MAX_MEMBERS_LIMIT . " members are indexed under {$set}; `wp nodes session revoke --all` revokes every session" );
+		}
+		return $found[ $set ] ?? [];
 	}
 
 	/**
@@ -542,15 +566,12 @@ class Command_Auth {
 	 *                                   not answer, naming why.
 	 */
 	public static function load_session_records( array $handles ): array {
-		$handles = \array_values( \array_filter( $handles, static fn ( string $handle ): bool => 1 === \preg_match( self::HANDLE_PATTERN, $handle ) ) );
+		$handles = \array_values( \array_filter( $handles, self::is_handle( ... ) ) );
 		if ( [] === $handles ) {
 			return [];
 		}
-		$table = self::session_reader();
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-		$entries = $table->lookup_entries( $handles ) ?? throw new Session_Store_Unavailable( "could not read the sessions: {$table->last_failure()}" );
 		$records = [];
-		foreach ( $entries as $handle => $entry ) {
+		foreach ( self::session_entries( $handles ) as $handle => $entry ) {
 			$record = $entry['value'];
 			if ( \is_array( $record ) && \is_string( $record['k'] ?? null ) && '' !== $record['k'] && \is_string( $record['s'] ?? null ) && \is_string( $record['l'] ?? null ) && \is_int( $record['c'] ?? null ) && isset( $entry['ttl'] ) ) {
 				$records[ (string) $handle ] = [
@@ -564,6 +585,22 @@ class Command_Auth {
 			}
 		}
 		return $records;
+	}
+
+	/**
+	 * Each live row among `$keys` in the session Table, with the life it has
+	 * left, in one read.
+	 *
+	 * @api `Oauth_Store` reads its rows through it.
+	 * @param list<string> $keys Row keys.
+	 * @return array<array-key,array{value: mixed, ttl?: int}>
+	 * @throws Session_Store_Unavailable When the store will not open or does
+	 *                                   not answer, naming why.
+	 */
+	public static function session_entries( array $keys ): array {
+		$table = self::session_reader();
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+		return $table->lookup_entries( $keys ) ?? throw new Session_Store_Unavailable( "could not read the session store: {$table->last_failure()}" );
 	}
 
 	/**
@@ -649,6 +686,17 @@ class Command_Auth {
 			throw new \UnexpectedValueException( \esc_html( 'sessions_backend must be one of ' . \implode( ', ', self::SESSIONS_BACKENDS ) . ', not ' . Core::as_string( $backend, \get_debug_type( $backend ) ) ) );
 		}
 		return $backend;
+	}
+
+	/**
+	 * Whether `$id` has the shape a mint gives every handle, which the OAuth
+	 * ids share, so a string no mint could make never reaches the store.
+	 *
+	 * @api `Oauth_Store` checks its client and grant ids through it.
+	 * @param string $id The candidate.
+	 */
+	public static function is_handle( string $id ): bool {
+		return 1 === \preg_match( self::HANDLE_PATTERN, $id );
 	}
 
 	/**

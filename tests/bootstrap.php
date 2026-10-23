@@ -95,6 +95,7 @@ require_once __DIR__ . '/Helpers/FakeMemcached.php';
 require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
 require_once __DIR__ . '/Helpers/CacheBackendContract.php';
 require_once __DIR__ . '/Helpers/DurableArmContract.php';
+require_once __DIR__ . '/Helpers/OauthStoreContract.php';
 require_once __DIR__ . '/Helpers/TopologyDurability.php';
 
 // Capture the shared fire-and-forget POSTs (spawn fan-out AND

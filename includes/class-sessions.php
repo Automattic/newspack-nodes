@@ -81,15 +81,9 @@ class Sessions {
 	 *                                   or the index holds more than it reads.
 	 */
 	public static function listing(): array {
-		$table = Command_Auth::session_reader();
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-		$index = $table->members_of( [ self::INDEX ], Table_Node::MAX_MEMBERS_LIMIT ) ?? throw new Session_Store_Unavailable( "could not read the session index: {$table->last_failure()}" );
-		if ( \array_key_exists( self::INDEX, $index ) && null === $index[ self::INDEX ] ) {
-			throw new Session_Store_Unavailable( 'more than ' . Table_Node::MAX_MEMBERS_LIMIT . ' labelled sessions are indexed; `wp nodes session revoke --all` revokes every session' );
-		}
 		$now  = (int) Core::right_now();
 		$rows = [];
-		foreach ( Command_Auth::load_session_records( \array_map( 'strval', \array_keys( $index[ self::INDEX ] ?? [] ) ) ) as $handle => $session ) {
+		foreach ( Command_Auth::load_session_records( \array_map( 'strval', \array_keys( Command_Auth::session_members( self::INDEX ) ) ) ) as $handle => $session ) {
 			$rows[] = [
 				'handle'  => $handle,
 				'label'   => $session['label'],
@@ -103,24 +97,13 @@ class Sessions {
 	}
 
 	/**
-	 * Revoke every session this site issued, labelled or not, by flushing the
-	 * session Table, which empties the labelled index with the rows.
-	 *
-	 * @throws \RuntimeException Naming why the store would not open or flush.
-	 */
-	public static function revoke_all(): void {
-		Command_Auth::session_table()->flush();
-	}
-
-	/**
 	 * Mint a session and index it when it carries a label: the one issuing
 	 * path, which `/auth`, the `sessions create` verb and `wp nodes session
 	 * issue` share. Each caller keeps its own policy for a scope or TTL out of
 	 * bounds — REST and the CI clamp, the CLI refuses — and hands this the
 	 * result.
 	 *
-	 * The label is sanitized and cut to MAX_LABEL bytes first, on a character
-	 * boundary, so the stored label stays UTF-8. An empty one — the
+	 * The label goes through `clean_label()` first. An empty one — the
 	 * automatic `/auth` mints, several per dashboard load — mints a working
 	 * session that nothing lists, so the ones an operator issued on purpose
 	 * are not buried. A session the index refuses is revoked before the
@@ -133,7 +116,7 @@ class Sessions {
 	 * @throws Session_Store_Unavailable When the store will not open, refuses the row, or refuses the index.
 	 */
 	public static function issue( string $label, string $scope, int $ttl ): array {
-		$label   = \mb_strcut( \sanitize_text_field( $label ), 0, self::MAX_LABEL, 'UTF-8' );
+		$label   = self::clean_label( $label );
 		$session = Command_Auth::mint_session( $scope, $ttl, $label );
 		if ( '' === $label ) {
 			return $session;
@@ -146,5 +129,27 @@ class Sessions {
 			throw new Session_Store_Unavailable( "could not index the session: {$failure}" );
 		}
 		return $session;
+	}
+
+	/**
+	 * A name someone typed, made fit to keep and list: sanitized, then cut to
+	 * MAX_LABEL bytes on a character boundary, so it stays UTF-8.
+	 *
+	 * @api `Oauth_Store` keeps a client's name through it.
+	 * @param string $label The name as given.
+	 * @return string The name as stored; empty when nothing survives.
+	 */
+	public static function clean_label( string $label ): string {
+		return \mb_strcut( \sanitize_text_field( $label ), 0, self::MAX_LABEL, 'UTF-8' );
+	}
+
+	/**
+	 * Revoke every session this site issued, labelled or not, by flushing the
+	 * session Table, which empties the labelled index with the rows.
+	 *
+	 * @throws \RuntimeException Naming why the store would not open or flush.
+	 */
+	public static function revoke_all(): void {
+		Command_Auth::session_table()->flush();
 	}
 }

@@ -10,6 +10,11 @@
  * @package Newspack_Nodes
  */
 
+// WordPress defines this in wp_initial_constants(), which no test loads.
+if ( ! defined( 'DAY_IN_SECONDS' ) ) {
+	define( 'DAY_IN_SECONDS', 86400 );
+}
+
 // Minimal WP stubs needed for the plugin file.
 if ( ! function_exists( 'plugin_dir_path' ) ) {
 	function plugin_dir_path( string $file ): string {
