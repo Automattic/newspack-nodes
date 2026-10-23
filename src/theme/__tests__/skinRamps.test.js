@@ -2848,7 +2848,7 @@ describe( "CRT's data greens and the true-color variant", () => {
 } );
 
 describe( "WordPress's accent follows the skin", () => {
-	const DEFAULT_SKIN = 'newspack';
+	const NEWSPACK_SKINS = [ 'newspack', 'newspack-brand' ];
 	// A hex literal, or the `rgb()` Sass writes for a color it computed.
 	const channels = ( value ) =>
 		value.startsWith( '#' )
@@ -2859,7 +2859,7 @@ describe( "WordPress's accent follows the skin", () => {
 	const lightness = ( rgb ) =>
 		rgb.split( ', ' ).reduce( ( sum, c ) => sum + Number( c ), 0 );
 
-	it.each( EXPECTED_SKINS.filter( ( s ) => DEFAULT_SKIN !== s ) )(
+	it.each( EXPECTED_SKINS.filter( ( s ) => ! NEWSPACK_SKINS.includes( s ) ) )(
 		'%s sets the admin theme color and its darker shades from its accent',
 		( slug ) => {
 			const tokens = skinMaps.get( slug );
@@ -2885,13 +2885,16 @@ describe( "WordPress's accent follows the skin", () => {
 		}
 	);
 
-	it( "the default skin leaves WordPress's own admin theme color", () => {
-		expect(
-			Object.keys( skinMaps.get( DEFAULT_SKIN ) ).filter( ( name ) =>
-				name.startsWith( '--wp-admin-theme-color' )
-			)
-		).toEqual( [] );
-	} );
+	it.each( NEWSPACK_SKINS )(
+		"%s leaves WordPress's own admin theme color",
+		( slug ) => {
+			expect(
+				Object.keys( skinMaps.get( slug ) ).filter( ( name ) =>
+					name.startsWith( '--wp-admin-theme-color' )
+				)
+			).toEqual( [] );
+		}
+	);
 } );
 
 describe( 'Links hover in the skin', () => {
@@ -2917,6 +2920,7 @@ describe( 'Links hover in the skin', () => {
 		expect( rules ).toHaveLength( 1 );
 		const [ rule ] = rules;
 		expect( rule.selector ).toContain( ':not(.theme-newspack)' );
+		expect( rule.selector ).toContain( ':not(.theme-newspack-brand)' );
 		const color = rule.nodes.find( ( d ) => 'color' === d.prop ).value;
 		expect( color ).toBe( 'var(--wp-admin-theme-color)' );
 		for ( const selector of selectorParser().astSync( rule.selector )

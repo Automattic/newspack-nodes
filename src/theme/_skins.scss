@@ -702,13 +702,13 @@ $phosphor: (
 		math.round(color.channel($c, "blue", $space: rgb));
 }
 
-// The skin that keeps WordPress's own accent; `DEFAULT_THEME` in theme.js.
-$default-skin: newspack;
+// The Newspack product skins, which keep WordPress's own accent.
+$newspack-skins: (newspack, newspack-brand);
 
 // WordPress paints its accent (a primary button, a focus ring) from the admin
-// theme color, so every skin but the default sets it.
+// theme color, so every skin but the Newspack ones sets it.
 @each $slug, $tokens in $skins {
-	@if $default-skin != $slug {
+	@if not list.index($newspack-skins, $slug) {
 		$accent: map.get($tokens, cyan);
 		$darker: map.get($tokens, cyan-dark);
 		$d: color-channels(color.adjust($darker, $lightness: -5%, $space: hsl));
@@ -729,8 +729,13 @@ $default-skin: newspack;
 	@include emit-skin($slug, $tokens);
 }
 
+$not-newspack: "";
+@each $slug in $newspack-skins {
+	$not-newspack: "#{$not-newspack}:not(.theme-#{$slug})";
+}
+
 // WordPress's admin color scheme hard-codes `a:hover`; these skins hover in
 // their accent. `body a` outranks it and stays under any two-class rule.
-:where(:root:not(.theme-#{$default-skin})) body :where(#{$skin-root}) a:is(:hover, :focus, :active) {
+:where(:root#{$not-newspack}) body :where(#{$skin-root}) a:is(:hover, :focus, :active) {
 	color: var(--wp-admin-theme-color);
 }
