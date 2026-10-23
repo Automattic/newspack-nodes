@@ -60,12 +60,14 @@ class Auth_Controller {
 	 * so a client that loses it re-auths rather than recovers it.
 	 *
 	 * Three optional request fields shape the session. `scope` defaults to
-	 * `manage` and is CLAMPED to the highest role the minting user actually
-	 * holds, so the Sessions tab lists a session's real authority rather than
-	 * what it asked for; an unrecognised scope is refused outright. `ttl` is
-	 * clamped to `Command_Auth::SESSION_TTL_MIN_S`..`SESSION_TTL_MAX_S`. `label`
-	 * is how the session shows up in that tab, and an empty one keeps it out of
-	 * the listing entirely.
+	 * `manage` (`tune` for a labelled request, which may hold only a
+	 * `Capabilities::CARRIED` scope) and is CLAMPED to the highest role the
+	 * minting user actually holds, so the Sessions tab lists a session's real
+	 * authority rather than what it asked for; an unrecognised scope is
+	 * refused outright. `ttl` is clamped to
+	 * `Command_Auth::SESSION_TTL_MIN_S`..`SESSION_TTL_MAX_S`. `label` is how
+	 * the session shows up in that tab, and an empty one keeps it out of the
+	 * listing entirely.
 	 *
 	 * `highest_held()` returns null only for a user holding no role at all,
 	 * which `check_permission()` has already refused; answering 403 here keeps
@@ -80,11 +82,16 @@ class Auth_Controller {
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}|\WP_Error
 	 */
 	public function issue( \WP_REST_Request $req ) {
-		$requested = Core::as_string( $req->get_param( 'scope' ) ?? '', Capabilities::MANAGE );
+		$label     = Core::as_string( $req->get_param( 'label' ) ?? '' );
+		$fallback  = '' === $label ? Capabilities::MANAGE : Capabilities::TUNE;
+		$requested = Core::as_string( $req->get_param( 'scope' ) ?? '', $fallback );
 		if ( '' === $requested ) {
-			$requested = Capabilities::MANAGE;
+			$requested = $fallback;
 		}
-		if ( ! Capabilities::scope_covers( $requested, Capabilities::READ ) ) {
+		$known = '' === $label
+			? Capabilities::scope_covers( $requested, Capabilities::READ )
+			: \in_array( $requested, Capabilities::CARRIED, true );
+		if ( ! $known ) {
 			return new \WP_Error( 'invalid_scope', 'Unknown session scope.', [ 'status' => 400 ] );
 		}
 
@@ -94,7 +101,6 @@ class Auth_Controller {
 		}
 
 		$ttl   = Command_Auth::bounded_ttl( Core::num_int( $req->get_param( 'ttl' ), Command_Auth::SESSION_TTL_S ) );
-		$label = Core::as_string( $req->get_param( 'label' ) ?? '' );
 		try {
 			return Sessions::issue( $label, $granted, $ttl );
 		} catch ( Session_Store_Unavailable $e ) {

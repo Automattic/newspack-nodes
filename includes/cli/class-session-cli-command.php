@@ -87,7 +87,7 @@ class Session_CLI_Command {
 	 * : Name shown in the Sessions tab.
 	 *
 	 * [<role>]
-	 * : read, tune or manage. Defaults to manage.
+	 * : read or tune. Defaults to tune.
 	 *
 	 * [<ttl>]
 	 * : Lifetime in seconds, 60 to 86400. Defaults to 3600.
@@ -102,12 +102,12 @@ class Session_CLI_Command {
 	 */
 	public function issue( array $args, array $assoc_args ): void {
 		$label   = \trim( $args[0] ?? '' );
-		$role    = $args[1] ?? Capabilities::MANAGE;
+		$role    = $args[1] ?? Capabilities::TUNE;
 		$ttl     = isset( $args[2] ) ? ( Core::canonical_decimal( $args[2] ) ?? 0 ) : Command_Auth::SESSION_TTL_S;
 		$highest = Capabilities::highest_held();
 		$refusal = match ( true ) {
 			'' === $label => 'usage: wp nodes session issue <label> [<role>] [<ttl>]; the label is what the Sessions tab lists',
-			! Capabilities::scope_covers( $role, Capabilities::READ ) => "unknown role: {$role}; use read, tune or manage",
+			! \in_array( $role, Capabilities::CARRIED, true ) => "unknown role: {$role}; use " . \implode( ' or ', Capabilities::CARRIED ),
 			$ttl < Command_Auth::SESSION_TTL_MIN_S || $ttl > Command_Auth::SESSION_TTL_MAX_S => 'ttl must be whole seconds from ' . Command_Auth::SESSION_TTL_MIN_S . ' to ' . Command_Auth::SESSION_TTL_MAX_S . ', got ' . ( $args[2] ?? '' ),
 			0 === \get_current_user_id() => 'a session acts as the user who mints it; pass --user=<login>',
 			null === $highest => 'that user holds no Newspack Nodes role',

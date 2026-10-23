@@ -57,7 +57,7 @@ beforeEach( () => {
 		graphOpts = opts;
 		return {
 			sessions: SESSIONS,
-			scopes: [ 'read', 'tune', 'manage' ],
+			scopes: [ 'read', 'tune' ],
 			ttlMax: 86400,
 			loading: false,
 			error: null,
@@ -184,6 +184,74 @@ it( 'refuses to issue a session with no label, and says why', () => {
 	);
 } );
 
+const scopeOptions = () =>
+	Array.from( document.querySelectorAll( '#new-session-scope option' ) ).map(
+		( o ) => o.value
+	);
+
+it( 'offers exactly the scopes the list verb answered, tune selected', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+
+	expect( scopeOptions() ).toEqual( [ 'read', 'tune' ] );
+	expect( document.querySelector( '#new-session-scope' ).value ).toBe(
+		'tune'
+	);
+} );
+
+it( 'takes the default scope once the list answers after the form opened', () => {
+	const graph = ( scopes ) => ( {
+		sessions: SESSIONS,
+		scopes,
+		ttlMax: 86400,
+		loading: false,
+		error: null,
+		createSession,
+		revokeSession,
+		pendingVerb: () => null,
+	} );
+	useSessionsGraph.mockImplementation( () => graph( [] ) );
+	const { container, rerender } = render( <SessionsAdmin /> );
+	openCreate( container );
+	useSessionsGraph.mockImplementation( () => graph( [ 'read', 'tune' ] ) );
+	rerender( <SessionsAdmin /> );
+	setInput( document.querySelector( '#new-session-label' ), 'late list' );
+
+	act( () => dialogButton( /issue session/i ).click() );
+
+	expect( createSession ).toHaveBeenCalledWith(
+		expect.objectContaining( { label: 'late list', scope: 'tune' } )
+	);
+} );
+
+it( 'offers manage with its blurb once the server lists it', () => {
+	useSessionsGraph.mockImplementation( ( opts = {} ) => {
+		graphOpts = opts;
+		return {
+			sessions: SESSIONS,
+			scopes: [ 'read', 'tune', 'manage' ],
+			ttlMax: 86400,
+			loading: false,
+			error: null,
+			createSession,
+			revokeSession,
+			pendingVerb: () => null,
+		};
+	} );
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+	const select = document.querySelector( '#new-session-scope' );
+	act( () => {
+		select.value = 'manage';
+		select.dispatchEvent( new Event( 'change', { bubbles: true } ) );
+	} );
+
+	expect( scopeOptions() ).toEqual( [ 'read', 'tune', 'manage' ] );
+	expect( document.querySelector( '[role="dialog"]' ).textContent ).toContain(
+		'Everything, including the fleet and the vault.'
+	);
+} );
+
 it( 'issues with the label, scope and lifetime the form holds', () => {
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );
@@ -194,7 +262,7 @@ it( 'issues with the label, scope and lifetime the form holds', () => {
 
 	expect( createSession ).toHaveBeenCalledWith( {
 		label: 'laptop mcp',
-		scope: 'read',
+		scope: 'tune',
 		ttl: 4471,
 	} );
 } );
@@ -220,7 +288,7 @@ it( 'issues when the dialog form submits, Issue Session being its submit', () =>
 
 	expect( createSession ).toHaveBeenCalledWith( {
 		label: 'egret relay',
-		scope: 'read',
+		scope: 'tune',
 		ttl: 30,
 	} );
 	answer( 'create', {

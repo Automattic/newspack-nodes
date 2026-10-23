@@ -206,4 +206,8 @@ class CapabilitiesTest extends TestCase {
 
 		$this->assertFalse( Capabilities::can( Capabilities::MANAGE ) );
 	}
+
+	public function test_carried_scopes_are_read_and_tune(): void {
+		$this->assertSame( [ 'read', 'tune' ], Capabilities::CARRIED );
+	}
 }

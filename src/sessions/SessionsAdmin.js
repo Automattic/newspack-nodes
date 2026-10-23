@@ -46,6 +46,9 @@ const SCOPE_BLURB = {
 	),
 };
 
+/** The scope the form preselects when the server lists it. */
+const DEFAULT_SCOPE = 'tune';
+
 /**
  * The lifetime the form prefills, in seconds — `Command_Auth::SESSION_TTL_S`.
  *
@@ -220,7 +223,12 @@ function CreateSessionModal( {
 	ttlMax,
 } ) {
 	const [ label, setLabel ] = useState( '' );
-	const [ scope, setScope ] = useState( scopes[ 0 ] ?? 'read' );
+	const [ picked, setScope ] = useState( '' );
+	const scope =
+		picked ||
+		( scopes.includes( DEFAULT_SCOPE )
+			? DEFAULT_SCOPE
+			: scopes[ 0 ] ?? '' );
 	const [ ttl, setTtl ] = useState( String( DEFAULT_TTL_S ) );
 	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
@@ -533,9 +541,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 					answer={ answers[ submitted ] ?? null }
 					busy={ 'create' === pendingVerb( submitted ) }
 					onCancel={ closeCreate }
-					scopes={
-						scopes.length ? scopes : [ 'read', 'tune', 'manage' ]
-					}
+					scopes={ scopes }
 					ttlMax={ ttlMax }
 				/>
 			) }
