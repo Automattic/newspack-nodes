@@ -56,6 +56,90 @@ class PartitionTest extends TestCase {
 		}
 	}
 
+	/**
+	 * Run `$act` and return every PHP error it raised, `@`-silenced ones
+	 * included, as an error recorder sees them.
+	 *
+	 * @param \Closure(): void $act What to run.
+	 * @return list<string> The messages raised.
+	 */
+	private static function errors_raised_by( \Closure $act ): array {
+		$raised = [];
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- records what the code under test raises.
+		\set_error_handler(
+			static function ( int $errno, string $errstr ) use ( &$raised ): bool {
+				$raised[] = $errstr;
+				return true;
+			}
+		);
+		try {
+			$act();
+		} finally {
+			\restore_error_handler();
+		}
+		return $raised;
+	}
+
+	/** Retention prunes a segment with no index and raises nothing doing it. */
+	public function test_retention_prunes_an_unindexed_segment_without_raising(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/kea-6610.p0";
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		\mkdir( $dir, 0755, true );
+		foreach ( [ 0, 1, 2 ] as $id ) {
+			\file_put_contents( "{$dir}/{$id}.log", "[1]\n" );
+		}
+		$p = new Partition_Node();
+		$p->name( 'kea-6610' );
+		$p->arguments( [ $dir, '1048576', '1', '1', '0', '0', '0' ] );
+
+		$raised = self::errors_raised_by( static fn () => $p->cleanup_segments() );
+
+		$this->assertSame( [], $raised );
+		$this->assertFileDoesNotExist( "{$dir}/0.log" );
+	}
+
+	/** A truncation removes unindexed segments and raises nothing doing it. */
+	public function test_truncation_removes_unindexed_segments_without_raising(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/tui-6612.p0";
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		\mkdir( $dir, 0755, true );
+		foreach ( [ 0, 1, 2 ] as $id ) {
+			\file_put_contents( "{$dir}/{$id}.log", "[1]\n" );
+		}
+		$p = new Partition_Node();
+		$p->name( 'tui-6612' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
+
+		$raised = self::errors_raised_by( static fn () => $p->truncate_after( 0 ) );
+
+		$this->assertSame( [], $raised );
+		$this->assertFileExists( "{$dir}/0.log" );
+		$this->assertFileDoesNotExist( "{$dir}/1.log" );
+		$this->assertFileDoesNotExist( "{$dir}/2.log" );
+	}
+
+	/** A rotation finding a stale lock takes it over without raising. */
+	public function test_rotation_over_a_stale_lock_raises_nothing(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/ruru-6611.p0";
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		\mkdir( $dir, 0755, true );
+		$p = new Partition_Node();
+		$p->name( 'ruru-6611' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
+		$lock = ( new \ReflectionMethod( $p, 'rotate_lock_path' ) )->invoke( $p );
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		\mkdir( $lock, 0755, true );
+		\touch( $lock, \time() - 3600 );
+
+		$raised = self::errors_raised_by( static fn () => ( new \ReflectionMethod( $p, 'rotate_segment' ) )->invoke( $p ) );
+
+		$this->assertSame( [], $raised );
+		$this->assertDirectoryDoesNotExist( $lock );
+	}
+
 	// ── write stall: loud, unindexed, and left for a reader to skip ────────
 
 	/**
