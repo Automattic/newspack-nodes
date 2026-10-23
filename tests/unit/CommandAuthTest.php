@@ -245,6 +245,80 @@ class CommandAuthTest extends TestCase {
 		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
+	/**
+	 * Each refusal `verifier()` logs, keyed by the reason it names, beside a
+	 * command shaped to earn it at clock 1790077460.
+	 *
+	 * @return array<string,array{0:string,1:\Closure():array<int,mixed>}>
+	 */
+	public static function refusals(): array {
+		$signed = static function ( int $ts, array $args = [ 'feed7746' ] ): array {
+			$m                       = Message::new_message();
+			$m[ Message::TYPE ]      = Message::TM_COMMAND;
+			$m[ Message::FROM ]      = '_output/feed7746';
+			$m[ Message::TIMESTAMP ] = $ts;
+			$m[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => $args ];
+			Command_Auth::sign( $m );
+			return $m;
+		};
+		return [
+			'wrong type'         => [ 'wrong type', static function () use ( $signed ): array {
+				$m                       = $signed( 1790077460 );
+				$m[ Message::TIMESTAMP ] = 'feed7746';
+				return $m;
+			} ],
+			'bad envelope'       => [ 'bad envelope', static function () use ( $signed ): array {
+				$m = $signed( 1790077460 );
+				unset( $m[ Message::VALUE ]['auth']['nonce'] );
+				return $m;
+			} ],
+			'stale timestamp'    => [ 'timestamp out of range', static fn (): array => $signed( 1790077460 - 3600 ) ],
+			'invalid signature'  => [ 'invalid signature', static function () use ( $signed ): array {
+				$m = $signed( 1790077460 );
+				$m[ Message::VALUE ]['arguments'] = [ "\xB1\x46" ];
+				return $m;
+			} ],
+			'signature mismatch' => [ 'signature mismatch', static function () use ( $signed ): array {
+				$m = $signed( 1790077460 );
+				$m[ Message::VALUE ]['name'] = 'feed7746';
+				return $m;
+			} ],
+		];
+	}
+
+	/**
+	 * A refusal's reason reaches the error log and nothing a caller reads:
+	 * not the stderr sink, which is a `/command` body, an SSE stream or a
+	 * worker's IPC output, and not the `dmesg` ring a READ verb prints.
+	 *
+	 * @param string                       $reason  What the log line names.
+	 * @param \Closure():array<int,mixed> $command Builds the refused command.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refusals' )]
+	public function test_a_refusal_reason_reaches_the_error_log_alone( string $reason, \Closure $command ): void {
+		Core::$clock = static fn (): float => 1790077460.0;
+		$sunk        = [];
+		Core::set_stderr_handler( static function ( string $text ) use ( &$sunk ): void {
+			$sunk[] = $text;
+		} );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( 'feed7746-ci' );
+		$log = (string) \tempnam( \sys_get_temp_dir(), 'nodes-refusal-' );
+		$old = \ini_set( 'error_log', $log );
+		try {
+			$this->assertFalse( ( Command_Auth::verifier() )( $interpreter, $command() ) );
+		} finally {
+			\ini_set( 'error_log', false === $old ? '' : $old );
+			$interpreter->remove_node();
+		}
+		$logged = (string) \file_get_contents( $log );
+		\unlink( $log );
+
+		$this->assertStringContainsString( "feed7746-ci: WARNING: verification failed: {$reason}", $logged );
+		$this->assertSame( [], $sunk, 'the stderr sink' );
+		$this->assertSame( [], \preg_grep( '/verification failed/', Core::$recent_log ), 'the dmesg ring' );
+	}
+
 	public function test_sign_refuses_unencodable_arguments(): void {
 		// Invalid UTF-8 makes wp_json_encode return false; signing must fail closed
 		// (no auth) rather than collapse onto an HMAC('') collision.

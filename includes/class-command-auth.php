@@ -611,8 +611,11 @@ class Command_Auth {
 	 * command, passed in by its authorize call. Never look one up:
 	 * `drop_message()` throttles on the node-midfixed text, so a refusal logged
 	 * through any other node misnames the drop and suppresses on a key of its
-	 * own. Two refusals log nothing: an unknown or expired handle, and a
-	 * replayed nonce.
+	 * own. The line reaches the error log alone (`refuse()`), so every refusal
+	 * judged here answers its caller as an unknown handle does. Two refusals
+	 * log nothing: an unknown or expired handle, and a replayed nonce. An
+	 * unreadable session store and a missing nonce store are environment
+	 * faults, reported to stderr like any other.
 	 *
 	 * @param array<int,mixed>              $message     Message to verify.
 	 * @param int                           $now         When the command arrived, a batch's arrival.
@@ -821,23 +824,20 @@ class Command_Auth {
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
 		if ( ! self::is_request_command( $type, $ts, $value ) ) {
-			$interpreter?->drop_message( $message, 'verification failed: wrong type' );
-			return false;
+			return self::refuse( $interpreter, $message, 'verification failed: wrong type' );
 		}
 		$ts   = (int) $ts; // Second granularity: sign/verify truncate alike.
 		$auth = $value['auth'] ?? null;
 		if ( ! \is_array( $auth )
 				|| ! isset( $auth['nonce'], $auth['sig'] ) ) {
-			$interpreter?->drop_message( $message, 'verification failed: bad envelope' );
-			return false;
+			return self::refuse( $interpreter, $message, 'verification failed: bad envelope' );
 		}
 		$nonce_in = $auth['nonce'];
 		$nonce    = Core::as_string( $nonce_in );
 
 		// Stale at arrival, implausibly ahead, or outliving its nonce claim.
 		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S || $turn - $ts >= self::BATCH_MAX_AGE_S ) {
-			$interpreter?->drop_message( $message, self::STALE );
-			return false;
+			return self::refuse( $interpreter, $message, self::STALE );
 		}
 
 		// A handle names a session; no handle means the per-site secret.
@@ -857,14 +857,12 @@ class Command_Auth {
 
 		$canon = self::canonical( $ts, $value, $nonce );
 		if ( null === $canon ) {
-			$interpreter?->drop_message( $message, 'verification failed: invalid signature' );
-			return false;
+			return self::refuse( $interpreter, $message, 'verification failed: invalid signature' );
 		}
 		$expected = \hash_hmac( 'sha256', $canon, $key );
 		$sig      = $auth['sig'];
 		if ( ! \hash_equals( $expected, Core::as_string( $sig ) ) ) {
-			$interpreter?->drop_message( $message, 'verification failed: signature mismatch' );
-			return false;
+			return self::refuse( $interpreter, $message, 'verification failed: signature mismatch' );
 		}
 
 		// Strict single-use. A claim fails on replay, or with no store.
@@ -933,6 +931,21 @@ class Command_Auth {
 	/** Per-site HMAC secret, domain-separated from the spawn token. */
 	private static function secret(): string {
 		return \hash_hmac( 'sha256', 'nodes-command-v1', \wp_salt( 'nonce' ) );
+	}
+
+	/**
+	 * Log why a command was refused, through the interpreter that handled it,
+	 * to the error log alone: a line in the response, the stream or the ring
+	 * would tell a caller holding a handle without its key that it is live.
+	 *
+	 * @param Command_Interpreter_Node|null $interpreter Node to log through.
+	 * @param array<int,mixed>              $message     The refused command.
+	 * @param string                        $reason      Why it was refused.
+	 * @return false Always, the verdict check() answers.
+	 */
+	private static function refuse( ?Command_Interpreter_Node $interpreter, array $message, string $reason ): bool {
+		Core::error_log_only( static fn () => $interpreter?->drop_message( $message, $reason ) );
+		return false;
 	}
 
 	/**
