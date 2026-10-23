@@ -164,7 +164,7 @@ class SessionsTest extends TestCase {
 
 	/** Only a handle reaches the store, so a revoke never deletes an OAuth row. */
 	public function test_revoking_a_key_that_is_no_session_handle_deletes_nothing(): void {
-		$client = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] );
+		$client = Oauth_Store::register_client( 'Kea Desk 4410', [ 'https://claude.ai/api/mcp/auth_callback' ] )['id'];
 
 		$refused = $this->caught( static fn () => Sessions::revoke( "oauth:client:{$client}" ), 'expected a refusal' );
 

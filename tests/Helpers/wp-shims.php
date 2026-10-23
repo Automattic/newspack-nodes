@@ -178,8 +178,10 @@ if ( ! function_exists( 'wp_unschedule_event' ) ) {
 // ── Auth / capability stubs ───────────────────────────────────────────────────
 
 if ( ! function_exists( 'current_user_can' ) ) {
+	// A user with a row in $GLOBALS['_wp_test_user_caps'] holds those caps alone.
 	function current_user_can( $cap ) {
-		return $GLOBALS['_wp_test_current_user_can'][ $cap ] ?? false;
+		$own = $GLOBALS['_wp_test_user_caps'][ get_current_user_id() ] ?? null;
+		return null !== $own ? ( $own[ $cap ] ?? false ) : ( $GLOBALS['_wp_test_current_user_can'][ $cap ] ?? false );
 	}
 }
 
@@ -259,9 +261,35 @@ if ( ! function_exists( 'get_current_user_id' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_set_current_user' ) ) {
+	function wp_set_current_user( $id, $name = '' ) {
+		$GLOBALS['_wp_test_current_user_id'] = (int) $id;
+		return (object) [ 'ID' => (int) $id ];
+	}
+}
+
+if ( ! function_exists( 'is_ssl' ) ) {
+	// Core's own test: the HTTPS server variable, else port 443.
+	function is_ssl(): bool {
+		$https = \strtolower( (string) ( $_SERVER['HTTPS'] ?? '' ) );
+		return 'on' === $https || '1' === $https || '443' === (string) ( $_SERVER['SERVER_PORT'] ?? '' );
+	}
+}
+
+if ( ! class_exists( 'WP' ) ) {
+	class WP {
+		public $request = '';
+	}
+}
+
 if ( ! function_exists( 'wp_get_current_user' ) ) {
+	// A user with a row in $GLOBALS['_wp_test_user_logins'] signs in under it.
 	function wp_get_current_user() {
-		return (object) [ 'user_login' => $GLOBALS['_wp_test_current_user_login'] ?? '' ];
+		$id = get_current_user_id();
+		return (object) [
+			'ID'         => $id,
+			'user_login' => $GLOBALS['_wp_test_user_logins'][ $id ] ?? $GLOBALS['_wp_test_current_user_login'] ?? '',
+		];
 	}
 }
 
@@ -450,22 +478,45 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
 
 if ( ! class_exists( 'WP_REST_Request' ) ) {
 	class WP_REST_Request {
-		private $params     = [];
-		private $url_params = [];
-		private $headers    = [];
-		private $body       = '';
-		private $method     = 'GET';
+		private $params       = [];
+		private $url_params   = [];
+		private $query_params = [];
+		private $body_params  = [];
+		private $headers      = [];
+		private $body         = '';
+		private $method       = 'GET';
 		public function __construct( $method = 'GET', $route = '' ) {
 			$this->method = $method;
 		}
 		public function get_param( $key ) {
-			return $this->params[ $key ] ?? $this->url_params[ $key ] ?? null;
+			return $this->get_params()[ $key ] ?? $this->url_params[ $key ] ?? null;
 		}
 		public function set_param( $key, $value ) {
 			$this->params[ $key ] = $value;
 		}
+		// As core merges them: the query string loses to the body, JSON wins.
 		public function get_params() {
-			return $this->params;
+			return \array_merge( $this->query_params, $this->body_params, $this->get_json_params() ?? [], $this->params );
+		}
+		public function set_query_params( array $params ): void {
+			$this->query_params = $params;
+		}
+		public function get_query_params() {
+			return $this->query_params;
+		}
+		public function set_body_params( array $params ): void {
+			$this->body_params = $params;
+		}
+		public function get_body_params() {
+			return $this->body_params;
+		}
+		// A JSON content type alone, as core reads the body.
+		public function get_json_params() {
+			if ( ! \str_contains( (string) ( $this->headers['content_type'] ?? '' ), 'json' ) ) {
+				return null;
+			}
+			$json = \json_decode( $this->body, true );
+			return \is_array( $json ) ? $json : null;
 		}
 		public function get_method() {
 			return $this->method;

@@ -41,7 +41,7 @@ final class OauthStoreTest extends OauthStoreContract {
 			return $out;
 		};
 
-		$thrown = $this->caught( static fn () => Oauth_Store::rotate( $first['refresh'], $answer ), 'expected a refused claim to raise' );
+		$thrown = $this->caught( static fn () => Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $answer ), 'expected a refused claim to raise' );
 		$this->db->deny = [];
 
 		$this->assertInstanceOf( Session_Store_Unavailable::class, $thrown );
@@ -49,6 +49,6 @@ final class OauthStoreTest extends OauthStoreContract {
 		$this->assertStringContainsString( 'Deadlock found 4410', $thrown->getMessage() );
 		$this->assertNull( Command_Auth::load_session_record( $this->answered[0]['handle'] ), 'the minted session is revoked' );
 		$this->assertStringNotContainsString( \hash( 'sha256', $this->answered[0]['next'] ), (string) \wp_json_encode( $this->rows() ), 'the issued token is dropped' );
-		$this->assertNotNull( Oauth_Store::rotate( $first['refresh'], $this->answer() ), 'the live token was never spent' );
+		$this->assertNotNull( Oauth_Store::rotate( $first['refresh'], self::CLIENT, null, $this->answer() ), 'the live token was never spent' );
 	}
 }

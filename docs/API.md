@@ -11,18 +11,20 @@ hook.
 Everything lives under one namespace, `newspack-nodes/v1`, registered by
 [`Bootstrap::register_rest_routes()`](../includes/class-bootstrap.php) on [`rest_api_init`](https://developer.wordpress.org/reference/hooks/rest_api_init/). The order is
 load-bearing: `/health/runtime` registers first so REST init completes even when
-the runtime base directory is refused, and the other four register only once
+the runtime base directory is refused, and the others register only once
 that base is available and `ensure_runtime_wired()` has run.
 
 | Route | Method | Permission |
 |---|---|---|
 | [`/workers/spawn`](#worker-spawn) | POST | Internal HMAC token, or MANAGE + WP nonce + rate limit |
 | [`/auth`](#establishing-a-session) | POST | READ |
+| [`/oauth/register`](#oauth-authorization-server) | POST | Anyone, over HTTPS + per-address rate limit |
+| [`/oauth/token`](#oauth-authorization-server) | POST | A registered client, over HTTPS + per-client rate limit; the code and verifier or the refresh token authenticate |
 | [`/command`](#command-dispatch) | POST | READ + per-user burst limit, then a per-command signature |
 | [`/messages/stream`](#sse-stream) | GET | READ |
 | [`/health/runtime`](#internal-runtime-health) | POST | Internal HMAC token |
 
-![A grid of the five routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/runtime registers first and the two admin-post.php entry points outside the namespace.](img/api-route-gates.png)
+![A grid of the seven routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/runtime registers first, and the entry points outside the namespace: the OAuth .well-known documents and the two admin-post.php actions.](img/api-route-gates.png)
 
 The substrate is also its own client. [`HTTP_Out_Node`](../includes/class-http-out-node.php) POSTs batched JSONL
 command envelopes to a remote spoke's `/command` (`COMMAND_PATH`) and
@@ -303,8 +305,8 @@ filter, clamped to 1 through `Rate_Limit::MAX_BURST` (256). The capability is
 checked first, so an unauthenticated flood spends no slots.
 
 The limit is [`Rate_Limit::claim( $name, $burst, $window_s )`](../includes/class-rate-limit.php),
-which the spawn endpoint and an application door meter through too, as
-event-logger-nodes' MCP route does. Each admitted call claims one of `$burst`
+which the spawn endpoint, the [OAuth doors](#oauth-authorization-server) and an
+application door meter through too, as event-logger-nodes' MCP route does. Each admitted call claims one of `$burst`
 slots with the shared cache's atomic `add()` under a `$window_s` TTL, so two
 concurrent requests cannot both take the last slot. Each slot frees on its own
 clock, but in whole seconds: memcached frees it between `$window_s - 1` and
@@ -313,7 +315,7 @@ clock, but in whole seconds: memcached frees it between `$window_s - 1` and
 `UNAVAILABLE` — the last when there is no shared backend or the slot read
 fails — and each door decides what an unmetered call gets: `/command` and
 spawn admit it through `Rate_Limit::admit_unmetered()`, which warns once per
-door, and MCP refuses it with a 503. A burst outside 1 to `MAX_BURST`, a window
+door, and the OAuth doors and MCP refuse it with a 503. A burst outside 1 to `MAX_BURST`, a window
 below 1 or a name holding whitespace throws.
 
 ## Command Signing
@@ -408,6 +410,92 @@ TO=FROM path, and the containing `/command` batch answers **401** instead of
 202 or 200 (see [Command Dispatch](#command-dispatch) below). The drop audit is
 the rate-limited stderr line [`Node::drop_message()`](../includes/class-node.php) writes as `verification
 failed: …`.
+
+## OAuth Authorization Server
+
+The site is its own OAuth 2.1 authorization server, so an MCP client such as
+Claude signs in through the browser instead of being handed a session.
+[`Oauth_Server`](../includes/class-oauth-server.php) decides every answer and
+[`Rest\Oauth_Controller`](../includes/rest/class-oauth-controller.php) sends it;
+[`Oauth_Store`](../includes/class-oauth-store.php) keeps the clients, codes,
+grants and refresh tokens beside the sessions. Every endpoint refuses a request
+that did not arrive over HTTPS with 400 `invalid_request`, and none
+authenticates a user: on a multisite subsite the two routes answer 403
+`newspack_nodes_not_fleet_site` and the documents are left to WordPress.
+
+### Metadata
+
+A `parse_request` handler, [`Oauth_Controller::serve_well_known()`](../includes/rest/class-oauth-controller.php),
+answers two paths outside the REST namespace as JSON, with
+`Access-Control-Allow-Origin: *` and `Cache-Control: no-store`, and ends the
+request; every other path passes through to WordPress untouched, and the hook
+tests for `.well-known/oauth-` before it loads either OAuth class. It reads
+`WP::$request`, which WordPress fills only under pretty permalinks, and a
+declared resource's trailing slash is ignored, because WordPress trims it.
+
+| Path | Document |
+|---|---|
+| `/.well-known/oauth-authorization-server` | RFC 8414: `issuer` (the home URL, no trailing slash), `authorization_endpoint` (`wp-admin/admin.php?page=newspack-nodes-authorize`), `token_endpoint`, `registration_endpoint`, `response_types_supported: ["code"]`, `grant_types_supported: ["authorization_code", "refresh_token"]`, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["none"]`, `scopes_supported` |
+| `/.well-known/oauth-protected-resource/<path>` | RFC 9728, for a resource whose URI path is `<path>`: `resource`, `authorization_servers: [<issuer>]`, `scopes_supported`, `bearer_methods_supported: ["header"]`. A path no declared resource has answers 404 `invalid_target` |
+
+`scopes_supported` is [`Oauth_Store::SCOPES`](../includes/class-oauth-store.php),
+`read` and `tune`. An application declares each resource it protects through the
+[`newspack_nodes/oauth_resources`](#filters) filter, and names the document's
+URL with `Oauth_Server::resource_metadata_url( $resource )`.
+
+### `POST /oauth/register`
+
+Dynamic client registration (RFC 7591), for public clients only. The JSON body,
+and nothing else (a query string is not read), names `client_name` and `redirect_uris`: one to five URIs, each `https://` or
+`http://` on `localhost` or `127.0.0.1`, with no userinfo, fragment or
+whitespace. A `token_endpoint_auth_method` other than `none` is refused. The
+answer is **201** with `client_id`, `client_id_issued_at`, `client_name` (kept as
+a session label is), `redirect_uris`, `token_endpoint_auth_method: "none"`,
+`grant_types` and `response_types: ["code"]`; no secret is issued. A missing
+name answers 400 `invalid_client_metadata`, a refused URI list 400
+`invalid_redirect_uri`. A client lapses 180 days after registering.
+
+Ten registrations an hour are admitted per caller address
+(`oauth-register:<ip>`); the eleventh answers **429** `rate_limited`.
+
+### `POST /oauth/token`
+
+A form-encoded token request naming `grant_type` and `client_id`. Only the form
+body is read: a credential in the query string would land in access logs, so a
+request carrying its fields there is answered as if it named none. A
+`client_id` no live registration holds answers **401** `invalid_client`, which
+tells the client to register again; it spends no rate-limit slot. Thirty
+requests a minute are then admitted per client (`oauth-token:<client>`).
+
+| `grant_type` | Also names | Checks |
+|---|---|---|
+| `authorization_code` | `code`, `redirect_uri`, `code_verifier`, `resource` | The code is taken once, so a refused exchange spends it too. It must have been issued to this client for this exact `redirect_uri` and `resource`, and `base64url( sha256( code_verifier ) )` must equal its challenge. A new thirty-day grant opens |
+| `refresh_token` | `refresh_token`, optionally `resource` | The token rotates through `Oauth_Store::rotate()`: a retry within 60 s is answered with the same pair, and a token reused later revokes its grant. A token issued to another client, or a `resource` other than the grant's, is refused and spends nothing, a retry inside the 60 s included; a request naming no resource is bound to the grant's |
+
+Before either mints a session, the grant's user is signed in for the one check
+that they still hold its scope (`Capabilities::highest_held( $scope ) === $scope`),
+then signed out again. A user who lost it ends the grant and every session it
+minted. The answer is **200**:
+
+```json
+{ "access_token": "<handle>.<secret>", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "<64 hex>", "scope": "tune" }
+```
+
+`expires_in` is less than 3600 in a grant's last hour. Every answer carries
+`Cache-Control: no-store` and `Pragma: no-cache`.
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `invalid_request` | A missing `grant_type` or field, or plain HTTP |
+| 400 | `unsupported_grant_type` | Any other grant |
+| 400 | `invalid_grant` | A code or refresh token unknown, expired, spent, or issued for another client, redirect URI or resource; a user who lost the scope |
+| 401 | `invalid_client` | No such client |
+| 429 | `rate_limited` | The client's budget is spent |
+| 503 | `rate_limit_unavailable` | Neither memcached nor APCu can meter the request, so it is refused, as the MCP door refuses one |
+| 503 | `temporarily_unavailable` | The session store did not answer; its cause goes to the log |
+
+The registration route answers the same 503s, and both routes carry the error's
+description in `error_description`.
 
 ## Command Dispatch
 
@@ -1518,6 +1606,7 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/remote_job_handlers` | `array $handlers` | The same, for entries whose `k` selects the remote map. |
 | `newspack_nodes/job_worker/before_job` | `bool $run, string $handler, string $id, array $message` | `Job_Worker_Node`. Return `false` to DECLINE the job. |
 | `newspack_nodes/capability_map` | `array $map` — role => WP capability | [`Capabilities::cap_for()`](../includes/class-capabilities.php). The baseline is [`Roles::defaults()`](../includes/class-roles.php): all three roles map to `manage_options` until a site installs the granular capabilities, and then to `newspack_nodes_{read,tune,manage}`. Return all three roles — the union form `fn ( $map ) => [ 'read' => 'edit_posts' ] + $map`, never a bare `[ 'read' => … ]`; see below. |
+| `newspack_nodes/oauth_resources` | `array $resources` — canonical resource URIs | [`Oauth_Server`](../includes/class-oauth-server.php). Declare each resource the OAuth server issues sessions for, such as an MCP door's URL; its RFC 9728 metadata is served for a declared resource alone. Non-string entries are dropped, and a non-array result declares nothing. |
 | `newspack_nodes/command_rate_limit` | `int $burst` | [`HTTP_In_Node::check_permission()`](../includes/rest/class-http-in-node.php): `/command` POSTs per user per one-second window. Clamped to 1 through `Rate_Limit::MAX_BURST` (256). |
 | `newspack_nodes/registered_log_producers` | `array<int,string> $producers` — path templates | [`Log_Cleaner`](../includes/class-log-cleaner.php). Declare a log dir the retention sweep must know about. Non-string and empty entries are dropped and duplicates collapse, but a well-formed template resolving to no directory under `<config:logs_dir>` anywhere in the partition range is NOT dropped: it refuses the whole sweep, `offsets/` included, raising `log producer <template> declares no dir under the logs root <root>` before any delete, and `dump_graph` lists every other log and names the template under `refused_producers`. [`Core::resolve_partition_template`](../includes/class-core.php) expands each template over `Bootstrap::global_num_partitions()` — the global `num_partitions` clamped to `Spawn_Coordinator::MAX_PARTITIONS`, never the declaring topology's own count — so a producer writing past that range leaves undeclared dirs the sweep will take. A template carrying no `{partition}` token collapses to one directory pinned across the fleet, which is how `alerts.p0` is declared. One log dir escapes this rule: `Log_Cleaner` reads `Settings_Event_Writer::SETTINGS_LOG_DIR` directly and seeds `settings.p0` at partition 0 into an already non-empty declared set, because the settings writer has no `.tsl` write-set entry and registers no template. Do not copy the settings writer as the model for a new PHP producer — one that declares nothing here is reaped. |
 | `newspack_nodes/segment_size_overrides` | `array<string,int> $overrides` — basename => bytes | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php). Declare the geometry of a Partition built in PHP rather than by a `make_node` line, which has no literal size to read. The union keeps the left side, so the filter fills gaps and never restates. |

@@ -108,7 +108,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		// that need the cap grant it after parent::setUp().
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		// No user is current until a test logs one in, as in a worker.
-		unset( $GLOBALS['_wp_test_current_user_id'] );
+		unset( $GLOBALS['_wp_test_current_user_id'], $GLOBALS['_wp_test_user_caps'], $GLOBALS['_wp_test_user_logins'] );
 
 		// Command_Auth's single-use nonce claim normally hits Core::$memd, which
 		// isn't wired in unit tests. Install a fresh per-test in-memory claim so
