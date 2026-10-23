@@ -46,6 +46,7 @@ supersede.
 | [33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet) | A line naming no partition runs once per fleet |
 | [34](#adr-34-a-table-may-hold-declared-rows-sqlite-only) | A Table may hold declared rows (SQLite only) |
 | [35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) | A job may publish a derived SQLite file whole, and its readers open it immutable |
+| [36](#adr-36-oauth-issues-command-sessions) | OAuth issues command sessions |
 
 ---
 
@@ -903,8 +904,9 @@ and every redactor on both sides of the wire asks that one rule. The TTL is
 `SESSION_TTL_S` (3600) unless the request asks for its own, clamped to 60..86400. Freshness is
 an age check (`MAX_PAST_S` 20, `MAX_FUTURE_S` 10). The nonce is claimed once with an atomic
 `add()` at `NONCE_TTL_S` 150 through `Cache_Backend::local_first()`, because a claim only has
-to be unique to the process that verifies it; sessions go through `shared_first()`, because a
-session minted in a web request must resolve in a worker.
+to be unique to the process that verifies it; sessions live in a durable Table on the backend
+`sessions_backend` names ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)), because a
+session minted in a web request must resolve in a worker and no eviction may log it out.
 
 **A session's SCOPE is a ceiling, and that is why the gate is READ.** The route sits behind
 [`Bootstrap::fleet_gate()`](../includes/class-bootstrap.php) — the fleet is network-global, so a subsite admin must not mint
@@ -912,7 +914,9 @@ against the main site's fleet — and then behind [`Capabilities::READ`](../incl
 session minted by a read-only user can only ever do read-only things, whatever it asks for.
 `issue()` clamps the requested scope to the highest of `read`/`tune`/`manage` the minting user
 holds and refuses an unrecognized one, so the Sessions tab lists real authority rather than an
-aspiration. The scope rides in the stored record, never in the envelope, so the holder of a
+aspiration. A labelled session holds only `read` or `tune`
+([ADR-36](#adr-36-oauth-issues-command-sessions)); the unlabelled one a dashboard or a hub
+mints may hold `manage`. The scope rides in the stored record, never in the envelope, so the holder of a
 key cannot restate it: `Command_Auth::check()` installs the verified scope as
 `Capabilities::$session_scope` for the command being handled, `verify()` slams it to
 `Capabilities::NONE` on every refusal, and `interpret()` restores whatever stood before,
@@ -1017,6 +1021,13 @@ queued in one batch outlives its nonce claim, which the first verification takes
 `NONCE_TTL_S` (150 s). One freshness test refuses all three, past `MAX_PAST_S` at arrival,
 more than `MAX_FUTURE_S` ahead, or 140 s at its turn, each as `timestamp out of range`
 through `verify()`, the one refusal exit, which leaves `Capabilities::NONE` standing.
+
+**Amendment:** an OAuth grant is a fourth issuer
+([ADR-36](#adr-36-oauth-issues-command-sessions)). The token endpoint mints an ordinary
+session through `Command_Auth::mint_grant_session()`, stored, verified and revoked as every
+other session is. Its row also names the grant and the resource it was issued for, and a door
+that is a resource admits it through `Command_Auth::admits_resource()` only when that
+resource is its own.
 
 ---
 
@@ -1695,7 +1706,12 @@ classes is invisible to `ls`, `dump_node` and the console.
   enumerates: the listing is `members_of()` then `lookup_entries()`, two statements
   however long, and a flush empties the set with the rows. Nothing caps the labelled
   sessions; the set is read up to `MAX_MEMBERS_LIMIT` handles, and past that the listing
-  refuses, naming the flush. A store that will not open fails the mint, naming why.
+  refuses, naming the flush. A store that will not open fails the mint, naming why. The
+  OAuth rows live in the same Table under `oauth:` keys — clients, codes, grants listed
+  through the set `oauth:grants`, refresh tokens and their grace rows
+  ([ADR-36](#adr-36-oauth-issues-command-sessions)) — so a flush or a backend switch
+  reaches them with the sessions, and a session handle's shape keeps a revoke from deleting
+  any of them.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
   declared, once a minute, and `vacuum` is an operator verb, never automatic.
 - No COMMIT checkpoints a `sqlite` file a worker writes. The writer turns `wal_autocheckpoint` off, and the
@@ -1805,8 +1821,8 @@ classes is invisible to `ls`, `dump_node` and the console.
   does. Any other durable Table that must be reclaimed is declared in a topology.
 - The purge deletes expired rows and nothing else, `vacuum` returns free pages and deletes no
   row, and `flush` empties the Table.
-- A flushed session store revokes every issued session at once; `wp nodes session revoke
-  --all` is that flush.
+- A flushed session store revokes every issued session and every OAuth connection at once;
+  `wp nodes session revoke --all` is that flush.
 - The retention sweep keeps this install's session file, which no topology declares,
   whatever `sessions_backend` reads, so a value the mint refuses never stops the sweep.
   Uninstall deletes it, with its `-wal` and `-shm`, under the configured base or the
@@ -2571,3 +2587,108 @@ across a rename. The file cannot be read from another host, as a Row_Table's can
 
 **Revisit if:** a second publisher per name appears, or a build outlasts the interval its
 readers allow.
+
+---
+
+## ADR-36: OAuth issues command sessions
+
+**Status:** Accepted
+
+**Context:** The event logger's MCP door accepts only a `Bearer <handle>.<secret>` naming a
+live command session, and `Command_Auth` clamps a session's life to 60–86400 s, so a token
+pasted into a client's config dies within a day. A Claude Desktop or claude.ai custom
+connector cannot send a pasted header at all: it takes a URL and runs the MCP authorization
+flow, which is OAuth 2.1 with dynamic client registration. The people connecting are TAMs
+and engineers, on live and staging sites, and TAMs sign in as the shared `adminnewspack`
+account, so a connection must be told apart by something other than its user.
+
+**Decision:** The site is its own OAuth 2.1 authorization server, its issuer the home URL,
+and every access token it issues is a command session.
+
+- **The access token is a session.** [`Command_Auth::mint_grant_session( $grant )`](../includes/class-command-auth.php)
+  mints it from the grant alone: for the user who approved it, with the approved scope,
+  labelled with the connection's name, for an hour or what the grant has left. It is stored,
+  verified, listed and revoked as every other session is
+  ([ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs),
+  [ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)), so a door's permission check is
+  unchanged and no second session mechanism exists.
+- **A session names its audience.** Its row carries its grant as `g` and the resource it was
+  issued for as `r`. `Command_Auth::admits_resource()` admits a session naming a resource at
+  that resource alone and one naming none, issued by hand, everywhere; a grant naming no
+  resource mints nothing. An application declares each resource through the
+  `newspack_nodes/oauth_resources` filter, and event-logger-nodes pins its door's URI to
+  https, the host lowercased and no trailing slash, so the approval page and the door spell
+  it alike.
+- **One list of OAuth scopes.** [`Oauth_Store::SCOPES`](../includes/class-oauth-store.php),
+  `read` and `tune`, is what the metadata advertises, the approval page offers and
+  `mint_grant_session()` accepts. `manage` is expected back through OAuth, for an MCP
+  cockpit on the substrate itself, and restoring it is one edit to that list.
+- **A session someone carries holds at most `tune`.** `wp nodes session issue`, the Sessions
+  tab's create and a labelled `POST /auth` take a scope from `Capabilities::LABELLED_SCOPES`,
+  `read` or `tune`, defaulting to `tune`. The unlabelled session a dashboard or a hub's
+  `HTTP_Out` mints keeps the minting user's highest role, `manage` included, because the
+  Sessions verbs, the graph verbs and every undeclared verb require it
+  ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)). Every MCP tool
+  needs `tune` or less.
+- **A refresh rotates inside one claim.** A refresh token is opaque, stored as its SHA-256,
+  and bound to a grant that lives 30 days from approval and is never extended.
+  `Oauth_Store::rotate()` stores the next token, mints the session, then `add()`s the
+  60-second `oauth:grace:<hash>` row, which holds the answer and is the rotation's claim,
+  before it deletes the live row. A refresh retried or racing within 60 s gets the same
+  pair, and the request that lost the claim revokes the session it minted. A spent token
+  presented later revokes the grant and every session it minted. Both branches, a live
+  rotation and a grace replay, refuse a token from another client or naming another
+  resource than the grant's.
+- **The user must still hold the scope.** At the exchange and at each refresh,
+  `Oauth_Server` signs the grant's user in to ask `can_grant( $scope )`, which needs the
+  scope's own capability and passes the `allowed_users` list, and signs them out again. A
+  user who lost it ends the grant.
+- **Registration is open; the approval page carries the protection.** Any public client may
+  register (RFC 7591, `token_endpoint_auth_method: none`), ten an hour per address. A
+  redirect URI is https, or http to `localhost` or `127.0.0.1`, with no userinfo, fragment,
+  whitespace or control character, and none that `wp_sanitize_redirect()` would alter,
+  because `wp_redirect()` would then send the browser somewhere other than the URI the page
+  matched. The approval page, a wp-admin page hidden from the menu, matches the redirect URI
+  byte for byte, refuses any carried value that holds a control character or that its
+  hidden fields would alter, and shows every refusal without redirecting. It names the
+  client, shows the redirect host in large type, warns unless that host is `claude.ai`,
+  `claude.com` or a loopback host, and asks the approver to name the connection. Approve and
+  Deny post behind a nonce.
+- **A kept name drives no terminal.** A connection name and a client's registered name pass
+  through `Sessions::clean_label()`, which strips C0 and C1 control characters and DEL, so a
+  name chosen through open registration cannot move an operator's cursor.
+- **Connections are listed and revoked, idle or not.** Clients, codes, grants and refresh
+  tokens are rows in the session Table, the grants listed through the `oauth:grants` set.
+  The Sessions tab and `wp nodes session list` show each connection whether or not it holds
+  a live session, and revoking it, or any session it minted, ends the grant.
+- **Every endpoint refuses plain HTTP.** An unknown client answers 401 `invalid_client`
+  before it spends a rate-limit slot, which tells a client to register again, and a cache
+  that cannot meter a request answers 503.
+
+**Alternatives considered:**
+
+- Longer-lived pasted tokens — rejected: a connector cannot send a header, and the session
+  key is stored recoverably, so a longer life is a longer leak.
+- Registration limited to Claude's callback URIs — rejected: Chris chose open registration,
+  so any MCP client can connect; the approval page's host display and warning stand in for
+  the allowlist.
+- Strict refresh reuse, revoking on any second presentation — rejected: Chris chose a
+  60-second grace, so a lost response or a duplicated request does not end a connection.
+- Listing sessions only — rejected: an idle connection holds no live session between
+  refreshes and would vanish from the Sessions tab while it could still mint one.
+- Self-contained access tokens such as a signed JWT — rejected: a second session mechanism,
+  which revoking in the Sessions tab could not end at once.
+- OAuth's scopes read from `Capabilities::LABELLED_SCOPES` — rejected: the two lists answer
+  different questions, and restoring `manage` to one must not grant it through the other.
+
+**Consequences:** A connection works for 30 days from approval, then its person signs in
+again. Under the shared `adminnewspack` account the connection name is the only
+attribution. No labelled session can hold `manage`. The grace row keeps a token answer,
+access token and refresh token included, for 60 seconds, the one place the store holds a
+refresh token other than as a hash. The `.well-known` documents are answered from
+`parse_request` out of `WP::$request`, which WordPress fills only under pretty permalinks,
+so a site on plain permalinks serves none and a connector cannot discover it. A connector's
+requests come from Anthropic's servers, so a site that is not publicly reachable keeps
+using pasted tokens.
+
+**Revisit if:** a client that must connect cannot hold a rotating refresh token.
