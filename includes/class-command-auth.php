@@ -130,6 +130,12 @@ class Command_Auth {
 		'r' => 'resource',
 	];
 
+	/**
+	 * The resource every substrate door is: none, so `admits_resource()`
+	 * spends only a site-wide session there and refuses a grant session.
+	 */
+	public const SITE_WIDE = '';
+
 	/** Every handle a mint makes: 32 lowercase hex digits. */
 	public const HANDLE_PATTERN = '/^[0-9a-f]{32}$/D';
 
@@ -547,18 +553,6 @@ class Command_Auth {
 	}
 
 	/**
-	 * Whether a session may be spent at `$resource`: one naming no resource
-	 * is site-wide, and one naming a resource is spent there alone.
-	 *
-	 * @api The MCP door checks a session's audience through it.
-	 * @param Session_Record $record   The session, as `load_session_record()` answers it.
-	 * @param string         $resource The resource the caller is.
-	 */
-	public static function admits_resource( array $record, string $resource ): bool {
-		return ! isset( $record['resource'] ) || $resource === $record['resource'];
-	}
-
-	/**
 	 * `authorize_command()` for this batch: each session through the batch's
 	 * own reads, freshness judged at its arrival and bounded by the wall
 	 * clock at the command's turn.
@@ -852,7 +846,7 @@ class Command_Auth {
 			Capabilities::$session_scope = null;
 		} else {
 			$record = $load( Core::as_string( $handle ) );
-			if ( null === $record ) {
+			if ( null === $record || ! self::admits_resource( $record, self::SITE_WIDE ) ) {
 				return false;
 			}
 			$key = $record['key'];
@@ -919,6 +913,19 @@ class Command_Auth {
 			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
 		);
 		return false === $encoded ? null : $encoded;
+	}
+
+	/**
+	 * Whether a session may be spent at `$resource`: one naming no resource
+	 * is site-wide, and one naming a resource is spent there alone.
+	 *
+	 * @api Every door checks a session's audience through it: the MCP door
+	 *      against its own resource, the substrate's doors against SITE_WIDE.
+	 * @param Session_Record $record   The session, as `load_session_record()` answers it.
+	 * @param string         $resource The resource the caller is.
+	 */
+	public static function admits_resource( array $record, string $resource ): bool {
+		return ! isset( $record['resource'] ) || $resource === $record['resource'];
 	}
 
 	/** Per-site HMAC secret, domain-separated from the spawn token. */

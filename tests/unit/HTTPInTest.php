@@ -436,6 +436,80 @@ class HTTPInTest extends TestCase {
 		$this->assertCount( 1, $selects, 'one session read for three commands' );
 	}
 
+	/**
+	 * POST one `uptime` signed for `$destination` and answer the status codes
+	 * and each body line as its TYPE, FROM, TO and VALUE, clock aside.
+	 *
+	 * @return array{0:list<int>,1:list<array<int,mixed>>}
+	 */
+	private function post_signed_for( string $destination ): array {
+		$m                       = Message::new_message();
+		$m[ Message::TYPE ]      = Message::TM_COMMAND;
+		$m[ Message::FROM ]      = '_http';
+		$m[ Message::TIMESTAMP ] = (int) Core::$now;
+		$m[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [] ];
+		Command_Auth::sign_for( $destination, $m );
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $m ) );
+		$req->set_header( 'content-type', 'application/json' );
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$lines = \array_filter( \explode( "\n", (string) \ob_get_clean() ) );
+		Core::reset();
+		$this->build_graph_sans_output();
+		$frames = \array_map(
+			static function ( string $line ): array {
+				$frame = \json_decode( $line, true );
+				return [ $frame[ Message::TYPE ], $frame[ Message::FROM ], $frame[ Message::TO ], $frame[ Message::VALUE ] ];
+			},
+			\array_values( $lines )
+		);
+		return [ $codes, $frames ];
+	}
+
+	/**
+	 * An OAuth access token is a session for the resource its grant names,
+	 * and `/command` is not that resource: its key answers the 401 and the
+	 * reply a wrong key gets, and the whole body a handle naming no session
+	 * gets, so the door never confirms a grant key. A hand-issued session
+	 * still signs.
+	 */
+	public function test_a_grant_session_answers_401_as_a_wrong_key_does(): void {
+		$this->use_wpdb_sessions();
+		$this->build_graph_sans_output();
+		$grant = \Newspack_Nodes\Oauth_Store::open_grant(
+			[
+				'client'   => 'c0ffee00c0ffee00c0ffee00c0ffee00',
+				'user'     => 7746,
+				'scope'    => \Newspack_Nodes\Capabilities::TUNE,
+				'resource' => 'https://kea.example/wp-json/kea/v1/mcp',
+				'name'     => 'Kea laptop 7746',
+			]
+		)['grant'];
+		$token = Command_Auth::mint_grant_session( $grant );
+		$hand  = Command_Auth::mint_session( \Newspack_Nodes\Capabilities::TUNE, 4242, 'kea-4242' );
+		Command_Auth::remember_session( 'kea-grant', $token['handle'], $token['secret'] );
+		Command_Auth::remember_session( 'kea-wrong', $hand['handle'], 'second-key-9999-9999-9999-9999-99' );
+		Command_Auth::remember_session( 'kea-hand', $hand['handle'], $hand['secret'] );
+		Command_Auth::remember_session( 'kea-gone', 'deadbeefdeadbeefdeadbeefdeadbeef', $token['secret'] );
+		Command_Auth::remember_session( 'kea-grant-wrong', $token['handle'], 'second-key-9999-9999-9999-9999-99' );
+
+		[ $codes, $frames ] = $this->post_signed_for( 'kea-grant' );
+		[ $wrong_codes, $wrong_frames ] = $this->post_signed_for( 'kea-wrong' );
+
+		$this->assertSame( [ 401 ], $codes );
+		$this->assertSame( [ Message::TM_COMMAND | Message::TM_ERROR, '_command_interpreter', '_http', [ 'name' => 'uptime', 'arguments' => [], 'payload' => "unauthorized: uptime\n" ] ], \end( $frames ) );
+		$this->assertSame( [ $wrong_codes, \end( $wrong_frames ) ], [ $codes, \end( $frames ) ], 'the status and reply a wrong key gets' );
+		$this->assertSame( $this->post_signed_for( 'kea-gone' ), [ $codes, $frames ], 'the body a dead handle gets' );
+		$this->assertSame( $this->post_signed_for( 'kea-grant-wrong' ), [ $codes, $frames ], 'the grant key is never confirmed' );
+		$this->assertNotContains( 401, $this->post_signed_for( 'kea-hand' )[0], 'a hand-issued session still signs' );
+	}
+
 	public function test_a_batch_with_one_refusal_answers_401(): void {
 		$this->build_graph_sans_output();
 
