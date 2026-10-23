@@ -675,11 +675,7 @@ class Partition_Node extends Timer_Node {
 				$survivors[] = $s;
 				continue;
 			}
-			// Partition's segment dir is base_dir-relative — not WP-managed.
-			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-			@\unlink( $this->get_segment_path( $s['id'] ) );
-			@\unlink( $this->get_index_path( $s['id'] ) );
-			// phpcs:enable
+			$this->remove_segment( $s['id'] );
 		}
 
 		$this->close_handle();
@@ -1019,9 +1015,9 @@ class Partition_Node extends Timer_Node {
 
 		$this->ensure_segment_dir( $dir );
 
-		// Atomic acquire via mkdir.
+		// Atomic acquire via mkdir; a lock already there is held, unasked.
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-		if ( ! @\mkdir( $lock_dir, 0755 ) ) {
+		if ( \is_dir( $lock_dir ) || ! @\mkdir( $lock_dir, 0755 ) ) {
 			\clearstatcache( true, $lock_dir );
 			$mtime = @\filemtime( $lock_dir );
 			if ( false === $mtime ) {
@@ -1142,11 +1138,7 @@ class Partition_Node extends Timer_Node {
 					break;
 				}
 			}
-			// Partition's segment dir is base_dir-relative — not WP-managed.
-			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-			@\unlink( $path );
-			@\unlink( $this->get_index_path( $oldest['id'] ) );
-			// phpcs:enable
+			$this->remove_segment( $oldest['id'] );
 			\array_shift( $segments );
 			--$count;
 		}
@@ -1157,6 +1149,23 @@ class Partition_Node extends Timer_Node {
 		$deleted = $initial_count - $count;
 		if ( $deleted > 0 ) {
 			$this->set_state( 'CLEANUP', \implode( ' ', [ 'DELETED', $deleted, 'ALIVE', $count ] ) );
+		}
+	}
+
+	/**
+	 * Remove one segment and its index, each only if it is there: a segment
+	 * written without an index has none, and a peer may have pruned either,
+	 * so an absent file is the expected case and must not raise a warning
+	 * that an error recorder would log into the very stream being written.
+	 *
+	 * @param int $id Segment id.
+	 */
+	private function remove_segment( int $id ): void {
+		foreach ( [ $this->get_segment_path( $id ), $this->get_index_path( $id ) ] as $path ) {
+			if ( \is_file( $path ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- base_dir-relative, not WP-managed.
+				@\unlink( $path );
+			}
 		}
 	}
 

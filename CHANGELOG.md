@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A Partition no longer raises a warning for an absent index or a held rotation lock.** Retention and a truncation unlinked every pruned segment's `.idx` whether or not one existed, so a log written without an index, the firehose among them, raised `unlink(…idx): No such file or directory` on every prune, and a rotation finding a peer's lock raised `mkdir(): File exists`. Both were `@`-silenced, but an error recorder logging silenced warnings, as event-logger-nodes does, wrote them into the stream mid-write. A segment and its index are now removed only when present, and a lock directory already there is taken as held without a `mkdir`. A peer pruning the same file between the check and the unlink can still raise one.
+
 ### Changed
 - **No layout file reads as `auto`, and saving `auto` removes the file.** `layouts get` answers `"auto"` where no `<name>.layout` exists or the file is unreadable or holds no map, where it answered null, and `layouts save <name> "auto"` unlinks the file rather than writing `{"positions":"auto"}`, so a layout file only ever holds a map. The console reads a refused fetch as `auto` too, so a canvas nobody has saved a layout for no longer shows Reset Layout on load: in view mode it shows once the canvas diverges from the saved layout, and in edit mode once a card moves off an autolayout. A `.layout` file holding `"auto"` reads as one holding no map, which is `auto`.
 
