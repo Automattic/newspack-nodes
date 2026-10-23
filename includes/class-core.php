@@ -216,6 +216,9 @@ class Core {
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
+	/** While `error_log_only()` runs, stderr() writes to error_log and nowhere else. */
+	private static bool $error_log_only = false;
+
 	/**
 	 * The one sink `_stderr()` hands each line to. `reset()` installs the
 	 * production default — the REPL, SSE or `_output` node when one of them is
@@ -378,6 +381,11 @@ class Core {
 			return;
 		}
 		$line = self::log_midfix( $text );
+		if ( self::$error_log_only ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			\error_log( \rtrim( $line ) );
+			return;
+		}
 		self::$recent_log[] = self::log_prefix( $line );
 		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
 		while ( \count( self::$recent_log ) > 100 ) {
@@ -486,9 +494,10 @@ class Core {
 
 	/**
 	 * Return the class to per-run boot state — the node registry, the shutdown
-	 * flag, the log ring and its rate-limiter timers, the stderr re-entry guard,
-	 * the Shell vars, the memcached handle, the secure-level declaration, the
-	 * memoized log host, and Cache_Backend's memoized site, salt and machine —
+	 * flag, the log ring and its rate-limiter timers, the stderr re-entry guard
+	 * and error-log-only latch, the Shell vars, the memcached handle, the
+	 * secure-level declaration, the memoized log host, and Cache_Backend's
+	 * memoized site, salt and machine —
 	 * then reinstall the default stderr handler and restamp `$init_time`.
 	 * `Event_Framework::reset()` goes with it, so an orphaned node's armed timer
 	 * cannot outlive the graph that armed it.
@@ -503,6 +512,7 @@ class Core {
 		self::$recent_log        = [];
 		self::$recent_log_timers = [];
 		self::$in_stderr         = false;
+		self::$error_log_only    = false;
 		self::$var               = [];
 		self::$memd              = null;
 		self::$secure_level      = null;
@@ -932,6 +942,25 @@ class Core {
 			return null;
 		}
 		return (int) $token;
+	}
+
+	/**
+	 * Run `$body` with every stderr line it emits written to PHP's error log
+	 * alone: not the `dmesg` ring, not the `newspack_nodes/stderr` action, and
+	 * not the handler, whose sink in a request is the response a caller reads.
+	 * A command verifier logs its refusals here, so a refused caller learns
+	 * nothing from them.
+	 *
+	 * @param \Closure(): void $body The work whose diagnostics stay private.
+	 */
+	public static function error_log_only( \Closure $body ): void {
+		$prior                = self::$error_log_only;
+		self::$error_log_only = true;
+		try {
+			$body();
+		} finally {
+			self::$error_log_only = $prior;
+		}
 	}
 
 	/**

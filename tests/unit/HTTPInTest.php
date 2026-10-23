@@ -510,6 +510,119 @@ class HTTPInTest extends TestCase {
 		$this->assertNotContains( 401, $this->post_signed_for( 'kea-hand' )[0], 'a hand-issued session still signs' );
 	}
 
+	/**
+	 * POST `$message` alone and answer its status codes and its body as one
+	 * string, then rebuild the graph so the next POST starts clean.
+	 *
+	 * @param array<int,mixed> $message The command, signed as the test needs.
+	 */
+	private function post_raw( array $message ): string {
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $message ) );
+		$req->set_header( 'content-type', 'application/json' );
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = (string) \ob_get_clean();
+		Core::reset();
+		$this->build_graph_sans_output();
+		return \implode( ',', $codes ) . "\n" . $body;
+	}
+
+	/**
+	 * Seed user 7746's live session, a grant session, and the four ways to
+	 * sign for them — a handle naming no session, a wrong key, the right key,
+	 * the grant's key — on a clock pinned so two bodies compare byte for byte.
+	 *
+	 * @return \Closure(string,int|string):array<int,mixed> One `uptime`, signed
+	 *         for the destination at the timestamp given.
+	 */
+	private function seed_refusal_sessions(): \Closure {
+		$this->use_wpdb_sessions();
+		$GLOBALS['_wp_test_current_user_id'] = 7746;
+		Core::$clock                         = static fn (): float => 1790077460.0;
+		Core::right_now();
+		$this->build_graph_sans_output();
+		$live  = Command_Auth::mint_session( \Newspack_Nodes\Capabilities::TUNE, 4242, 'feed-7746' );
+		$grant = \Newspack_Nodes\Oauth_Store::open_grant(
+			[
+				'client'   => 'feed7746feed7746feed7746feed7746',
+				'user'     => 7746,
+				'scope'    => \Newspack_Nodes\Capabilities::TUNE,
+				'resource' => 'https://feed.example/wp-json/feed/v1/mcp',
+				'name'     => 'Feed laptop 7746',
+			]
+		)['grant'];
+		$token = Command_Auth::mint_grant_session( $grant );
+		Command_Auth::remember_session( 'feed-dead', 'feed7746feed7746feed7746feed7746', $live['secret'] );
+		Command_Auth::remember_session( 'feed-wrong', $live['handle'], 'feed-key-7746-7746-7746-7746-7746' );
+		Command_Auth::remember_session( 'feed-live', $live['handle'], $live['secret'] );
+		Command_Auth::remember_session( 'feed-grant', $token['handle'], $token['secret'] );
+		return static function ( string $destination, int|string $ts ): array {
+			$m                       = Message::new_message();
+			$m[ Message::TYPE ]      = Message::TM_COMMAND;
+			$m[ Message::FROM ]      = '_http';
+			$m[ Message::ID ]        = 'feed7746-id';
+			$m[ Message::KEY ]       = 'feed7746-key';
+			$m[ Message::TIMESTAMP ] = $ts;
+			$m[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [ 'feed7746' ] ];
+			Command_Auth::sign_for( $destination, $m );
+			return $m;
+		};
+	}
+
+	/**
+	 * Every refusal at `/command` answers the bytes a handle naming no
+	 * session gets: the 401, and the one `unauthorized` reply. A caller
+	 * holding a handle without its key cannot tell whether the session is
+	 * live, and no body names the process that refused it.
+	 */
+	public function test_every_refusal_answers_the_bytes_a_dead_handle_gets(): void {
+		$command = $this->seed_refusal_sessions();
+		$now     = 1790077460;
+
+		$envelope = $command( 'feed-live', $now );
+		unset( $envelope[ Message::VALUE ]['auth']['sig'] );
+		$refusals = [
+			'wrong key'         => $command( 'feed-wrong', $now ),
+			'stale timestamp'   => $command( 'feed-live', $now - 3600 ),
+			'bad envelope'      => $envelope,
+			'wrong type'        => $command( 'feed-live', 'feed7746' ),
+			'grant session'     => $command( 'feed-grant', $now ),
+		];
+		$dead = $this->post_raw( $command( 'feed-dead', $now ) );
+
+		$this->assertStringStartsWith( "401\n", $dead );
+		$this->assertCount( 2, \array_filter( \explode( "\n", $dead ) ), 'the status and one reply' );
+		$this->assertStringContainsString( 'unauthorized: uptime', $dead );
+		foreach ( $refusals as $kind => $message ) {
+			$this->assertSame( $dead, $this->post_raw( $message ), $kind );
+		}
+	}
+
+	/** A refusal's reason still reaches the error log, which no caller reads. */
+	public function test_a_refusal_reason_reaches_the_error_log(): void {
+		$command = $this->seed_refusal_sessions();
+		$wrong   = $command( 'feed-wrong', 1790077460 );
+		$log     = (string) \tempnam( \sys_get_temp_dir(), 'nodes-refusal-' );
+		$old     = \ini_set( 'error_log', $log );
+		try {
+			$body = $this->post_raw( $wrong );
+		} finally {
+			\ini_set( 'error_log', false === $old ? '' : $old );
+		}
+		$logged = (string) \file_get_contents( $log );
+		\unlink( $log );
+
+		$this->assertStringContainsString( 'verification failed: signature mismatch', $logged );
+		$this->assertStringContainsString( 'from: _output/_http', $logged );
+		$this->assertStringNotContainsString( 'verification failed', $body );
+	}
+
 	public function test_a_batch_with_one_refusal_answers_401(): void {
 		$this->build_graph_sans_output();
 

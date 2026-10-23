@@ -409,9 +409,11 @@ class HTTP_In_Node extends Node {
 	 * refusal so `dispatch()` answers 401 instead of a reassuring 202.
 	 *
 	 * The latch is raised BEFORE the verifier runs and lowered only on success,
-	 * because the verifier logs its refusal through the interpreter and that log
-	 * line can reach `fill()` and open the body — by which point the status is
-	 * spent.
+	 * because an environment fault the verifier reports to stderr — no cache to
+	 * claim the nonce in, a session store that will not answer — can reach
+	 * `fill()` and open the body, by which point the status is spent. Its
+	 * refusal reasons never do: `Command_Auth` writes them to the error log
+	 * alone, so every command it judges and refuses answers the same bytes.
 	 *
 	 * Named rather than an inline closure for the same reason
 	 * `Command_Auth::authorize_command` is: the int-keyed Message type is honored

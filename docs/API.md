@@ -408,8 +408,14 @@ each outcome installs are in the diagram above. A refused command replies
 `TM_COMMAND|TM_ERROR` carrying `unauthorized: <verb>` through the normal
 TO=FROM path, and the containing `/command` batch answers **401** instead of
 202 or 200 (see [Command Dispatch](#command-dispatch) below). The drop audit is
-the rate-limited stderr line [`Node::drop_message()`](../includes/class-node.php) writes as `verification
-failed: …`.
+the rate-limited line [`Node::drop_message()`](../includes/class-node.php) writes as `verification
+failed: …`, which goes to the PHP error log alone, never into the response, an
+SSE stream, a worker's IPC output or the `dmesg` ring. Every command the
+verifier judges and refuses — a wrong key, a stale or malformed envelope, a
+dead or grant handle — therefore answers the same bytes, naming neither the
+cause nor the process. An environment fault still reports to stderr, and so
+into the body: no nonce store, reached only after the signature verifies, and
+a session store that will not answer.
 
 ## OAuth Authorization Server
 

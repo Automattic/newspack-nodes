@@ -951,9 +951,12 @@ re-arms with `markDue()`, `HeartbeatNode` skips that poll, and `RemoteIpcNode` d
 
 Every failure refuses, and most name themselves through the handling interpreter's
 `drop_message`: wrong type, bad envelope, stale or skewed timestamp, unencodable arguments
-(logged as `invalid signature`), signature mismatch. An unknown or expired handle and a
-replayed nonce log nothing, and a missing cache backend logs through
-`Core::print_less_often()`, an environment fault rather than a verdict on the message.
+(logged as `invalid signature`), signature mismatch. Each line goes to the error log
+alone, through `Core::error_log_only()`, so every refusal the verifier judges answers its
+caller exactly as an unknown handle does, naming neither the cause nor the process. An
+unknown or expired handle and a replayed nonce log nothing. A missing cache backend and a
+session store that will not answer log through `Core::print_less_often()`, environment
+faults rather than verdicts on the message, and those lines still reach the stderr sink.
 [`HTTP_In`](../includes/rest/class-http-in-node.php) installs a fresh verifier per request and latches any refusal, so a batch
 containing one answers **401** rather than a reassuring 202.
 
