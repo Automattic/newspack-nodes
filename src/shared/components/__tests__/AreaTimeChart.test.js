@@ -503,16 +503,29 @@ describe( 'AreaTimeChart empty stretches', () => {
 		expect( bands( container )[ 0 ].style.fill ).toBe( '#111111' );
 	} );
 
-	it( 'skips a run of zeros inside a band, which still tapers to zero at each end', () => {
+	it( 'marks no lone point for a series that is zero in every slot', () => {
 		const { container } = mount( {
-			series: [ seriesOf( 'tui-4', [ 5, 0, 0, 0, 5 ] ) ],
+			series: [ seriesOf( 'empty-weka', [ null, 0, null, 0, null ] ) ],
 		} );
-		const [ band ] = bands( container );
-		expect( subpaths( band ) ).toBe( 2 );
-		// Each piece reaches the baseline at the run's first and last zero.
-		const ys = [
-			...band.getAttribute( 'd' ).matchAll( /(-?[\d.]+),(-?[\d.]+)/g ),
-		].map( ( m ) => Number( m[ 2 ] ) );
-		expect( Math.max( ...ys ) ).toBeCloseTo( INNER_H, 3 );
+		expect( container.querySelectorAll( 'circle' ) ).toHaveLength( 0 );
+	} );
+
+	it( 'draws a band for a series below zero', () => {
+		const { container } = mount( {
+			series: [ seriesOf( 'below-hoiho', [ -3, -1, -2, -4, -1 ] ) ],
+		} );
+		expect( bands( container ) ).toHaveLength( 1 );
+	} );
+
+	// A piece is fitted alone, so its edge would part from the band below.
+	it( 'draws a band with a run of zeros as one piece', () => {
+		const { container } = mount( {
+			series: [
+				seriesOf( 'base-kaka', [ 3, 4, 2, 5, 3 ] ),
+				seriesOf( 'tui-4', [ 5, 0, 0, 0, 5 ] ),
+			],
+		} );
+		const [ , band ] = bands( container );
+		expect( subpaths( band ) ).toBe( 1 );
 	} );
 } );
