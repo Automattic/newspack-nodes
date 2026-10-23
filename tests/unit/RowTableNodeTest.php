@@ -251,7 +251,7 @@ final class RowTableNodeTest extends TestCase {
 				return $t;
 			}, 'slots' ],
 			'a schema declaring no table'      => [ static fn (): array => [], 'no table' ],
-			'an add fold outside sum and max'  => [ static function ( array $t ): array {
+			'an add fold outside sum, max and min' => [ static function ( array $t ): array {
 				$t['tallies']['add']['n'] = 'avg';
 				return $t;
 			}, 'avg' ],
@@ -315,6 +315,15 @@ final class RowTableNodeTest extends TestCase {
 	public function test_the_wombat_tables_pass_as_the_lab_schema(): void {
 		$this->row_table( 'labs-3307', 'Lab' );
 		$this->assertFileExists( $this->base . '/tables/labs-3307.p3.sqlite' );
+	}
+
+	/** Every fold `Sqlite_Arm` answers passes the schema check, `min` among them. */
+	public function test_a_min_fold_passes_as_the_lab_schema(): void {
+		$tables                           = Wombat_Row_Schema::tables();
+		$tables['tallies']['add']['peak'] = 'min';
+		Lab_Row_Schema::$tables           = $tables;
+		$this->row_table( 'labs-3308', 'Lab' );
+		$this->assertFileExists( $this->base . '/tables/labs-3308.p3.sqlite' );
 	}
 
 	public function test_rows_by_message_answer_their_writer(): void {
