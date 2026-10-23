@@ -207,6 +207,52 @@ class NodeTest extends TestCase {
 		$this->assertStringNotContainsString( 'nonce', $buf );
 	}
 
+	/**
+	 * A TM_COMMAND VALUE naming no verb is still a command: it prints as an
+	 * empty verb and its arguments, never as its signing envelope or payload.
+	 */
+	public function test_drop_message_summarises_a_nameless_command(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'nameless' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [
+			'arguments' => [ 'mike-6693' ],
+			'payload'   => 'november-7704',
+			'auth'      => [
+				'nonce'  => 'oscar-8815-nonce',
+				'sig'    => 'papa-9926-sig',
+				'handle' => 'quebec-1037-handle',
+			],
+		];
+		$n->drop_message( $message, 'BAD_INPUT' );
+		$this->assertStringContainsString( "payload: '' mike-6693", $buf );
+		foreach ( [ 'november-7704', 'oscar-8815-nonce', 'papa-9926-sig', 'quebec-1037-handle' ] as $hidden ) {
+			$this->assertStringNotContainsString( $hidden, $buf );
+		}
+	}
+
+	/**
+	 * The tail prints at the end of the line and stays out of the throttle
+	 * key, so a varying tail collapses to one line naming the first.
+	 */
+	public function test_drop_message_tail_prints_but_does_not_key_the_throttle(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'tailed' );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_PING;
+		$message[ Message::FROM ] = 'romeo-2148';
+		$n->drop_message( $message, 'SAME_REASON', 'handle: sierra-3259' );
+		$n->drop_message( $message, 'SAME_REASON', 'handle: tango-4360' );
+		$this->assertSame( 1, \substr_count( $buf, 'SAME_REASON' ) );
+		$this->assertStringContainsString( 'WARNING: SAME_REASON - TM_PING from: romeo-2148 handle: sierra-3259', $buf );
+		$this->assertStringNotContainsString( 'tango-4360', $buf );
+	}
+
 	public function test_drop_message_redacts_secret_argument_tokens(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
@@ -297,18 +343,16 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_drop_message_renders_array_value_as_json(): void {
-		// Under the command protocol a TM_COMMAND VALUE is a live PHP array
-		// (`['name'=>,'arguments'=>,'payload'=>]`). A malformed command struct
-		// reaches drop_message with an ARRAY VALUE; the audit line must
-		// json-encode it for display rather than `(string)`-cast it (which
-		// triggers an "Array to string conversion" warning and prints
+		// A control message's VALUE may be a live PHP array; the audit line
+		// must json-encode it for display rather than `(string)`-cast it
+		// (which triggers an "Array to string conversion" warning and prints
 		// "payload: Array").
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::TYPE ]  = Message::TM_ERROR;
 		$message[ Message::VALUE ] = [ 'arguments' => 'nope' ];
 		$n->drop_message( $message, 'invalid command struct' );
 		$this->assertStringContainsString( 'payload: {"arguments":"nope"}', $buf );
@@ -325,7 +369,7 @@ class NodeTest extends TestCase {
 		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::TYPE ]  = Message::TM_ERROR;
 		$message[ Message::VALUE ] = [ 'sql' => "WHERE name = 'Caf\xE9'" ];
 		$n->drop_message( $message, 'invalid command struct' );
 		$this->assertStringContainsString( 'payload: {"sql":"WHERE name = \'Caf', $buf, 'the bad byte is substituted, not swallowed to an empty payload' );

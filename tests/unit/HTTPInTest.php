@@ -604,7 +604,10 @@ class HTTPInTest extends TestCase {
 		}
 	}
 
-	/** A refusal's reason still reaches the error log, which no caller reads. */
+	/**
+	 * A refusal's reason still reaches the error log, which no caller reads,
+	 * naming the live session's handle there and never its key.
+	 */
 	public function test_a_refusal_reason_reaches_the_error_log(): void {
 		$command = $this->seed_refusal_sessions();
 		$wrong   = $command( 'feed-wrong', 1790077460 );
@@ -618,9 +621,13 @@ class HTTPInTest extends TestCase {
 		$logged = (string) \file_get_contents( $log );
 		\unlink( $log );
 
-		$this->assertStringContainsString( 'verification failed: signature mismatch', $logged );
+		$handle = Core::as_string( $wrong[ Message::VALUE ]['auth']['handle'] );
+		$this->assertStringContainsString( "verification failed: signature mismatch - TM_COMMAND", $logged );
+		$this->assertStringContainsString( " handle: {$handle}\n", $logged );
 		$this->assertStringContainsString( 'from: _output/_http', $logged );
+		$this->assertStringNotContainsString( 'feed-key-7746-7746-7746-7746-7746', $logged );
 		$this->assertStringNotContainsString( 'verification failed', $body );
+		$this->assertStringNotContainsString( $handle, $body );
 	}
 
 	public function test_a_batch_with_one_refusal_answers_401(): void {

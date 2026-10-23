@@ -12,6 +12,7 @@ import {
 	TM_COMMAND,
 	TM_ERROR,
 	TM_REQUEST,
+	TM_RESPONSE,
 } from '../message';
 
 beforeEach( () => Core.reset() );
@@ -141,6 +142,49 @@ describe( 'Node.dropMessage', () => {
 		expect( line ).not.toContain( '0260049d4fd4bd46' );
 		expect( line ).not.toContain( 'e2e11111e2e22222' );
 		expect( line ).not.toContain( 'nonce' );
+	} );
+
+	it( 'prints a nameless command as an empty verb, never its envelope', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = {
+			arguments: [ 'mike-6693' ],
+			payload: 'november-7704',
+			auth: {
+				nonce: 'oscar-8815-nonce',
+				sig: 'papa-9926-sig',
+				handle: 'quebec-1037-handle',
+			},
+		};
+		n.dropMessage( m, 'BAD_INPUT' );
+		const line = spy.mock.calls[ 0 ].join( '' );
+		expect( line ).toContain( "payload: '' mike-6693" );
+		for ( const hidden of [
+			'november-7704',
+			'oscar-8815-nonce',
+			'papa-9926-sig',
+			'quebec-1037-handle',
+		] ) {
+			expect( line ).not.toContain( hidden );
+		}
+	} );
+
+	it( 'prints a nameless response whole, since no response is signed', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		m[ VALUE ] = { handle: 'uniform-5471', scope: 'tune' };
+		n.dropMessage( m, 'no sink' );
+		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain(
+			'payload: {"handle":"uniform-5471","scope":"tune"}'
+		);
 	} );
 
 	it( 'omits payload for a pure control type (TM_BYTESTREAM)', () => {

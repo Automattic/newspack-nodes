@@ -483,10 +483,15 @@ class Node {
 	 * Drop a message, leaving one rate-limited audit line that names its type
 	 * flags, FROM, TO and — for the four control types — its redacted payload.
 	 *
+	 * The throttle keys on $error alone. $tail prints last and stays out of
+	 * the key, so a caller can name a detail that varies per message without
+	 * multiplying the lines.
+	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @param string           $error   Reason; `NOT_AVAILABLE` prints unprefixed.
+	 * @param string           $tail    Detail printed after the payload; '' for none.
 	 */
-	public function drop_message( array $message, string $error ): void {
+	public function drop_message( array $message, string $error, string $tail = '' ): void {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = Core::num_int( $type_raw );
 		$labels   = Message::type_labels( $type );
@@ -505,12 +510,15 @@ class Node {
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
 			$redacted = self::redact_secrets( $value );
 			$shown    = ( $type & Message::TM_COMMAND )
-				? self::command_summary( $redacted )
+				? self::command_summary( $redacted, 0 === ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) )
 				: $redacted;
 			$value_str = \is_array( $shown )
 				? (string) \wp_json_encode( $shown, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )
 				: Core::as_string( $shown );
 			$parts[] = 'payload: ' . $value_str;
+		}
+		if ( '' !== $tail ) {
+			$parts[] = $tail;
 		}
 		$head = \array_shift( $parts );
 		$this->print_less_often( $head, ' ' . \implode( ' ', $parts ) );
@@ -535,17 +543,22 @@ class Node {
 	 * map yields its values, and a non-scalar yields ''. `commandSummary()` in
 	 * `src/runtime/node.js` prints the same line.
 	 *
-	 * @param mixed $value The redacted message VALUE.
+	 * A request's array VALUE naming no verb is summarised all the same, its
+	 * verb '', because a request is what carries the envelope; a response
+	 * naming none prints whole.
+	 *
+	 * @param mixed $value   The redacted message VALUE.
+	 * @param bool  $request Whether the message is a request, not a reply.
 	 * @return mixed `name arguments`, each token quoted by `serialize_args()`,
-	 *               for a command-shaped VALUE; else it unchanged.
+	 *               for a request's array VALUE or a named one; else it unchanged.
 	 */
-	private static function command_summary( mixed $value ): mixed {
-		if ( ! \is_array( $value ) || ! \array_key_exists( 'name', $value ) ) {
+	private static function command_summary( mixed $value, bool $request ): mixed {
+		if ( ! \is_array( $value ) || ( ! $request && ! \array_key_exists( 'name', $value ) ) ) {
 			return $value;
 		}
 		$arguments = \is_array( $value['arguments'] ?? null ) ? $value['arguments'] : [];
 		$tokens    = \array_map( static fn ( $token ): string => Core::as_string( $token ), \array_values( $arguments ) );
-		return self::serialize_args( [ Core::as_string( $value['name'] ), ...$tokens ] );
+		return self::serialize_args( [ Core::as_string( $value['name'] ?? '' ), ...$tokens ] );
 	}
 
 	/**

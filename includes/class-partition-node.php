@@ -405,7 +405,7 @@ class Partition_Node extends Timer_Node {
 		$max    = $this->record_cap();
 		$size   = \strlen( $record );
 		if ( $size > $max ) {
-			$this->drop_message( $message, "oversize: {$size} > {$max}" );
+			$this->drop_message( $message, 'oversize', "size: {$size} > {$max}" );
 			return;
 		}
 

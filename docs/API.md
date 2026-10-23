@@ -410,7 +410,14 @@ TO=FROM path, and the containing `/command` batch answers **401** instead of
 202 or 200 (see [Command Dispatch](#command-dispatch) below). The drop audit is
 the rate-limited line [`Node::drop_message()`](../includes/class-node.php) writes as `verification
 failed: …`, which goes to the PHP error log alone, never into the response, an
-SSE stream, a worker's IPC output or the `dmesg` ring. Every command the
+SSE stream, a worker's IPC output or the `dmesg` ring. When the command named a
+live site-wide session, the line ends `handle: <handle>`, so an operator can
+tell which client is misconfigured; it never carries the key, the signature,
+the nonce or the command's payload. The handle rides in the line's tail, outside
+the throttle key, so the log keeps one line per reason per process, so once per
+POST in the request scope, naming the first session refused for it, however
+many sessions a caller mints. A dead or
+grant handle is named nowhere. Every command the
 verifier judges and refuses — a wrong key, a stale or malformed envelope, a
 dead or grant handle — therefore answers the same bytes, naming neither the
 cause nor the process. An environment fault still reports to stderr, and so
