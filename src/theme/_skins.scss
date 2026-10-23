@@ -736,6 +736,9 @@ $not-newspack: "";
 
 // WordPress's admin color scheme hard-codes `a:hover`; these skins hover in
 // their accent. `body a` outranks it and stays under any two-class rule.
-:where(:root#{$not-newspack}) body :where(#{$skin-root}) a:is(:hover, :focus, :active) {
+:where(:root#{$not-newspack})
+	body
+	:where(#{$skin-root})
+	a:is(:hover, :focus, :active) {
 	color: var(--wp-admin-theme-color);
 }
