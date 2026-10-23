@@ -6,6 +6,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Admin::maybe_request_worker_restart()` is removed; a settings page
+  calls `Restart_Planner::listen( $schema )`.** Register it once where the
+  page's hooks are wired, with the plugin's `Config_System\Schema`, whose
+  prefix names its options, and delete any `added_option`, `updated_option` or
+  `deleted_option` listener of your own. Every change a request makes is
+  signalled once at `shutdown`, and a failure is a stderr line and an admin
+  notice rather than a raise out of `update_option()`. Raise the caller's
+  `version_at_least()` floor to this release.
 - **`Core::fire_and_forget_post()` returns `{ outcome, message }`.** Compare
   `outcome` with `Core::POST_DELIVERED`, `Core::POST_THROTTLED` or
   `Core::POST_FAILED` where a caller tested for a null error, and read the

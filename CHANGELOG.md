@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A wp-admin request signals the fleet once, for every setting it changed.** Each save or reset ran a full restart signal as its option row was written, so a Reset All of thirty settings parsed the topologies and wrote every lock dir thirty times, and a failure raised out of `update_option()` partway through, leaving the rest of the form or the reset undone. `Restart_Planner::listen( $schema )` now hears every option row a request adds, updates or deletes under the prefix a plugin's settings schema declares and runs one `plan()` at `shutdown` over all of them, merging their node types and letting any `'all'` win. A failure no longer stops the save: it is a stderr line naming the settings and an error notice on the saving user's next admin page ("Changed max_segments, segment_size, but the running workers were not told: …"); a Reset All showed none before. `Admin::maybe_request_worker_restart()` is removed; event-logger-nodes registers the same listener.
+
 ## [2.125.1] - 2026-10-23
 
 ### Fixed
