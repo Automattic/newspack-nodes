@@ -42,7 +42,7 @@ class Row_Table_Node extends Table_Node {
 	private const SCHEMA_WORD = '/^[A-Za-z][A-Za-z0-9_]*$/D';
 
 	/** A fold an `add` column may name; anything else would sum in silence. */
-	private const FOLD = '/^(sum|max)$/D';
+	private const FOLD = '/^(sum|max|min)$/D';
 
 	/** How a ROWS request is answered. */
 	private const ROWS_REPLY = 'one TM_RESPONSE "ROWS <rows written or folded>", or one TM_ERROR "ROWS: <why>", the batch rolled back';
@@ -203,7 +203,7 @@ class Row_Table_Node extends Table_Node {
 				self::refuse_schema( $word, "{$table} add folds {$column}, which its key holds" );
 			}
 			if ( 1 !== \preg_match( self::FOLD, $fold ) ) {
-				self::refuse_schema( $word, "{$table} add folds {$column} by {$fold}, not sum or max" );
+				self::refuse_schema( $word, "{$table} add folds {$column} by {$fold}, not sum, max or min" );
 			}
 		}
 		if ( null !== $auto && ! \str_starts_with( $columns[ $auto ], 'INTEGER' ) ) {
