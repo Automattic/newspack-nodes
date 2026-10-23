@@ -1060,38 +1060,55 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_delete_fires_restart_fleet_for_active_topology(): void {
-		// Symmetry with save: deleting a user override that shadows a stock copy
-		// must restart the fleet so the worker reloads the stock version.
+		// Symmetry with save: the deleted file ran, so its fleet restarts.
+		\file_put_contents( "{$this->user}/kiwi-41.tsl", "make_node Echo u\n" );
+		$fired = $this->record_restarts( 'kiwi-41' );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'delete', 'kiwi-41' );
+
+		$this->assertSame( [ 'kiwi-41' ], $result['restarted_fleets'] );
+		$this->assertSame( [ 'kiwi-41' ], $fired->getArrayCopy() );
+	}
+
+	/** A user file beside a stock copy never ran, so deleting it restarts nothing. */
+	public function test_delete_beside_a_stock_copy_restarts_nothing(): void {
 		\file_put_contents( "{$this->stock}/shadowed.tsl", "make_node Echo s\n" );
 		\file_put_contents( "{$this->user}/shadowed.tsl",  "make_node Echo u\n" );
+		$fired = $this->record_restarts( 'shadowed' );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'delete', 'shadowed' );
+
+		$this->assertSame( [], $result['restarted_fleets'] );
+		$this->assertSame( [], $fired->getArrayCopy() );
+	}
+
+	/**
+	 * Declare `$name` an active one-partition topology and record each
+	 * `newspack_nodes/restart_fleet` fired.
+	 *
+	 * @param string $name Topology name.
+	 * @return \ArrayObject<int,string> The fleets restarted, in order.
+	 */
+	private function record_restarts( string $name ): \ArrayObject {
 		\add_filter(
 			'newspack_nodes/topologies',
-			static function ( array $topologies ): array {
-				$topologies['shadowed'] = [
-					'topology'       => 'shadowed',
+			static function ( array $topologies ) use ( $name ): array {
+				$topologies[ $name ] = [
+					'topology'       => $name,
 					'num_partitions' => 1,
 					'stale_timeout'  => 60,
 				];
 				return $topologies;
 			}
 		);
-		$fired = [];
+		$fired = new \ArrayObject();
 		\add_action(
 			'newspack_nodes/restart_fleet',
-			static function ( string $name ) use ( &$fired ): void {
-				$fired[] = $name;
+			static function ( string $fleet ) use ( $fired ): void {
+				$fired[] = $fleet;
 			}
 		);
-
-		$result = VerbHarness::fire(
-			new Topologies_CI_Node(),
-			'topologies',
-			'delete',
-			'shadowed'
-		);
-
-		$this->assertSame( [ 'shadowed' ], $result['restarted_fleets'] );
-		$this->assertSame( [ 'shadowed' ], $fired );
+		return $fired;
 	}
 
 	public function test_delete_does_not_fire_restart_for_inactive_topology(): void {

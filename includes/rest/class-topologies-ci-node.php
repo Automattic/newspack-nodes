@@ -35,9 +35,9 @@
  *            outline per include the canvas draws). Informational — the runtime
  *            is the Shell's `include`. The console's edit-mode baseline.
  *   delete — args `{name}`. Returns `{name, deleted, pruned_active,
- *            restarted_fleets}`. User copy only (stock immutable); restarts the
- *            affected fleets (symmetry with save). When no stock copy resolves
- *            the name, prunes it from the active set
+ *            restarted_fleets}`. User copy only (stock immutable). When no stock
+ *            copy resolves the name, restarts the affected fleets (symmetry
+ *            with save) and prunes it from the active set
  *            (`newspack_nodes_topologies`); `pruned_active` reports whether it
  *            was present and removed.
  *   activate   — args `{name}`. Adds the name to the persisted active set
@@ -352,9 +352,10 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( "failed to unlink topology file: $path" )
 			);
 		}
-		// No stock copy resolves the name now: prune it from the active set.
-		$pruned = false;
-		if ( null === Topology_Registry::resolve( $name ) ) {
+		// A stock copy resolving the name ran all along: no prune, no restart.
+		$stock_resolves = null !== Topology_Registry::resolve( $name );
+		$pruned         = false;
+		if ( ! $stock_resolves ) {
 			$active = \array_values( \array_filter( (array) \get_option( 'newspack_nodes_topologies', [] ), '\is_string' ) );
 			$pruned = \in_array( $name, $active, true );
 			if ( $pruned ) {
@@ -367,7 +368,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 		Topology_Registry::reset_basename_cache();
 
 		// Symmetry with save: deleting a child changes its parents too.
-		$restarted = self::restart_affected_fleets( $name );
+		$restarted = $stock_resolves ? [] : self::restart_affected_fleets( $name );
 		if ( $pruned ) {
 			Topology_Registry::reload_live_workers();
 		}
