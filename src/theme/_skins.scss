@@ -1,5 +1,7 @@
+@use "sass:color";
 @use "sass:list";
 @use "sass:map";
+@use "sass:math";
 @use "sass:meta";
 
 $skin-root: ":is(.topology-app, .newspack-nodes-skin-root).newspack-nodes-theme";
@@ -694,6 +696,41 @@ $phosphor: (
 	--font-terminal: var(--font-mono);
 }
 
+@function color-channels($c) {
+	@return math.round(color.channel($c, "red", $space: rgb)),
+		math.round(color.channel($c, "green", $space: rgb)),
+		math.round(color.channel($c, "blue", $space: rgb));
+}
+
+// The skin that keeps WordPress's own accent; `DEFAULT_THEME` in theme.js.
+$default-skin: newspack;
+
+// WordPress paints its accent (a primary button, a focus ring) from the admin
+// theme color, so every skin but the default sets it.
+@each $slug, $tokens in $skins {
+	@if $default-skin != $slug {
+		$accent: map.get($tokens, cyan);
+		$darker: map.get($tokens, cyan-dark);
+		$d: color-channels(color.adjust($darker, $lightness: -5%, $space: hsl));
+		$darkest: rgb(list.nth($d, 1), list.nth($d, 2), list.nth($d, 3));
+		$theme: (
+			wp-admin-theme-color: $accent,
+			wp-admin-theme-color--rgb: color-channels($accent),
+			wp-admin-theme-color-darker-10: $darker,
+			wp-admin-theme-color-darker-10--rgb: color-channels($darker),
+			wp-admin-theme-color-darker-20: $darkest,
+			wp-admin-theme-color-darker-20--rgb: color-channels($darkest),
+		);
+		$skins: map.set($skins, $slug, map.merge($tokens, $theme));
+	}
+}
+
 @each $slug, $tokens in $skins {
 	@include emit-skin($slug, $tokens);
+}
+
+// WordPress's admin color scheme hard-codes `a:hover`; these skins hover in
+// their accent. `body a` outranks it and stays under any two-class rule.
+:where(:root:not(.theme-#{$default-skin})) body :where(#{$skin-root}) a:is(:hover, :focus, :active) {
+	color: var(--wp-admin-theme-color);
 }
