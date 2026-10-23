@@ -439,15 +439,19 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Register the substrate's OWN topologies. This class ships beside them, so
-	 * nothing needs to tell it where they are.
+	 * Register the substrate's OWN topologies and node namespaces, as
+	 * `register_plugin()` registers a consumer's. This class ships beside them,
+	 * so nothing needs to tell it where they are.
 	 *
 	 * The plugin file calls this at LOAD, where consumers register theirs,
 	 * rather than from `Bootstrap::ensure_runtime_wired()`: a frontend page view
 	 * never reaches the runtime tier, so a consumer topology registered at load
-	 * would resolve there while its `include topic-probe` did not.
+	 * would resolve there while its `include topic-probe` did not, and a
+	 * wp-admin save would classify its restart against no substrate node type.
 	 */
 	public static function register_builtin(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		self::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 	}
 

@@ -1160,8 +1160,8 @@ class Bootstrap {
 	}
 
 	/**
-	 * Wire the substrate runtime: the node-class namespaces `make_node` resolves
-	 * against, the `<config:…>` token namespace, the user topology directory,
+	 * Wire the substrate runtime: the `<config:…>` token namespace, the user
+	 * topology directory,
 	 * the substrate's own log-producer and segment-size filters, its
 	 * `newspack_nodes/vault/changed` subscribers, and the self-respawn token
 	 * provider.
@@ -1182,8 +1182,6 @@ class Bootstrap {
 		if ( self::$runtime_wired ) {
 			return;
 		}
-		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
-		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );

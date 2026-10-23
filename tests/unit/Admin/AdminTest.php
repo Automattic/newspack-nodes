@@ -595,6 +595,18 @@ class AdminTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/request-workers.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
+	public function test_resetting_max_segments_restarts_its_topologies(): void {
+		// A reset deletes the row, which fires deleted_option, not updated_option.
+		$this->register_fixture_topologies();
+		$this->prepare_lock_dir( 'combined', 0 );
+		$GLOBALS['_wp_actions'] = [];
+		new Admin();
+
+		\do_action( 'deleted_option', 'newspack_nodes_max_segments' );
+
+		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+	}
+
 	public function test_maybe_request_worker_restart_all_restarts_every_live_topology(): void {
 		// base_directory is 'all' → every active topology restarts.
 		$this->register_fixture_topologies();

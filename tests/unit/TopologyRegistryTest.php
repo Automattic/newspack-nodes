@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Rest\Settings_CI_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Base;
@@ -99,6 +102,20 @@ class TopologyRegistryTest extends TestCase {
 			'/topologies/topic-probe.tsl',
 			(string) Topology_Registry::resolve( 'topic-probe' )
 		);
+	}
+
+	/**
+	 * A wp-admin save classifies its restart by node type in a process that
+	 * only loaded the plugin, so the substrate's types resolve from load.
+	 */
+	public function test_register_builtin_makes_the_substrates_node_types_resolvable(): void {
+		( new \ReflectionProperty( Command_Interpreter_Node::class, 'namespaces' ) )->setValue( null, [] );
+		( new \ReflectionProperty( Command_Interpreter_Node::class, 'resolve_cache' ) )->setValue( null, [] );
+
+		Topology_Registry::register_builtin();
+
+		$this->assertSame( Partition_Node::class, Command_Interpreter_Node::resolve_class( 'Partition' ) );
+		$this->assertSame( Settings_CI_Node::class, Command_Interpreter_Node::resolve_class( 'Settings_CI' ) );
 	}
 
 	public function test_register_builtin_is_lowest_priority_so_consumers_override(): void {
