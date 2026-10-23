@@ -59,7 +59,7 @@ const LIST_INTERVAL_MS = 5000;
  * @param {(answer: SessionAnswer) => void} [o.onAnswer] Runs once per reply,
  *                                                       naming the row it was
  *                                                       about.
- * @return {{createSession: (fields: {label: string, scope: string, ttl: number}) => void, revoke: (id: string) => void, pendingVerb: (subject: ?string) => ?string, sessions: ?Object[], connections: ?Object[], scopes: string[], ttlMax: number, loading: boolean, error: ?string, refresh: () => void}}
+ * @return {{createSession: (fields: {label: string, scope: string, ttl: number}) => void, revoke: (id: string) => void, pendingVerb: (subject: ?string) => ?string, sessions: ?Object[], connections: ?Object[], scopes: Object<string, string>, ttlMax: number, loading: boolean, error: ?string, refresh: () => void}}
  *   The tables' model and the two verbs; each answer reaches the caller
  *   through `onAnswer`.
  */
@@ -121,7 +121,7 @@ export function useSessionsGraph( { onAnswer } = {} ) {
 		...list,
 		sessions: list.sessions ?? null,
 		connections: list.connections ?? null,
-		scopes: list.scopes ?? [],
+		scopes: list.scopes ?? {},
 		ttlMax: list.ttlMax ?? 0,
 		createSession,
 		revoke,

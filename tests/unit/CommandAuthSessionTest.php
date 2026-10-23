@@ -942,6 +942,25 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertSame( [], $this->session_handles() );
 	}
 
+	/**
+	 * A revoke landing between the bind's grant read and its member add reads
+	 * the members before this session joins them, so the mint must see the
+	 * grant gone itself: the session it wrote is revoked and nothing returns.
+	 */
+	public function test_a_grant_revoked_inside_its_bind_revokes_the_session_and_refuses(): void {
+		$grant = self::open_grant();
+		$this->db->before['INSERT INTO `wp_newspack_nodes_members`'] = static fn () => Oauth_Store::revoke_grant( $grant );
+
+		try {
+			Command_Auth::mint_grant_session( $grant );
+			$this->fail( 'a session minted during its grant\'s revoke must not be handed back' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertNotInstanceOf( Session_Store_Unavailable::class, $e );
+			$this->assertSame( "no live grant {$grant}; no session was minted for it", $e->getMessage() );
+		}
+		$this->assertSame( [], $this->session_handles(), 'the minted key verifies nowhere' );
+	}
+
 	public function test_a_bind_the_store_refuses_revokes_the_session_and_raises(): void {
 		$grant = self::open_grant();
 		$this->db->deny['INSERT INTO `wp_newspack_nodes_members`'] = 'Deadlock found 7746';

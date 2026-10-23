@@ -51,7 +51,9 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 *
 	 * `ttl_max` and `scopes` ride along so the Sessions tab draws its TTL bound
 	 * and its scope picker from the substrate's own constants; a second copy
-	 * in JavaScript drifts into offering a scope the mint refuses.
+	 * in JavaScript drifts into offering a scope the mint refuses. `scopes`
+	 * maps each scope to `Capabilities::label()`, the words the OAuth approval
+	 * page shows for it.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -60,7 +62,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 			'sessions'    => Sessions::listing(),
 			'connections' => Oauth_Store::grants(),
 			'ttl_max'     => Command_Auth::SESSION_TTL_MAX_S,
-			'scopes'      => Capabilities::LABELLED_SCOPES,
+			'scopes'      => \array_combine( Capabilities::LABELLED_SCOPES, \array_map( [ Capabilities::class, 'label' ], Capabilities::LABELLED_SCOPES ) ),
 		];
 	}
 

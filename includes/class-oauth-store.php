@@ -269,7 +269,8 @@ final class Oauth_Store {
 
 	/**
 	 * End a grant and every session it minted. The grant goes first, so no
-	 * refresh rotates while its sessions are revoked.
+	 * refresh rotates while its sessions are revoked, and a session minted
+	 * meanwhile finds the grant gone when `mint_grant_session()` reads it again.
 	 *
 	 * @param string $grant Grant id; one no grant could have is ignored.
 	 * @throws Session_Store_Unavailable When the store does not answer.

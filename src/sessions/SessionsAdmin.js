@@ -25,28 +25,6 @@ import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
 import './sessions-admin.scss';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
-/**
- * What each scope admits, in the operator's words rather than `Capabilities`'.
- *
- * Keyed by the scope names the `list` verb serves, which is where the picker
- * gets its options too. A scope added on the server therefore still reaches
- * the picker; it renders with an empty description until it is named here.
- */
-const SCOPE_BLURB = {
-	read: __(
-		'Dashboards and read-only verbs. Changes nothing.',
-		'newspack-nodes'
-	),
-	tune: __(
-		'Read, plus declared configuration and rules.',
-		'newspack-nodes'
-	),
-	manage: __(
-		'Everything, including the fleet and the vault.',
-		'newspack-nodes'
-	),
-};
-
 /** The scope the form preselects when the server lists it. */
 const DEFAULT_SCOPE = 'tune';
 
@@ -317,13 +295,13 @@ function ListTable( { className, columns, empty, rows } ) {
  * Success does not close the dialog. The parent swaps it for the key dialog,
  * because the create answer is the one place the key is disclosed.
  *
- * @param {Object}        props
- * @param {CreateHandler} props.onCreate Receives the validated fields.
- * @param {?Object}       props.answer   The answer for the submitted label, if any.
- * @param {boolean}       props.busy     Whether the create is outstanding.
- * @param {() => void}    props.onCancel Dismisses the modal.
- * @param {string[]}      props.scopes   Scope vocabulary from the view model.
- * @param {number}        props.ttlMax   Server-side TTL ceiling, in seconds.
+ * @param {Object}                 props
+ * @param {CreateHandler}          props.onCreate Receives the validated fields.
+ * @param {?Object}                props.answer   The answer for the submitted label, if any.
+ * @param {boolean}                props.busy     Whether the create is outstanding.
+ * @param {() => void}             props.onCancel Dismisses the modal.
+ * @param {Object<string, string>} props.scopes   Each scope the `list` verb serves, with its label.
+ * @param {number}                 props.ttlMax   Server-side TTL ceiling, in seconds.
  * @return {import('react').ReactElement} The dialog.
  */
 function CreateSessionModal( {
@@ -336,11 +314,10 @@ function CreateSessionModal( {
 } ) {
 	const [ label, setLabel ] = useState( '' );
 	const [ picked, setScope ] = useState( '' );
+	const names = Object.keys( scopes );
 	const scope =
 		picked ||
-		( scopes.includes( DEFAULT_SCOPE )
-			? DEFAULT_SCOPE
-			: scopes[ 0 ] ?? '' );
+		( names.includes( DEFAULT_SCOPE ) ? DEFAULT_SCOPE : names[ 0 ] ?? '' );
 	const [ ttl, setTtl ] = useState( String( DEFAULT_TTL_S ) );
 	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
@@ -410,15 +387,13 @@ function CreateSessionModal( {
 								value={ scope }
 								onChange={ ( e ) => setScope( e.target.value ) }
 							>
-								{ scopes.map( ( s ) => (
+								{ names.map( ( s ) => (
 									<option key={ s } value={ s }>
 										{ s }
 									</option>
 								) ) }
 							</select>
-							<p className="description">
-								{ SCOPE_BLURB[ scope ] }
-							</p>
+							<p className="description">{ scopes[ scope ] }</p>
 							<p className="description">
 								{ __(
 									'A scope is a ceiling: it can only subtract from what your own account may do.',

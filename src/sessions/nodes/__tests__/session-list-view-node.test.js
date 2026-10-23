@@ -1,6 +1,6 @@
 /**
  * `sessions:view` — the issued-session table slice. A `list` reply carries a
- * live `{ sessions:[], ttl_max, scopes:[] }` struct, already decoded; the view
+ * live `{ sessions:[], ttl_max, scopes:{} }` struct, already decoded; the view
  * flattens it into the render model the table reads. A TM_ERROR paints the
  * banner and keeps whatever rows are on screen.
  */
@@ -46,7 +46,11 @@ const SAMPLE = {
 		},
 	],
 	ttl_max: 86400,
-	scopes: [ 'read', 'tune', 'manage' ],
+	scopes: {
+		read: 'Kea read 4410',
+		tune: 'Kea tune 4410',
+		manage: 'Kea manage 4410',
+	},
 };
 
 function reply( payload, type = TM_COMMAND | TM_RESPONSE ) {
@@ -62,7 +66,7 @@ test( 'the empty slice loads with no rows', () => {
 	expect( view.view ).toEqual( {
 		sessions: null,
 		connections: null,
-		scopes: [],
+		scopes: {},
 		ttlMax: 0,
 		loading: true,
 		error: null,
@@ -76,10 +80,17 @@ test( 'a list reply publishes the rows, the scopes and the ttl ceiling', () => {
 	expect( view.view.sessions ).toHaveLength( 2 );
 	expect( view.view.sessions[ 0 ].label ).toBe( 'laptop mcp' );
 	expect( view.view.connections ).toEqual( SAMPLE.connections );
-	expect( view.view.scopes ).toEqual( [ 'read', 'tune', 'manage' ] );
+	expect( view.view.scopes ).toEqual( SAMPLE.scopes );
 	expect( view.view.ttlMax ).toBe( 86400 );
 	expect( view.view.loading ).toBe( false );
 	expect( view.view.error ).toBeNull();
+} );
+
+test( 'scopes served as a bare list offer none rather than unnamed ones', () => {
+	const view = makeView();
+	view.fill( reply( { ...SAMPLE, scopes: [ 'read', 'tune' ] } ) );
+
+	expect( view.view.scopes ).toEqual( {} );
 } );
 
 test( 'a reply missing either table keeps the prior slice', () => {
