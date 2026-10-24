@@ -2550,6 +2550,15 @@ partitions read through an 8 MiB cache each, a distinct-URL count across them to
 nearly all system time, and with both pragmas 5.6 s; event-logger-nodes' `overview` and `urls`
 answers take 19 s and 33 s with them against 99 s and 130 s without.
 
+**Amended 2026-10-24:** a table may declare `'keep' => true`, which opts it out of the guard
+that refuses a table nothing purges. A projection replaying a log that holds everything
+([ADR-37](#adr-37-a-partition-may-keep-every-segment)'s `keep_everything`) holds its tables
+forever too. A kept table purges no row, so nothing retains it and it releases nothing; the
+schema is refused when `keep` is any value but `true`, when it stands beside `retain` or
+`retained_by`, or when another table is `retained_by` it, since a kept table never deletes
+a row to release. A schema must still retain a table unless every table is kept. The
+disk a kept table holds grows without bound.
+
 A job may publish a file derived from the row tables; [ADR-35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) carries it.
 
 **Revisit if:** a Row_Table must be read from another host, or a site needs more than 8
