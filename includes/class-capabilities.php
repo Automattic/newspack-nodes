@@ -96,6 +96,18 @@ class Capabilities {
 	public static ?string $session_scope = null;
 
 	/**
+	 * Label of the command session in force, which a verb reads to name the
+	 * caller, or null for none. Written wherever `$session_scope` is written
+	 * from a session record: '' for a session minted without a label, null
+	 * for the per-site secret and on any refusal. `interpret()` restores what
+	 * stood before.
+	 *
+	 * @api A consuming plugin's verb reads it.
+	 * @var string|null
+	 */
+	public static ?string $session_label = null;
+
+	/**
 	 * The one authorisation gate, which `Command_Interpreter_Node::dispatch()`
 	 * puts in front of every verb: throw unless the command being handled may
 	 * run at $role (ADR-26). `interpret()` catches and wraps the refusal as

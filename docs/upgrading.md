@@ -6,6 +6,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Command_Auth::HANDLE_PATTERN` is an unanchored fragment.** It reads
+  `[0-9a-f]{32}`, beside the new `KEY_PATTERN`, so a caller matching a whole
+  handle writes `preg_match( '/^' . Command_Auth::HANDLE_PATTERN . '$/D', $id )`.
 - **`sessions revoke` takes `id`, not `handle`, and answers `{ id, revoked }`.**
   A caller naming the argument sends `--id=<handle>`; a positional caller
   changes nothing. Read `id` from the reply where it read `handle`. `wp nodes

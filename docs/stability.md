@@ -259,12 +259,15 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
     permission callback answers 403 instead of 500, and a `fill()` on the
     request path keeps [ADR-13](architecture-decisions.md#adr-13-fill-returns-nothing).
 
-    `$session_scope` and the `NONE` constant go with them: a consumer
-    authenticating its own credential installs the session's scope as a ceiling
-    for one command, as event-logger-nodes' [`MCP_Controller`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-mcp-controller.php) does, and NONE is
-    what a refusal installs. `highest_held()`, `scope_covers()` and
+    `$session_scope` and the `NONE` constant go with them: code authenticating
+    its own credential installs the session's scope as a ceiling for one
+    request, as [`Mcp_Door::check_permission()`](../includes/class-mcp-door.php)
+    does, and NONE is what a refusal installs. `highest_held()`, `scope_covers()` and
     `operator_list_excludes()` belong to the substrate and stay outside this
     contract.
+13. **The MCP door.** [`Mcp_Door`](../includes/class-mcp-door.php)'s six
+    abstract declarations and `wire()`
+    ([ADR-38](architecture-decisions.md#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server)).
 
 Not frozen: any class, method, JS module, dashboard markup, SCSS or option name
 absent from that list. The three `@newspack-nodes/*` build aliases — `runtime`,

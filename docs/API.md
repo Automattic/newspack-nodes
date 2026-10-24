@@ -404,7 +404,10 @@ matching, because the handle stays outside the signed string.
 
 The `/command` request process installs [`Command_Auth::verifier()`](../includes/class-command-auth.php) as every
 interpreter's authorize policy; the five checks, their order and the ceiling
-each outcome installs are in the diagram above. A refused command replies
+each outcome installs are in the diagram above. Beside the ceiling it
+installs `Capabilities::$session_label`: the session's label, `''` for a
+session minted without one, and null for the per-site secret or a refusal;
+`interpret()` restores both when the command ends. A refused command replies
 `TM_COMMAND|TM_ERROR` carrying `unauthorized: <verb>` through the normal
 TO=FROM path, and the containing `/command` batch answers **401** instead of
 202 or 200 (see [Command Dispatch](#command-dispatch) below). The drop audit is
@@ -562,6 +565,54 @@ minted. The answer is **200**:
 
 The registration route answers the same 503s, and both routes carry the error's
 description in `error_description`.
+
+## MCP doors
+
+An application serves an MCP server over verbs it already declares by
+subclassing [`Mcp_Door`](../includes/class-mcp-door.php) and calling `wire()`
+([ADR-38](architecture-decisions.md#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server)).
+The route sits under the application's own namespace, not `newspack-nodes/v1`:
+
+| Route | Method | Permission |
+|---|---|---|
+| `/<namespace>/mcp` | POST | The fleet site; a `Bearer <handle>.<key>` live session admitted at this door's resource; a per-session, per-door rate limit |
+
+`wire()` hooks three things: `register_routes()` on `rest_api_init`,
+`point_to_sign_in()` on `rest_post_dispatch`, and the door's `resource()` on
+[`newspack_nodes/oauth_resources`](#oauth-authorization-server). The resource is
+the route's REST URL over https, the host lowercased and no trailing slash.
+
+**Authentication.** `check_permission()` takes a command session, minted by hand
+or by an [OAuth grant](#oauth-authorization-server) for this door's resource; a
+grant session for another resource is refused. It signs in as the session's
+minting user and installs the session's scope as the request's ceiling, so a
+tool is listed and called only where `Capabilities::can()` admits the role its
+verb declares. It installs the session's label as `Capabilities::$session_label`,
+which a verb reads to name the caller: `''` for a session minted without one.
+Then, and only then, so an unauthenticated flood
+spends no slots, it claims one of `RATE_LIMIT_BURST` (20) slots named
+`mcp:<namespace>:<handle>` through `Rate_Limit`, an atomic `add()` on
+`Cache_Backend::shared_first()` under a `RATE_LIMIT_WINDOW_S` (10 s) TTL, which
+memcached frees 9 to 10 s after the claim and APCu 10 to 11 s.
+
+| Status | `code` | When |
+|---|---|---|
+| 401 | `mcp_unauthorized` | No credential, a session unknown or expired, a wrong key, or a session issued for another resource; the response carries `WWW-Authenticate: Bearer resource_metadata="<url>"`, which names where to sign in |
+| 403 | `newspack_nodes_not_fleet_site` | A multisite subsite |
+| 429 | `rate_limited` | The session spent this door's budget |
+| 503 | `rate_limit_unavailable` | Neither memcached nor APCu can meter the call |
+
+**Protocol.** One POST carries JSON-RPC 2.0, MCP revision `2025-06-18`:
+`initialize`, `tools/list` and `tools/call`. A message with no `id` is a
+notification and is answered with a bodiless 202; a body that is not JSON-RPC
+2.0 answers `-32600` with a null id, and an unknown method or a tool the session
+may not call answers `-32601`. A tool's argument object rides to its verb as
+`--name=value` tokens, a list as one token a member, and a verb's refusal comes
+back as a tool result with `isError` true. Every reply leaves as JSON encoded
+with `JSON_HEX_TAG` inside one `<site-data>` fence, so a payload cannot close
+the tag, and `initialize` serves `FENCE_NOTE`, the sentence saying what the tag
+means, ahead of the door's own instructions and its caveat. The server's
+methods are `final`; a door declares, it does not override.
 
 ## Command Dispatch
 

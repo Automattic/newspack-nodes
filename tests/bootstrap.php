@@ -97,6 +97,9 @@ require_once __DIR__ . '/Helpers/CacheBackendContract.php';
 require_once __DIR__ . '/Helpers/DurableArmContract.php';
 require_once __DIR__ . '/Helpers/OauthStoreContract.php';
 require_once __DIR__ . '/Helpers/TopologyDurability.php';
+require_once __DIR__ . '/Helpers/McpRequests.php';
+require_once __DIR__ . '/Helpers/FixtureMcpCiNode.php';
+require_once __DIR__ . '/Helpers/FixtureMcpDoor.php';
 
 // Capture the shared fire-and-forget POSTs (spawn fan-out AND
 // Worker_Base self-respawn) without actually hitting libcurl. `Core::$curl_exec`

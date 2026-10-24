@@ -205,6 +205,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		// leave every later test's Capabilities::can() answering false.
 		if ( \class_exists( '\Newspack_Nodes\Capabilities' ) ) {
 			\Newspack_Nodes\Capabilities::$session_scope = null;
+			\Newspack_Nodes\Capabilities::$session_label = null;
 		}
 		// A remembered session outlives its test and signs the next one's probes.
 		if ( \class_exists( '\Newspack_Nodes\Command_Auth', false ) ) {
