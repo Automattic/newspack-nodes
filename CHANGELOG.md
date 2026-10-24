@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The Newspack chart palette no longer has two grey steps or near-twin neighbours.** `--np-chart-1` … `--np-chart-8` are Cobalt 400, Emerald 800, Cobalt 300, Error 500, Amber 600, Emerald 900, Emerald 600 and Amber 900, where Cobalt 200 and Morganite 700 read grey and adjacent steps sat too close. Neighbours in the fixed order are distinct, each at least 2.5:1 on Surface Subtle and 3:1 on `crt-color`'s paper and canvas, and slot 4 stays red for the worker-status backlog segment. A series that hashes to a slot by name can still share it with another name; a chart that must tell such series apart takes free slots itself.
+
+### Added
+- **`chartColorFor( name )` and `nameHash( name )`** in `useTimeChart` give an entity one chart color from its name; the topology hulls hash through `nameHash` too.
+
+### Fixed
+- **`/` in the REPL no longer reaches the page behind it.** The console's `/` shortcut listened on `document`, beside the search-focus listeners of the pages under the debug overlay, so one keystroke focused the REPL and jumped each page to its search input. It now claims `/` on `window` in the capture phase and stops the event there; a `/` typed in an input, textarea, select or editable is left alone.
+
 ## [2.127.2] - 2026-10-23
 
 ### Fixed

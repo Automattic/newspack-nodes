@@ -35,6 +35,7 @@ import {
 	clipSegmentExit,
 } from '../utils/viewportCull';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
+import { nameHash } from '../../shared/hooks/useTimeChart';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
@@ -90,11 +91,7 @@ const HULL_COLORS = 6;
  * @return {number} An index in `[0, HULL_COLORS)`.
  */
 function hullColorIndex( include ) {
-	let h = 0;
-	for ( let i = 0; i < include.length; i++ ) {
-		h = ( h * 31 + include.charCodeAt( i ) ) >>> 0;
-	}
-	return h % HULL_COLORS;
+	return nameHash( include ) % HULL_COLORS;
 }
 
 /**

@@ -103,7 +103,7 @@ export const PALETTE = [
 ];
 
 /** How many `--chart-*` tokens a skin declares. */
-const SKIN_COLORS = 8;
+export const SKIN_COLORS = 8;
 
 /**
  * The colour a series takes from its rank: the skin's `--chart-N` token, with
@@ -127,6 +127,29 @@ export const chartColor = ( index ) =>
 		index,
 		PALETTE[ index % PALETTE.length ]
 	);
+
+/**
+ * A name's stable integer: the x31 hash of its code points, unsigned 32-bit.
+ *
+ * @param {string} name Any entity name.
+ * @return {number} A non-negative integer that holds still for the name.
+ */
+export const nameHash = ( name ) => {
+	let hash = 0;
+	for ( const char of name ) {
+		hash = ( hash * 31 + char.codePointAt( 0 ) ) >>> 0;
+	}
+	return hash;
+};
+
+/**
+ * The series colour a name hashes to, so an entity keeps one colour in every
+ * view and at every rank.
+ *
+ * @param {string} name The entity's name.
+ * @return {string} A CSS colour value.
+ */
+export const chartColorFor = ( name ) => chartColor( nameHash( name ) );
 
 /**
  * Build the five-minute slots a chart's time axis is drawn over.
