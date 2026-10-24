@@ -125,17 +125,15 @@ return \array_merge( parent::node_schema(), [
 ] );
 ```
 
-and the digest its `RESET` / `REGENERATE` requests (`newspack-intelligence/includes/class-digest-builder-node.php`):
+and the reresolver its `RERESOLVE` request (`newspack-intelligence/includes/class-reresolver-node.php`):
 
 ```php
 'requests'     => [
 	[
-		'name'        => 'RESET',
-		'description' => 'Zero the collection counter (the dashboard Collect sends this before TICKing sources). `total` comes from the make_node argument, not this request.',
-	],
-	[
-		'name'        => 'REGENERATE',
-		'description' => 'Compose a new draft based on the items already collected.',
+		'name'        => 'RERESOLVE',
+		'description' => 'Re-resolve every item dated in a range of UTC days: RERESOLVE <since Y-m-d> <until Y-m-d>.',
+		'reply_shape' => '{ since, until } or { refused }',
+		'handler'     => static fn ( self $node ): array => $node->queue_range(),
 	],
 ],
 ```
@@ -424,9 +422,9 @@ That api-fetch mapper is there for a second reason, and it is the one the resolu
 
 **Restart workers after deploy.** Otherwise the running worker process holds the old class until it recycles, which is [`Cooperative_Stop::DEFAULT_MAX_RUNTIME`](../includes/trait-cooperative-stop.php) — 595 seconds — away. `wp nodes restart all` makes the new node code live now.
 
-**The `_Demo` suffix is a deconfliction tactic, not decoration.** The in-repo teaching example (`examples/example-ai-newsletter/`) names its classes `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, `Releases_Source_Demo_Node`, … while the real plugin uses bare `Scorer_Node`, `Insights_CI_Node`, and so on. Both can be active at once, and §1's catalog scans *every* registered namespace — so without the suffix the toy's `Scorer` and the real plugin's `Scorer` would collide on one palette tile and one inspector lookup (`shell_name === 'Scorer'` matching two classes). The `_Demo` suffix gives the example its own `Scorer_Demo` shell name, keeping the two pipelines distinct in the one shared catalog. If you ship an example alongside a real plugin, suffix the example.
+**The `_Demo` suffix is a deconfliction tactic, not decoration.** The in-repo teaching example (`examples/example-ai-newsletter/`) names its classes `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, `Releases_Source_Demo_Node`, … rather than the bare `Scorer_Node` its walkthrough teaches. It can be active beside any real plugin, and §1's catalog scans *every* registered namespace — so without the suffix the toy's `Scorer` and a real plugin's `Scorer` would collide on one palette tile and one inspector lookup (`shell_name === 'Scorer'` matching two classes). The `_Demo` suffix gives the example its own `Scorer_Demo` shell name, keeping the two pipelines distinct in the one shared catalog. If you ship an example alongside a real plugin, suffix the example.
 
-The rule stops at PHP. The example registers its three JS views under `SourceCountsView`, `TopTableView` and `AccumulatedView` — the same three names `newspack-intelligence` registers, unsuffixed, over different empty models — and they cannot collide, because `CommandInterpreterNode.includeNodes` is a per-bundle static ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)) that the `@newspack-nodes/runtime` alias inlines afresh into every bundle: a name resolves only through the interpreter its own bundle mounted. Suffix the PHP classes and leave the view names alone.
+The rule stops at PHP. The example registers its three JS views under `SourceCountsView`, `TopTableView` and `AccumulatedView`, unsuffixed, and they cannot collide with a real plugin's views of the same names, because `CommandInterpreterNode.includeNodes` is a per-bundle static ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)) that the `@newspack-nodes/runtime` alias inlines afresh into every bundle: a name resolves only through the interpreter its own bundle mounted. Suffix the PHP classes and leave the view names alone.
 
 ### What `@newspack-nodes/shared` holds
 

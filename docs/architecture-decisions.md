@@ -864,7 +864,7 @@ one carrying a failure, or any stop outside a `deferring()` bracket — leaves t
 in-flight record, so the successor restores a state that may already hold it and replays it on
 top. The current nodes meet this three ways: `Flame_Builder_Node` skips a record whose crumb
 matches its saved `$counted`, `Request_Builder_Node` drops a line whose sequence number it
-already folded, and newspack-intelligence's `Digest_Builder_Node` skips an item its `seen` map
+already folded, and newspack-intelligence's `Deduper_Node` never places again an item its LRU
 already holds.
 
 ---
@@ -1548,8 +1548,8 @@ at which point a stamp and a worker id can no longer be told apart by position.
 
 **Context:** TM_REQUEST is the runtime plane: a trigger or a query against a running graph.
 A request may mutate — the example plugin's `TICK` emits items and its `FLUSH` writes a
-draft, and intelligence's `RESET` appends a fence to its ingest Partition, on whose return the
-digest empties its items, and `REGENERATE` composes a new draft. Nothing verifies a request. `HTTP_In` installs its HMAC verifier as every interpreter's
+draft, and intelligence's `RERESOLVE` queues every stored item dated in a range of days for
+re-resolution. Nothing verifies a request. `HTTP_In` installs its HMAC verifier as every interpreter's
 default `authorize`, which `Command_Interpreter_Node::interpret()` calls for a TM_COMMAND alone, and
 `Message::packed()` slices `Message::LOCAL` off, so no taint survives an IPC hop
 ([ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs)). The authority for a
@@ -1558,9 +1558,9 @@ mutating request has to live somewhere else.
 **Decision:** From outside a worker, a request reaches the worker's nodes only through that
 worker's input Partition, and two things write there. `Bootstrap::register_worker_partition()`
 mounts it into a request graph, and every verb reaching that call declares MANAGE:
-`topologies connect_worker_input`, and intelligence's `insights generate` and
-`insights collect`, each by declaring no capability, which `dispatch()` holds at MANAGE
-([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)).
+`topologies connect_worker_input`, by declaring no capability, which `dispatch()` holds at
+MANAGE ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), and
+intelligence's `intelligence fetch_now`, by declaring MANAGE.
 The request graph is built per request, so a POST that does not mount the worker gets
 `NOT_AVAILABLE` from the Router. An attached `wp nodes cli` appends to the same Partition
 with the site's own filesystem authority, and refuses to run as root. That mount is the

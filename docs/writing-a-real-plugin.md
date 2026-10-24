@@ -15,7 +15,7 @@ The shape is unchanged — three sources fan into a durable `ingest` partition, 
 
 > **The one thing to hold onto (still):** every node has one entry point, `fill( array $message ): void`. Nothing below changes that. The real connectors are *more code* than the toy, but they're the same node — they still mint a `TM_STRUCT` per item and forward to their sink. Everything new lives behind `fetch()`, which `fill()` calls and the graph never sees.
 
-The finished code is in the sibling [`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence) repo. Read along, or diff it against the toy.
+The finished code is the sibling [`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence/tree/v0.9.12) repo at its `v0.9.12` tag, the digest pipeline this guide walks; the plugin's later releases build an entity graph on the same source nodes. Every topology, class and marker below is that tag's: the summarizer, scorer, digest builder, `DONE` and `Insights_CI` are gone at HEAD. Read along, or diff it against the toy.
 
 ---
 
@@ -422,7 +422,7 @@ That one line is `add_repo`, which appends its trimmed argument to `$repos`, tak
 
 You set these in the topology console, or as `cmd <node>:config …` lines in the `.tsl` (shown in §5). Because every verb also round-trips through `dump_config()`, the console can serialize a live graph back to a topology that re-applies each verb in order. `config_line()` writes the canonical spelling, `command_node`; `cmd` and `command` are its aliases, and the shipped `.tsl` files use `cmd`.
 
-> **The React dashboard is separate.** The Vault tab is *credentials in*. The **Publisher Insights** dashboard (the React mount on its own admin menu, served by `Insights_CI`) is *insights out* — and it's a whole other build story (the `@newspack-nodes/shared` alias, esbuild, jest). That's [writing-a-real-dashboard.md](writing-a-real-dashboard.md), not this guide. This guide stops at a headless, Vault-fed pipeline.
+> **The React dashboard is separate.** The Vault tab is *credentials in*. The **Publisher Insights** dashboard `v0.9.12` ships (the React mount on its own admin menu, served by `Insights_CI`) is *insights out* — and it's a whole other build story (the `@newspack-nodes/shared` alias, esbuild, jest). That's [writing-a-real-dashboard.md](writing-a-real-dashboard.md), not this guide. This guide stops at a headless, Vault-fed pipeline.
 
 ---
 
@@ -623,4 +623,4 @@ That was the short hop the toy guide promised: `items()` becomes `fetch()`. It t
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the toy Publisher Insights React dashboard walkthrough.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, fleet revival, the REPL.
 - **[architecture-decisions.md](architecture-decisions.md)** — the seven ADRs this guide leans on (ADR-1 uniform `fill()`, ADR-3 fire-and-forget, ADR-4 PIPE_BUF, ADR-8 worker zombie, ADR-10 `make_node` namespace resolution, ADR-11 `make_node` construction, ADR-19 declared destinations).
-- **[`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence)** — the complete production plugin: `includes/`, the aggregator and four stage `.tsl` files under `topologies/`, the PHPUnit suite.
+- **[`newspack-intelligence` at `v0.9.12`](https://github.com/Automattic/newspack-intelligence/tree/v0.9.12)** — the production plugin at the tag this guide walks: `includes/`, the aggregator and four stage `.tsl` files under `topologies/`, the PHPUnit suite.

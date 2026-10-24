@@ -4,9 +4,8 @@
  * Publisher Insights dashboard's `top` slice ranks by that field; the digest carries it
  * along without reading it.
  *
- * The `_Demo` suffix keeps the shell name `Scorer_Demo` clear of the bare `Scorer` that
- * newspack-intelligence's `Scorer_Node` claims, and both plugins can be active in one
- * WordPress. `make_node` resolves a type through the first registered namespace holding a
+ * The `_Demo` suffix keeps the shell name `Scorer_Demo` clear of a bare `Scorer` that a
+ * real plugin active in the same WordPress may claim. `make_node` resolves a type through the first registered namespace holding a
  * `{$type}_Node`, so one shared name would hand both topologies whichever plugin
  * registered first.
  *

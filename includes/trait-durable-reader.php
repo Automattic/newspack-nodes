@@ -1173,7 +1173,7 @@ trait Durable_Reader {
 	 * on top. The current nodes meet this three ways: Flame_Builder skips a
 	 * record whose crumb matches its saved `$counted`, Request_Builder drops a
 	 * line whose sequence number it already folded, and intelligence's
-	 * Digest_Builder skips an item its `seen` map already holds.
+	 * Deduper never places again an item its LRU already holds.
 	 *
 	 * @param string $name Node whose save_state() co-commits; a repeat is ignored.
 	 */
