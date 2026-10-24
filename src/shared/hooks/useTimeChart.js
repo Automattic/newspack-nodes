@@ -143,15 +143,6 @@ export const nameHash = ( name ) => {
 };
 
 /**
- * The series colour a name hashes to, so an entity keeps one colour in every
- * view and at every rank.
- *
- * @param {string} name The entity's name.
- * @return {string} A CSS colour value.
- */
-export const chartColorFor = ( name ) => chartColor( nameHash( name ) );
-
-/**
  * Build the five-minute slots a chart's time axis is drawn over.
  *
  * Each slot carries both readings of one bucket. `date` is local wall clock,

@@ -15,7 +15,6 @@ import {
 	MARGIN,
 	PALETTE,
 	chartColor,
-	chartColorFor,
 	nameHash,
 	buildTimeSlots,
 	formatXTick,
@@ -117,19 +116,9 @@ describe( 'useTimeChart constants', () => {
 		expect( chartColor( 21 ) ).toBe( `var(--chart-6, ${ PALETTE[ 1 ] })` );
 	} );
 
-	it( 'chartColorFor keeps a name on the slot its x31 code-point hash picks', () => {
-		// 2742362268 and 2742362269 mod 8 are 4 and 5, worked by hand.
+	it( 'nameHash is the x31 hash of the code points, unsigned 32-bit', () => {
 		expect( nameHash( 'kea-7713-a' ) ).toBe( 2742362268 );
 		expect( nameHash( 'kea-7713-b' ) ).toBe( 2742362269 );
-		expect( chartColorFor( 'kea-7713-a' ) ).toBe(
-			`var(--chart-5, ${ PALETTE[ 8 ] })`
-		);
-		expect( chartColorFor( 'kea-7713-b' ) ).toBe(
-			`var(--chart-6, ${ PALETTE[ 9 ] })`
-		);
-		expect( chartColorFor( 'kea-7713-a' ) ).toBe(
-			chartColorFor( 'kea-7713-a' )
-		);
 	} );
 } );
 
