@@ -332,6 +332,7 @@ class HealthChecksTest extends TestCase {
 			}
 		};
 
+		$this->sessions_on_wpdb();
 		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
 
 		$this->assertSame( 'The wpdb Tables could not be probed: [1045] Access denied for user', $row['messages'][0] ?? null );
@@ -340,6 +341,7 @@ class HealthChecksTest extends TestCase {
 	/** A probe that cannot run says so in its own row rather than throwing. */
 	public function test_a_schema_probe_that_cannot_run_is_recommended_naming_why(): void {
 		$GLOBALS['wpdb'] = null;
+		$this->sessions_on_wpdb();
 
 		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
 
@@ -348,18 +350,34 @@ class HealthChecksTest extends TestCase {
 	}
 
 	/**
-	 * The schema option records that a wpdb Table installed the shared
-	 * tables. Without it nothing uses them, so their absence reports nothing.
+	 * While sessions are on SQLite and no active topology declares a wpdb
+	 * Table, nothing uses the shared tables, so their absence reports
+	 * nothing, the install record notwithstanding.
 	 */
-	public function test_absent_tables_nothing_installed_report_no_schema_row(): void {
+	public function test_absent_tables_nothing_uses_report_no_schema_row(): void {
 		$db              = $this->use_wpdb();
 		$db->base_prefix = 'owl6_';
 		\Newspack_Nodes\Wpdb_Arm::install();
 		$db->query( 'DROP TABLE `owl6_newspack_nodes_table`' );
 		$db->query( 'DROP TABLE `owl6_newspack_nodes_members`' );
-		\delete_option( \Newspack_Nodes\Wpdb_Arm::SCHEMA_OPTION );
+		$this->table_topology( 'sqlite' );
 
+		$this->assertNotFalse( \get_option( \Newspack_Nodes\Wpdb_Arm::SCHEMA_OPTION ) );
 		$this->assertNotContains( 'wpdb-schema', \array_column( Health_Checks::evaluate( $this->good_runtime_results() ), 'id' ) );
+	}
+
+	/** Tables that answer report nothing while in use. */
+	public function test_answering_tables_in_use_report_no_schema_row(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'owl8_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$this->table_topology( 'wpdb' );
+		$db->sent = [];
+
+		$ids = \array_column( Health_Checks::evaluate( $this->good_runtime_results() ), 'id' );
+
+		$this->assertNotEmpty( \array_filter( $db->sent, static fn ( string $q ): bool => \str_contains( $q, 'owl8_newspack_nodes_members' ) ) );
+		$this->assertNotContains( 'wpdb-schema', $ids );
 	}
 
 	/** A table that does not answer is critical, and the row names it. */
@@ -368,6 +386,7 @@ class HealthChecksTest extends TestCase {
 		$db->base_prefix = 'owl3_';
 		\Newspack_Nodes\Wpdb_Arm::install();
 		$db->query( 'DROP TABLE `owl3_newspack_nodes_members`' );
+		$this->sessions_on_wpdb();
 
 		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
 
@@ -375,18 +394,23 @@ class HealthChecksTest extends TestCase {
 		$this->assertStringContainsString( 'owl3_newspack_nodes_members', $row['messages'][0] );
 	}
 
-	/** Sessions fail with the tables only while they live on wpdb. */
+	/**
+	 * An active topology's wpdb Table puts the tables in use; sessions fail
+	 * with them only while they live on wpdb.
+	 */
 	public function test_a_missing_shared_table_names_command_sessions_only_on_the_wpdb_backend(): void {
 		$db              = $this->use_wpdb();
 		$db->base_prefix = 'owl5_';
 		\Newspack_Nodes\Wpdb_Arm::install();
 		$db->query( 'DROP TABLE `owl5_newspack_nodes_members`' );
 
-		$sqlite = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema']['messages'][0] ?? '';
-		$GLOBALS['_wp_options']['newspack_nodes_sessions_backend'] = 'wpdb';
-		\Newspack_Nodes\Config::reset();
+		$this->table_topology( 'wpdb' );
+		$row    = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? [];
+		$sqlite = $row['messages'][0] ?? '';
+		$this->sessions_on_wpdb();
 		$wpdb = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema']['messages'][0] ?? '';
 
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] ?? null );
 		$this->assertStringContainsString( 'so every wpdb Table fails.', $sqlite );
 		$this->assertStringNotContainsString( 'command sessions', $sqlite );
 		$this->assertStringContainsString( 'so command sessions and every wpdb Table fail.', $wpdb );
@@ -399,6 +423,7 @@ class HealthChecksTest extends TestCase {
 		\Newspack_Nodes\Wpdb_Arm::install();
 		$db->deny['SELECT 1 FROM'] = "Table 'kea_db.owl4_newspack_nodes_members' doesn't exist";
 		\Newspack_Nodes\Driver_Error::$errno = static fn (): int => 1146;
+		$this->sessions_on_wpdb();
 
 		try {
 			$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
@@ -408,6 +433,52 @@ class HealthChecksTest extends TestCase {
 
 		$this->assertStringContainsString( 'The wpdb Tables owl4_newspack_nodes_table and owl4_newspack_nodes_members do not answer ([1146] Table)', $row['messages'][0] ?? '' );
 		$this->assertStringNotContainsString( 'kea_db', $row['messages'][0] ?? '' );
+	}
+
+	/** A Table that will not resolve cannot hide a wpdb Table beside it. */
+	public function test_an_unresolvable_table_beside_a_wpdb_table_still_probes(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'owl9_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$db->query( 'DROP TABLE `owl9_newspack_nodes_members`' );
+		$this->activate_topologies(
+			[
+				'kea-broken-7713' => "make_node Table moa-7714 moa:p{partition} <config:kea_missing_7713> sqlite\n",
+				'kea-wpdb-7713'   => "make_node Table kea-7713 kea:p{partition} 37 wpdb\n",
+			]
+		);
+
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
+
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] ?? null );
+		$this->assertStringContainsString( 'so every wpdb Table fails.', $row['messages'][0] ?? '' );
+	}
+
+	/** Use that cannot be settled is its own recommended row, not a failed probe. */
+	public function test_only_an_unresolvable_table_reports_use_could_not_be_told(): void {
+		$this->activate_topologies( [ 'kea-broken-7713' => "make_node Table moa-7714 moa:p{partition} <config:kea_missing_7713> sqlite\n" ] );
+
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
+
+		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $row['status'] ?? null );
+		$this->assertStringStartsWith( 'Could not tell whether anything uses the wpdb Tables', $row['messages'][0] ?? '' );
+	}
+
+	/** A bad sessions backend value is a use that cannot be told too. */
+	public function test_a_bad_sessions_backend_reports_use_could_not_be_told(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_sessions_backend'] = 'kea-7713';
+		\Newspack_Nodes\Config::reset();
+
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
+
+		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $row['status'] ?? null );
+		$this->assertStringStartsWith( 'Could not tell whether anything uses the wpdb Tables', $row['messages'][0] ?? '' );
+		$this->assertStringContainsString( 'kea-7713', $row['messages'][0] ?? '' );
+	}
+
+	/** Activate one topology declaring a keyed Table on `$backend`. */
+	private function table_topology( string $backend ): void {
+		$this->activate_topologies( [ "kea-{$backend}-7713" => "make_node Table kea-7713 kea:p{partition} 37 {$backend}\n" ] );
 	}
 
 	/** No hold, no row — the check is a reminder, not a permanent status line. */
@@ -921,6 +992,7 @@ class HealthChecksTest extends TestCase {
 				throw new \Newspack_Nodes\Worker_Should_Stop( 'schema stop 7731' );
 			}
 		};
+		$this->sessions_on_wpdb();
 
 		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
 		$this->expectExceptionMessage( 'schema stop 7731' );

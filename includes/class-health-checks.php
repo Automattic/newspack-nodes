@@ -99,9 +99,9 @@ final class Health_Checks {
 
 	/**
 	 * Evaluate the ordered health report: nine results, plus `wpdb-schema`
-	 * while a shared wpdb table does not answer, plus `fleet-hold` while a
-	 * deploy hold stands, plus `other-alerts` when an alert declares a family
-	 * this class does not bucket.
+	 * while a shared wpdb table that something uses does not answer, plus
+	 * `fleet-hold` while a deploy hold stands, plus `other-alerts` when an
+	 * alert declares a family this class does not bucket.
 	 *
 	 * The base directory resolves once here, and its refusal is caught rather
 	 * than propagated: `filesystem()` and `ownership()` are the two checks that
@@ -177,16 +177,24 @@ final class Health_Checks {
 	/**
 	 * The shared wpdb tables, when one does not answer. Read live, one
 	 * statement over both, so the row reflects the tables rather than a
-	 * record of the last install. Absent while both answer, and while no
-	 * wpdb Table has installed them, since nothing then uses them; critical
-	 * when one does not answer, because every wpdb Table then fails, command
-	 * sessions too while `sessions_backend` is `wpdb`.
+	 * record of the last install. Absent while both answer, and while
+	 * `wpdb_in_use()` finds nothing using them. Recommended when use cannot be
+	 * told or the probe cannot run. Critical when one does not
+	 * answer, because every wpdb Table then fails, command sessions too while
+	 * `sessions_backend` is `wpdb`.
 	 *
 	 * @return list<HealthResult>
 	 */
 	private static function wpdb_schema(): array {
-		if ( false === \get_option( Wpdb_Arm::SCHEMA_OPTION ) ) {
-			return [];
+		try {
+			$sessions = 'wpdb' === Command_Auth::sessions_backend();
+			if ( ! $sessions && ! self::wpdb_in_use() ) {
+				return [];
+			}
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			return [ self::result( 'wpdb-schema', 'Database tables', self::STATUS_RECOMMENDED, 'Could not tell whether anything uses the wpdb Tables: ' . Driver_Error::of( $e ) ) ];
 		}
 		try {
 			$error = Wpdb_Arm::unavailable();
@@ -198,7 +206,7 @@ final class Health_Checks {
 		if ( '' === $error ) {
 			return [];
 		}
-		$fails = 'wpdb' === Config::value( 'sessions_backend' ) ? 'command sessions and every wpdb Table fail' : 'every wpdb Table fails';
+		$fails = $sessions ? 'command sessions and every wpdb Table fail' : 'every wpdb Table fails';
 		return [
 			self::result(
 				'wpdb-schema',
@@ -209,6 +217,39 @@ final class Health_Checks {
 					. 'database user CREATE if that install is refused.'
 			),
 		];
+	}
+
+	/**
+	 * Whether a keyed Table of an active readable topology resolves to the
+	 * shared wpdb tables. The caller checks command sessions itself. A name
+	 * that will not resolve is skipped unless no name resolves to wpdb.
+	 *
+	 * @throws \Throwable The first resolution failure, when no name resolves to wpdb.
+	 */
+	private static function wpdb_in_use(): bool {
+		[ $readable ] = Bootstrap::active_topologies();
+		$names        = [];
+		foreach ( \array_keys( $readable ) as $topology ) {
+			\array_push( $names, ...\array_keys( Topology_Analyzer::declared_tables( $topology ) ) );
+		}
+		$failure = null;
+		foreach ( \array_unique( $names ) as $name ) {
+			try {
+				$partitions = Bootstrap::tables_of( $readable, $name )[ $name ];
+			} catch ( Worker_Should_Stop $e ) {
+				throw $e;
+			} catch ( \Throwable $e ) {
+				$failure ??= $e;
+				continue;
+			}
+			if ( \in_array( 'wpdb', \array_column( $partitions, 'backend' ), true ) ) {
+				return true;
+			}
+		}
+		if ( null !== $failure ) {
+			throw $failure;
+		}
+		return false;
 	}
 
 	/**

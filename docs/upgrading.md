@@ -66,15 +66,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **The shared wpdb tables exist only while a wpdb Table uses them.**
   Activation no longer creates `{base_prefix}newspack_nodes_table` and
   `{base_prefix}newspack_nodes_members`; a wpdb Table's first use does, and
-  `wp nodes doctor` probes them only once the `newspack_nodes_wpdb_schema`
-  option records that install. On a site whose sessions moved to SQLite
-  and that declares no wpdb Table of its own, drop both tables and the
-  option, which also clears the old sessions no purge reaches again:
+  `wp nodes doctor` probes them only while `sessions_backend` is `wpdb` or an
+  active readable topology declares a keyed Table whose backend resolves to
+  `wpdb`. On a site whose sessions moved to
+  SQLite and that declares no wpdb Table of its own, drop both tables, which
+  also clears the old sessions no purge reaches again:
   `DROP TABLE {base_prefix}newspack_nodes_table,
-  {base_prefix}newspack_nodes_members` and
-  `wp option delete newspack_nodes_wpdb_schema`. Dropping the tables while
-  the option stands leaves `wpdb-schema` critical until the next wpdb Table
-  recreates them. A site keeping `sessions_backend` at `wpdb` keeps both.
+  {base_prefix}newspack_nodes_members`. The `newspack_nodes_wpdb_schema`
+  option may go too (`wp option delete newspack_nodes_wpdb_schema`) but need
+  not; the health row ignores it. A site keeping `sessions_backend` at
+  `wpdb` keeps both.
 
 - **`min_lifetime` defaults to 86400, and `lifetime` follows it.** A
   Partition, Topic or Log whose topology passes `<config:min_lifetime>` and

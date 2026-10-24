@@ -516,8 +516,7 @@ final class Wpdb_Arm extends Durable_Arm {
 
 	/**
 	 * Create both shared tables and record the schema: an arm's step on its
-	 * first use, and heal()'s. The option is what tells the `wpdb-schema`
-	 * health row that something uses the tables.
+	 * first use, and heal()'s.
 	 *
 	 * @throws \RuntimeException When the server refuses a table.
 	 */
