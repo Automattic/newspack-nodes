@@ -136,8 +136,17 @@ class Command_Auth {
 	 */
 	public const SITE_WIDE = '';
 
-	/** Every handle a mint makes: 32 lowercase hex digits. */
-	public const HANDLE_PATTERN = '/^[0-9a-f]{32}$/D';
+	/** Random bytes in a session handle, written as twice as many hex digits. */
+	private const HANDLE_BYTES = 16;
+
+	/** Random bytes in a session key, written as twice as many hex digits. */
+	private const KEY_BYTES = 32;
+
+	/** Every handle a mint makes, as an unanchored regex fragment. */
+	public const HANDLE_PATTERN = '[0-9a-f]{' . 2 * self::HANDLE_BYTES . '}';
+
+	/** Every key a mint makes, as an unanchored regex fragment. */
+	public const KEY_PATTERN = '[0-9a-f]{' . 2 * self::KEY_BYTES . '}';
 
 	/** The session Table writes go through, built on first use. */
 	private static ?Table_Node $table = null;
@@ -419,8 +428,8 @@ class Command_Auth {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new \InvalidArgumentException( "unknown session scope: {$scope}" );
 		}
-		$handle = \bin2hex( \random_bytes( 16 ) );
-		$key    = \bin2hex( \random_bytes( 32 ) );
+		$handle = \bin2hex( \random_bytes( self::HANDLE_BYTES ) );
+		$key    = \bin2hex( \random_bytes( self::KEY_BYTES ) );
 		$now    = (int) Core::right_now();
 		$table  = self::session_table();
 		$row    = [
@@ -633,6 +642,7 @@ class Command_Auth {
 		$ok = self::check( $message, $now, $turn, $interpreter, $load ?? self::load_session_record( ... ) );
 		if ( ! $ok ) {
 			Capabilities::$session_scope = Capabilities::NONE;
+			Capabilities::$session_label = null;
 		}
 		return $ok;
 	}
@@ -806,7 +816,7 @@ class Command_Auth {
 	 * @param string $id The candidate.
 	 */
 	public static function is_handle( string $id ): bool {
-		return 1 === \preg_match( self::HANDLE_PATTERN, $id );
+		return 1 === \preg_match( '/^' . self::HANDLE_PATTERN . '$/D', $id );
 	}
 
 	/**
@@ -853,11 +863,13 @@ class Command_Auth {
 			$key = self::secret();
 			// The per-site secret is the site's own authority: no ceiling.
 			Capabilities::$session_scope = null;
+			Capabilities::$session_label = null;
 		} elseif ( null === $record ) {
 			return false;
 		} else {
 			$key = $record['key'];
 			Capabilities::$session_scope = $record['scope'];
+			Capabilities::$session_label = $record['label'];
 		}
 
 		$canon = self::canonical( $ts, $value, $nonce );

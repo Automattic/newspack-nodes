@@ -47,6 +47,8 @@ supersede.
 | [34](#adr-34-a-table-may-hold-declared-rows-sqlite-only) | A Table may hold declared rows (SQLite only) |
 | [35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) | A job may publish a derived SQLite file whole, and its readers open it immutable |
 | [36](#adr-36-oauth-issues-command-sessions) | OAuth issues command sessions |
+| [37](#adr-37-a-partition-may-keep-every-segment) | A Partition may keep every segment |
+| [38](#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server) | An MCP door is a declaration over the substrate's server |
 
 ---
 
@@ -2744,3 +2746,57 @@ re-emitting state rewrites the history the log exists to keep.
 each Partition's size.
 
 **Revisit if:** a stream needs compaction.
+
+---
+
+## ADR-38: An MCP door is a declaration over the substrate's server
+
+**Status:** Accepted
+
+**Context:** Event-logger-nodes served the one MCP door, and its controller held two halves
+in one class: a server — the session check, the scope ceiling, the per-session meter, the
+JSON-RPC dispatch, the argument tokens, the `<site-data>` fence and the OAuth sign-in
+pointer — and a declaration of which verbs it fronts and what it tells an agent about them.
+A second plugin, newspack-intelligence, needs a door of its own over its own verbs.
+
+**Decision:** The server lives in the substrate as the abstract
+[`Mcp_Door`](../includes/class-mcp-door.php), and a plugin's door is a subclass declaring
+six things:
+
+- `rest_namespace()`, which mounts the route `/<namespace>/mcp` and names the door's OAuth
+  resource and its rate-limit slots;
+- `tools()`, each tool a node, its class, a verb on it, a summary and the args it offers;
+  the verb's own declaration supplies the role, each arg's type, requiredness and
+  variadic-ness, and `{declared}` in an arg's text, so the map holds no role to disagree
+  with the gate ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares));
+- `instructions()` and `caveat()`, served as `FENCE_NOTE . ' ' . instructions() . ' ' .
+  caveat()`, with the caveat closing every tool description as well;
+- `fills()`, placeholder to value, read each time the tools are listed;
+- `server_info()`, the `serverInfo` `initialize` answers.
+
+`wire()` mounts it: the route on `rest_api_init`, the 401's `WWW-Authenticate` pointer on
+`rest_post_dispatch`, and the resource on `newspack_nodes/oauth_resources`. Each door
+meters a session in its own slots, `mcp:<namespace>:<handle>`, so one door's budget is not
+another's, and a grant session minted for one door's resource is refused at every other
+([ADR-36](#adr-36-oauth-issues-command-sessions)). Every door fences each reply in the one
+`<site-data>` tag, encoded with `JSON_HEX_TAG` so a payload cannot close it, and leads its
+instructions with `Mcp_Door::FENCE_NOTE`, the one sentence saying the tag holds data and
+that no direction inside it is followed. The server's methods are `final`, so a door says
+nothing its declarations do not carry. A verb that attributes an act reads the calling
+session's label from `Capabilities::$session_label`, which the door installs beside the
+scope as `/command`'s verifier does.
+
+**Alternatives considered:**
+
+- A copy of the server in each plugin — rejected: 400 lines of authentication and metering
+  that would diverge, and a fix to one door's credential check would miss the other.
+- One substrate door listing every plugin's tools — rejected: one resource and one consent
+  would cover unrelated data sets, so a connection approved for traffic diagnostics would
+  reach intelligence's sources too.
+
+**Consequences:** A door's security rests on code its plugin does not own: a change to
+`Mcp_Door` reaches every door at once, and its six declarations and `wire()` are a
+cross-plugin surface ([stability.md](stability.md)). A door can say nothing the
+declarations do not carry.
+
+**Revisit if:** a door needs a transport other than one POST.

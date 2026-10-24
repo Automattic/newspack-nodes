@@ -604,6 +604,28 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'trusted' ) );
 	}
 
+	/** A command's session label belongs to that command; interpret() restores the one before it. */
+	public function test_interpret_restores_the_label_that_stood_before(): void {
+		\Newspack_Nodes\Capabilities::$session_label = 'Prior Desk';
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
+		$seen                   = null;
+		$interpreter->authorize = static function (): bool {
+			\Newspack_Nodes\Capabilities::$session_label = 'Fixture Desk';
+			return true;
+		};
+		$interpreter->commands( [ 'kakapo' => static function () use ( &$seen ): string {
+			$seen = \Newspack_Nodes\Capabilities::$session_label;
+			return 'kakapo-7731';
+		} ] );
+
+		$interpreter->fill( $this->command_message( 'kakapo', '' ) );
+
+		$this->assertSame( 'Fixture Desk', $seen, 'the verb ran under the command\'s label' );
+		$this->assertSame( 'Prior Desk', \Newspack_Nodes\Capabilities::$session_label );
+	}
+
 	public function test_static_default_authorize_can_refuse_even_with_local(): void {
 		Command_Interpreter_Node::$default_authorize = static fn ( Command_Interpreter_Node $ci, array $m ): bool => false;
 		$interpreter = new Command_Interpreter_Node();

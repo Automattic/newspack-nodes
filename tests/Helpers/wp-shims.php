@@ -492,6 +492,9 @@ if ( ! class_exists( 'WP_HTTP_Response' ) ) {
 		public function get_headers() {
 			return $this->headers;
 		}
+		public function header( $key, $value, $replace = true ) {
+			$this->headers[ $key ] = $value;
+		}
 	}
 }
 
@@ -515,8 +518,16 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 		private $headers      = [];
 		private $body         = '';
 		private $method       = 'GET';
+		private $route        = '';
 		public function __construct( $method = 'GET', $route = '' ) {
 			$this->method = $method;
+			$this->route  = $route;
+		}
+		public function get_route() {
+			return $this->route;
+		}
+		public function set_route( $route ) {
+			$this->route = $route;
 		}
 		public function get_param( $key ) {
 			return $this->get_params()[ $key ] ?? $this->url_params[ $key ] ?? null;
