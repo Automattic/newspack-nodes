@@ -63,7 +63,7 @@ Intentional, load-bearing choices; "fixing" one usually reintroduces the failure
 | 5 | Lazy init for Topic / Partition — constructors do no event-loop or filesystem work |
 | 6 | CRC32 + 31-bit-mask partition routing — `hash_to_partition()` is canonical |
 | 7 | `sink` (physical) vs `target` (logical TO path); replies go TO=FROM; no `edge`; a reply head names its command session, `_sse:<handle>` for a browser and `_cli:<pid>` for a cli process, and one `HTTP_Filter_Node` per session gates on it |
-| 8 | Worker zombie pattern — detached ~595 s requests; release before self-respawn |
+| 8 | Worker zombie pattern — a spawn answers 200 and finishes the request, then runs the worker ~595 s; release before self-respawn |
 | 9 | Two-tier safety net — worker self-respawn and the peer `_fleet` scan, then the WP-Cron cold start |
 | 10 | `Word_Word` / `_Node` naming, resolved through `register_namespace` (no `class_map`) |
 | 11 | `make_node` construction sequence; `arguments()` defaults and requirements centralized in `parse_schema_args()` |

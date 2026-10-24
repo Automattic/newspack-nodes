@@ -46,6 +46,15 @@ class Spawn_Controller {
 	public const RATE_LIMIT_S = 2;
 
 	/**
+	 * Finish-request seam: replaces the `fastcgi_finish_request()` call.
+	 * Tests assign a closure; null selects the real call.
+	 * Signature: `function (): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $finish_request = null;
+
+	/**
 	 * The request's coordinator: it holds the salt the internal HMAC token
 	 * validates against and the throttle window every spawner shares.
 	 */
@@ -61,22 +70,28 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Accept or refuse an authorized spawn, then run the worker.
+	 * Accept or refuse an authorized spawn, answer it, then run the worker.
 	 *
 	 * Three refusals, in order: a partition outside the type's range, a deploy
 	 * hold, and the shared 15-second throttle. Admitting the spawn here, with
 	 * one atomic take of the slot, is what gives every spawner one window to
 	 * share and lets exactly one of concurrent spawns run.
 	 *
-	 * An admitted spawn tags the process with its worker identity before
-	 * `newspack_nodes/spawn_worker` runs the worker. It announces nothing:
-	 * the worker fires `newspack_nodes/worker_identified` once it holds the
-	 * lock, so a spawn that loses the race never names one.
+	 * An admitted spawn ignores a caller's abort from here on, tags the
+	 * process with its worker identity and returns its 200. A
+	 * `rest_pre_serve_request` listener at PHP_INT_MAX, once WordPress and
+	 * every other listener have set their headers, echoes the body unless one
+	 * already served it, finishes the request, then fires
+	 * `newspack_nodes/spawn_worker`, which runs the worker inline for its
+	 * lifetime, 595 seconds by default. It announces nothing: the worker
+	 * fires `newspack_nodes/worker_identified` once it holds the lock, so a
+	 * spawn that loses the race never names one.
 	 *
-	 * The action runs the worker inline for its whole lifetime — 595 seconds
-	 * by default — which is why `ignore_user_abort()` and `set_time_limit()`
-	 * come first: the caller POSTs fire-and-forget with a sub-second timeout
-	 * and is long gone by the time this response is written.
+	 * The connection closes before the worker runs because the origin counts
+	 * an open one against the site's five connections to itself (ADR-8).
+	 * Without `fastcgi_finish_request()` the worker runs with it held. The
+	 * listener echoes the three-field body itself, so `rest_pre_echo_response`
+	 * and `_pretty` never reach it; no spawner reads the body.
 	 *
 	 * @param \WP_REST_Request $req Authorized spawn request.
 	 * @return \WP_REST_Response|\WP_Error The accepted spawn, or the refusal.
@@ -120,8 +135,26 @@ class Spawn_Controller {
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = $type;
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;
 
-		// Topology worker: owners hook this to build the graph and execute().
-		\do_action( 'newspack_nodes/spawn_worker', $type, $partition );
+		\add_filter(
+			'rest_pre_serve_request',
+			static function ( $served, \WP_HTTP_Response $result ) use ( $type, $partition ): bool {
+				if ( ! $served ) {
+					echo \wp_json_encode( $result->get_data() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				}
+				$finish = self::$finish_request ?? static function (): void {
+					if ( \function_exists( 'fastcgi_finish_request' ) ) {
+						\fastcgi_finish_request();
+					}
+				};
+				$finish();
+
+				// Owners hook this to build the graph and execute().
+				\do_action( 'newspack_nodes/spawn_worker', $type, $partition );
+				return true;
+			},
+			PHP_INT_MAX,
+			2
+		);
 
 		return new \WP_REST_Response(
 			[

@@ -6,8 +6,8 @@
 .mono { overflow-wrap:anywhere; }
 </style>
 <div class="sheet">
-<h1>A worker is an HTTP request whose caller hangs up first</h1>
-<p class="sub">The platform caps a request at 15 minutes and offers no resident process. So the caller abandons the spawn POST after 250 ms, the endpoint survives the abort, and the process holding that connection is the worker for ~595 seconds, until it releases its lock and POSTs its own successor.</p>
+<h1>A worker is an HTTP request that answers before it runs</h1>
+<p class="sub">The platform caps a request at 15 minutes and offers no resident process. So the endpoint admits the spawn, sends its 200 and finishes the request, closing the connection, and the process that served it goes on as the worker for ~595 seconds, until it releases its lock and POSTs its own successor.</p>
 
 <div class="card tl" style="padding-bottom:10px">
   <svg width="1012" height="250" viewBox="0 0 1012 250" font-size="12">
@@ -18,7 +18,7 @@
     </g>
     <g fill="#50575E" font-size="11.5">
       <text x="0" y="55">a finally, a _fleet scan,</text><text x="0" y="69">or the minute cron</text>
-      <text x="0" y="133">POST /workers/spawn</text><text x="0" y="147">the process IS the worker</text>
+      <text x="0" y="133">POST /workers/spawn</text><text x="0" y="147">answers, then IS the worker</text>
     </g>
     <!-- time axis -->
     <line x1="160" y1="236" x2="1000" y2="236" stroke="#C3C4C7"/>
@@ -29,17 +29,17 @@
     <rect x="160" y="28" width="54" height="16" rx="3" fill="#003DA5"/>
     <text x="187" y="40" fill="#fff" font-size="10.5" text-anchor="middle" font-weight="700">write</text>
     <line x1="214" y1="20" x2="214" y2="230" stroke="#B32D2E" stroke-width="1.5" stroke-dasharray="4 3"/>
-    <text x="220" y="24" fill="#B32D2E" font-size="11">Core::fire_and_forget_post() budgets SPAWN_POST_TIMEOUT_MS: long enough to write the request,</text>
-    <text x="220" y="38" fill="#B32D2E" font-size="11">never long enough to await the reply. Only a refusal answers inside it.</text>
+    <text x="220" y="24" fill="#B32D2E" font-size="11">The endpoint answers and finishes within its boot time, about 200 ms, ignoring a caller that hangs up first,</text>
+    <text x="220" y="38" fill="#B32D2E" font-size="11">so the connection, and the site's selfdos slot it holds, closes within the request's boot time.</text>
     <!-- endpoint: HMAC check then worker -->
     <rect x="160" y="100" width="54" height="30" rx="3" fill="#F0F4FB" stroke="#C3D3EC"/>
-    <text x="187" y="119" font-size="10.5" text-anchor="middle" fill="#003DA5">HMAC</text>
+    <text x="187" y="113" font-size="9" text-anchor="middle" fill="#003DA5">HMAC, 200</text><text x="187" y="125" font-size="9" text-anchor="middle" fill="#003DA5">finish</text>
     <rect x="214" y="100" width="636" height="30" rx="3" fill="#003DA5"/>
     <text x="532" y="119" fill="#fff" font-size="12" text-anchor="middle" font-weight="700">ignore_user_abort(true) + set_time_limit(0): the worker runs inline, drain loop and all, for its whole lifetime</text>
     <rect x="850" y="100" width="96" height="30" rx="3" fill="#EDF7ED" stroke="#9EC89E"/>
     <text x="898" y="114" font-size="10.5" text-anchor="middle" fill="#1E5B1E" font-weight="700">finally</text>
     <text x="898" y="125" font-size="9.5" text-anchor="middle" fill="#1E5B1E">release, then respawn</text>
-    <text x="230" y="88" fill="#50575E" font-size="11.5">Nothing detaches from FPM or the process group. Cooperative_Stop::DEFAULT_MAX_RUNTIME is a platform-shaped constant, not a tuning knob.</text>
+    <text x="230" y="88" fill="#50575E" font-size="11.5">fastcgi_finish_request() closes the connection; the process stays in FPM. DEFAULT_MAX_RUNTIME is a platform-shaped constant.</text>
     <!-- respawn arrow -->
     <path d="M946 115 L975 115 L975 200 L983 200" fill="none" stroke="#003DA5" stroke-width="1.6" marker-end="url(#a)"/>
     <rect x="985" y="192" width="27" height="16" rx="3" fill="#003DA5"/>
@@ -50,8 +50,8 @@
 
 <div class="three">
   <div class="callout">
-    <h4>Rejected: <span class="mono">fastcgi_finish_request()</span></h4>
-    <p>Called ahead of the <span class="mono">WP_REST_Response</span>, which COMPLETES the response, it hands WordPress one it can no longer send: an empty body and "headers already sent" in the log, unnoticed because every caller discards the body anyway. Releasing the connection early buys nothing, since no caller waits for it.</p>
+    <h4>Rejected: holding the connection for the worker's life</h4>
+    <p>No caller waits, but the platform does: nginx counts a site's connections to itself, five at most (<span class="mono">selfdos</span>), and holds a spawn's until the worker returns or 120 s pass. A respawn wave then refuses every other self-request. The finish runs in <span class="mono">rest_pre_serve_request</span>, once WordPress has set the headers, never ahead of the <span class="mono">WP_REST_Response</span>.</p>
   </div>
   <div class="callout">
     <h4>Rejected: a resident daemon, or rescue-only restart</h4>

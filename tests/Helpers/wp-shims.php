@@ -593,13 +593,6 @@ if ( ! class_exists( 'WP_Error' ) ) {
 	}
 }
 
-if ( ! function_exists( 'fastcgi_finish_request' ) ) {
-	function fastcgi_finish_request() {
-		// No-op in test context.
-		return true;
-	}
-}
-
 if ( ! function_exists( 'status_header' ) ) {
 	// Track every status_header() emission so tests can assert on the
 	// IPC-202 path of HTTP_In's dispatch(), which writes

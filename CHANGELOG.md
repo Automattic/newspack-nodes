@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A spawn answers and closes its connection before the worker runs.** The spawn endpoint sends its `200 { spawned, type, partition }` and finishes the request through `fastcgi_finish_request()` in a `rest_pre_serve_request` listener, once WordPress has set the status and headers, then runs the worker inline as before. The worker ran inside the open request, and Atomic's nginx counts a site's connections to itself, five at most (`rate_limit_reason: selfdos`), holding a spawn's until the worker returned or 120 s passed; when the 595-second workers respawned together, the limit refused every other request the site made to itself for about two minutes: a worker's own self-respawn, the wake that starts an on-demand job worker, which left a queued job waiting up to 76 s, and `wp-cron.php`. Where PHP offers no `fastcgi_finish_request()` (mod_php, the CLI) the worker runs with the connection held, as before. `Spawn_Controller::$finish_request` is the seam that replaces the call.
+
 ## [2.127.0] - 2026-10-23
 
 ### Added
