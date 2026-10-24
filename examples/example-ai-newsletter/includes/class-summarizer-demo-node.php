@@ -3,8 +3,8 @@
  * Summarizer_Demo_Node: the summarize stage of the example digest pipeline. One
  * item arrives, and the same item leaves carrying a summary line.
  *
- * The `_Demo` suffix keeps the shell name distinct from the `Summarizer` that
- * newspack-intelligence registers: `resolve_class()` walks the registered
+ * The `_Demo` suffix keeps the shell name distinct from a `Summarizer` a real
+ * plugin may register: `resolve_class()` walks the registered
  * namespaces in order and caches the first `{prefix}Summarizer_Node` it finds, so
  * one shared name would hand both topologies whichever plugin registered first.
  *

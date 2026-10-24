@@ -39,8 +39,8 @@ import { AccumulatedViewNode } from '../nodes/accumulated-view-node';
 
 /**
  * The service CI mount the Fetchers address. The `-demo` suffix is what lets
- * this example run beside `newspack-intelligence`, which mounts the unsuffixed
- * `insights` in the same WordPress.
+ * this example run beside a real plugin mounting an unsuffixed `insights` in
+ * the same WordPress.
  */
 const SERVER = 'insights-demo';
 
