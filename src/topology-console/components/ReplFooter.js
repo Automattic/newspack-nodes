@@ -10,6 +10,10 @@ import { __ } from '@wordpress/i18n';
 import { longestCommonPrefix } from '../../runtime/completion-node';
 import { loadHistory, saveHistory } from '../core/consolePersistence';
 
+/** Targets that keep `/` for themselves: form controls and editables. */
+const TYPING_TARGETS =
+	'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
+
 /**
  * One rendered transcript line, in the shape the Dumper stamps.
  *
@@ -251,28 +255,23 @@ export default function ReplFooter( {
 		return () => document.removeEventListener( 'keydown', handler );
 	}, [ expanded, setExpanded, inputRef ] );
 
-	// `/` focuses the REPL input (skipped while typing in an editable element).
+	// `/` focuses the REPL input, claimed on window before any page listener.
 	useEffect( () => {
 		const handler = ( ev ) => {
 			if ( ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey ) {
 				return;
 			}
-			const t = ev.target;
-			if (
-				t &&
-				( t.tagName === 'INPUT' ||
-					t.tagName === 'TEXTAREA' ||
-					t.isContentEditable )
-			) {
+			if ( ev.target.closest?.( TYPING_TARGETS ) ) {
 				return;
 			}
 			ev.preventDefault();
+			ev.stopPropagation();
 			setExpanded( true );
 			// Defer past the expand reflow so it doesn't steal focus back.
 			window.requestAnimationFrame( () => inputRef.current?.focus() );
 		};
-		document.addEventListener( 'keydown', handler );
-		return () => document.removeEventListener( 'keydown', handler );
+		window.addEventListener( 'keydown', handler, true );
+		return () => window.removeEventListener( 'keydown', handler, true );
 	}, [ setExpanded, inputRef ] );
 
 	// Dbl-click resize handle toggles between max ceiling and default height.

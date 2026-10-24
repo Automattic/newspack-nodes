@@ -1511,12 +1511,12 @@ describe( 'theme skin ramps', () => {
 		const expected = [
 			'#406ebc',
 			'#178e53',
-			'#bd8600',
+			'#6086c7',
 			'#d63638',
-			'#809ed2',
-			'#c5788b',
 			'#dc8c00',
+			'#117644',
 			'#1fb36a',
+			'#925b00',
 		];
 		for ( const slug of [ 'newspack', 'newspack-brand' ] ) {
 			const skin = effectiveSkin( slug );

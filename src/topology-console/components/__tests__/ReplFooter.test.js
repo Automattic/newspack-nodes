@@ -304,6 +304,83 @@ describe( 'ReplFooter', () => {
 		expect( onExpandedChange ).not.toHaveBeenCalled();
 	} );
 
+	it( '`/` is claimed before a page listener on document sees it', () => {
+		const pageListener = jest.fn();
+		const captureListener = jest.fn();
+		document.addEventListener( 'keydown', pageListener );
+		document.addEventListener( 'keydown', captureListener, true );
+		jest.useFakeTimers();
+		const pane = document.createElement( 'div' );
+		try {
+			const onExpandedChange = jest.fn();
+			const { container } = render(
+				<ReplFooter
+					{ ...baseProps }
+					onExpandedChange={ onExpandedChange }
+				/>
+			);
+			document.body.appendChild( pane );
+			const ev = new window.KeyboardEvent( 'keydown', {
+				key: '/',
+				bubbles: true,
+				cancelable: true,
+			} );
+			act( () => {
+				pane.dispatchEvent( ev );
+				jest.runOnlyPendingTimers();
+			} );
+			expect( pageListener ).not.toHaveBeenCalled();
+			expect( captureListener ).not.toHaveBeenCalled();
+			expect( ev.defaultPrevented ).toBe( true );
+			expect( onExpandedChange ).toHaveBeenCalledWith( true );
+			expect( document.activeElement ).toBe( findInput( container ) );
+		} finally {
+			pane.remove();
+			jest.useRealTimers();
+			document.removeEventListener( 'keydown', pageListener );
+			document.removeEventListener( 'keydown', captureListener, true );
+		}
+	} );
+
+	it( '`/` typed in an input still reaches page listeners', () => {
+		const pageListener = jest.fn();
+		document.addEventListener( 'keydown', pageListener );
+		const search = document.createElement( 'input' );
+		try {
+			render( <ReplFooter { ...baseProps } /> );
+			document.body.appendChild( search );
+			search.focus();
+			fireEvent.keyDown( search, { key: '/' } );
+			expect( pageListener ).toHaveBeenCalledTimes( 1 );
+		} finally {
+			search.remove();
+			document.removeEventListener( 'keydown', pageListener );
+		}
+	} );
+
+	it( '`/` in a focused select is not claimed', () => {
+		const pageListener = jest.fn();
+		document.addEventListener( 'keydown', pageListener );
+		const select = document.createElement( 'select' );
+		try {
+			const onExpandedChange = jest.fn();
+			render(
+				<ReplFooter
+					{ ...baseProps }
+					onExpandedChange={ onExpandedChange }
+				/>
+			);
+			document.body.appendChild( select );
+			select.focus();
+			fireEvent.keyDown( select, { key: '/' } );
+			expect( pageListener ).toHaveBeenCalledTimes( 1 );
+			expect( onExpandedChange ).not.toHaveBeenCalled();
+		} finally {
+			select.remove();
+			document.removeEventListener( 'keydown', pageListener );
+		}
+	} );
+
 	it( 'persists transcript-pane height to localStorage on change', async () => {
 		const { container } = render(
 			<ReplFooter { ...baseProps } expanded />
