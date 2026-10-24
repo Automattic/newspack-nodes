@@ -637,6 +637,62 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertSame( $emu, $this->all( \sprintf( $match, 'emu' ) ) );
 	}
 
+	/** An arm over a `notes` table whose `body` an FTS5 shadow indexes, on partition 4. */
+	private function notes_arm(): Sqlite_Arm {
+		return new Sqlite_Arm(
+			$this->path( 4 ),
+			'wombat:p4',
+			rows: [
+				'version' => 7,
+				'tables'  => [
+					'notes' => [
+						'columns'       => [
+							'id'    => 'INTEGER',
+							'slug'  => 'TEXT NOT NULL',
+							'body'  => 'TEXT NOT NULL',
+							'stamp' => 'INTEGER NOT NULL',
+						],
+						'key'           => [ 'slug' ],
+						'autoincrement' => 'id',
+						'indexes'       => [ 'notes_stamp' => [ 'stamp' ] ],
+						'retain'        => [ 'stamp', 50, 1 ],
+						'fts'           => [ 'body' ],
+					],
+				],
+			]
+		);
+	}
+
+	public function test_a_file_built_without_the_update_trigger_gains_it_at_open(): void {
+		$this->notes_arm()->write_rows( [ [ 'set', 'notes', [ null, 'slug-8', 'ibis marsh', 1000 ] ] ] );
+		( new \PDO( 'sqlite:' . $this->path( 4 ) ) )->exec( 'DROP TRIGGER notes_fts_update' );
+		$this->assertSame( [], $this->all( "SELECT name FROM sqlite_master WHERE name = 'notes_fts_update'", 4 ) );
+
+		$arm = $this->notes_arm();
+		$arm->write_rows( [ [ 'set', 'notes', [ null, 'slug-8', 'quokka scrub', 1000 ] ] ] );
+
+		$this->assertSame( [ [ 'notes_fts_update' ] ], $this->all( "SELECT name FROM sqlite_master WHERE name = 'notes_fts_update'", 4 ) );
+		$id = $this->all( "SELECT id FROM notes WHERE slug = 'slug-8'", 4 );
+		$this->assertSame( $id, $this->all( "SELECT rowid FROM notes_fts WHERE notes_fts MATCH 'quokka'", 4 ) );
+		$this->assertSame( [], $this->all( "SELECT rowid FROM notes_fts WHERE notes_fts MATCH 'ibis'", 4 ) );
+	}
+
+	public function test_the_fts_shadow_follows_a_set_and_survives_the_purge_after_it(): void {
+		$arm   = $this->notes_arm();
+		$match = "SELECT rowid FROM notes_fts WHERE notes_fts MATCH '%s'";
+		$arm->write_rows( [ [ 'set', 'notes', [ null, 'slug-3', 'ibis marsh', 1000 ] ] ] );
+		$arm->write_rows( [ [ 'set', 'notes', [ null, 'slug-3', 'quokka scrub', 1000 ] ] ] );
+
+		$id = $this->all( "SELECT id FROM notes WHERE slug = 'slug-3'", 4 );
+		$this->assertSame( $id, $this->all( \sprintf( $match, 'quokka' ), 4 ), 'the new text is found' );
+		$this->assertSame( [], $this->all( \sprintf( $match, 'ibis' ), 4 ), 'the old text is gone' );
+
+		$arm->purge( 9000, 100 );
+		$this->assertSame( [], $this->all( 'SELECT * FROM notes', 4 ) );
+		$this->all( "INSERT INTO notes_fts ( notes_fts ) VALUES ( 'integrity-check' )", 4 );
+		$this->assertSame( [], $this->all( \sprintf( $match, 'quokka' ), 4 ) );
+	}
+
 	public function test_open_rows_attaches_present_files_read_only_and_skips_absent_ones(): void {
 		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
 		$this->rows_arm( 5 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p5', 7341, 1, 2.5 ] ] ] );

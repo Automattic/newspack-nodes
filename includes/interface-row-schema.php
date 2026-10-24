@@ -45,7 +45,8 @@ interface Row_Schema {
 	 * way one is orphaned, and a row orphaned any other way is never
 	 * examined. `autoincrement` is the INTEGER PRIMARY KEY column an
 	 * `ignore` hands back. `fts` lists the columns an FTS5 shadow,
-	 * `{table}_fts`, indexes, keyed by the `autoincrement` column. `keep` is
+	 * `{table}_fts`, indexes, keyed by the `autoincrement` column; insert,
+	 * update and delete triggers keep it in step, a `set` included. `keep` is
 	 * `true` alone: the table purges no row, so nothing retains it and it
 	 * releases nothing, and it stands beside no `retain` or `retained_by`,
 	 * nor may another table be `retained_by` it. Its disk grows without bound.

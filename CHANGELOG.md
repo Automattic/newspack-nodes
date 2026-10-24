@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **A Row_Schema table may declare `'keep' => true`**, which purges no row and opts out of the refusal of a table nothing purges. `keep` is refused beside `retain` or `retained_by`, with any value but `true`, and when another table is `retained_by` the kept one. The kept table's disk grows without bound (ADR-34).
 
+### Fixed
+- **A Row_Table `set` that changes an `fts` column now updates the `{table}_fts` shadow.** The shadow had insert and delete triggers only, so after a `set` it searched the old text and missed the new, and a later purge sent FTS5 `delete` the new values, which can corrupt the index. An `AFTER UPDATE` trigger deletes the old values and inserts the new; an existing file gains it at the next open.
+
 ### Removed
 - **`chartColorFor( name )`.** The event logger's Time By Owner table, its one caller, colours its rows in bar order now. `nameHash()` stays for the topology hulls.
 
