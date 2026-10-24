@@ -2717,3 +2717,30 @@ requests come from Anthropic's servers, so a site that is not publicly reachable
 using pasted tokens.
 
 **Revisit if:** a client that must connect cannot hold a rotating refresh token.
+
+---
+
+## ADR-37: A Partition may keep every segment
+
+**Status:** Accepted
+
+**Context:** An event log that a projection replays from the start must outlive the hard
+cap. Every Partition otherwise prunes at `max_segments`, whatever its segments' age.
+
+**Decision:** The TSL toggle `command_node <partition>:config keep_everything true`
+(`Partition_Node::set_keep_everything()`; `false` restores retention) switches off the age
+rule, the count rule and the hard cap. `cleanup_segments()` refreshes its warm segment
+cache and prunes nothing. The flag is per process, and retention runs in whichever process
+rotates, so every writer over the directory must carry it; a writer without it prunes on
+its own rotation. The verb is a declared `toggle`, so `dump_toggles()` round-trips it, and,
+undeclared, it requires `manage` like `void_warranty`. `wp nodes gc` and `Log_Cleaner` are
+unchanged: they sweep undeclared directories, never a declared partition's segments.
+
+**Alternatives considered:** A `max_segments = -1` sentinel is a magic number in a
+positional that `derive_max_segments()` and the admin displays read. Compaction by
+re-emitting state rewrites the history the log exists to keep.
+
+**Consequences:** Disk grows without bound. The topic probe's `footprint()` already reports
+each Partition's size.
+
+**Revisit if:** a stream needs compaction.

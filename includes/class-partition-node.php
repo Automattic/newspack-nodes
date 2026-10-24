@@ -250,6 +250,9 @@ class Partition_Node extends Timer_Node {
 	/** Large-write opt-in: NONE, LOCK (allow_large_writes, held Lock), VOID (void_warranty, no lock). Topic_Node carries the same three. */
 	protected string $large_write_mode = self::LARGE_WRITE_NONE;
 
+	/** Retention off: no rule prunes, the hard cap included. */
+	protected bool $keep_everything = false;
+
 	/** Wall clock of the last write-lock heartbeat, in real seconds — staleness cannot be judged from a frozen clock. */
 	protected float $last_lock_heartbeat = 0.0;
 
@@ -1114,6 +1117,7 @@ class Partition_Node extends Timer_Node {
 	 *     segments can't grow past max_segments.
 	 * So the age rule can prune below num_segments, and the count rule below
 	 * lifetime — each bounded by the other axis's floor; the hard cap is the ceiling.
+	 * With the keep_everything toggle on, no rule runs, the hard cap included.
 	 */
 	public function cleanup_segments(): void {
 		// Use the warm cache; standalone callers (cold cache) force-scan.
@@ -1122,7 +1126,7 @@ class Partition_Node extends Timer_Node {
 		$initial_count  = $count;
 		$now            = \time();
 
-		while ( $count > self::MIN_SEGMENTS_FLOOR ) {
+		while ( ! $this->keep_everything && $count > self::MIN_SEGMENTS_FLOOR ) {
 			$oldest = $segments[0];
 			$path   = $this->get_segment_path( $oldest['id'] );
 			// The hard cap needs no age: it must fire even on unreadable mtime.
@@ -2467,9 +2471,21 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Keep every segment: no retention rule prunes, the hard cap included.
+	 * Retention runs in whichever process rotates, so every writer over this
+	 * directory must carry the flag; one without it prunes on its own rotation.
+	 *
+	 * @param bool $flag True keeps every segment; false restores retention.
+	 */
+	public function set_keep_everything( bool $flag ): void {
+		$this->keep_everything = $flag;
+	}
+
+	/**
 	 * Emit the base config plus this Partition's verb-config, from STATE — the
-	 * large-write mode and the `with_index` formatter name. (The index callback
-	 * itself cannot be dumped; the formatter name is its round-trip form.)
+	 * large-write mode, the `with_index` formatter name and the declared toggles.
+	 * (The index callback itself cannot be dumped; the formatter name is its
+	 * round-trip form.)
 	 *
 	 * @return string The `make_node` line, plus one config line per verb that is set.
 	 */
@@ -2484,7 +2500,7 @@ class Partition_Node extends Timer_Node {
 		if ( null !== $this->index_formatter_name ) {
 			$out .= $this->config_line( 'with_index', $this->index_formatter_name );
 		}
-		return $out;
+		return $out . $this->dump_toggles();
 	}
 
 	/**
@@ -2665,6 +2681,14 @@ class Partition_Node extends Timer_Node {
 					'description' => 'Lift the 4KB PIPE_BUF cap with NO write lock — caller asserts single-writer (corrupts under concurrent writers; use allow_large_writes otherwise).',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_void_warranty( $interpreter ),
+				],
+				[
+					'name'        => 'keep_everything',
+					'description' => 'Keep every segment forever: no retention rule prunes, the hard cap included. Every writer over this directory must carry it; a writer without it prunes on its own rotation.',
+					'args'        => [
+						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
+					],
+					'toggle'      => 'keep_everything',
 				],
 				[
 					'name'        => 'with_index',

@@ -1515,6 +1515,46 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 5, \count( $p->get_segments( true ) ), 'hard cap prunes young segments down to max_segments regardless of min_lifetime' );
 	}
 
+	public function test_keep_everything_prunes_nothing_past_the_hard_cap(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", '256', '2', '3', '5', '0', '1' ] );
+		$p->set_keep_everything( true );
+		for ( $i = 0; $i < 23; ++$i ) {
+			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
+		}
+		foreach ( $p->get_segments( true ) as $seg ) {
+			\touch( $p->get_segment_path( $seg['id'] ), \time() - 7200 );
+		}
+		$before = \count( $p->get_segments( true ) );
+		$this->assertGreaterThan( 5, $before, 'the fixture exceeds the hard cap' );
+		$p->cleanup_segments();
+		$this->assertSame( $before, \count( $p->get_segments( true ) ), 'neither the hard cap, the count rule nor the age rule prunes' );
+	}
+
+	public function test_an_unflagged_writer_over_the_same_dir_still_prunes(): void {
+		// Pins the rule the ADR states: every writer must carry the flag.
+		$kept = new Partition_Node();
+		$kept->arguments( [ "{$this->tmp}.p0", '256', '2', '3', '5', '900', '0' ] );
+		$kept->set_keep_everything( true );
+		for ( $i = 0; $i < 23; ++$i ) {
+			$this->produce_into( $kept, \str_repeat( 'x', 100 ) );
+		}
+		$other = new Partition_Node();
+		$other->arguments( [ "{$this->tmp}.p0", '256', '2', '3', '5', '900', '0' ] );
+		$other->cleanup_segments();
+		$this->assertSame( 5, \count( $other->get_segments( true ) ) );
+	}
+
+	public function test_keep_everything_dumps_while_set_and_not_after(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0" ] );
+		$p->name( 'ontology-log' );
+		$p->set_keep_everything( true );
+		$this->assertStringContainsString( 'command_node ontology-log:config keep_everything true', $p->dump_config() );
+		$p->set_keep_everything( false );
+		$this->assertStringNotContainsString( 'keep_everything', $p->dump_config() );
+	}
+
 	public function test_retention_hard_floor_of_two_segments(): void {
 		// Aggressive age prune (lifetime=1, min_seg clamps to 2) never drops below 2.
 		$p = new Partition_Node();

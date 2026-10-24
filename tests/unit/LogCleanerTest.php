@@ -271,6 +271,18 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $p1 );
 	}
 
+	public function test_a_declared_keep_everything_partition_is_never_swept(): void {
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) . "command_node requests:partition:config keep_everything true\n" );
+		$dir = $this->seed_log_partition( 'requests', 0 );
+		\file_put_contents( "{$dir}/1.log", 'Y' );
+		$this->age_dir( $dir );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertFileExists( "{$dir}/0.log" );
+		$this->assertFileExists( "{$dir}/1.log" );
+	}
+
 	public function test_deletes_partition_beyond_declared_count(): void {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 
