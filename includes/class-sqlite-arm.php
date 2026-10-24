@@ -127,6 +127,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	private const FTS_TRIGGERS = [
 		'insert' => 'AFTER INSERT',
 		'delete' => 'AFTER DELETE',
+		'update' => 'AFTER UPDATE',
 	];
 
 	/** The row ops a batch may name. */
@@ -1308,7 +1309,8 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * KEY and its key a UNIQUE constraint; without one the key is the
 	 * PRIMARY KEY. An FTS5 table `{table}_fts` over the `fts` columns reads
 	 * its content from the table by the `autoincrement` id, and triggers on
-	 * insert and delete keep its index in step; no op updates those columns.
+	 * insert, delete and update keep its index in step; a `set` updates in
+	 * place on conflict, which fires the update trigger.
 	 *
 	 * @param string   $table The table.
 	 * @param Row_Spec $spec  Its declaration.
@@ -1341,7 +1343,11 @@ final class Sqlite_Arm extends Durable_Arm {
 		$drop    = "INSERT INTO {$shadow} ( {$shadow}, rowid, {$columns} ) VALUES ( 'delete', old.{$id}, {$of( 'old' )} );";
 		$ddl[]   = "CREATE VIRTUAL TABLE IF NOT EXISTS {$shadow} USING fts5( {$columns}, content='" . \str_replace( "'", "''", $table ) . "', content_rowid='" . \str_replace( "'", "''", $auto ) . "' )";
 		foreach ( self::FTS_TRIGGERS as $name => $when ) {
-			$body  = 'insert' === $name ? $add : $drop;
+			$body  = match ( $name ) {
+				'insert' => $add,
+				'delete' => $drop,
+				default  => $drop . $add,
+			};
 			$ddl[] = 'CREATE TRIGGER IF NOT EXISTS ' . self::quote( "{$table}_fts_{$name}" ) . " {$when} ON {$t} BEGIN {$body} END";
 		}
 		return $ddl;
