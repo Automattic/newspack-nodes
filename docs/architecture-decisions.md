@@ -1599,6 +1599,16 @@ declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mou
 stays mounted for the rest of that POST: a later verb or request in it reads through the same
 mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing.
 
+**Amendment: an application's WP-CLI command is a third writer.** A plugin's own WP-CLI
+command may append a request to a worker's input Partition through
+`Bootstrap::register_worker_partition()`, as intelligence's
+`wp newspack-intelligence ontology reresolve` does. It writes with the attached cli's
+authority, the site's own filesystem from a shell that already holds it, and carries the
+attached cli's guard: it refuses to run as root before it writes, because a root-owned
+segment or IPC file is one the workers cannot append to. No capability check stands in
+front of it, because a caller who can run WP-CLI on the site can already write its files;
+a web request that mounts the same Partition still declares MANAGE.
+
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
 signature would gate the same principal twice. A capability on each `requests` entry —
@@ -1614,7 +1624,8 @@ is not the bound: `HTTP_In` filters no message type, so a raw `GET` in the same 
 key, including one the verb never shows.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
-mounts it under a lower role, or a second writer beside the attached cli — or a Table must be
+mounts it under a lower role, a writer beside the attached cli and an application's WP-CLI
+command, or either of those running as root — or a Table must be
 readable below MANAGE while holding rows that role may not read, or a mount outlives the HTTP
 request (the POST) that made it.
 
