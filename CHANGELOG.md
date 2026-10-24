@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The `wpdb-schema` health row probes the shared tables only while something uses them.** It keyed on the `newspack_nodes_wpdb_schema` option, which records a past install, so a site that moved its sessions to SQLite and dropped both tables, but kept the option, stayed critical. The row now probes while `sessions_backend` is `wpdb` or an active readable topology declares a keyed Table whose backend resolves to `wpdb`. Dropping the tables is enough; the option may stay. When use cannot be settled (a bad `sessions_backend` value, or no Table resolves and none is known to be wpdb), the row is recommended and reads "Could not tell whether anything uses the wpdb Tables"; one Table that will not resolve no longer hides a wpdb Table beside it.
+
 ## [2.127.1] - 2026-10-23
 
 ### Fixed

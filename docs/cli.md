@@ -134,7 +134,7 @@ claude mcp add --transport http hub https://hub.example.com/wp-json/newspack-eve
 8. `consumer-lag`
 9. `dead-letters`
 
-Three more appear only when they apply: `wpdb-schema` follows `config-keys`, critical, while a shared wpdb table that a wpdb Table installed does not answer a live probe, naming the server's error; `fleet-hold` follows it while a deploy hold stands; and `other-alerts` closes the report when an alert declares a family no bucket claims.
+Three more appear only when they apply: `wpdb-schema` follows `config-keys`, critical, while a shared wpdb table does not answer a live probe and something uses it (`sessions_backend` is `wpdb`, or an active readable topology declares a keyed Table whose backend resolves to `wpdb`), naming the server's error, or recommended when it cannot tell whether anything uses the tables; `fleet-hold` follows it while a deploy hold stands; and `other-alerts` closes the report when an alert declares a family no bucket claims.
 
 Each row starts with `ok`, `WARN` or `FAIL`: a `WARN` is a recommendation, a `FAIL` is critical. An active topology that will not read — a broken include, or a configured name no `.tsl` resolves — fails the worker-liveness row alone, naming the topology and why, and the other rows evaluate as usual. The three fleet rows read `FAIL` together only when the fleet itself cannot be read, as when the topology catalog will not build, and the environment rows above them still report.
 

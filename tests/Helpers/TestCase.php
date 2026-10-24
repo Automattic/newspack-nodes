@@ -395,9 +395,14 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * sessions this test mints go through the fresh `$wpdb` it returns.
 	 */
 	protected function use_wpdb_sessions(): Helpers\Sqlite_Wpdb {
+		$this->sessions_on_wpdb();
+		return $this->use_wpdb();
+	}
+
+	/** Name `wpdb` as the sessions backend, leaving the database alone. */
+	protected function sessions_on_wpdb(): void {
 		$GLOBALS['_wp_options']['newspack_nodes_sessions_backend'] = 'wpdb';
 		\Newspack_Nodes\Config::reset();
-		return $this->use_wpdb();
 	}
 
 	/**
