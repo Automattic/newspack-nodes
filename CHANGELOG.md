@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.127.0] - 2026-10-23
+
 ### Added
 - **A `min` fold and a `set` op for row tables.** A Row_Schema's `add` may fold a column by `min`, which keeps the smaller value and lets a null neither replace a stored value nor survive a later one. The new `set` op in a `ROWS` batch, top level or inside a `then` list, inserts its row or replaces every column of the row its key names but the key and an `autoincrement` id, so a lookup row keeps the id other rows name; a table declaring no `key` refuses it (`<table>: no key to set by`), as does one with no column outside its key and its `autoincrement` id (`<table>: no column to set`). The `max` fold now follows `min`'s rule: a null leaves the stored value, where SQLite's two-argument `MAX()` answered null, and on a table keyed by one INTEGER column, its rowid alias, a bound float compares as a number rather than as text, which outranked every number.
 - **An OAuth store beside the command sessions.** `Oauth_Store` keeps registered public clients (180 days), single-use authorization codes (60 s), thirty-day grants that no use extends, and rotating refresh tokens in the session Table, under `oauth:` keys, so `wp nodes session revoke --all` and a `sessions_backend` switch reach them. Codes and refresh tokens are stored only as their SHA-256. A refresh runs whole inside `Oauth_Store::rotate()`, which claims each rotation with a 60-second grace row: a refresh retried or racing within 60 s is answered with the same pair, and a token reused later revokes its grant and every session the grant minted.
