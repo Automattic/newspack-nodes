@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A Partition can keep every segment.** The TSL toggle `command_node <partition>:config keep_everything true` switches off the age rule, the count rule and the hard cap, so an event log a projection replays outlives `max_segments` ([ADR-37](docs/architecture-decisions.md#adr-37-a-partition-may-keep-every-segment)).
+
 ## [2.128.0] - 2026-10-23
 
 ### Changed
