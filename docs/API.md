@@ -46,7 +46,7 @@ WP-Cron cold-start pass, and the worker's own `self_respawn()` chain. **Not for
 public callers** — the token rotates every 10s and is per-site, so an external
 call presenting no valid one returns `403 Forbidden`.
 
-![A five-lane sequence of one spawn POST across the spawner, WordPress, check_permission, spawn() and the worker: the argument check, the fleet gate, the two validators of the one nonce field, the three ordered refusals, the four accepted steps, the worker running inline for 595 seconds and the 200 written when it ends; below, the internal token formula for both purposes and the Perl mirror that copies it by hand.](img/api-spawn-handshake.png)
+![A five-lane sequence of one spawn POST across the spawner, WordPress, check_permission, spawn() and the worker: the argument check, the fleet gate, the two validators of the one nonce field, the three ordered refusals, the accepted spawn, the 200 written and the request finished before the worker runs inline for 595 seconds; below, the internal token formula for both purposes and the Perl mirror that copies it by hand.](img/api-spawn-handshake.png)
 
 ### Request
 

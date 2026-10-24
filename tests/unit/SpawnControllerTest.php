@@ -13,6 +13,8 @@ use Newspack_Nodes\Tests\TestCase;
 class SpawnControllerTest extends TestCase {
 	private Spawn_Coordinator $fleet;
 	private Spawn_Controller $controller;
+	/** @var list<string> What the finish seam and the worker did, in order. */
+	private array $log = [];
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -38,6 +40,7 @@ class SpawnControllerTest extends TestCase {
 		$GLOBALS['_wp_test_valid_nonces']      = [];
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		Spawn_Coordinator::clear_hold();
+		Spawn_Controller::$finish_request = null;
 		\Newspack_Nodes\Config::reset();
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
@@ -52,6 +55,23 @@ class SpawnControllerTest extends TestCase {
 			$req->set_param( $k, $v );
 		}
 		return $req;
+	}
+
+	/**
+	 * Apply `rest_pre_serve_request` as WP_REST_Server does, with `$finish`
+	 * as the finish seam; answers what the listeners answer and the body.
+	 *
+	 * @return array{0: mixed, 1: string}
+	 */
+	private function serve( mixed $response, bool $served = false, ?\Closure $finish = null ): array {
+		Spawn_Controller::$finish_request = $finish ?? static function (): void {};
+		\ob_start();
+		try {
+			$answer = \apply_filters( 'rest_pre_serve_request', $served, $response, new \WP_REST_Request( 'POST' ), new \stdClass() );
+		} finally {
+			$body = (string) \ob_get_clean();
+		}
+		return [ $answer, $body ];
 	}
 
 	private function with_topology( array $topologies ): void {
@@ -87,6 +107,7 @@ class SpawnControllerTest extends TestCase {
 
 		$first = $this->controller->spawn( $req );
 		$this->assertInstanceOf( \WP_REST_Response::class, $first );
+		$this->serve( $first );
 		$this->assertSame( 1, $fired );
 
 		$second = $this->controller->spawn( $req );
@@ -128,6 +149,7 @@ class SpawnControllerTest extends TestCase {
 		$this->assertInstanceOf( \WP_REST_Response::class, $first );
 		$this->assertInstanceOf( \WP_Error::class, $second );
 		$this->assertSame( 'spawn_throttled', $second->get_error_code() );
+		$this->serve( $first );
 		$this->assertSame( 1, $fired );
 	}
 
@@ -205,6 +227,7 @@ class SpawnControllerTest extends TestCase {
 		] ) );
 
 		$this->assertInstanceOf( \WP_REST_Response::class, $result );
+		$this->serve( $result );
 		$this->assertSame( 1, $fired );
 	}
 
@@ -462,7 +485,7 @@ class SpawnControllerTest extends TestCase {
 			'partition' => 2,
 			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
 		] );
-		$this->controller->spawn( $req );
+		$this->serve( $this->controller->spawn( $req ) );
 
 		$this->assertNotNull( $captured );
 		$this->assertSame( 'firehose-workers', $captured['type'] );
@@ -507,11 +530,11 @@ class SpawnControllerTest extends TestCase {
 			2
 		);
 
-		$this->controller->spawn( $this->make_request( [
+		$this->serve( $this->controller->spawn( $this->make_request( [
 			'type'      => 'kea-7713',
 			'partition' => 3,
 			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
-		] ) );
+		] ) ) );
 
 		$this->assertSame( [ [ 'kea-7713', 3, 'kea-7713', '3' ] ], $ran, 'tagged before the worker runs' );
 		$this->assertSame( 0, $announced );
@@ -533,5 +556,115 @@ class SpawnControllerTest extends TestCase {
 		$this->assertTrue( $data['spawned'] );
 		$this->assertSame( 'firehose-workers', $data['type'] );
 		$this->assertSame( 0, $data['partition'] );
+	}
+
+	// ── answer, finish, then run ──────────────────────────────────────────
+
+	private function admit_firehose(): \WP_REST_Response {
+		$this->with_topology( [
+			'firehose' => [ 'num_partitions' => 4, 'topology' => '/x.php' ],
+		] );
+		\add_action(
+			'newspack_nodes/spawn_worker',
+			function ( string $type, int $partition ): void {
+				$this->log[] = "run:{$type}:{$partition}";
+			},
+			10,
+			2
+		);
+		$response = $this->controller->spawn( $this->make_request( [
+			'type'      => 'firehose',
+			'partition' => 3,
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
+		] ) );
+		$this->assertInstanceOf( \WP_REST_Response::class, $response );
+		return $response;
+	}
+
+	public function test_an_admitted_spawn_answers_then_finishes_then_runs_the_worker(): void {
+		$response = $this->admit_firehose();
+		$this->assertSame( [], $this->log, 'spawn() alone runs no worker' );
+
+		$body_at_finish = null;
+		[ $answer, $body ] = $this->serve( $response, false, function () use ( &$body_at_finish ): void {
+			$this->log[]    = 'finish';
+			$body_at_finish = \ob_get_contents();
+		} );
+
+		$this->assertTrue( $answer );
+		$this->assertSame( [ 'finish', 'run:firehose:3' ], $this->log );
+		$this->assertSame( '{"spawned":true,"type":"firehose","partition":3}', $body );
+		$this->assertSame( $body, $body_at_finish, 'the body is out before the finish' );
+	}
+
+	public function test_an_admitted_spawn_ignores_an_abort_before_any_byte_is_written(): void {
+		\ignore_user_abort( false );
+		$this->admit_firehose();
+
+		$this->assertSame( 1, \ignore_user_abort(), 'a hang-up before the finish must not kill the worker' );
+	}
+
+	public function test_the_listener_runs_after_every_other_listener_with_two_arguments(): void {
+		$saved                               = $GLOBALS['_wp_action_registrations'] ?? [];
+		$GLOBALS['_wp_action_registrations'] = [];
+		$GLOBALS['_wp_record_registrations'] = true;
+		try {
+			$this->admit_firehose();
+			[ $registration ] = $GLOBALS['_wp_action_registrations']['rest_pre_serve_request'];
+		} finally {
+			unset( $GLOBALS['_wp_record_registrations'] );
+			$GLOBALS['_wp_action_registrations'] = $saved;
+		}
+
+		$this->assertSame( PHP_INT_MAX, $registration['priority'] );
+		$this->assertSame( 2, $registration['accepted_args'] );
+	}
+
+	public function test_an_already_served_response_is_not_echoed_twice_but_the_worker_runs(): void {
+		[ $answer, $body ] = $this->serve( $this->admit_firehose(), true, function (): void {
+			$this->log[] = 'finish';
+		} );
+
+		$this->assertTrue( $answer );
+		$this->assertSame( '', $body );
+		$this->assertSame( [ 'finish', 'run:firehose:3' ], $this->log );
+	}
+
+	public function test_a_refused_spawn_leaves_no_listener_to_run_a_worker(): void {
+		$this->with_topology( [
+			'firehose' => [ 'num_partitions' => 4, 'topology' => '/x.php' ],
+		] );
+		\add_action( 'newspack_nodes/spawn_worker', function (): void {
+			$this->log[] = 'run';
+		} );
+		$request = fn ( int $partition ) => $this->make_request( [
+			'type'      => 'firehose',
+			'partition' => $partition,
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
+		] );
+
+		$out_of_range = $this->controller->spawn( $request( 9 ) );
+		Spawn_Coordinator::set_hold( 1754500000 );
+		$held = $this->controller->spawn( $request( 3 ) );
+		Spawn_Coordinator::clear_hold();
+		$this->assertTrue( $this->fleet->admit_spawn( 'firehose', 3, Core::right_now() ) );
+		$throttled = $this->controller->spawn( $request( 3 ) );
+
+		$this->assertSame( 'invalid_partition', $out_of_range->get_error_code() );
+		$this->assertSame( 'fleet_held', $held->get_error_code() );
+		$this->assertSame( 'spawn_throttled', $throttled->get_error_code() );
+		$this->assertFalse( $this->serve( $throttled )[0], 'no refusal left a listener' );
+		$this->assertSame( [], $this->log );
+	}
+
+	public function test_a_worker_that_throws_propagates_out_of_the_filter(): void {
+		$response = $this->admit_firehose();
+		\add_action( 'newspack_nodes/spawn_worker', static function (): void {
+			throw new \RuntimeException( 'worker 7219 died' );
+		} );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'worker 7219 died' );
+		$this->serve( $response );
 	}
 }

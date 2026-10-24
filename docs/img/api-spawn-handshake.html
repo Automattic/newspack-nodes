@@ -27,16 +27,16 @@
 .tok .callout p:last-child { margin-bottom:0; }
 </style>
 <div class="sheet">
-<h1>One POST spawns a worker, and answers only when the worker dies</h1>
-<p class="sub">Every spawner crosses this one gate: a worker's own self-respawn, each worker's <span class="mono">_fleet</span> peer scan, the WP-Cron cold-start pass, and an external caller holding manage who presents a WordPress nonce for <span class="mono">newspack_nodes_spawn_worker</span>. The refusals come in a fixed order, and the accepted request holds the PHP process for the worker's whole life.</p>
+<h1>One POST spawns a worker, answering before the worker runs</h1>
+<p class="sub">Every spawner crosses this one gate: a worker's own self-respawn, each worker's <span class="mono">_fleet</span> peer scan, the WP-Cron cold-start pass, and an external caller holding manage who presents a WordPress nonce for <span class="mono">newspack_nodes_spawn_worker</span>. The refusals come in a fixed order; the accepted request answers, closes its connection, and keeps the PHP process for the worker's whole life.</p>
 
 <div class="seq" id="seq">
 <svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
 
-<div class="lane card" data-lane="0"><h3>Spawner</h3><p>Fire-and-forget POST with a sub-second timeout; it is long gone before the answer is written.</p></div>
+<div class="lane card" data-lane="0"><h3>Spawner</h3><p>Fire-and-forget POST with a sub-second timeout; nothing reads the answer.</p></div>
 <div class="lane card" data-lane="1"><h3>WordPress</h3><p>The route's declared <span class="mono">args</span>, then the permission callback.</p></div>
 <div class="lane card" data-lane="2"><h3><span class="mono">check_permission</span></h3><p>Fleet gate, then one <span class="mono">nonce</span> field read by two validators.</p></div>
-<div class="lane card" data-lane="3"><h3><span class="mono">spawn()</span></h3><p>Three refusals, then four steps in order.</p></div>
+<div class="lane card" data-lane="3"><h3><span class="mono">spawn()</span></h3><p>Three refusals, then the answer, then the worker.</p></div>
 <div class="lane card" data-lane="4"><h3>Worker</h3><p>Built by whatever answers <span class="mono">newspack_nodes/<wbr>spawn_worker</span>.</p></div>
 
 <div class="hop" data-arrow="0,1" data-cap="POST /workers/spawn  { type, partition, nonce }" data-span="1,3"><span class="n">1</span>Form-encoded (<span class="mono">application/x-www-form-urlencoded</span>) or JSON (<span class="mono">application/json</span>). All three fields are required, so a missing one answers <span class="red">400 rest_missing_callback_param</span> before any callback; a <span class="mono">type</span> no ACTIVE topology declares fails the route's <span class="mono">validate_callback</span> the same early way.</div>
@@ -49,11 +49,11 @@
 
 <div class="hop deny" data-arrow="2,3" data-cap="authorized" data-span="2,4"><span class="n">5</span>In order: <span class="mono">400 invalid_partition</span> (negative, at or above <span class="mono">MAX_PARTITIONS</span> = 8, or past the type's active count); <span class="mono">409 fleet_held</span> while a deploy hold stands in <span class="mono">Spawn_Coordinator::HOLD_OPTION</span>; <span class="mono">429 spawn_throttled</span> while <span class="mono">{type}|{partition}</span> sits inside the shared 15 s window.</div>
 
-<div class="hop run" data-span="2,4"><span class="n">6</span>Accepted. Record the spawn against the 15 s throttle, in memory and in the shared cache at twice the window; <span class="mono">ignore_user_abort( true )</span> and <span class="mono">set_time_limit( 0 )</span>; write <span class="mono">$_SERVER['NEWSPACK_NODES_WORKER_TYPE']</span> and <span class="mono">…_PARTITION</span>; fire <span class="mono">newspack_nodes/spawn_worker( $type, $partition )</span>.</div>
+<div class="hop run" data-span="2,4"><span class="n">6</span>Accepted: <span class="mono">admit_spawn()</span> takes the slot for the shared 15 s window; <span class="mono">ignore_user_abort( true )</span> and <span class="mono">set_time_limit( 0 )</span>, before any byte is written. Write <span class="mono">$_SERVER['NEWSPACK_NODES_WORKER_TYPE']</span> and <span class="mono">…_PARTITION</span>, return the 200, and add one <span class="mono">rest_pre_serve_request</span> listener at <span class="mono">PHP_INT_MAX</span>, which runs once WordPress has set the status and headers.</div>
 
-<div class="hop run" data-arrow="3,4" data-cap="do_action" data-span="3,4"><span class="n">7</span><span class="mono">Topology_Registry::spawn_worker</span> builds the worker and calls <span class="mono">execute()</span>. It runs INLINE, 595 s by default.</div>
+<div class="hop" data-arrow="3,0" data-cap="200 { spawned, type, partition }, then the request finishes" data-span="0,3"><span class="n">7</span>The listener echoes the body and calls <span class="mono">fastcgi_finish_request()</span>, so the connection closes within the request's boot time and holds no <span class="mono">selfdos</span> slot. Without FPM (mod_php, the CLI) the connection stays open until the worker ends.</div>
 
-<div class="hop" data-arrow="3,0" data-cap="200 { spawned, type, partition }, written when the worker ends" data-span="0,3"><span class="n">8</span>The body is written once the worker exits. Nobody is listening for it.</div>
+<div class="hop run" data-arrow="3,4" data-cap="do_action" data-span="3,4"><span class="n">8</span>Then <span class="mono">newspack_nodes/spawn_worker( $type, $partition )</span>: <span class="mono">Topology_Registry::spawn_worker</span> builds the worker and calls <span class="mono">execute()</span>, INLINE, 595 s by default.</div>
 </div>
 
 <div class="tok">

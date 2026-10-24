@@ -436,25 +436,34 @@ correlation — nothing is minted, stored or matched beyond the head the minter 
 process. A long-running worker is therefore an HTTP request whose caller walks away, which
 keeps executing after the disconnect and respawns a successor before its clock runs out.
 
-**Decision:** Workers spawn through an HMAC-validated [`POST /newspack-nodes/v1/workers/spawn`](API.md#worker-spawn),
-the caller abandons the connection, and the endpoint runs the worker inline for its whole
-lifetime.
+**Decision:** Workers spawn through an HMAC-validated [`POST /newspack-nodes/v1/workers/spawn`](API.md#worker-spawn).
+The endpoint admits the spawn, sends its 200 and finishes the request through
+`fastcgi_finish_request()` in a `rest_pre_serve_request` listener, once WordPress has set
+the status and headers, then runs the worker inline for its whole lifetime.
 
-![A timeline with three lanes. The caller writes the spawn POST and walks away at 250 ms, Core::fire_and_forget_post's SPAWN_POST_TIMEOUT_MS, reading a status only when a refusal answers inside it. The endpoint checks the HMAC, then runs the worker inline under ignore_user_abort(true) and set_time_limit(0) for about 595 seconds, ending in a finally that releases the lock and then self-respawns, so the successor acquires the lock immediately. Three cards: fastcgi_finish_request rejected because it hands WordPress a response it can no longer send, a resident daemon or rescue-only restart rejected, and the cost of about 144 respawns a day per worker.](img/adr-zombie-request.png)
+![A timeline with three lanes. The caller writes the spawn POST within 250 ms, Core::fire_and_forget_post's SPAWN_POST_TIMEOUT_MS. The endpoint checks the HMAC, sends its 200 and finishes the request, closing the connection and freeing the selfdos slot it held, then runs the worker inline under ignore_user_abort(true) and set_time_limit(0) for about 595 seconds, ending in a finally that releases the lock and then self-respawns, so the successor acquires the lock immediately. Three cards: holding the connection for the worker's life rejected because nginx counts it against the site's five connections to itself, a resident daemon or rescue-only restart rejected, and the cost of about 144 respawns a day per worker.](img/adr-zombie-request.png)
 
-Nothing detaches from FPM or the process group: the process holding the connection IS the
+Nothing detaches from FPM or the process group: the process that served the spawn IS the
 worker, for [`Cooperative_Stop::DEFAULT_MAX_RUNTIME`](../includes/trait-cooperative-stop.php), ~595 s.
+Where no `fastcgi_finish_request()` exists (mod_php, the CLI) the worker runs with the
+connection held.
 
 **Alternatives considered:** A resident daemon — unavailable on the platform. No self-respawn
 (rescue-only restart) — rejected: every ~10-minute recycle would idle the slot until a peer's
 stale-lock rescue; self-respawn hands off immediately and leaves the peer scan as the safety
-net ([ADR-9](#adr-9-two-tier-safety-net)), not the scheduler. [`fastcgi_finish_request()`](https://www.php.net/manual/en/function.fastcgi-finish-request.php) — rejected: called ahead of the
-`WP_REST_Response`, which COMPLETES the response, it produces an empty body and "headers
-already sent" in the log, unnoticed because every caller discards the body anyway.
+net ([ADR-9](#adr-9-two-tier-safety-net)), not the scheduler. Holding the connection for the
+worker's life — rejected: no caller waits for the reply, but Atomic's nginx counts a site's
+connections to itself (`limit_conn selfdos 5`) and held each spawn's until the worker
+returned or 120 s passed, so a respawn wave refused every other self-request, the tick's job
+wakes and `wp-cron.php` among them. [`fastcgi_finish_request()`](https://www.php.net/manual/en/function.fastcgi-finish-request.php) ahead of the `WP_REST_Response` —
+rejected: it COMPLETES the response, leaving WordPress one it can no longer send, an empty
+body and "headers already sent" in the log; the listener finishes only once WordPress has
+set the status and headers.
 
 **Consequences:** Correctness depends on flawless offsetlog resume across ~144 respawns/day
 per worker and on the release-before-respawn ordering. The lifetime is a platform-shaped
-constant, not a tuning knob.
+constant, not a tuning knob. A spawn holds one of the site's five self-connections for its
+boot time, about 200 ms.
 
 **Revisit if:** the platform lifts the time cap or offers resident workers — the respawn
 dance collapses into a normal long-lived loop.

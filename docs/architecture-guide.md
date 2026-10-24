@@ -773,7 +773,7 @@ The `SESSION_SCAFFOLDING` subset is doubly protected: `dump_config` skips those 
 
 A worker is an HTTP request that outlives its caller and lives about 595 seconds ([`Cooperative_Stop::DEFAULT_MAX_RUNTIME`](../includes/trait-cooperative-stop.php)), just under 10 minutes, sized for Atomic's 15-minute request cap with margin.
 
-![A sequence across the spawner, the spawn endpoint, Worker_Base and the lock dir: the 250 ms fire-and-forget POST, the endpoint's 400, 409 and 429 refusals, execute() running inline in the same request with no fastcgi_finish_request(), acquire() and the 250 ms race grace, the scaffolding, the topology load, and the drain whose should_continue() checks seven stop triggers in order, three of them throttled.](img/ag-worker-lifecycle.png)
+![A sequence across the spawner, the spawn endpoint, Worker_Base and the lock dir: the 250 ms fire-and-forget POST, the endpoint's 400, 409 and 429 refusals, the 200 sent and the request finished through fastcgi_finish_request() before execute() runs inline in the same request, acquire() and the 250 ms race grace, the scaffolding, the topology load, and the drain whose should_continue() checks seven stop triggers in order, three of them throttled.](img/ag-worker-lifecycle.png)
 
 ```php
 // Worker_Base::execute( callable $topology, string $spawn_url, string $token )
