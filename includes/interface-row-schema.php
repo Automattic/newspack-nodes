@@ -45,7 +45,10 @@ interface Row_Schema {
 	 * way one is orphaned, and a row orphaned any other way is never
 	 * examined. `autoincrement` is the INTEGER PRIMARY KEY column an
 	 * `ignore` hands back. `fts` lists the columns an FTS5 shadow,
-	 * `{table}_fts`, indexes, keyed by the `autoincrement` column.
+	 * `{table}_fts`, indexes, keyed by the `autoincrement` column. `keep` is
+	 * `true` alone: the table purges no row, so nothing retains it and it
+	 * releases nothing, and it stands beside no `retain` or `retained_by`,
+	 * nor may another table be `retained_by` it. Its disk grows without bound.
 	 *
 	 * @return array<string, array{
 	 *   columns: array<string,string>,
@@ -54,6 +57,7 @@ interface Row_Schema {
 	 *   indexes?: array<string,list<string>>,
 	 *   retain?: array{0:string,1:int,2:int},
 	 *   retained_by?: list<array{0:string,1:string,2:string}>,
+	 *   keep?: bool,
 	 *   autoincrement?: string,
 	 *   fts?: list<string>
 	 * }>

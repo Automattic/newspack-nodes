@@ -250,6 +250,38 @@ final class RowTableNodeTest extends TestCase {
 				unset( $t['slots']['retain'] );
 				return $t;
 			}, 'slots' ],
+			'keep beside retain'               => [ static function ( array $t ): array {
+				$t['tallies']['keep'] = true;
+				return $t;
+			}, 'tallies declares keep beside retain' ],
+			'keep beside retained_by'          => [ static function ( array $t ): array {
+				$t['burrows']['keep'] = true;
+				return $t;
+			}, 'burrows declares keep beside retained_by' ],
+			'keep as the number one'           => [ static function ( array $t ): array {
+				$t['slots']['keep'] = 1;
+				return $t;
+			}, 'slots declares keep as int, which is not true' ],
+			'keep as false'                    => [ static function ( array $t ): array {
+				$t['slots']['keep'] = false;
+				unset( $t['slots']['retain'] );
+				return $t;
+			}, 'slots declares keep as bool, which is not true' ],
+			'a retained_by naming a kept table' => [ static function ( array $t ): array {
+				$t['ledger_names'] = self::ledger();
+				$t['burrows']['retained_by'][] = [ 'ledger_names', 'id', 'id' ];
+				return $t;
+			}, 'burrows is retained_by ledger_names.id, which keeps every row' ],
+			'kept tables beside retained_by alone' => [ static function ( array $t ): array {
+				$visits                = $t['visits'];
+				$visits['retained_by'] = [ [ 'burrows', 'id', 'rid' ] ];
+				unset( $visits['retain'] );
+				return [
+					'burrows' => $t['burrows'],
+					'visits'  => $visits,
+					'ledger'  => self::ledger(),
+				];
+			}, 'retains no table' ],
 			'a schema declaring no table'      => [ static fn (): array => [], 'no table' ],
 			'an add fold outside sum, max and min' => [ static function ( array $t ): array {
 				$t['tallies']['add']['n'] = 'avg';
@@ -310,6 +342,37 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertStringContainsString( 'Lab', $e->getMessage() );
 		$this->assertStringContainsString( $item, $e->getMessage() );
 		$this->assertFileDoesNotExist( $this->base . '/tables/labs-3307.p3.sqlite', 'refused before the arm opens' );
+	}
+
+	/** @return array<string,mixed> A kept two-column table. */
+	private static function ledger(): array {
+		return [
+			'columns' => [
+				'id'   => 'INTEGER',
+				'note' => 'TEXT NOT NULL',
+			],
+			'key'     => [ 'id' ],
+			'keep'    => true,
+		];
+	}
+
+	public function test_a_kept_table_holds_its_rows_through_a_purge_far_ahead(): void {
+		$tables                 = Wombat_Row_Schema::tables();
+		$tables['ledger_names'] = self::ledger();
+		Lab_Row_Schema::$tables = $tables;
+		$table                  = $this->row_table( 'labs-3307', 'Lab' );
+		$replies                = $this->ask( $table, [ 'ROWS' => [ [ 'insert', 'ledger_names', [ 4417, 'koala-4417' ] ] ] ] );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "ROWS 1\n" ] ], self::shape( $replies ) );
+
+		Core::$clock = static fn (): float => 9000000000.0;
+		$table->purge( 1000 );
+		$this->assertSame( [ [ 4417, 'koala-4417' ] ], self::lab_rows( 'SELECT id, note FROM ledger_names' ) );
+	}
+
+	public function test_a_schema_of_kept_tables_alone_is_accepted(): void {
+		Lab_Row_Schema::$tables = [ 'ledger_names' => self::ledger() ];
+		$this->row_table( 'labs-3307', 'Lab' );
+		$this->assertFileExists( $this->base . '/tables/labs-3307.p3.sqlite' );
 	}
 
 	public function test_the_wombat_tables_pass_as_the_lab_schema(): void {

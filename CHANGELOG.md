@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A Row_Schema table may declare `'keep' => true`**, which purges no row and opts out of the refusal of a table nothing purges. `keep` is refused beside `retain` or `retained_by`, with any value but `true`, and when another table is `retained_by` the kept one. The kept table's disk grows without bound (ADR-34).
+
 ### Removed
 - **`chartColorFor( name )`.** The event logger's Time By Owner table, its one caller, colours its rows in bar order now. `nameHash()` stays for the topology hulls.
 

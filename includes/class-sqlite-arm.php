@@ -49,6 +49,7 @@ namespace Newspack_Nodes;
  *   indexes?: array<string,list<string>>,
  *   retain?: array{0:string,1:int,2:int},
  *   retained_by?: list<array{0:string,1:string,2:string}>,
+ *   keep?: bool,
  *   autoincrement?: string,
  *   fts?: list<string>
  * }

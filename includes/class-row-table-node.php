@@ -119,6 +119,7 @@ class Row_Table_Node extends Table_Node {
 			self::refuse_schema( $word, 'declares no table' );
 		}
 		$retains = false;
+		$kept    = 0;
 		$taken   = \array_fill_keys( \array_keys( Sqlite_Arm::KV_DDL ), 'the kv store' );
 		foreach ( $tables as $table => $spec ) {
 			self::check_table( $word, $tables, $table, $spec );
@@ -129,8 +130,9 @@ class Row_Table_Node extends Table_Node {
 				$taken[ $name ] = "table {$table}";
 			}
 			$retains = $retains || isset( $spec['retain'] );
+			$kept   += isset( $spec['keep'] ) ? 1 : 0;
 		}
-		if ( ! $retains ) {
+		if ( ! $retains && \count( $tables ) !== $kept ) {
 			self::refuse_schema( $word, 'retains no table, so no purge ever starts' );
 		}
 		foreach ( \array_keys( $tables ) as $table ) {
@@ -221,11 +223,13 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
-	 * Check how a table purges: a `retain` whose column leads an index or the
-	 * key, with a window and a unit of at least one, `retained_by` entries
-	 * each a `[ table, column, own ]` list naming a declared table whose referencing column leads one there
-	 * and this table's autoincrement column or one-column key, so a released
-	 * value deletes one row by a seek, or both.
+	 * Check how a table purges: a `keep` of true, which purges nothing and
+	 * stands beside no `retain` or `retained_by`, or a `retain` whose column
+	 * leads an index or the key, with a window and a unit of at least one,
+	 * `retained_by` entries each a `[ table, column, own ]` list naming a
+	 * declared table whose referencing column leads one there and this
+	 * table's autoincrement column or one-column key, so a released value
+	 * deletes one row by a seek, or both.
 	 *
 	 * @param string                $word   The schema word.
 	 * @param array<string,Row_Spec> $tables Every table it declares.
@@ -236,6 +240,18 @@ class Row_Table_Node extends Table_Node {
 	private static function check_purge( string $word, array $tables, string $table, array $spec ): void {
 		$retain      = $spec['retain'] ?? null;
 		$retained_by = $spec['retained_by'] ?? [];
+		if ( \array_key_exists( 'keep', $spec ) ) {
+			if ( true !== $spec['keep'] ) {
+				self::refuse_schema( $word, "{$table} declares keep as " . \get_debug_type( $spec['keep'] ) . ', which is not true' );
+			}
+			if ( null !== $retain ) {
+				self::refuse_schema( $word, "{$table} declares keep beside retain" );
+			}
+			if ( [] !== $retained_by ) {
+				self::refuse_schema( $word, "{$table} declares keep beside retained_by" );
+			}
+			return;
+		}
 		if ( null === $retain && [] === $retained_by ) {
 			self::refuse_schema( $word, "{$table} declares neither retain nor retained_by, so nothing ever purges it" );
 		}
@@ -256,6 +272,9 @@ class Row_Table_Node extends Table_Node {
 			[ $names, $column, $own ] = $reference;
 			if ( ! isset( $tables[ $names ] ) ) {
 				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which it declares no table for" );
+			}
+			if ( isset( $tables[ $names ]['keep'] ) ) {
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which keeps every row, so it never releases" );
 			}
 			if ( ! self::leads( $tables[ $names ], $column ) ) {
 				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which leads no index or key there" );
