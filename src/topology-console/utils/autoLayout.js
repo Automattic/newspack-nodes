@@ -908,6 +908,7 @@ const cardsByColumn = ( ids, col ) => {
  * @param {Object<number,Array<string>>}                 [opts.shared]     The movers and `others` by column, built once for passes that share them.
  * @param {( id: string ) => string|undefined}           [opts.followerOf] The card a nudge carries along with a mover; none by default.
  * @param {( id: string ) => Readonly<[number, number]>} [opts.slotOf]     The rows, exclusive, a mover's nudge stays between; any by default.
+ * @param {( id: string ) => Array<string>}              [opts.wired]      The cards a mover's own wires reach, whose side a tie takes; none by default.
  */
 const clearWires = (
 	ids,
@@ -920,6 +921,7 @@ const clearWires = (
 		shared = undefined,
 		followerOf = () => undefined,
 		slotOf = () => ANY_ROW,
+		wired = () => [],
 	} = {}
 ) => {
 	if ( ! wires.length ) {
@@ -1036,16 +1038,20 @@ const clearWires = (
 						1 ),
 				2 * Math.max( row[ id ] - above, below - row[ id ] )
 			);
-			// The nearest clear half row in its slot, below first on a tie.
-			const found = nearestRow(
-				row[ id ],
-				( r ) =>
-					r > above &&
-					r < below &&
-					! inside( r, list ) &&
-					! holding( c, r - 1, r + 1, id ),
-				reach
-			);
+			const clear = ( r ) =>
+				r > above &&
+				r < below &&
+				! inside( r, list ) &&
+				! holding( c, r - 1, r + 1, id );
+			// The nearest clear row in its slot, toward its wires on a tie.
+			const ends = rowsOf( row, wired( id ) );
+			const up = ends.length > 0 && midMinMax( ends ) < row[ id ];
+			let found;
+			for ( let k = 1; k <= reach && found === undefined; k++ ) {
+				const near = [ row[ id ] + k / 2, row[ id ] - k / 2 ];
+				const ok = near.filter( clear );
+				found = up ? ok[ ok.length - 1 ] : ok[ 0 ];
+			}
 			if ( found !== undefined ) {
 				carry( id, found, spans );
 				moved = true;
@@ -2260,6 +2266,7 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		);
 		clearWires( stays, long, col, row, {
 			followerOf: soleFollower( inBand.succ, inBand.pred, col ),
+			wired: ( id ) => [ ...inBand.pred[ id ], ...inBand.succ[ id ] ],
 		} );
 		normalizeRows( ids, row );
 		return { col: { ...col }, row, wires: long, pulled };
@@ -3032,7 +3039,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			const bandWires = [];
 			/** @type {Array<string>} */
 			const deferred = [];
-			/** @type {Object<string,{members: Array<string>, atCol: number}>} */
+			/** @type {Object<string,{members: Array<string>, atCol: number, under: boolean}>} */
 			const bandOf = {};
 			/** @type {Set<string>} */
 			const cutSeats = new Set();
@@ -3076,7 +3083,11 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					bandWires.push( ...band.wires );
 					deferred.push( ...band.deferred );
 					for ( const id of band.deferred ) {
-						bandOf[ id ] = { members, atCol };
+						bandOf[ id ] = {
+							members,
+							atCol,
+							under: spans.length > 0,
+						};
 					}
 					band.cuts.forEach( ( id ) => cutSeats.add( id ) );
 					spans.push( [ top, bottom ] );
@@ -3164,6 +3175,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					)
 			);
 			const followerOf = soleFollower( succ, pred, bc );
+			const wired = ( id ) => [ ...pred[ id ], ...succ[ id ] ];
 			// Every pass below moves rows only, so one column index serves all.
 			const allByCol = cardsByColumn( all, bc );
 			for ( const members of farFirst ) {
@@ -3181,6 +3193,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 						shared: allByCol,
 						slotOf,
 						followerOf,
+						wired,
 					}
 				);
 			}
@@ -3189,12 +3202,17 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				xOf,
 				shared: allByCol,
 				followerOf,
+				wired,
 			} );
 			// @longform Last, once every card and wire a seat must clear is
-			// placed, and still downward only: above its band's top a source
-			// takes the one row between two stacked bands. A row opened for a
-			// source belongs to its band, and may be the band's top.
+			// placed, and still downward only under a band: above its band's
+			// top a source takes the one row between two stacked bands. A row
+			// opened for a source belongs to its band, and may be the band's
+			// top. A stack's first band has no band above it, nor that row.
 			const top = ( id ) => {
+				if ( ! bandOf[ id ].under ) {
+					return -Infinity;
+				}
 				const rest = bandOf[ id ].members.filter(
 					( m ) => ! seatedLast.has( m ) || cutSeats.has( m )
 				);
@@ -3257,12 +3275,38 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					}
 				}
 			}
+			// @longform The rows each wire holds in a half step it runs through,
+			// which the hull leaves out: a half step holds no card for a block
+			// to land beside, only wires for one to keep clear of.
+			/** @type {Object<number,[number, number]>} */
+			const crossed = {};
+			for ( const id of seated ? Object.keys( bc ) : [] ) {
+				for ( const to of succ[ id ] ) {
+					if ( bc[ to ] !== undefined ) {
+						const [ lo, hi ] = [ bc[ id ], bc[ to ] ].sort(
+							( a, z ) => a - z
+						);
+						coverWire(
+							crossed,
+							halfCol[ lo ] + 1,
+							br[ id ],
+							halfCol[ hi ],
+							br[ to ]
+						);
+					}
+				}
+			}
+			for ( const c of Object.values( halfCol ) ) {
+				delete crossed[ c ];
+				delete crossed[ c + 1 ];
+			}
 			return {
 				col: bc,
 				halfCol,
 				halfOf,
 				row: br,
 				hull: halved( hull, halfCol, [ 0, 1 ] ),
+				crossed,
 				width: halfCol[ widest ] + 2,
 				height: bottom + 1,
 			};
@@ -3458,6 +3502,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			halfOf: rh,
 			row: rr,
 			hull,
+			crossed: {},
 			width: run[ 0 ].width,
 			height,
 			lead: Math.max( 1, height - step ),
@@ -3482,6 +3527,9 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// Each canvas column's rows, top to bottom, that cards and wires take.
 	/** @type {Object<number,[number, number]>} */
 	const taken = {};
+	// Each half step's rows, top to bottom, that the wires through it take.
+	/** @type {Object<number,[number, number]>} */
+	const through = {};
 	// @longform The rows each column shows a room on its left or its right:
 	// a card whose port on that side holds no wire, and a wire running through.
 	/** @type {{left: Object<number,[number, number]>, right: Object<number,[number, number]>}} */
@@ -3506,6 +3554,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			}
 		}
 		lay( taken, b.hull, atCol, atRow );
+		lay( through, b.crossed, atCol, atRow );
 		// The block's faces in its own columns, then on the halves facing out.
 		/** @type {Object<number,[number, number]>} */
 		const left = {};
@@ -3578,6 +3627,17 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				)
 			) {
 				continue;
+			}
+			// A wire through a half step bars its rows to any block.
+			for ( const [ c, h ] of Object.entries( b.hull ) ) {
+				if ( through[ at + Number( c ) ] ) {
+					pairs.push( [ through[ at + Number( c ) ], h ] );
+				}
+			}
+			for ( const [ c, h ] of Object.entries( b.crossed ) ) {
+				if ( taken[ at + Number( c ) ] ) {
+					pairs.push( [ taken[ at + Number( c ) ], h ] );
+				}
 			}
 			for ( const facing of [
 				faces.right[ at - 1 ],

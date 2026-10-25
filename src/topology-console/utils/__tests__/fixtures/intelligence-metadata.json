@@ -1,0 +1,375 @@
+{
+	"metadata": {
+		"_router": {
+			"class": "Router",
+			"sink": "",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": true
+		},
+		"_command_interpreter": {
+			"class": "Command_Interpreter",
+			"sink": "_router",
+			"target": "",
+			"targets": [],
+			"accepts_fill": false,
+			"has_target": false
+		},
+		"_repl": {
+			"class": "Partition",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"_repl:input": {
+			"class": "Consumer",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": false,
+			"has_target": true,
+			"sidecars": [
+				{
+					"name": "_repl:input:deadletter",
+					"class": "Partition"
+				},
+				{
+					"name": "_repl:input:offsetlog",
+					"class": "Partition"
+				},
+				{
+					"name": "_repl:input:source",
+					"class": "Partition"
+				}
+			]
+		},
+		"topicprobe": {
+			"class": "Topic_Probe",
+			"sink": "_command_interpreter",
+			"target": "topicprobe:log",
+			"targets": [ "topicprobe:log" ],
+			"accepts_fill": true,
+			"has_target": true
+		},
+		"topicprobe:log": {
+			"class": "Partition",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"intel:items": {
+			"class": "Partition",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"intel:ontology": {
+			"class": "Partition",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"intel:reresolve": {
+			"class": "Partition",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"intel:writer": {
+			"class": "Intel_Event_Writer",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [ "intel:items", "intel:ontology" ],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"github": {
+			"class": "Github_Source",
+			"sink": "_command_interpreter",
+			"target": "intel:writer",
+			"targets": [ "intel:writer" ],
+			"accepts_fill": false,
+			"has_target": true
+		},
+		"linear": {
+			"class": "Linear_Source",
+			"sink": "_command_interpreter",
+			"target": "intel:writer",
+			"targets": [ "intel:writer" ],
+			"accepts_fill": false,
+			"has_target": true
+		},
+		"feed": {
+			"class": "Feed_Source",
+			"sink": "_command_interpreter",
+			"target": "intel:writer",
+			"targets": [ "intel:writer" ],
+			"accepts_fill": false,
+			"has_target": true
+		},
+		"tablestats": {
+			"class": "Table_Probe",
+			"sink": "_command_interpreter",
+			"target": "tablestats:log",
+			"targets": [ "tablestats:log" ],
+			"accepts_fill": true,
+			"has_target": true
+		},
+		"tablestats:log": {
+			"class": "Partition",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"intel:items:consumer": {
+			"class": "Consumer",
+			"sink": "_command_interpreter",
+			"target": "projector",
+			"targets": [ "projector" ],
+			"accepts_fill": false,
+			"has_target": true,
+			"sidecars": [
+				{
+					"name": "intel:items:consumer:deadletter",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:items:consumer:offsetlog",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:items:consumer:source",
+					"class": "Partition"
+				}
+			]
+		},
+		"intel:ontology:consumer": {
+			"class": "Consumer",
+			"sink": "_command_interpreter",
+			"target": "intel:ontology:tee",
+			"targets": [ "intel:ontology:tee" ],
+			"accepts_fill": false,
+			"has_target": true,
+			"sidecars": [
+				{
+					"name": "intel:ontology:consumer:deadletter",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:ontology:consumer:offsetlog",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:ontology:consumer:source",
+					"class": "Partition"
+				}
+			]
+		},
+		"intel:ontology:tee": {
+			"class": "Tee",
+			"sink": "_command_interpreter",
+			"target": [ "projector", "reresolver" ],
+			"targets": [ "projector", "reresolver" ],
+			"accepts_fill": true,
+			"has_target": true
+		},
+		"projector": {
+			"class": "Projector",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [ "intel-graph" ],
+			"accepts_fill": true,
+			"has_target": true
+		},
+		"intel-graph": {
+			"class": "Row_Table",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"intel:items:resolve": {
+			"class": "Consumer",
+			"sink": "_command_interpreter",
+			"target": "resolver",
+			"targets": [ "resolver" ],
+			"accepts_fill": false,
+			"has_target": true,
+			"sidecars": [
+				{
+					"name": "intel:items:resolve:deadletter",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:items:resolve:offsetlog",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:items:resolve:source",
+					"class": "Partition"
+				}
+			]
+		},
+		"resolver": {
+			"class": "Resolver",
+			"sink": "_command_interpreter",
+			"target": "extractor",
+			"targets": [ "extractor", "intel:writer" ],
+			"accepts_fill": true,
+			"has_target": true
+		},
+		"extractor": {
+			"class": "Extractor",
+			"sink": "_command_interpreter",
+			"target": "deduper",
+			"targets": [ "deduper", "intel:writer" ],
+			"accepts_fill": true,
+			"has_target": true
+		},
+		"deduper": {
+			"class": "Deduper",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [ "intel:writer" ],
+			"accepts_fill": true,
+			"has_target": false
+		},
+		"intel:reresolve:resolve": {
+			"class": "Consumer",
+			"sink": "_command_interpreter",
+			"target": "resolver",
+			"targets": [ "resolver" ],
+			"accepts_fill": false,
+			"has_target": true,
+			"sidecars": [
+				{
+					"name": "intel:reresolve:resolve:deadletter",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:reresolve:resolve:offsetlog",
+					"class": "Partition"
+				},
+				{
+					"name": "intel:reresolve:resolve:source",
+					"class": "Partition"
+				}
+			]
+		},
+		"reresolver": {
+			"class": "Reresolver",
+			"sink": "_command_interpreter",
+			"target": "",
+			"targets": [ "intel:reresolve" ],
+			"accepts_fill": true,
+			"has_target": false
+		}
+	},
+	"classes": [
+		{
+			"shell_name": "Consumer",
+			"fans_out": false,
+			"commands": [
+				{
+					"name": "add_snapshot_node",
+					"args": [
+						{
+							"name": "node",
+							"type": "node_name"
+						}
+					]
+				},
+				{
+					"name": "remove_snapshot_node",
+					"args": [
+						{
+							"name": "node",
+							"type": "node_name"
+						}
+					]
+				}
+			]
+		},
+		{
+			"shell_name": "Partition",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Table_Probe",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Topic_Probe",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Tee",
+			"fans_out": true
+		},
+		{
+			"shell_name": "Feed_Source",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Github_Source",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Linear_Source",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Row_Table",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Deduper",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Extractor",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Intel_Event_Writer",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Projector",
+			"fans_out": false,
+			"commands": [
+				{
+					"name": "set_graph_target",
+					"args": [
+						{
+							"name": "target",
+							"type": "node_name"
+						}
+					]
+				}
+			]
+		},
+		{
+			"shell_name": "Reresolver",
+			"fans_out": false
+		},
+		{
+			"shell_name": "Resolver",
+			"fans_out": false
+		}
+	]
+}
