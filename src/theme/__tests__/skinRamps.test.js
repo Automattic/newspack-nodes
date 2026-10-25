@@ -2897,6 +2897,41 @@ describe( "WordPress's accent follows the skin", () => {
 	);
 } );
 
+describe( 'Links rest in the skin', () => {
+	// WordPress's own `a` colour: `common.css`.
+	const WORDPRESS_LINK = selectorSpecificity(
+		selectorParser().astSync( 'a' ).first
+	);
+
+	it( 'colours a link at rest in every skin but the default in its accent, over WordPress', () => {
+		const resting = [];
+		stylesheet.walkRules( ( rule ) => {
+			if ( ! rule.some( ( d ) => 'color' === d.prop ) ) {
+				return;
+			}
+			for ( const selector of selectorParser().astSync( rule.selector )
+				.nodes ) {
+				const text = selector.toString().trim();
+				if ( /(^|\s)a$/.test( text ) ) {
+					resting.push( { rule, selector } );
+				}
+			}
+		} );
+		expect( resting ).toHaveLength( 1 );
+		const [ { rule, selector } ] = resting;
+		expect( rule.selector ).toContain( ':not(.theme-newspack)' );
+		expect( rule.nodes.find( ( d ) => 'color' === d.prop ).value ).toBe(
+			'var(--wp-admin-theme-color)'
+		);
+		expect(
+			compareSpecificity(
+				selectorSpecificity( selector ),
+				WORDPRESS_LINK
+			)
+		).toBeGreaterThan( 0 );
+	} );
+} );
+
 describe( 'Links hover in the skin', () => {
 	// WordPress's admin color scheme hard-codes `a:hover`: `colors.css`.
 	const WORDPRESS_HOVER = selectorSpecificity(

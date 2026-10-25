@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A link in a skinned page takes the skin's accent at rest**, not WordPress's blue; every skin but the default already took it on hover.
+
 ### Added
 - **`DashboardShell` and `ThemedRoot` in `@newspack-nodes/shared/components/`, the page chrome an application's standalone admin page wears.** `ThemedRoot` is the `display: contents` skin provider that applies the persisted skin and paints `document.body` with its `--paper-3`, repainting on `SKIN_EVENT`; `DashboardShell` wraps it around a box positioned against the admin bar and the admin menu's width, painted by `newspack-nodes-page-surface`, holding the shared `Header` with the caller's subtitle, a scrolling area (`PAGE_CONTENT_CLASS`) and the debug overlay. Both move here from newspack-event-logger-nodes unchanged, so newspack-intelligence's page can wear them too.
 
