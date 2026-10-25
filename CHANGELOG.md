@@ -7,22 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.129.0] - 2026-10-25
+
 ### Added
 - **A Row_Schema table may declare `'keep' => true`**, which purges no row and opts out of the refusal of a table nothing purges. `keep` is refused beside `retain` or `retained_by`, with any value but `true`, and when another table is `retained_by` the kept one. The kept table's disk grows without bound (ADR-34).
+- **A Partition can keep every segment.** The TSL toggle `command_node <partition>:config keep_everything true` switches off the age rule, the count rule and the hard cap, so an event log a projection replays outlives `max_segments` ([ADR-37](docs/architecture-decisions.md#adr-37-a-partition-may-keep-every-segment)).
+- **`Mcp_Door`, the MCP server a plugin declares a door on.** A plugin subclasses it, declares six things and calls `wire()` to mount `POST /wp-json/<namespace>/mcp` as an OAuth resource of its own, metered in slots of its own ([ADR-38](docs/architecture-decisions.md#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server); [API](docs/API.md#mcp-doors)).
+- **`Capabilities::$session_label`, the label of the command session in force.** `Command_Auth`'s verifier and an MCP door install it beside `$session_scope`: the session's label, `''` for a session minted without one, null for the per-site secret and on a refusal; `interpret()` restores the one that stood before. A verb reads it to name the caller.
+
+### Changed
+- **`Command_Auth::HANDLE_PATTERN` is an unanchored regex fragment**, `[0-9a-f]{32}`, beside the new `KEY_PATTERN`, `[0-9a-f]{64}`, so a door composes its bearer pattern from both; each length derives from the bytes a mint draws. A caller that matched a whole handle with `HANDLE_PATTERN` wraps it in `^…$` itself.
 
 ### Fixed
 - **A Row_Table `set` that changes an `fts` column now updates the `{table}_fts` shadow.** The shadow had insert and delete triggers only, so after a `set` it searched the old text and missed the new, and a later purge sent FTS5 `delete` the new values, which can corrupt the index. An `AFTER UPDATE` trigger deletes the old values and inserts the new; an existing file gains it at the next open.
 
 ### Removed
 - **`chartColorFor( name )`.** The event logger's Time By Owner table, its one caller, colours its rows in bar order now. `nameHash()` stays for the topology hulls.
-
-### Changed
-- **`Command_Auth::HANDLE_PATTERN` is an unanchored regex fragment**, `[0-9a-f]{32}`, beside the new `KEY_PATTERN`, `[0-9a-f]{64}`, so a door composes its bearer pattern from both; each length derives from the bytes a mint draws. A caller that matched a whole handle with `HANDLE_PATTERN` wraps it in `^…$` itself.
-
-### Added
-- **A Partition can keep every segment.** The TSL toggle `command_node <partition>:config keep_everything true` switches off the age rule, the count rule and the hard cap, so an event log a projection replays outlives `max_segments` ([ADR-37](docs/architecture-decisions.md#adr-37-a-partition-may-keep-every-segment)).
-- **`Mcp_Door`, the MCP server a plugin declares a door on.** A plugin subclasses it, declares six things and calls `wire()` to mount `POST /wp-json/<namespace>/mcp` as an OAuth resource of its own, metered in slots of its own ([ADR-38](docs/architecture-decisions.md#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server); [API](docs/API.md#mcp-doors)).
-- **`Capabilities::$session_label`, the label of the command session in force.** `Command_Auth`'s verifier and an MCP door install it beside `$session_scope`: the session's label, `''` for a session minted without one, null for the per-site secret and on a refusal; `interpret()` restores the one that stood before. A verb reads it to name the caller.
 
 ## [2.128.0] - 2026-10-23
 
