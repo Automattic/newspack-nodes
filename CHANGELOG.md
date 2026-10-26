@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.131.2] - 2026-10-26
+
 ### Fixed
 - **A Table left behind purges again on the next second's tick, not a minute later.** Once a minute, the 250 ms `PURGE_BACKLOG_BUDGET_S` could not keep pace with a busy Row_Table. On the staging hub each flame-facts partition inserted about 1.35 M rows an hour, the budget deleted 9,000 rows a minute, about 540 k an hour, and p0 held 37 M expired rows, the oldest 29.7 h past its window. A purge whose last batch comes back full is due again the next second with the same budget, about 32 M rows an hour on that file, and the first batch that is not full returns it to once a minute. While behind, the purge holds the drain loop a quarter of every second.
 
