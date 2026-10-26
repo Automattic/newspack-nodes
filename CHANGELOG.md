@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.131.1] - 2026-10-25
+
 ### Fixed
 - **A snapshot build's sorts stay near 8 MiB apiece.** SQLite holds each sort in memory up to `main`'s page cache before it spills to a temporary file, and `Sqlite_Arm::build_rows()` gave `main` 256 MiB, so the URL snapshot's nested GROUP BYs reached 942 MB resident on eln with its temporary B-trees on disk. The build file's cache is 8 MiB, as each attached partition's is; locally, building and grouping 3 M rows peaks at 73 MB where it took 557 MB, in the same 6.6 s.
 - **A publish raises no warnings.** `Row_Table_Node::build()` removes its build file in a `finally` that runs after the rename, where `Core::file_footprint()` stat'ed the database, `-wal` and `-shm` that were already gone, and the event logger recorded each silenced warning: three per publish. `file_footprint()` checks the file exists before it stats it, so a missing file answers null without raising anything.
