@@ -36,6 +36,9 @@ class Core {
 	/** The node's spelling of the fleet, beside the Shell's `<topology>`. */
 	public const TOPOLOGY_TOKEN = '{topology}';
 
+	/** The keyword a `stderr()` line reaches the `newspack_nodes/stderr` seam under. */
+	public const STDERR_KEYWORD = 'stderr';
+
 	/**
 	 * Property-name substrings whose value is a credential. dump_node() reflects
 	 * EVERY property, so any node holding one of these would otherwise print the
@@ -200,6 +203,19 @@ class Core {
 	 * @var \Closure(): float|null
 	 */
 	public static ?\Closure $clock = null;
+
+	/**
+	 * Span seam replacing the bare `$work()` call in `span()`. An event logger
+	 * installs a timer that runs the work inside a span on the record it has
+	 * open; tests install one that records each span. It survives `reset()`.
+	 *
+	 * Signature: `function ( string $label, \Closure $work, \Closure $describe ): mixed`
+	 * — it calls `$work` once and returns what that returned, and may pass
+	 * the result to `$describe` for the span's closing detail.
+	 *
+	 * @var (\Closure(string, \Closure(): mixed, \Closure(mixed): string): mixed)|null
+	 */
+	public static ?\Closure $around_span = null;
 
 	/** @var array<string> The 100 most recent stderr lines; `dmesg` dumps them. */
 	public static array $recent_log = [];
@@ -377,13 +393,42 @@ class Core {
 	 * than stamped, so the ring holds only real lines.
 	 */
 	public static function stderr( string $text ): void {
+		self::diagnostic( $text, self::STDERR_KEYWORD );
+	}
+
+	/**
+	 * `stderr()` without the handler: the line, composed alike, reaches the
+	 * `dmesg` ring and the `newspack_nodes/stderr` seam under `$keyword`, and
+	 * never `error_log`. For a routine line an event logger records apart
+	 * from its errors and the PHP error log need not.
+	 *
+	 * @api Called by `Cooperative_Stop` for a routine stop.
+	 * @param string $text    The line.
+	 * @param string $keyword What a logger files it under, never `STDERR_KEYWORD`.
+	 * @throws \Throwable What a seam listener threw.
+	 */
+	public static function stderr_to_seam( string $text, string $keyword ): void {
+		self::diagnostic( $text, $keyword );
+	}
+
+	/**
+	 * Midfix one line, ring it, and hand it to `_stderr()`.
+	 *
+	 * @param string $text    The line; an empty one is dropped.
+	 * @param string $keyword What a logger files it under; only `STDERR_KEYWORD`
+	 *                        reaches the handler, and so `error_log`.
+	 * @throws \Throwable What a seam listener or the handler threw.
+	 */
+	private static function diagnostic( string $text, string $keyword ): void {
 		if ( '' === $text ) {
 			return;
 		}
 		$line = self::log_midfix( $text );
 		if ( self::$error_log_only ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \rtrim( $line ) );
+			if ( self::STDERR_KEYWORD === $keyword ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				\error_log( \rtrim( $line ) );
+			}
 			return;
 		}
 		self::$recent_log[] = self::log_prefix( $line );
@@ -391,39 +436,51 @@ class Core {
 		while ( \count( self::$recent_log ) > 100 ) {
 			\array_shift( self::$recent_log );
 		}
-		self::_stderr( $line );
+		self::_stderr( $line, keyword: $keyword );
 	}
 
 	/**
 	 * Run the stderr handler for one line, and fire the `newspack_nodes/stderr`
 	 * firehose action beside it. Both run under the $in_stderr re-entry guard: a
 	 * listener that itself calls stderr() hits this guard and short-circuits to
-	 * error_log, so it can't recurse or re-fire the action. Worker-context
-	 * listeners must write via a Topic/Partition directly, never back through
-	 * stderr(). The function_exists gate keeps Core loadable in WP-less bootstraps.
+	 * error_log, so it can't recurse or re-fire the action; a line filed under
+	 * another keyword than `STDERR_KEYWORD` skips the handler, and is dropped
+	 * there instead. Worker-context listeners must write via a Topic/Partition
+	 * directly, never back through stderr(). The function_exists gate keeps
+	 * Core loadable in WP-less bootstraps.
 	 *
 	 * The handler runs whatever a listener threw, so the line still lands, and
 	 * both failures escape afterwards through `Worker_Should_Stop::raise()`.
 	 *
+	 * @param string $text    The line.
+	 * @param bool   $raw     The caller composed the line, prefix included.
+	 * @param string $keyword What the seam's listeners file it under.
 	 * @throws \Throwable What the listener or the handler threw.
 	 */
-	public static function _stderr( string $text, bool $raw = false ): void {
+	public static function _stderr( string $text, bool $raw = false, string $keyword = self::STDERR_KEYWORD ): void {
+		$handled = self::STDERR_KEYWORD === $keyword;
 		if ( self::$in_stderr ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \rtrim( $text ) );
+			if ( $handled ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				\error_log( \rtrim( $text ) );
+			}
 			return;
 		}
 		self::$in_stderr = true;
 		try {
 			Worker_Should_Stop::raise(
 				Worker_Should_Stop::attempt(
-					static function () use ( $text ): void {
+					static function () use ( $text, $keyword ): void {
 						if ( \function_exists( 'do_action' ) ) {
-							\do_action( 'newspack_nodes/stderr', $text );
+							\do_action( 'newspack_nodes/stderr', $text, $keyword );
 						}
 					},
 					// A handler declaring only $text ignores the extra arg.
-					static fn () => ( self::$stderr_handler )( $text, $raw ),
+					static function () use ( $text, $raw, $handled ): void {
+						if ( $handled ) {
+							( self::$stderr_handler )( $text, $raw );
+						}
+					},
 				)
 			);
 		} finally {
@@ -502,9 +559,9 @@ class Core {
 	 * `Event_Framework::reset()` goes with it, so an orphaned node's armed timer
 	 * cannot outlive the graph that armed it.
 	 *
-	 * Four members survive, because they are process wiring rather than per-run
-	 * state: `$config_resolvers`, `$curl_exec`, `$verify_spawn_tls` and
-	 * `$log_timeout`.
+	 * Five members survive, because they are process wiring rather than per-run
+	 * state: `$config_resolvers`, `$curl_exec`, `$verify_spawn_tls`,
+	 * `$log_timeout` and `$around_span`.
 	 */
 	public static function reset(): void {
 		self::$nodes_by_name     = [];
@@ -942,6 +999,21 @@ class Core {
 			return null;
 		}
 		return (int) $token;
+	}
+
+	/**
+	 * Run `$work` as the span `$label`, through `$around_span` when a logger
+	 * installed one, bare otherwise.
+	 *
+	 * @api Called by `Table_Node` for its purge and checkpoint.
+	 * @template T
+	 * @param string                $label    The span's name.
+	 * @param \Closure(): T         $work     The work the span times.
+	 * @param \Closure(T): string   $describe The span's closing detail, from what `$work` returned.
+	 * @return T What `$work` returned.
+	 */
+	public static function span( string $label, \Closure $work, \Closure $describe ): mixed {
+		return null === self::$around_span ? $work() : ( self::$around_span )( $label, $work, $describe );
 	}
 
 	/**

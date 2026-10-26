@@ -1350,20 +1350,26 @@ class Table_Node extends Node {
 		$batches = 0;
 		$purged  = 0;
 		try {
-			do {
-				++$batches;
-				$done    = $arm->purge( $now, $batch );
-				$purged += $done['rows'];
-			} while ( Core::right_now() < $until && $done['full'] );
+			return Core::span(
+				'table purge',
+				static function () use ( $arm, $now, $until, $batch, &$batches, &$purged ): array {
+					do {
+						++$batches;
+						$done    = $arm->purge( $now, $batch );
+						$purged += $done['rows'];
+					} while ( Core::right_now() < $until && $done['full'] );
+					return [
+						'rows'    => $purged,
+						'batches' => $batches,
+						'full'    => $done['full'],
+					];
+				},
+				fn ( array $done ): string => "{$this->table_name()}: {$done['rows']} rows in {$done['batches']} batches"
+			);
 		} finally {
 			$this->count_rows( 'PURGE', $batches * $batch, $purged );
 			$this->count_call( 'PURGE', $started, $bytes );
 		}
-		return [
-			'rows'    => $purged,
-			'batches' => $batches,
-			'full'    => $done['full'],
-		];
 	}
 
 	/**
@@ -1387,7 +1393,11 @@ class Table_Node extends Node {
 		$this->checkpoint_due = $now + self::CHECKPOINT_INTERVAL_S;
 		$started              = self::monotonic_ns();
 		try {
-			$result = $arm->checkpoint();
+			$result = Core::span(
+				'table checkpoint',
+				$arm->checkpoint( ... ),
+				fn ( ?array $done ): string => $this->table_name() . ': ' . Sqlite_Arm::CHECKPOINT_MODE . ' ' . ( null === $done ? 'failed' : "{$done[1]}/{$done[0]} frames" )
+			);
 		} finally {
 			$this->count_call( 'CHECKPOINT', $started, $this->arm_bytes() );
 		}

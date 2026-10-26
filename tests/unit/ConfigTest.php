@@ -422,6 +422,15 @@ class ConfigTest extends TestCase {
 		$this->assertDirectoryExists( $offsets );
 	}
 
+	public function test_get_sqlite_temp_directory_creates_a_private_dir_under_the_base(): void {
+		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/kea-7719' );
+		Config::reset();
+		$dir = Config::get_sqlite_temp_directory();
+		$this->assertSame( $this->temp_dir . '/kea-7719/tmp/sqlite', $dir );
+		$this->assertDirectoryExists( $dir );
+		$this->assertSame( 0700, \fileperms( $dir ) & 0777 );
+	}
+
 	public function test_get_base_directory_with_locks_creates_the_lock_tree(): void {
 		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/kea-7713' );
 		Config::reset();

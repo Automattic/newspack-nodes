@@ -61,6 +61,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** How long a call waits on another connection's write lock. */
 	public const BUSY_TIMEOUT_MS = 1000;
 
+	/** The `wal_checkpoint` mode `checkpoint()` runs: it waits on no reader. */
+	public const CHECKPOINT_MODE = 'PASSIVE';
+
 	/**
 	 * Page cache per connection, in KiB: 64 MiB, against SQLite's 2 MB
 	 * default. It bounds how much of a file a worker's long-lived connection
@@ -70,7 +73,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * statement touches it, so this is a ceiling, never an allocation at
 	 * open. `mmap_size` stays 0 here: for a Table's point reads a fresh
 	 * connection, which every mount is, pays to map a file that only a warm
-	 * one reads back faster. `open_rows()` scans, and maps.
+	 * one reads back faster.
 	 */
 	public const CACHE_KIB = 65536;
 
@@ -93,13 +96,14 @@ final class Sqlite_Arm extends Durable_Arm {
 	private const ROWS_CACHE_KIB = 8192;
 
 	/**
-	 * Bytes of each attached file an `open_rows()` reader maps: SQLite's
-	 * default `SQLITE_MAX_MMAP_SIZE`, which a build may lower but rarely
-	 * raises. A day's scan touches more pages than `ROWS_CACHE_KIB` holds,
-	 * and each page it misses is a `pread()` back into the file; mapped, a
-	 * page the kernel holds is read in place, with no syscall and no copy.
-	 * On a host where a syscall is dear, such as Atomic, that turns a minute's
-	 * scan into seconds.
+	 * Bytes of a published snapshot an `open_immutable()` reader maps:
+	 * SQLite's default `SQLITE_MAX_MMAP_SIZE`, which a build may lower but
+	 * rarely raises. A page the kernel holds is read in place, with no
+	 * syscall and no copy, but every page a read touches counts in the
+	 * process's resident memory until the connection unmaps the file. It is
+	 * clean file-backed memory the kernel may reclaim, yet a host that kills
+	 * by resident size counts it, so `open_rows()` and `build_rows()`, which
+	 * scan every partition, map nothing.
 	 */
 	private const ROWS_MMAP_BYTES = 2147418112;
 
@@ -298,7 +302,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	public function checkpoint(): ?array {
 		try {
-			$row = $this->single_row( 'PRAGMA wal_checkpoint(PASSIVE)' );
+			$row = $this->single_row( 'PRAGMA wal_checkpoint(' . self::CHECKPOINT_MODE . ')' );
 		} catch ( \PDOException $e ) {
 			$this->failure = Driver_Error::of( $e );
 			Core::print_less_often( 'Table checkpoint failed: ', $this->last_failure() );
@@ -640,20 +644,20 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * Open a reader across row-table files: a `:memory:` main with each
-	 * present file at `$version` attached read-only as `p{partition}`, each
-	 * with an 8 MiB page cache and mapped, and the connection set
-	 * `query_only` with its temporary B-trees in memory. A file absent, or
-	 * at another version, is not attached, so the reader's aliases name
-	 * only the files it holds. Those B-trees take SQLite's `malloc`, outside
-	 * PHP's `memory_limit`: deduplicating 740,000 32-character keys, a day's
-	 * distinct URLs across eln's four partitions, grows the process 32 MB.
+	 * present file at `$version` attached read-only as `p{partition}`, as
+	 * `attach_all()` attaches it, and the connection set `query_only` with
+	 * its temporary B-trees on disk, as `temp_on_disk()` puts them. A file
+	 * absent, or at another version, is not attached, so the reader's aliases
+	 * name only the files it holds.
 	 *
 	 * @param array<int,string> $files   Partition => file.
 	 * @param int               $version The schema version a file must carry.
 	 * @return Row_Reader The connection and the aliases it attached.
 	 * @throws \LogicException Without pdo_sqlite.
-	 * @throws \RuntimeException In a process running as root.
-	 * @throws \PDOException When a present file will not attach.
+	 * @throws \RuntimeException In a process running as root, or as
+	 *                           `temp_on_disk()`.
+	 * @throws \PDOException As `temp_on_disk()`, or when a present file will
+	 *                       not attach.
 	 * @api The row tables' one read path.
 	 */
 	public static function open_rows( array $files, int $version ): Row_Reader {
@@ -661,7 +665,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		self::refuse_root_reader( \implode( ', ', $files ) );
 		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
 		$db->exec( 'PRAGMA busy_timeout = ' . self::BUSY_TIMEOUT_MS );
-		$db->exec( 'PRAGMA temp_store = MEMORY' );
+		self::temp_on_disk( $db );
 		$aliases = self::attach_all( $db, $files, $version );
 		$db->exec( 'PRAGMA query_only = ON' );
 		return new Row_Reader( $db, $aliases );
@@ -669,18 +673,21 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * Open a connection that builds a new SQLite file from the row tables:
-	 * `$file` as a writable `main`, journal off, with a 256 MiB page cache and
-	 * mapped, each present partition file attached read-only as `open_rows()`
-	 * attaches it, and temporary B-trees in memory. The caller publishes the
-	 * file; a crash leaves it unpublished.
+	 * `$file` as a writable `main`, journal off, with a 256 MiB page cache
+	 * and unmapped, each present partition file attached read-only as
+	 * `attach_all()` attaches it, and temporary B-trees on disk, as
+	 * `temp_on_disk()` puts them. The caller publishes the file; a crash
+	 * leaves it unpublished.
 	 *
 	 * @param string            $file    The file to build, absent or empty.
 	 * @param array<int,string> $files   Partition => file.
 	 * @param int               $version The schema version a partition file must carry.
 	 * @return Row_Reader The writable connection and the aliases it attached.
 	 * @throws \LogicException Without pdo_sqlite.
-	 * @throws \RuntimeException In a process running as root.
-	 * @throws \PDOException When `$file` will not open or a partition will not attach.
+	 * @throws \RuntimeException In a process running as root, or as
+	 *                           `temp_on_disk()`.
+	 * @throws \PDOException As `temp_on_disk()`, or when `$file` will not open
+	 *                       or a partition will not attach.
 	 * @api The row tables' one build path.
 	 */
 	public static function build_rows( string $file, array $files, int $version ): Row_Reader {
@@ -691,14 +698,15 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db->exec( 'PRAGMA journal_mode = OFF' );
 		$db->exec( 'PRAGMA synchronous = OFF' );
 		$db->exec( 'PRAGMA main.cache_size = -' . self::BUILD_CACHE_KIB );
-		$db->exec( 'PRAGMA main.mmap_size = ' . self::ROWS_MMAP_BYTES );
-		$db->exec( 'PRAGMA temp_store = MEMORY' );
+		$db->exec( 'PRAGMA main.mmap_size = 0' );
+		self::temp_on_disk( $db );
 		return new Row_Reader( $db, self::attach_all( $db, $files, $version ) );
 	}
 
 	/**
 	 * Attach each present file at `$version` to `$db` read-only as
-	 * `p{partition}`; a file absent, or at another version, is not attached.
+	 * `p{partition}`, with an 8 MiB page cache and unmapped; a file absent, or
+	 * at another version, is not attached.
 	 *
 	 * @param \PDO              $db      The connection.
 	 * @param array<int,string> $files   Partition => file.
@@ -737,8 +745,25 @@ final class Sqlite_Arm extends Durable_Arm {
 			return false;
 		}
 		$db->exec( "PRAGMA {$schema}.cache_size = -" . self::ROWS_CACHE_KIB );
-		$db->exec( "PRAGMA {$schema}.mmap_size = " . self::ROWS_MMAP_BYTES );
+		$db->exec( "PRAGMA {$schema}.mmap_size = 0" );
 		return true;
+	}
+
+	/**
+	 * Keep the connection's temporary B-trees, a GROUP BY's, a DISTINCT's and
+	 * every CREATE INDEX sort, in files in `Config::get_sqlite_temp_directory()`
+	 * on the runtime base's disk: in memory they take SQLite's `malloc`
+	 * without bound, unseen by PHP's memory watermark. SQLite holds the
+	 * directory process-wide, through `PRAGMA temp_store_directory`, as PDO
+	 * sets no temporary directory per connection.
+	 *
+	 * @param \PDO $db The connection.
+	 * @throws \RuntimeException When the directory will not resolve.
+	 * @throws \PDOException When SQLite cannot write the directory.
+	 */
+	private static function temp_on_disk( \PDO $db ): void {
+		$db->exec( 'PRAGMA temp_store = FILE' );
+		$db->exec( 'PRAGMA temp_store_directory = ' . $db->quote( Config::get_sqlite_temp_directory() ) );
 	}
 
 	/**

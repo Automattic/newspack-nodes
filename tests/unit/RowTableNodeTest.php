@@ -48,6 +48,8 @@ final class RowTableNodeTest extends TestCase {
 	protected function tearDown(): void {
 		Sqlite_Arm::$available = null;
 		Row_Table_Node::$fsync = null;
+		// SQLite holds the temporary directory process-wide.
+		( new \PDO( 'sqlite::memory:' ) )->exec( "PRAGMA temp_store_directory = ''" );
 		\delete_option( 'newspack_nodes_topologies' );
 		Config::reset();
 		Topology_Registry::reset();
@@ -697,6 +699,15 @@ final class RowTableNodeTest extends TestCase {
 		);
 	}
 
+	public function test_read_keeps_its_temporary_files_under_the_runtime_base(): void {
+		$this->row_table( 'wombats-6620', 'Wombat' );
+		$this->activate( 'wombat-fleet' );
+		$this->assertSame(
+			[ [ "{$this->base}/tmp/sqlite" ] ],
+			Row_Table_Node::read( Wombat_Row_Schema::class, static fn ( Row_Reader $r ): array => $r->rows( 'PRAGMA temp_store_directory', [] ) )
+		);
+	}
+
 	public function test_read_binds_integers_as_integers(): void {
 		$table = $this->row_table( 'wombats-6620', 'Wombat' );
 		$this->ask( $table, [ 'ROWS' => [ ...self::visit( 'rid-5501', 1790000000 ), [ 'insert', 'visits', [ 'rid-5502', 1790000300, 1, 4.25 ] ] ] ] );
@@ -789,6 +800,15 @@ final class RowTableNodeTest extends TestCase {
 		$this->seed_partitions( 'rid-5521', 'rid-5523' );
 		$this->activate( 'wombat-fleet' );
 		$this->assertSame( [ 'p1', 'p3' ], Row_Table_Node::build( Wombat_Row_Schema::class, 'heron-snap-7102', static fn ( Row_Reader $r ): array => $r->aliases() ) );
+	}
+
+	public function test_build_keeps_its_temporary_files_under_the_runtime_base(): void {
+		$this->seed_partitions( 'rid-5581', 'rid-5583' );
+		$this->activate( 'wombat-fleet' );
+		$this->assertSame(
+			[ [ "{$this->base}/tmp/sqlite" ] ],
+			Row_Table_Node::build( Wombat_Row_Schema::class, 'heron-snap-7108', static fn ( Row_Reader $r ): array => $r->rows( 'PRAGMA temp_store_directory', [] ) )
+		);
 	}
 
 	public function test_build_syncs_the_build_file_before_it_publishes(): void {

@@ -82,9 +82,10 @@ function runtime_base_directory(): string {
 
 /**
  * Remove the runtime's on-disk state — logs, locks, offsets, IPC, deadletters,
- * user topologies, and this install's command-session store. Scoped to the
- * KNOWN runtime subtrees (a base dir shared with operator files loses only
- * ours), symlink-safe and containment-checked via
+ * user topologies, SQLite's temporary files under `tmp/`, and this install's
+ * command-session store. Scoped to the KNOWN runtime subtrees (a base dir
+ * shared with operator files loses only ours), symlink-safe and
+ * containment-checked via
  * `Spawn_Coordinator::delete_directory_recursive`. The base dir itself goes
  * only when the runtime owned everything in it (rmdir refuses non-empty).
  *
@@ -100,7 +101,7 @@ function delete_runtime_tree( string $base_dir ): void {
 		return;
 	}
 	require_once __DIR__ . '/class-spawn-coordinator.php';
-	foreach ( [ 'logs', 'locks', 'offsets', 'ipc', Config::DEADLETTER_SUBDIR, 'topologies' ] as $subdir ) {
+	foreach ( [ 'logs', 'locks', 'offsets', 'ipc', Config::DEADLETTER_SUBDIR, 'topologies', 'tmp' ] as $subdir ) {
 		Spawn_Coordinator::delete_directory_recursive( "{$base_dir}/{$subdir}", $base_dir );
 	}
 	delete_session_store( $base_dir );

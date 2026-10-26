@@ -13,6 +13,14 @@ class WorkerBaseTest extends TestCase {
 	/** @var \Closure|null Bootstrap-installed curl seam, restored in tearDown so a test capturer can't leak. */
 	private $saved_curl_exec;
 
+	/** The `memory_limit` a test replaced, restored in tearDown; null while none did. */
+	private ?string $saved_memory_limit = null;
+
+	/** A limit apart from every default, and the usage that puts a worker over its watermark. */
+	private const LIMIT = '2731M';
+
+	private const OVER_WATERMARK = 2458 * 1048576;
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->tmp             = $this->make_temp_dir();
@@ -23,9 +31,13 @@ class WorkerBaseTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		Core::$curl_exec         = $this->saved_curl_exec;
-		Worker_Base::$last_error = null;
-		Worker_Base::$db_probe   = null;
+		Core::$curl_exec           = $this->saved_curl_exec;
+		Worker_Base::$last_error   = null;
+		Worker_Base::$db_probe     = null;
+		Worker_Base::$memory_usage = null;
+		if ( null !== $this->saved_memory_limit ) {
+			\ini_set( 'memory_limit', $this->saved_memory_limit );
+		}
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -136,9 +148,23 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( '', $buf );
 	}
 
-	public function test_should_continue_logs_memory_watermark_reason(): void {
-		$w = new WatermarkWorker( $this->tmp, 'test-worker', 0 );
+	/** Run under `$limit` as the `memory_limit`, restored in tearDown. */
+	private function memory_limit( string $limit ): void {
+		$prior                    = \ini_set( 'memory_limit', $limit );
+		$this->saved_memory_limit = $this->saved_memory_limit ?? ( false === $prior ? null : $prior );
+	}
+
+	/** A worker that reads `$used` bytes in use under the seeded limit. */
+	private function using( int $used ): TestableWorker {
+		$this->memory_limit( self::LIMIT );
+		Worker_Base::$memory_usage = static fn (): int => $used;
+		$w                         = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
+		return $w;
+	}
+
+	public function test_should_continue_logs_memory_watermark_reason(): void {
+		$w   = $this->using( self::OVER_WATERMARK );
 		$buf = '';
 		\Newspack_Nodes\Core::set_stderr_handler(
 			static function ( $m ) use ( &$buf ) {
@@ -146,7 +172,12 @@ class WorkerBaseTest extends TestCase {
 			}
 		);
 		$this->assertFalse( $w->should_continue() );
-		$this->assertStringContainsString( 'memory watermark', $buf );
+		$this->assertStringContainsString( 'memory watermark (2458MB / 2731MB, 90%)', $buf );
+	}
+
+	public function test_should_continue_runs_on_just_under_the_watermark(): void {
+		$w = $this->using( (int) ( 2731 * 1048576 * Worker_Base::MEMORY_WATERMARK_PCT ) - 1 );
+		$this->assertTrue( $w->should_continue() );
 	}
 
 	public function test_should_continue_names_a_stolen_lock_rather_than_a_restart(): void {
@@ -181,8 +212,7 @@ class WorkerBaseTest extends TestCase {
 	}
 
 	public function test_should_continue_stamps_memory_stop_reason(): void {
-		$w = new WatermarkWorker( $this->tmp, 'test-worker', 0 );
-		$w->acquire();
+		$w = $this->using( self::OVER_WATERMARK );
 		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
 		$this->assertFalse( $w->should_continue() );
 		$this->assertSame( 'memory', $this->read_private( $w, 'stop_reason' ) );
@@ -226,7 +256,9 @@ class WorkerBaseTest extends TestCase {
 		// The memory baseline guard: a fresh post-reset baseline already at/above half the
 		// limit is "near the watermark" (a leak / undersized limit), so a memory stop on it
 		// must NOT strike the in-flight message.
-		$w = new FixedLimitWorker( $this->tmp, 'test-worker', 0 );
+		$this->memory_limit( self::LIMIT );
+		$limit = 2731 * 1048576;
+		$w   = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$ref = new \ReflectionClass( Worker_Base::class );
 		$baseline = $ref->getProperty( 'baseline_memory' );
 		$method   = new \ReflectionMethod( Worker_Base::class, 'baseline_near_watermark' );
@@ -234,14 +266,14 @@ class WorkerBaseTest extends TestCase {
 		$reason   = $ref->getProperty( 'stop_reason' );
 
 		$reason->setValue( $w, 'memory' );
-		$baseline->setValue( $w, 600 ); // >= 1000 * 0.5
+		$baseline->setValue( $w, (int) ( $limit * 0.6 ) );
 		$this->assertTrue( $method->invoke( $w ) );
 
-		$baseline->setValue( $w, 100 ); // < 500
+		$baseline->setValue( $w, (int) ( $limit * 0.1 ) );
 		$this->assertFalse( $method->invoke( $w ) );
 
 		$reason->setValue( $w, 'timeout' );
-		$baseline->setValue( $w, 600 );
+		$baseline->setValue( $w, (int) ( $limit * 0.6 ) );
 		$this->assertFalse( $method->invoke( $w ), 'only a memory stop reads the baseline' );
 	}
 
@@ -402,14 +434,12 @@ class WorkerBaseTest extends TestCase {
 		}
 	}
 
-	public function test_memory_over_watermark_returns_false_when_limit_unset(): void {
-		// limit <= 0 → memory_over_watermark returns false (no shutdown trigger).
-		// We can't easily force memory_limit=-1 inside a single test, but we can
-		// directly verify the unlimited-memory path via subclass override.
-		$w = new UnlimitedMemoryWorker( $this->tmp, 'test-worker', 0 );
+	public function test_an_unlimited_memory_limit_has_no_watermark(): void {
+		$this->memory_limit( '-1' );
+		Worker_Base::$memory_usage = static fn (): int => \PHP_INT_MAX;
+		$w                         = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
-		$ref = new \ReflectionMethod( Worker_Base::class, 'memory_over_watermark' );
-		$this->assertFalse( $ref->invoke( $w ) );
+		$this->assertTrue( $w->should_continue() );
 	}
 
 	public function test_db_probe_default_consults_wpdb_check_connection(): void {
@@ -1057,24 +1087,6 @@ class TestableWorker extends Worker_Base {
 	}
 	public function set_stop_reason_for_test( string $reason ): void {
 		$this->stop_reason = $reason;
-	}
-}
-
-class UnlimitedMemoryWorker extends Worker_Base {
-	protected function memory_limit_bytes(): int {
-		return -1;
-	}
-}
-
-class WatermarkWorker extends Worker_Base {
-	protected function memory_over_watermark(): bool {
-		return true;
-	}
-}
-
-class FixedLimitWorker extends Worker_Base {
-	protected function memory_limit_bytes(): int {
-		return 1000;
 	}
 }
 

@@ -66,6 +66,17 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	/** Reason the last heartbeat failed, published as `last_error`; null on success. */
 	private ?string $last_heartbeat_error = null;
 
+	/**
+	 * The `[ slot, owner ]` lease the last heartbeat was sent for; null before
+	 * any. At most one heartbeat is normally in flight: one goes out each
+	 * `HEARTBEAT_INTERVAL`, and `HTTP_Out` gives up on its POST within
+	 * `REQUEST_TIMEOUT`, the same 15 s, so one field suffices. A reply slower
+	 * than that is judged against the newer heartbeat's lease.
+	 *
+	 * @var array{0:int,1:int}|null
+	 */
+	private ?array $heartbeat_lease = null;
+
 	/** Mirror of the SSE_In valve state: true while armed. Only the readers' bytes flip it. */
 	private bool $pump_armed = true;
 
@@ -282,6 +293,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			return;
 		}
 		$this->last_heartbeat_sent = Core::$now;
+		$this->heartbeat_lease     = [ $slot, $owner ];
 		++$this->counter;
 		$this->http_out->fill( $message );
 	}
@@ -322,7 +334,9 @@ class Remote_Source_Node extends Remote_Broker_Node {
 
 	/**
 	 * The heartbeat's reply: a success records the round-trip, and a failure
-	 * other than a released slot is said and published.
+	 * is said and published unless it is a race: a released slot, or a lease
+	 * the stream no longer holds, which a reconnect retired and the spoke's
+	 * pool may have handed a new owner while the heartbeat was on the wire.
 	 *
 	 * @param array<int,mixed> $message The reply, TM_COMMAND|TM_RESPONSE or |TM_ERROR.
 	 */
@@ -330,11 +344,15 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$failure = self::heartbeat_failure( $message );
 		if ( null === $failure ) {
 			$this->record_heartbeat_reply();
-		} elseif ( ! \str_contains( $failure, self::RELEASED_SLOT ) ) {
-			// A released slot is a race, not a fault. Say nothing.
+		} elseif ( ! \str_contains( $failure, self::RELEASED_SLOT ) && $this->holds_heartbeat_lease() ) {
 			$this->stderr( 'ERROR: client heartbeat failed - ' . $failure );
 			$this->record_heartbeat_failure( $failure );
 		}
+	}
+
+	/** Whether the stream still holds the lease the heartbeat in flight was sent for. */
+	private function holds_heartbeat_lease(): bool {
+		return null !== $this->sse_in && null !== $this->heartbeat_lease && [ $this->sse_in->slot(), $this->sse_in->owner() ] === $this->heartbeat_lease;
 	}
 
 	/**
