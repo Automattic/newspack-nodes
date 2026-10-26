@@ -1800,15 +1800,20 @@ classes is invisible to `ls`, `dump_node` and the console.
   `PURGE_LAG_WARN_S` (an hour) past its expiry, because a full batch is the steady state
   of a busy Table keeping pace. The Tables due on one tick share one deadline:
   `PURGE_BACKLOG_BUDGET_S` (250 ms) while any is behind, 50 ms otherwise, and the first
-  batch that is not full catches a Table up. A batch is full when a Row_Table's retained
+  batch that is not full catches a Table up. A Table behind is due again on the next
+  second's tick rather than a minute later, so a backlog takes a quarter of every second
+  until it clears. A batch is full when a Row_Table's retained
   table fills its share of it, not only when the rows sum to the batch. Every due Table runs at least one batch, so a tick holds
   the loop for one budget plus one batch a Table. The one 5,000-row batch a minute the
   normal budget guarantees sits below the ~5,300 rows a minute one partition's aggregate
   Table in event-logger-nodes expires at 12.0 M entries, ~4,200 of them search-index
   members. A SQLite batch cost 7 to 16 ms on a small local file, where the backlog budget
   reclaims at least 75,000 rows a minute; on staging's 15.9 M-row file it cost 597 ms, so
-  the budget buys the one batch a tick every Table runs anyway, and whether the purge
-  keeps pace there is unmeasured. A wpdb batch may cost more, and gets one a tick at least.
+  the budget buys the one batch a tick every Table runs anyway. On the staging hub,
+  2026-10-26, once a minute did not keep pace: each flame-facts partition inserted about
+  1.35 M rows an hour, the 250 ms budget deleted 9,000 rows a minute, about 540 k an hour,
+  and 37 M expired rows stood 29.7 h past their window on p0. Due each second while
+  behind, the same budget reclaims about 32 M rows an hour. A wpdb batch may cost more, and gets one a tick at least.
 
 **Alternatives considered:**
 

@@ -78,14 +78,12 @@ class Table_Node extends Node {
 
 	/**
 	 * Seconds one tick's purges spend, all Tables together, while any Table is
-	 * behind, until each comes back short. A 5,000-row SQLite batch cost 7 to
-	 * 16 ms on a small local file, but 597 ms on staging's 15.9 M-row file,
-	 * where 250 ms buys the one batch every due Table runs anyway: 5,000 rows
-	 * a minute against the ~5,300 one partition's aggregate Table in
-	 * event-logger-nodes expires, ~4,200 of them search-index members. Whether
-	 * the purge keeps pace there is unmeasured; the behind line says when it
-	 * does not. The drain loop is held a quarter-second a minute, and only
-	 * while behind.
+	 * behind, until each comes back short. A Table behind purges again on the
+	 * next second's tick, so a backlog holds the drain loop a quarter of every
+	 * second until a batch comes back short, then the purge returns to once a
+	 * minute. On the staging hub this budget deletes 9,000 flame-facts rows, so
+	 * once a minute it fell behind a partition inserting about 1.35 M rows an
+	 * hour; once a second it reclaims about 32 M an hour.
 	 */
 	public const PURGE_BACKLOG_BUDGET_S = 0.25;
 
@@ -1309,9 +1307,10 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
-	 * rest waits a minute. A purge that stops with its last batch full leaves
-	 * the Table behind, and the first batch that is not full catches it up.
+	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches. A
+	 * purge that stops with its last batch full leaves the Table behind, and
+	 * due again on the next second's tick; the first batch that is not full
+	 * catches it up, and the next purge waits PURGE_INTERVAL_S.
 	 * Behind, it asks the arm how long its oldest expired row has waited, and
 	 * warns past PURGE_LAG_WARN_S.
 	 *
@@ -1321,6 +1320,9 @@ class Table_Node extends Node {
 	 */
 	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
 		[ 'rows' => $purged, 'batches' => $batches, 'full' => $this->purge_behind ] = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
+		if ( $this->purge_behind ) {
+			$this->purge_due = $now + 1;
+		}
 		$lag = $this->purge_behind ? $arm->purge_lag( $now ) : 0;
 		if ( $lag > self::PURGE_LAG_WARN_S ) {
 			$hours = \sprintf( '%.1f', $lag / 3600 );
@@ -1876,7 +1878,7 @@ class Table_Node extends Node {
 	/**
 	 * The Router tick's step for every Table in this process's graph: delete
 	 * the rows expired at `$now` from each durable one, at most once a
-	 * `PURGE_INTERVAL_S` each, then checkpoint each SQLite Table's WAL, at most
+	 * `PURGE_INTERVAL_S` each, or each second while it is behind, then checkpoint each SQLite Table's WAL, at most
 	 * once a `CHECKPOINT_INTERVAL_S` each. Last, every traced Table, volatile
 	 * ones too, writes its trace line. The purges and checkpoints share one
 	 * deadline, PURGE_BACKLOG_BUDGET_S while any purge is behind and PURGE_BUDGET_S

@@ -1257,6 +1257,33 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( Table_Node::PURGE_BATCH_ROWS, $rows(), 'caught up, the next tick spends 50 ms again' );
 	}
 
+	public function test_a_table_left_behind_purges_again_on_the_next_tick_until_caught_up(): void {
+		$this->base_dir( 'table-behind-cadence-' );
+		Core::$clock      = static fn (): float => 1790000000.0;
+		[ $table, $rows ] = $this->durable( 37 );
+		$this->expiring( $table, 12, 3, 'sku' );
+		$reads       = 0;
+		Core::$clock = static function () use ( &$reads ): float {
+			return 1790000037.0 + 0.03 * $reads++;
+		};
+
+		Table_Node::tick( 1790000037 );
+		$this->assertSame( 10 * Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'on time: two batches, and the Table is behind' );
+
+		Table_Node::tick( 1790000038 );
+		$this->assertSame( Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'behind, the next second purges with the backlog budget' );
+
+		Table_Node::tick( 1790000039 );
+		$this->assertSame( 0, $rows(), 'a short batch catches it up' );
+
+		$this->expiring( $table, 3, 0, 'emu' );
+		Table_Node::tick( 1790000040 );
+		$this->assertSame( 3 * Table_Node::PURGE_BATCH_ROWS, $rows(), 'caught up, the next purge waits out its minute' );
+
+		Table_Node::tick( 1790000099 );
+		$this->assertSame( Table_Node::PURGE_BATCH_ROWS, $rows() );
+	}
+
 	/**
 	 * A purge that ends full warns only when its oldest expired row has
 	 * waited more than PURGE_LAG_WARN_S past its expiry: a full batch on a
