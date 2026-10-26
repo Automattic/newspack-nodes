@@ -363,7 +363,8 @@ class Row_Table_Node extends Table_Node {
 	 * Publish the snapshot `$name`, `{base}/tables/{name}.sqlite`, built from
 	 * the Row_Table the active topologies declare with `$schema`: a uniquely
 	 * named build file beside it, written through `Sqlite_Arm::build_rows()`
-	 * with every partition's file attached read-only, is handed to `$build`
+	 * with every partition's file attached read-only and its temporary files
+	 * in `Config::get_sqlite_temp_directory()`, is handed to `$build`
 	 * as a Row_Reader and renamed over the snapshot when `$build` answers
 	 * anything but false. The build file goes in a `finally`, so a build that
 	 * throws or answers false leaves the last publish standing. A fleet with
@@ -381,7 +382,8 @@ class Row_Table_Node extends Table_Node {
 	 * @throws Table_Unavailable As `read()`, or when the build file will not
 	 *                           open.
 	 * @throws \RuntimeException As `Bootstrap::row_table()`, when the process
-	 *                           runs as root, or when the sync or the rename fails.
+	 *                           runs as root, the temporary directory will not
+	 *                           resolve, or the sync or the rename fails.
 	 */
 	public static function build( string $schema, string $name, \Closure $build ): mixed {
 		$file  = self::snapshot_file( $name );
@@ -497,13 +499,14 @@ class Row_Table_Node extends Table_Node {
 
 	/**
 	 * Read the Row_Table the active topologies declare with `$schema` across
-	 * every partition they run (`Bootstrap::row_table()`): each file at the schema's version attached read-only into one
-	 * connection as `p{N}`, handed to `$read` as a Row_Reader. The connection
-	 * closes when the last reference to the Row_Reader is released, not at a
-	 * fixed point: a `$read` that keeps the reader, or throws while the trace
-	 * still holds it, keeps the files open as long. A partition with no file
-	 * is not attached, so a fleet that has written nothing reads with no
-	 * aliases.
+	 * every partition they run (`Bootstrap::row_table()`): each file at the
+	 * schema's version attached read-only into one connection as `p{N}`, its
+	 * temporary files in `Config::get_sqlite_temp_directory()`, handed to
+	 * `$read` as a Row_Reader. The connection closes when the last reference
+	 * to the Row_Reader is released, not at a fixed point: a `$read` that
+	 * keeps the reader, or throws while the trace still holds it, keeps the
+	 * files open as long. A partition with no file is not attached, so a
+	 * fleet that has written nothing reads with no aliases.
 	 *
 	 * @api The row tables' read path, for a verb answering from them.
 	 * @template T
@@ -513,8 +516,9 @@ class Row_Table_Node extends Table_Node {
 	 * @throws Table_Unavailable When no active topology declares a table of
 	 *                           the schema, pdo_sqlite is missing, or a file
 	 *                           will not attach or is not a database.
-	 * @throws \RuntimeException As `Bootstrap::row_table()`, or when the
-	 *                           process runs as root.
+	 * @throws \RuntimeException As `Bootstrap::row_table()`, when the process
+	 *                           runs as root, or when the temporary directory
+	 *                           will not resolve.
 	 */
 	public static function read( string $schema, \Closure $read ): mixed {
 		$table = Bootstrap::row_table( $schema );

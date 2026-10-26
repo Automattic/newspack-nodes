@@ -41,6 +41,9 @@ trait Cooperative_Stop {
 	/** Fraction of the memory limit at which a process yields. */
 	public const MEMORY_WATERMARK_PCT = 0.80;
 
+	/** The keyword a routine stop's line reaches the stderr seam under. */
+	public const STOP_KEYWORD = 'worker (stop)';
+
 	/**
 	 * DB-liveness seam. Lazily-defaulted to `$wpdb->check_connection( false )`
 	 * (duck-typed; passes when no $wpdb is loaded). Tests reassign to drive
@@ -50,6 +53,17 @@ trait Cooperative_Stop {
 	 * @var \Closure|null
 	 */
 	public static ?\Closure $db_probe = null;
+
+	/**
+	 * Memory-reading seam behind the watermark, replacing the one
+	 * `memory_get_usage( true )` call `should_continue()` makes. Tests assign
+	 * it to put a worker over or under its watermark without allocating, so
+	 * the real `memory_limit` parse and the comparison still run.
+	 * Signature: `function (): int` — bytes the process holds.
+	 *
+	 * @var (\Closure(): int)|null
+	 */
+	public static ?\Closure $memory_usage = null;
 
 	/** Consecutive DB-probe failures; N in a row stops the process. */
 	protected int $db_failures = 0;
@@ -144,10 +158,10 @@ trait Cooperative_Stop {
 		$now = Core::right_now();
 
 		if ( null === $this->lock || ! $this->lock->is_held() ) {
-			return $this->stop( 'lock lost' );
+			return $this->stop( 'lock lost', fault: true );
 		}
 		if ( ! \is_dir( $this->held_lock_path() ) ) {
-			return $this->stop( 'lock dir gone' );
+			return $this->stop( 'lock dir gone', fault: true );
 		}
 
 		// Before restart: a stop leaves the slot empty, a restart refills it.
@@ -158,24 +172,26 @@ trait Cooperative_Stop {
 		// A flag, a gone heartbeat, or a stolen lock — each names itself.
 		$restart_reason = $this->lock->restart_reason();
 		if ( '' !== $restart_reason ) {
-			return $this->stop( $restart_reason );
+			return $this->stop( $restart_reason, fault: Lock_Node::RESTART_REQUESTED !== $restart_reason );
 		}
 
 		if ( ( self::monotonic_now() - $this->start_time ) >= $this->max_runtime ) {
-			return $this->stop( '', 'timeout' );
+			return $this->stop( 'timeout', 'timeout' );
 		}
 
-		if ( $this->memory_over_watermark() ) {
-			$used  = \memory_get_usage( true );
-			$limit = $this->memory_limit_bytes();
+		$used  = ( self::$memory_usage ?? static fn (): int => \memory_get_usage( true ) )();
+		$limit = $this->memory_limit_bytes();
+		// An unlimited or unreadable limit has no watermark to cross.
+		if ( $limit > 0 && $used >= $limit * self::MEMORY_WATERMARK_PCT ) {
 			return $this->stop(
 				\sprintf(
 					'memory watermark (%dMB / %dMB, %d%%)',
 					(int) ( $used / 1048576 ),
 					(int) ( $limit / 1048576 ),
-					$limit > 0 ? (int) ( $used / $limit * 100 ) : 0
+					(int) ( $used / $limit * 100 )
 				),
-				'memory'
+				'memory',
+				fault: true
 			);
 		}
 
@@ -189,16 +205,15 @@ trait Cooperative_Stop {
 			if ( ! $this->db_check_passes() ) {
 				++$this->db_failures;
 				if ( $this->db_failures >= self::DB_CHECK_MAX_FAILURES ) {
-					return $this->stop( \sprintf( 'db check failed %d times', $this->db_failures ) );
+					return $this->stop( \sprintf( 'db check failed %d times', $this->db_failures ), fault: true );
 				}
 			} else {
 				$this->db_failures = 0;
 			}
 		}
 
-		// Silent like the routine recycle: `wp nodes status` says `idle`.
 		if ( ! $mid_work && $this->on_demand_idle > 0 && $this->idle_window_elapsed( $now ) ) {
-			return $this->stop( '', 'idle' );
+			return $this->stop( "idle: no message for {$this->on_demand_idle}s", 'idle' );
 		}
 
 		return true;
@@ -245,19 +260,24 @@ trait Cooperative_Stop {
 	}
 
 	/**
-	 * Record why we are stopping and say so.
+	 * Record why we are stopping and say so in one line, `<label>: stopping —
+	 * <reason> (age <N>s)`. A routine stop goes to the `newspack_nodes/stderr`
+	 * seam alone, under `STOP_KEYWORD`, which the event logger records apart
+	 * from its errors; a fault goes through
+	 * `Core::stderr()`, so the PHP error log shows it with no logger installed.
 	 *
-	 * @param string $reason   Human-readable stop reason + metrics; '' stays silent.
+	 * @param string $reason   Human-readable stop reason + metrics.
 	 * @param string $category Cooperative-stop category. 'timeout' and 'memory' route the
 	 *                         shutdown handoff through the fair-shot rule; 'idle' and 'stop'
 	 *                         also decline the successor's spawn; '' is operational.
+	 * @param bool   $fault    A stop the operator must see: the lock lost, memory, the DB.
 	 * @return false Always — callers `return $this->stop( ... )`.
 	 */
-	private function stop( string $reason, string $category = '' ): bool {
+	private function stop( string $reason, string $category = '', bool $fault = false ): bool {
 		$this->stop_reason = $category;
-		if ( '' !== $reason ) {
-			Core::stderr( $this->stop_label() . ": stopping — {$reason}" );
-		}
+		$age               = (int) \round( self::monotonic_now() - $this->start_time );
+		$line              = $this->stop_label() . ": stopping — {$reason} (age {$age}s)";
+		$fault ? Core::stderr( $line ) : Core::stderr_to_seam( $line, self::STOP_KEYWORD );
 		return false;
 	}
 
@@ -278,19 +298,6 @@ trait Cooperative_Stop {
 			case 'k': $num *= 1024;               break;
 		}
 		return $num;
-	}
-
-	/**
-	 * Whether resident memory has reached `MEMORY_WATERMARK_PCT` of the limit. An
-	 * unlimited or unreadable limit has no watermark to cross, so it answers false
-	 * and leaves the stop to the other triggers.
-	 */
-	protected function memory_over_watermark(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
 	}
 
 	/** DB liveness probe (via the $db_probe seam); N consecutive failures trigger shutdown. */

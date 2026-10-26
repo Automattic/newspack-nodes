@@ -295,4 +295,14 @@ final class UninstallCleanupTest extends TestCase {
 		\unlink( "{$base}/operator-notes.txt" );
 		\rmdir( $base );
 	}
+	/** SQLite's temporary directory goes with the plugin, so the base empties and goes too. */
+	public function test_delete_runtime_tree_removes_the_sqlite_temp_dir(): void {
+		$base = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-uninstall-' . \uniqid();
+		\mkdir( "{$base}/tmp/sqlite", 0700, true );
+		\file_put_contents( "{$base}/tmp/sqlite/etilqs_kea-6124", 'spill' );
+
+		\Newspack_Nodes\delete_runtime_tree( $base );
+
+		$this->assertDirectoryDoesNotExist( $base, 'the temporary directory must not keep the base alive' );
+	}
 }

@@ -1115,7 +1115,13 @@ positional — the binder refuses `<name> must be named: write --<name>=<value>`
 echoing nothing, because the browser masks only `--name=` tokens in its history
 and transcript — and the command line `Command_Interpreter_Node::$around_dispatch`
 hands a wrapper renders it `--<name>=<redacted>`; every other token reaches the
-wrapper verbatim. `vault add` and `vault update` declare it on
+wrapper verbatim. `Core::$around_span` is the same kind of slot for substrate
+work outside a verb: `Core::span( $label, $work, $describe )` runs `$work`
+through it, handing it the label, the work and a `$describe` that turns the
+work's result into the span's closing detail, and runs `$work` bare when it is
+null. A Table's purge pass (`table purge`) and WAL checkpoint (`table
+checkpoint`) go through it. An assigner composes with what is already there, as
+with `$around_dispatch`, and the slot survives `Core::reset()`. `vault add` and `vault update` declare it on
 `password`, the only secret arguments in the system: the Vault is the one place
 a credential enters, and `Vault::url_carries_credentials()` refuses a `url`
 carrying userinfo — judged after `esc_url_raw()`, and refusing one that will
@@ -1702,7 +1708,7 @@ answer. Every `newspack_nodes/*` name and signature is frozen surface — see
 | `newspack_nodes/job_worker/after_job` | `string $handler, string $id, ?array $outcome` | [`Job_Worker_Node`](../includes/class-job-worker-node.php), always — after a success, a throw, or a decline. Tear down per-job request context here. A listener that throws fails the job: its failure joins the job's own and propagates to the Consumer. |
 | `newspack_nodes/job_worker/batch_complete` | `string $batch` | `Job_Worker_Node`, when a batch's last job settles. |
 | `newspack_nodes/vault/changed` | `string $id, string $action, string $previous` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php), on any credential write, a `group` edit included. `$action` is `added`, `updated`, `renamed` or `removed`; `$previous` carries the id a rename moved away from, else `''`. [`Bootstrap::reload_vault_consumers()`](../includes/class-bootstrap.php) listens here to signal RELOAD to every topology holding a `Remote_Source`, `HTTP_Source` or `Vault_Group`, and to reset the analyzer's caches so a planning read later in the same process sees the write. |
-| `newspack_nodes/stderr` | `string $text` | [`Core::_stderr()`](../includes/class-core.php), beside the stderr handler and under the same re-entry guard. A listener that throws cannot break the last-resort diagnostic path, and one that calls `stderr()` itself short-circuits to `error_log` rather than recursing. |
+| `newspack_nodes/stderr` | `string $text, string $keyword` | [`Core::_stderr()`](../includes/class-core.php), beside the stderr handler and under the same re-entry guard. A listener that throws cannot break the last-resort diagnostic path, and one that calls `stderr()` itself short-circuits to `error_log` rather than recursing. `$keyword` is what a logger files the line under: `Core::STDERR_KEYWORD`, `stderr`, for every `stderr()` line. `Core::stderr_to_seam( $text, $keyword )` fires it with the line `stderr()` would compose under a keyword of its own and runs no handler, so the line never reaches `error_log`; a worker writes its routine stops (`stop requested`, `restart requested`, `timeout`, `idle: no message for <n>s`) this way, under `worker (stop)`. |
 | `newspack_nodes/settings_after_form` | — | [`Admin`](../includes/admin/class-admin.php), below the settings form. |
 
 [`Hook_Node`](../includes/class-hook-node.php) fires whatever name its required `hook_name` argument carries —

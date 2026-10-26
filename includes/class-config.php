@@ -195,6 +195,18 @@ class Config {
 	}
 
 	/**
+	 * Get the directory SQLite writes its temporary files in
+	 * ({base}/tmp/sqlite), on the base's disk rather than the system's `/tmp`.
+	 *
+	 * @api
+	 * @return string
+	 * @throws \RuntimeException If the base directory or {base}/tmp/sqlite fails ensure_path().
+	 */
+	public static function get_sqlite_temp_directory(): string {
+		return self::validated_subdir( 'tmp/sqlite' );
+	}
+
+	/**
 	 * Memoized `{base}/{sub}` path (created + realpath-checked via ensure_path).
 	 *
 	 * @param string $sub Subdirectory name under the base directory.

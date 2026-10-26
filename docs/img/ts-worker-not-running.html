@@ -61,13 +61,13 @@ h2 { font-size:15px; margin:26px 0 10px; }
     <div class="q" data-id="run">2. <span class="mono">wp nodes run &lt;type&gt;</span> <span class="mono" style="white-space:nowrap">--partition=&lt;N&gt;</span><br>stderr on your terminal, then <span class="mono">Worker exited with status:</span></div>
   </div>
   <div class="col" style="width:250px">
-    <div class="st ok" data-id="ok" data-from="run"><b>ok</b> — a cooperative stop, named on stderr first</div>
+    <div class="st ok" data-id="ok" data-from="run"><b>ok</b> — a cooperative stop; a fault is named on stderr first</div>
     <div class="st" data-id="skipped" data-from="run"><b>skipped (lock_held)</b> — another process holds the slot</div>
     <div class="st warn" data-id="skipio" data-from="run"><b>skipped (mkdir failed at &lt;path&gt;)</b><br><b>skipped (lock dir unwritable at &lt;path&gt;)</b></div>
     <div class="st warn" data-id="load" data-from="run"><b>an error, not a status</b> — the topology load threw</div>
   </div>
   <div class="col" style="width:486px">
-    <div class="leaf" data-from="ok"><b>Named stops:</b> <span class="mono">lock lost</span>, <span class="mono">lock dir gone</span>, <span class="mono">stop requested</span>, <span class="mono">restart requested</span>, <span class="mono">lock heartbeat gone</span>, <span class="mono">lock stolen by pid &lt;n&gt;</span>, <span class="mono">memory watermark (&lt;used&gt;MB / &lt;limit&gt;MB, &lt;pct&gt;%)</span>, <span class="mono">db check failed 3 times</span>. <b>Silent by design:</b> the <span class="mono">max_runtime</span> recycle and the on-demand idle exit.</div>
+    <div class="leaf" data-from="ok"><b>Faults, in the PHP error log and the firehose:</b> <span class="mono">lock lost</span>, <span class="mono">lock dir gone</span>, <span class="mono">lock heartbeat gone</span>, <span class="mono">lock stolen by pid &lt;n&gt;</span>, <span class="mono">memory watermark (&lt;used&gt;MB / &lt;limit&gt;MB, &lt;pct&gt;%)</span>, <span class="mono">db check failed 3 times</span>. <b>Routine, in the firehose alone:</b> <span class="mono">stop requested</span>, <span class="mono">restart requested</span>, <span class="mono">timeout</span>, <span class="mono">idle: no message for &lt;n&gt;s</span>. Each line ends <span class="mono">(age &lt;n&gt;s)</span>.</div>
     <div class="leaf" data-from="skipped">Idempotent and harmless: two spawners raced and one lost.</div>
     <div class="leaf red" data-from="skipio">A real I/O fault, and the one the worker also logs. Fix the path; <span class="mono">doctor</span>'s <span class="mono">filesystem</span> and <span class="mono">ownership</span> rows are the same check.</div>
     <div class="leaf red" data-from="load"><b>The lock is released, then the failure is raised.</b> <b>Exactly three causes:</b> a top-level topology name no registry answers to, an <span class="mono">include</span> cycle, and input ending inside an open quote or a backslash continuation. No self-respawn on any of them, because respawning would hot-loop the same bad file.</div>

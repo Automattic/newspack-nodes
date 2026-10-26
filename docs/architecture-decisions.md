@@ -1774,7 +1774,8 @@ classes is invisible to `ls`, `dump_node` and the console.
   a cache page when a statement touches it, so the size is a ceiling: on eve a reader grew
   4 KiB at open and 4.6 MB reading 500 random keys of a 266 MB file. A Table connection's `mmap_size` stays 0:
   it cost a fresh connection 0.5 ms per 500 random keys on eve and paid only on a warm one,
-  and a mount's connection lives one request. A Row_Table reader scans, and maps
+  and a mount's connection lives one request. A Row_Table reader and a snapshot build scan,
+  map nothing either, and keep their temporary B-trees on disk
   ([ADR-34](#adr-34-a-table-may-hold-declared-rows-sqlite-only)).
 - Set members are durable-only. `SADD` and `members_of()` store and read one row per member in a
   table of their own beside the keyed rows — `members` in the SQLite file,
@@ -2554,12 +2555,13 @@ rejected, exact top-N needs every partition's full grouping.
 
 **Consequences:** A site runs at most 8 partitions of a topology declaring a Row_Table. A
 Row_Table answers `ROWS` alone and refuses every keyed request. The file cannot be read from
-another host. A reader scans a day of rows where a Table reads keys, so `open_rows()` maps
-each attached file (`mmap_size`, SQLite's default 2 GiB cap) and keeps temporary B-trees in
-memory (`temp_store = MEMORY`), outside PHP's `memory_limit`. On eln, with four ~470 MB
-partitions read through an 8 MiB cache each, a distinct-URL count across them took 88 s,
-nearly all system time, and with both pragmas 5.6 s; event-logger-nodes' `overview` and `urls`
-answers take 19 s and 33 s with them against 99 s and 130 s without.
+another host. A reader scans a day of rows where a Table reads keys, and the memory SQLite
+takes for a scan lies outside PHP's `memory_limit`, where the worker's watermark cannot see it,
+so it is kept bounded: `open_rows()` and `build_rows()` map no file (`mmap_size = 0`), give
+each attached file an 8 MiB page cache, and keep their temporary B-trees — the sorts behind a
+GROUP BY, a DISTINCT and every CREATE INDEX — in files under `{base}/tmp/sqlite`
+(`temp_store = FILE`, through `PRAGMA temp_store_directory`, which SQLite holds for the whole
+process). The amendment of 2026-10-25 gives what that costs.
 
 **Amended 2026-10-24:** a table may declare `'keep' => true`, which opts it out of the guard
 that refuses a table nothing purges. A projection replaying a log that holds everything
@@ -2570,10 +2572,30 @@ schema is refused when `keep` is any value but `true`, when it stands beside `re
 a row to release. A schema must still retain a table unless every table is kept. The
 disk a kept table holds grows without bound.
 
+**Amended 2026-10-25:** the readers map nothing and keep their temporary B-trees on disk,
+where they had mapped every attached file and held their B-trees in memory. Workers on eln
+died with no PHP shutdown at about 5 GB resident, most of it mapped partition pages and
+temporary B-trees, so nothing stopped a worker before the host killed it. Measured on
+eln.newspackstaging.com, four partitions holding about 2.1 M request rows, warm cache,
+read-only, one PHP process per setting:
+
+| Setting | Distinct URLs | Bucket × server | Profiled | Top 50 URLs | Peak RSS |
+|---|---|---|---|---|---|
+| A: temp MEMORY, 2 GiB map | 1.66 s | 2.35 s | 1.57 s | 2.70 s | 833 MB |
+| A, repeated | 1.57 s | 2.51 s | 1.38 s | 2.27 s | 832 MB |
+| B: temp FILE, 2 GiB map | 1.93 s | 3.18 s | 1.77 s | 2.90 s | 736 MB |
+| C: temp FILE, no map | 2.55 s | 3.62 s | 1.42 s | 2.90 s | 84 MB |
+
+The readers run C. The sixteenfold gain the Consequences once reported for both pragmas,
+a distinct-URL count of 88 s against 5.6 s, does not reproduce: C costs at most about 1.5×
+on these reads, about a second on the heaviest, and holds the reader under 100 MB where A
+took 833 MB.
+
 A job may publish a file derived from the row tables; [ADR-35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) carries it.
 
-**Revisit if:** a Row_Table must be read from another host, or a site needs more than 8
-partitions.
+**Revisit if:** a Row_Table must be read from another host, a site needs more than 8
+partitions, or eln shows the worker kills gone under C and the reads' time matters more than
+their memory.
 
 ---
 

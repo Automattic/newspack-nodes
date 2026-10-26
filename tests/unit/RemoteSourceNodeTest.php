@@ -1789,6 +1789,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_heartbeat_success_false_clears_prior_success_and_records_reason(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
+		Core::$now = 1748959990.0;
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
 		Core::$now = 1748960000.0;
@@ -1801,6 +1802,7 @@ class RemoteSourceNodeTest extends TestCase {
 			'payload' => [ 'success' => true, 'slot' => 7 ],
 		];
 		$node->fill( $success );
+		$this->assertNotNull( $this->status_of( $node )['last_response'], 'the heartbeat went out and was answered' );
 
 		$rejected                   = Message::new_message();
 		$rejected[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
@@ -2191,7 +2193,9 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_a_stolen_slot_still_reaches_the_dashboard(): void {
 		// The counterpart guard: an eviction is a real fault and must surface.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->heartbeat_sent_for( $node, 6, 51515152 );
 
 		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
 
@@ -2808,12 +2812,71 @@ class RemoteSourceNodeTest extends TestCase {
 		// The counterpart guard: silencing the benign race must not silence a
 		// real eviction, which means the lease TTL expired under us.
 		$this->seed_austin();
+		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin' );
-		$log      = $this->capture_stderr();
+		$this->heartbeat_sent_for( $node, 6, 51515152 );
+		$log = $this->capture_stderr();
 
 		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
 
 		$this->assertStringContainsString( 'pointer_owner_mismatch', \implode( '', $log->getArrayCopy() ) );
+	}
+
+	/**
+	 * A busy stream's lifetime close and same-pass reopen claims a new lease
+	 * while a heartbeat for the old one is still on the wire; the pool hands
+	 * the slot a new owner, and that heartbeat's reply reads the mismatch.
+	 */
+	public function test_a_mismatch_for_a_lease_the_stream_gave_up_is_quiet(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->heartbeat_sent_for( $node, 6, 51515152 );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 6, 61616162 );
+		$log = $this->capture_stderr();
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
+
+		$this->assertSame( [], self::stderr_lines( $log, 'heartbeat' ) );
+		$this->assertNull( $this->status_of( $node )['last_error'] );
+	}
+
+	public function test_a_mismatch_after_the_stream_lost_its_lease_is_quiet(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->heartbeat_sent_for( $node, 6, 51515152 );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::disconnect_frame( 'lifetime', 'stream closed at its lifetime 6177' ) );
+		$this->assertNull( Core::node( 'remote-austin:sse-in' )->owner(), 'the disconnect retired the lease' );
+		$log = $this->capture_stderr();
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
+
+		$this->assertSame( [], self::stderr_lines( $log, 'heartbeat' ) );
+		$this->assertNull( $this->status_of( $node )['last_error'] );
+	}
+
+	public function test_a_released_slot_is_quiet_whether_or_not_the_lease_moved(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$log = $this->capture_stderr();
+
+		$this->heartbeat_sent_for( $node, 6, 51515152 );
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: slot_released' ) );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 6, 61616162 );
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: slot_released' ) );
+
+		$this->assertSame( [], self::stderr_lines( $log, 'heartbeat' ) );
+		$this->assertNull( $this->status_of( $node )['last_error'] );
+	}
+
+	/** Give the stream the lease `[ $slot, $owner ]` and send its heartbeat. */
+	private function heartbeat_sent_for( Remote_Source_Node $node, int $slot, int $owner ): void {
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), $slot, $owner );
+		Core::$now += Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+		$this->assertCount( 1, $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' ), 'the heartbeat went out' );
 	}
 
 	/**

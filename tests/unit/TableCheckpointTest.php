@@ -48,6 +48,7 @@ final class TableCheckpointTest extends TestCase {
 	protected function tearDown(): void {
 		Table_Node::$hrtime = null;
 		Core::$clock        = null;
+		Core::$around_span  = null;
 		$this->rmdir_recursive( $this->dir );
 		parent::tearDown();
 	}
@@ -246,5 +247,117 @@ final class TableCheckpointTest extends TestCase {
 	/** @return list<string> The WAL warnings logged. */
 	private function warnings(): array {
 		return \array_values( \array_filter( $this->logged, static fn ( string $line ): bool => \str_contains( $line, 'WAL checkpoint' ) ) );
+	}
+	/**
+	 * Install a span seam that runs the work and records each span's label
+	 * and the detail its result describes.
+	 *
+	 * @return \ArrayObject<int,array{0:string,1:string}>
+	 */
+	private static function spans(): \ArrayObject {
+		$spans             = new \ArrayObject();
+		Core::$around_span = static function ( string $label, \Closure $work, \Closure $describe ) use ( $spans ): mixed {
+			$result   = $work();
+			$spans[] = [ $label, $describe( $result ) ];
+			return $result;
+		};
+		return $spans;
+	}
+
+	public function test_a_tick_spans_its_purge_and_its_checkpoint_once_each(): void {
+		self::seed_table( $this->table, self::rows( 'kea', 43, 900 ) );
+		$spans = self::spans();
+
+		Table_Node::tick( 1790000800 );
+
+		$this->assertCount( 2, $spans );
+		$this->assertSame( [ 'table purge', 'lab-7:kea: 43 rows in 1 batches' ], $spans[0] );
+		$this->assertSame( 'table checkpoint', $spans[1][0] );
+		$row = $this->checkpoint_row();
+		$this->assertSame( "lab-7:kea: PASSIVE {$row['answered']}/{$row['asked']} frames", $spans[1][1] );
+	}
+
+	public function test_a_purge_outside_the_tick_spans_once(): void {
+		self::seed_table( $this->table, self::rows( 'kea', 29, 900 ) );
+		$spans       = self::spans();
+		Core::$clock = static fn (): float => 1790000800.0;
+
+		$this->assertSame( 29, $this->table->purge( 61 ) );
+
+		$this->assertSame( [ [ 'table purge', 'lab-7:kea: 29 rows in 1 batches' ] ], $spans->getArrayCopy() );
+	}
+
+	public function test_with_no_span_seam_the_purge_and_checkpoint_run_bare(): void {
+		self::seed_table( $this->table, self::rows( 'kea', 31, 900 ) );
+
+		Table_Node::tick( 1790000800 );
+
+		$this->assertSame( 31, $this->table->stats()['PURGE']['answered'] );
+		$this->assertSame( 1, $this->checkpoint_row()['calls'] );
+	}
+	/**
+	 * The two ways work inside a span ends early: a cooperative stop, and a
+	 * plain failure.
+	 *
+	 * @return array<string,array{0:\RuntimeException}>
+	 */
+	public static function throws(): array {
+		return [
+			'a stop'    => [ new \Newspack_Nodes\Worker_Should_Stop( 'stop 6301' ) ],
+			'a failure' => [ new \RuntimeException( 'failure 6302' ) ],
+		];
+	}
+
+	/**
+	 * A purge whose work throws after its first batch: the clock its loop
+	 * reads between batches throws on its second read, the first being the
+	 * tick's deadline.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'throws' )]
+	public function test_a_purge_that_throws_inside_its_span_propagates_and_is_still_counted( \RuntimeException $thrown ): void {
+		self::seed_table( $this->table, self::rows( 'kea', 47, 900 ) );
+		$spans       = self::spans();
+		$reads       = 0;
+		Core::$clock = static function () use ( &$reads, $thrown ): float {
+			if ( 2 === ++$reads ) {
+				throw $thrown;
+			}
+			return 1790000000.0;
+		};
+
+		$caught = $this->caught( static fn () => Table_Node::tick( 1790000800 ), 'the purge threw' );
+
+		$this->assertSame( $thrown, $caught, 'the tick raises what the purge threw' );
+		$purge = $this->table->stats()['PURGE'];
+		$this->assertSame( 1, $purge['calls'] );
+		$this->assertSame( 47, $purge['answered'], 'the batch that ran is counted' );
+		$this->assertSame( [ 'table checkpoint' ], \array_column( $spans->getArrayCopy(), 0 ), 'the purge described nothing, and the checkpoint still ran' );
+	}
+
+	/**
+	 * A checkpoint whose work throws: its statement fails, and the stderr
+	 * line the arm writes for that reaches a listener that throws.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'throws' )]
+	public function test_a_checkpoint_that_throws_inside_its_span_propagates_and_is_still_counted( \RuntimeException $thrown ): void {
+		$arm        = $this->read_private( $this->table, 'arm' );
+		$statements = new \ReflectionProperty( \Newspack_Nodes\Sqlite_Arm::class, 'statements' );
+		$db         = ( new \ReflectionMethod( \Newspack_Nodes\Sqlite_Arm::class, 'handle' ) )->invoke( $arm );
+		$statements->setValue( $arm, [ 'PRAGMA wal_checkpoint(' . \Newspack_Nodes\Sqlite_Arm::CHECKPOINT_MODE . ')' => $db->prepare( 'SELECT abs( -9223372036854775807 - 1 )' ) ] );
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( $thrown ): void {
+				if ( \str_contains( $line, 'Table checkpoint failed' ) ) {
+					throw $thrown;
+				}
+			}
+		);
+		$spans = self::spans();
+
+		$caught = $this->caught( static fn () => Table_Node::tick( 1790000800 ), 'the checkpoint threw' );
+
+		$this->assertSame( $thrown, $caught, 'the tick raises what the checkpoint threw' );
+		$this->assertSame( 1, $this->checkpoint_row()['calls'], 'the checkpoint is counted' );
+		$this->assertSame( [ 'table purge' ], \array_column( $spans->getArrayCopy(), 0 ), 'the checkpoint described nothing' );
 	}
 }

@@ -51,6 +51,9 @@ class Lock_Node extends Node {
 	/** Recycle request: the holder exits and its successor takes the slot. */
 	public const RESTART_FLAG   = 'restart';
 
+	/** The reason `restart_reason()` gives for a raised `RESTART_FLAG`. */
+	public const RESTART_REQUESTED = 'restart requested';
+
 	/**
 	 * Operator stop. Distinct from RESTART_FLAG because the two want opposite
 	 * successor behaviour — a restart hands the slot straight to a fresh
@@ -620,7 +623,7 @@ class Lock_Node extends Node {
 	public function restart_reason(): string {
 		\clearstatcache( true, $this->lock_path . '/' . self::RESTART_FLAG );
 		if ( \is_file( $this->lock_path . '/' . self::RESTART_FLAG ) ) {
-			return 'restart requested';
+			return self::RESTART_REQUESTED;
 		}
 
 		// PID-content theft check: only meaningful if we believe we hold it.

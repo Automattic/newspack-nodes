@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\CLI;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Row_Reader;
 use Newspack_Nodes\Sqlite_Arm;
@@ -22,14 +23,24 @@ require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-wombat-row-schema.ph
 final class SqliteArmRowsTest extends TestCase {
 	private string $dir = '';
 
+	/** A temporary directory a test made read-only, restored before the sweep. */
+	private string $locked = '';
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->dir = $this->make_temp_dir( 'sqlite-arm-rows-' );
+		$this->use_base_dir( $this->dir );
 	}
 
 	protected function tearDown(): void {
+		if ( '' !== $this->locked ) {
+			\chmod( $this->locked, 0700 );
+		}
+		Config::reset();
 		Sqlite_Arm::$available = null;
 		$this->rmdir_recursive( $this->dir );
+		// SQLite holds the temporary directory process-wide.
+		( new \PDO( 'sqlite::memory:' ) )->exec( "PRAGMA temp_store_directory = ''" );
 		parent::tearDown();
 	}
 
@@ -723,15 +734,29 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertFileDoesNotExist( $this->path( 2 ), 'a reader creates no file' );
 	}
 
-	public function test_an_open_rows_reader_maps_each_file_and_sorts_in_memory(): void {
+	public function test_an_open_rows_reader_maps_nothing_and_sorts_on_disk(): void {
 		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
 		$this->rows_arm( 3 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p3', 7341, 1, 2.5 ] ] ] );
 
 		$reader = Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ), 3 => $this->path( 3 ) ], 7 );
 
-		$this->assertSame( [ [ 2 ] ], $reader->rows( 'PRAGMA temp_store', [] ), 'temporary B-trees are set to live in memory' );
-		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA p0.mmap_size', [] ) );
-		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA p3.mmap_size', [] ) );
+		$this->assertSame( [ [ 1 ] ], $reader->rows( 'PRAGMA temp_store', [] ), 'temporary B-trees are files' );
+		$this->assertSame( [ [ $this->temp_store() ] ], $reader->rows( 'PRAGMA temp_store_directory', [] ) );
+		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA p0.mmap_size', [] ) );
+		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA p3.mmap_size', [] ) );
+	}
+
+	public function test_an_open_rows_reader_spills_its_temporary_b_trees_into_its_temp_directory(): void {
+		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
+		$temp = $this->temp_store();
+		$this->assert_spills_into( Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 ), $temp );
+	}
+
+	public function test_open_rows_refuses_a_temp_directory_it_cannot_write(): void {
+		$this->rows_arm( 0 );
+		$this->unwritable_temp_store();
+		$e = $this->caught_pdo( fn () => Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 ) );
+		$this->assertStringContainsString( 'not a writable directory', $e->getMessage() );
 	}
 
 	public function test_an_open_rows_reader_is_query_only(): void {
@@ -771,17 +796,72 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertSame( [ [ 'rid-p0' ], [ 'rid-p4' ] ], ( new \PDO( "sqlite:{$built}" ) )->query( 'SELECT rid FROM heron ORDER BY rid' )->fetchAll( \PDO::FETCH_NUM ) );
 	}
 
-	public function test_build_rows_maps_its_file_and_sorts_in_memory_with_the_partitions_read_only(): void {
+	/** The directory every connection's temporary files go in, under the base. */
+	private function temp_store(): string {
+		return "{$this->dir}/tmp/sqlite";
+	}
+
+	/** Make the temporary directory read-only once resolved, as a stray chmod would. */
+	private function unwritable_temp_store(): void {
+		$this->locked = Config::get_sqlite_temp_directory();
+		\chmod( $this->locked, 0500 );
+	}
+
+	public function test_build_rows_maps_nothing_and_sorts_on_disk_with_the_partitions_read_only(): void {
 		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
 		$reader = Sqlite_Arm::build_rows( "{$this->dir}/tables/kea-snapshot-6108.sqlite", [ 0 => $this->path( 0 ) ], 7 );
 
 		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA query_only', [] ) );
-		$this->assertSame( [ [ 2 ] ], $reader->rows( 'PRAGMA temp_store', [] ) );
-		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA main.mmap_size', [] ) );
+		$this->assertSame( [ [ 1 ] ], $reader->rows( 'PRAGMA temp_store', [] ), 'temporary B-trees are files' );
+		$this->assertSame( [ [ $this->temp_store() ] ], $reader->rows( 'PRAGMA temp_store_directory', [] ) );
+		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA main.mmap_size', [] ) );
 		$this->assertSame( [ [ 'off' ] ], $reader->rows( 'PRAGMA main.journal_mode', [] ) );
 		$this->assertSame( [ [ -262144 ] ], $reader->rows( 'PRAGMA main.cache_size', [] ) );
-		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA p0.mmap_size', [] ) );
+		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA p0.mmap_size', [] ) );
+		$this->assertSame( [ [ -8192 ] ], $reader->rows( 'PRAGMA p0.cache_size', [] ) );
 		$this->assertStringContainsString( 'readonly', $this->caught_pdo( static fn () => $reader->rows( "INSERT INTO p0.visits VALUES ( 'rid-x', 7341, 1, 0.5 )", [] ) )->getMessage() );
+	}
+
+	public function test_a_build_spills_its_temporary_b_trees_into_its_temp_directory(): void {
+		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
+		$temp = $this->temp_store();
+		$this->assert_spills_into( Sqlite_Arm::build_rows( "{$this->dir}/tables/kea-snapshot-6121.sqlite", [ 0 => $this->path( 0 ) ], 7 ), $temp );
+	}
+
+	/**
+	 * A temporary B-tree outgrowing its cache spills to a file SQLite opens
+	 * and unlinks at once, so only the process's open descriptors show it.
+	 */
+	private function assert_spills_into( Row_Reader $reader, string $temp ): void {
+		$db    = ( new \ReflectionProperty( Row_Reader::class, 'db' ) )->getValue( $reader );
+		$seen  = [];
+		$calls = 0;
+		$db->sqliteCreateFunction(
+			'kea_probe',
+			static function ( string $key ) use ( &$seen, &$calls ): string {
+				if ( 0 === ++$calls % 1000 ) {
+					foreach ( \glob( '/proc/self/fd/*' ) ?: [] as $fd ) {
+						$link = (string) @\readlink( $fd );
+						if ( \str_contains( $link, '/etilqs_' ) ) {
+							$seen[ \dirname( $link ) ] = true;
+						}
+					}
+				}
+				return $key;
+			},
+			1
+		);
+
+		$reader->rows( 'SELECT COUNT( * ) FROM ( SELECT DISTINCT kea_probe( hex( randomblob( 16 ) ) ) FROM ( WITH RECURSIVE c ( n ) AS ( SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 120000 ) SELECT n FROM c ) )', [] );
+
+		$this->assertSame( [ $temp ], \array_keys( $seen ), 'every temporary file sat in the temp directory' );
+	}
+
+	public function test_build_rows_refuses_a_temp_directory_it_cannot_write(): void {
+		$this->rows_arm( 0 );
+		$this->unwritable_temp_store();
+		$e = $this->caught_pdo( fn () => Sqlite_Arm::build_rows( "{$this->dir}/tables/kea-snapshot-6122.sqlite", [ 0 => $this->path( 0 ) ], 7 ) );
+		$this->assertStringContainsString( 'not a writable directory', $e->getMessage() );
 	}
 
 	public function test_build_rows_refuses_a_root_builder_naming_every_file_it_would_touch(): void {
