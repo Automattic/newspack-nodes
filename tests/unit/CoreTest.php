@@ -1193,6 +1193,23 @@ class CoreTest extends TestCase {
 	public function test_file_footprint_is_null_for_a_missing_file(): void {
 		$this->assertNull( Core::file_footprint( $this->make_temp_dir( 'footprint-' ) . '/gone.log' ) );
 	}
+
+	/** A file that is gone raises no warning, even one `@` silences. */
+	public function test_file_footprint_raises_nothing_for_a_missing_file(): void {
+		$raised = [];
+		\set_error_handler(
+			static function ( int $errno, string $errstr ) use ( &$raised ): bool {
+				$raised[] = $errstr;
+				return true;
+			}
+		);
+		try {
+			Core::file_footprint( $this->make_temp_dir( 'footprint-' ) . '/flame-facts.job+6131.sqlite' );
+		} finally {
+			\restore_error_handler();
+		}
+		$this->assertSame( [], $raised );
+	}
 }
 
 /**

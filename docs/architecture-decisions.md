@@ -2591,6 +2591,13 @@ a distinct-URL count of 88 s against 5.6 s, does not reproduce: C costs at most 
 on these reads, about a second on the heaviest, and holds the reader under 100 MB where A
 took 833 MB.
 
+A build connection gives the file it writes the same 8 MiB, where it took 256 MiB. SQLite
+holds each sort in memory up to `main`'s page cache before it spills to a temporary file, so
+a 256 MiB cache let every sort keep 256 MiB, and the URL snapshot's nested GROUP BYs reached
+942 MB resident on eln. Measured locally on SQLite 3.46.1, the eln version, building 3 M
+synthetic URL rows, indexing them and grouping them: an 8 MiB cache peaks at 73 MB and
+256 MiB at 557 MB, each in 6.6 s.
+
 A job may publish a file derived from the row tables; [ADR-35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) carries it.
 
 **Revisit if:** a Row_Table must be read from another host, a site needs more than 8

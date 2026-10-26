@@ -1116,7 +1116,7 @@ class Core {
 	 * A file's byte length, the disk the filesystem allocates it and its mtime,
 	 * from one `stat()`. A compressing filesystem holds the disk below the length; a
 	 * small file's last block can hold it above. Null when the file is gone,
-	 * which each caller decides how to treat.
+	 * which each caller decides how to treat, and which raises no warning.
 	 *
 	 * @param string $path The file.
 	 * @return array{bytes:int,disk:int,mtime:int}|null
@@ -1124,7 +1124,8 @@ class Core {
 	public static function file_footprint( string $path ): ?array {
 		// Another writer's append leaves the stat cache reporting the old size.
 		\clearstatcache( true, $path );
-		$stat = @\stat( $path );
+		// A gone file is the common case; @ only covers losing the race.
+		$stat = \file_exists( $path ) ? @\stat( $path ) : false;
 		if ( false === $stat ) {
 			return null;
 		}
