@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.131.3] - 2026-10-26
+
 ### Changed
 - **A snapshot build's page cache is 256 MiB, where it was 8 MiB.** The cache also caps the memory each of SQLite's sorts holds before it spills to a temporary file, so at 8 MiB the URL snapshot's 21 indexes and nested GROUP BYs sorted through disk. Measured on eln.newspackstaging.com, the build's steps take 108 s against 161–175 s, peak at 905 MB against 197 MB, and write 2.3 GB against 4.0 GB. Temporary B-trees stay on disk and the partitions stay unmapped, so the peak is the cache's ceiling and does not grow with the rows; ADR-34 carries the eight settings measured. Readers keep their 8 MiB per attached file.
 
