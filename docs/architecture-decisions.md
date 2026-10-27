@@ -2596,18 +2596,33 @@ a distinct-URL count of 88 s against 5.6 s, does not reproduce: C costs at most 
 on these reads, about a second on the heaviest, and holds the reader under 100 MB where A
 took 833 MB.
 
-A build connection gives the file it writes the same 8 MiB, where it took 256 MiB. SQLite
-holds each sort in memory up to `main`'s page cache before it spills to a temporary file, so
-a 256 MiB cache let every sort keep 256 MiB, and the URL snapshot's nested GROUP BYs reached
-942 MB resident on eln. Measured locally on SQLite 3.46.1, the eln version, building 3 M
-synthetic URL rows, indexing them and grouping them: an 8 MiB cache peaks at 73 MB and
-256 MiB at 557 MB, each in 6.6 s.
+A build connection gives the file it writes a 256 MiB page cache. SQLite holds each sort in
+memory up to `main`'s page cache before it spills to a temporary file, so the cache caps a
+build's sorts as well as its pages, and its peak stays near that ceiling however many rows it
+sorts; temporary B-trees in memory, or mapped partitions, grow with the rows instead. Measured
+on eln.newspackstaging.com on 2026-10-26, the URL snapshot's build steps into a scratch file,
+four partitions of about 1 GB, one PHP process per setting, beside the live job:
+
+| Setting | Build | Peak RSS | Written |
+|---|---|---|---|
+| 8 MiB, temp FILE, no map | 161–175 s | 197 MB | 4.0 GB |
+| 64 MiB, temp FILE, no map | 150 s | 378 MB | 2.7 GB |
+| 256 MiB, temp FILE, no map | 108 s | 905 MB | 2.3 GB |
+| 8 MiB, temp MEMORY, no map | 143 s | 798 MB | 1.4 GB |
+| 64 MiB, temp MEMORY, no map | 117 s | 855 MB | 1.4 GB |
+| 256 MiB, temp MEMORY, no map | 102 s | 1,053 MB | 1.4 GB |
+| 8 MiB, temp FILE, 2 GiB map | 178 s | 1,174 MB | 4.0 GB |
+| 256 MiB, temp MEMORY, 2 GiB map | 106 s | 2,033 MB | 1.4 GB |
+
+The build runs the third row. The cache halves the 21 indexes, 30 s against 64–68 s; a map
+only adds resident pages; temporary B-trees in memory gain 6 s beside the 256 MiB cache, inside
+the 14 s two runs of the first row spread across, for 148 MB more and a peak with no ceiling.
 
 A job may publish a file derived from the row tables; [ADR-35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) carries it.
 
 **Revisit if:** a Row_Table must be read from another host, a site needs more than 8
 partitions, or eln shows the worker kills gone under C and the reads' time matters more than
-their memory.
+their memory, or the build's peak nears what the host kills at.
 
 ---
 
