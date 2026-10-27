@@ -160,6 +160,18 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertSame( [ [ 7341, 97.5 ], [ 7342, 97.5 ] ], $this->all( 'SELECT bucket, low FROM floors ORDER BY bucket' ) );
 	}
 
+	public function test_the_sum_fold_ignores_a_null(): void {
+		$this->floors_arm()->write_rows(
+			[
+				[ 'add', 'floors', [ 7341, null, 43, null ] ],
+				[ 'add', 'floors', [ 7341, null, null, null ] ],
+				[ 'add', 'floors', [ 7342, null, null, null ] ],
+				[ 'add', 'floors', [ 7342, null, 43, null ] ],
+			]
+		);
+		$this->assertSame( [ [ 7341, 43 ], [ 7342, 43 ] ], $this->all( 'SELECT bucket, mark FROM floors ORDER BY bucket' ) );
+	}
+
 	public function test_the_max_fold_keeps_the_larger(): void {
 		$this->floors_arm()->write_rows(
 			[
@@ -363,7 +375,7 @@ final class SqliteArmRowsTest extends TestCase {
 		);
 	}
 
-	public function test_a_then_op_takes_its_batchs_ids_too(): void {
+	public function test_a_then_op_takes_its_batches_ids_too(): void {
 		$arm = $this->rows_arm();
 		$arm->write_rows( [ [ 'ignore', 'burrows', [ null, 'tui-12' ] ] ] );
 		$arm->write_rows(
