@@ -290,6 +290,74 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertNull( $status['last_response'] );
 	}
 
+	/** As `Remote_Source` reports its stream's, the broker reports what its channel read from the spoke. */
+	public function test_its_counters_report_what_its_channel_read(): void {
+		[ $node, $reader, , $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$lines = \array_map( [ Message::class, 'packed' ], self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'kea-3071' ), 8191 ) );
+
+		( new \ReflectionMethod( HTTP_Out_Node::class, 'on_transfer_done' ) )->invoke( $http, \CURLE_OK, [ 'code' => 200, 'body' => \implode( "\n", $lines ) . "\n" ], 'command' );
+
+		$this->assertSame( \strlen( $lines[0] ) + \strlen( $lines[1] ), $node->bytes_read() );
+		$this->assertSame( 2, $node->counter() );
+		$this->assertSame( \max( \strlen( $lines[0] ), \strlen( $lines[1] ) ), $node->largest_msg_sent() );
+	}
+
+	/** Before its channel exists, the broker has read nothing. */
+	public function test_its_counters_are_zero_before_its_channel(): void {
+		$node = $this->broker( 'pull-austin' );
+
+		$this->assertSame( 0, $node->bytes_read() );
+		$this->assertSame( 0, $node->largest_msg_sent() );
+	}
+
+	/** A fetch out with nothing answered yet reads as connecting, as a stream still opening does. */
+	public function test_a_first_fetch_out_reads_as_connecting(): void {
+		[ $node, $reader ] = $this->fetching_reader();
+		$reader->fire_cb();
+
+		$node->fire();
+
+		$this->assertFalse( $this->snapshot()['connected'] );
+		$this->assertTrue( $this->snapshot()['connecting'] );
+	}
+
+	/**
+	 * A fetch still out stays connected while it was sent within four retry
+	 * intervals of the spoke's last answer, however long its transfer runs.
+	 */
+	public function test_a_long_fetch_out_stays_connected(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_http_retry_ms'] = 1300;
+		[ $node, $reader ] = $this->fetching_reader();
+		Core::$now = 900.0;
+		$reader->fire_cb();
+		Core::$now = 900.5;
+		$fetch = self::line_of( \Newspack_Nodes\Log_Sources::FETCH_BYTES );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $fetch, 3 * \strlen( $fetch ) ) );
+		Core::$now = 909.5;
+
+		$node->fire();
+
+		$this->assertTrue( $this->snapshot()['connected'], 'nine seconds into a fetch sent at the last answer' );
+		$this->assertFalse( $this->snapshot()['connecting'] );
+	}
+
+	/** The server heartbeat is the spoke's latest answer, and the backoff is the retry interval. */
+	public function test_the_status_reports_its_heartbeat_and_backoff(): void {
+		[ $node, $reader ] = $this->fetching_reader();
+		Core::$now = 612.0;
+		$reader->fire_cb();
+		Core::$now = 613.75;
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'tui-6125' ), 9157 ) );
+
+		$node->fire();
+
+		$status = $this->snapshot();
+		$this->assertFalse( $status['connecting'], 'an answered broker is connected, not connecting' );
+		$this->assertSame( 613, $status['last_sse_heartbeat'] );
+		$this->assertSame( 8, $status['current_backoff'], 'the 7.3 s retry interval, in whole seconds as SSE_In counts' );
+	}
+
 	/** Aggregator_CI and the Status tab read both brokers' snapshots alike: the base's one key set. */
 	public function test_both_brokers_write_the_bases_status_keys(): void {
 		$this->seed_austin();
@@ -440,16 +508,41 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 7351, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
-	/** A reader holding a block's worth asks for no more, so its last header's backlog stands. */
+	/** A reader holding more than a fetch is quiet by the hub's choice, so the backlog from its last header still counts. */
 	public function test_a_full_readers_silence_leaves_the_backlog_standing(): void {
 		[ , $reader ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$bytes = self::line( \str_repeat( 'v', \Newspack_Nodes\Log_Sources::BLOCK_BYTES ) );
+		$bytes = self::line( \str_repeat( 'v', \Newspack_Nodes\Log_Sources::FETCH_BYTES ) );
 		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 52219 ) );
 
 		Core::$now += Remote_Consumer_Node::DISTANCE_STALE_SECONDS + 23;
 
 		$this->assertSame( \strlen( $bytes ) + 52219, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A reader still asking is not quiet by the hub's choice, so a silent spoke's backlog reads unknown. */
+	public function test_a_reader_still_asking_reads_unknown_once_its_spoke_is_silent(): void {
+		[ , $reader ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$bytes = self::line_of( 2 * \Newspack_Nodes\Log_Sources::BLOCK_BYTES, 'q' );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 4483 ) );
+
+		Core::$now += Remote_Consumer_Node::DISTANCE_STALE_SECONDS + 23;
+
+		$this->assertNull( $reader->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A line-mode reader holding a whole line waits by its own choice, so the backlog from its last header still counts. */
+	public function test_a_line_mode_readers_held_line_leaves_the_backlog_standing(): void {
+		[ , $reader ] = $this->fetching_reader();
+		$reader->set_line_mode( true );
+		$reader->fire_cb();
+		$bytes = self::line( 'kea-2207' ) . self::line( 'tui-2207' );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 6113 ) );
+
+		Core::$now += Remote_Consumer_Node::DISTANCE_STALE_SECONDS + 23;
+
+		$this->assertSame( \strlen( $bytes ) + 6113, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
 	/** A line still unended past the longest a reader holds is skipped as an overflow, as a local reader skips one: no carry, no dead letter. */
@@ -525,12 +618,12 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( '31:' . ( 4404 + \strlen( $one ) ) . ':' . \strlen( $two ), $sink->captured[1][ Message::ID ] );
 	}
 
-	/** A line longer than a block arrives across blocks and goes once, whole. */
-	public function test_a_line_longer_than_a_block_assembles(): void {
+	/** A line longer than a fetch arrives across fetches and goes once, whole. */
+	public function test_a_line_longer_than_a_fetch_assembles(): void {
 		[ , $reader, $sink, $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$big  = self::line( \str_repeat( 'w', \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 5521 ) );
-		$head = \substr( $big, 0, \Newspack_Nodes\Log_Sources::BLOCK_BYTES );
+		$big  = self::line( \str_repeat( 'w', \Newspack_Nodes\Log_Sources::FETCH_BYTES + 5521 ) );
+		$head = \substr( $big, 0, \Newspack_Nodes\Log_Sources::FETCH_BYTES );
 
 		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $head, \strlen( $big ) ) );
 		$reader->fire_cb();
@@ -602,31 +695,130 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 5, $this->count_log_records( $this->dlq() ) );
 	}
 
-	public function test_a_reader_holding_a_block_waits_for_its_drain(): void {
-		[ , $reader, , $http ] = $this->fetching_reader();
-		$reader->fire_cb();
-		$big   = \str_repeat( 'q', \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 4194 );
-		$asked = $this->last_fetch( $http );
-
-		self::answer( $reader, self::block_reply( $asked, self::line( $big ), \strlen( $big ) + 9157 ) );
-
-		$this->assertCount( 1, $this->fetches( $http ), 'no new ask while it holds more than a block' );
-		$this->assertSame( $asked, $this->last_fetch( $http ) );
+	/** A record line exactly `$bytes` long, counting the packing's own bytes. */
+	private static function line_of( int $bytes, string $fill = 'k' ): string {
+		return self::line( \str_repeat( $fill, $bytes - \strlen( self::line( '' ) ) ) );
 	}
 
-	/** The reader's own tick drains the held block, then asks past it. */
+	/** A reader holding exactly one fetch asks for the next at once: it asks while it holds at most one. */
+	public function test_a_reader_holding_one_fetch_asks_for_the_next_while_it_drains(): void {
+		[ , $reader, , $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$fetch = self::line_of( \Newspack_Nodes\Log_Sources::FETCH_BYTES );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $fetch, 3 * \strlen( $fetch ) ) );
+
+		$this->assertSame( [ [ 'firehose.p0', '31:4404' ], [ 'firehose.p0', '31:' . ( 4404 + \strlen( $fetch ) ) ] ], $this->fetches( $http ) );
+	}
+
+	/**
+	 * A reader holding more than a fetch waits however little its spoke last
+	 * said is waiting, because the spoke goes on writing while a fetch is out.
+	 */
+	public function test_a_reader_holding_more_than_a_fetch_waits_however_little_is_waiting(): void {
+		[ , $reader, , $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$bytes = self::line_of( \Newspack_Nodes\Log_Sources::FETCH_BYTES ) . self::line_of( 3109, 'h' );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 61 ) );
+
+		$this->assertCount( 1, $this->fetches( $http ) );
+	}
+
+	/** A line past two fetches still assembles: the part carried counts for nothing in what a reader holds. */
+	public function test_a_line_past_two_fetches_assembles(): void {
+		[ , $reader, $sink, $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$fetch = \Newspack_Nodes\Log_Sources::FETCH_BYTES;
+		$big   = self::line( \str_repeat( 'z', 2 * $fetch + 5521 ) );
+		$at    = 4404;
+		foreach ( [ 0, $fetch, 2 * $fetch ] as $from ) {
+			$part = \substr( $big, $from, $fetch );
+			$this->assertSame( [ 'firehose.p0', "31:{$at}" ], $this->last_fetch( $http ) );
+			self::answer( $reader, self::block_reply( [ 'firehose.p0', "31:{$at}" ], $part, \strlen( $big ) - $from ) );
+			$reader->fire_cb();
+			$at += \strlen( $part );
+		}
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( '31:4404:' . \strlen( $big ), $sink->captured[0][ Message::ID ] );
+	}
+
+	/** A reader holding a fetch and a line does not ask until it drains to one fetch or less. */
+	public function test_a_reader_holding_more_than_a_fetch_asks_once_it_drains(): void {
+		[ , $reader, , $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$fetch = self::line_of( \Newspack_Nodes\Log_Sources::FETCH_BYTES );
+		$tail  = self::line_of( 4127, 't' );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $fetch, 3 * \strlen( $fetch ) ) );
+		$asked = $this->last_fetch( $http );
+
+		self::answer( $reader, self::block_reply( $asked, $tail, 2 * \strlen( $fetch ) ) );
+		$this->assertCount( 2, $this->fetches( $http ), 'a fetch and a line held: it holds back' );
+		$reader->fire_cb();
+
+		$this->assertCount( 3, $this->fetches( $http ), 'it asks again once its drain leaves one fetch or less' );
+		$this->assertSame( [ 'firehose.p0', '31:' . ( 4404 + \strlen( $fetch . $tail ) ) ], $this->last_fetch( $http ) );
+	}
+
+	/**
+	 * Each reader decides on what it holds alone, so a reader holding one
+	 * fetch with the next in flight leaves a sibling free to make its first.
+	 */
+	public function test_one_readers_hold_leaves_another_free_to_ask(): void {
+		$this->seed_austin();
+		$sink = new Capture_Sink_Node();
+		$sink->name( 'downstream' );
+		$errors = new Capture_Sink_Node();
+		$errors->name( 'errors' );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
+		$node->fire();
+		$http = Core::node( 'pull-austin:http-out' );
+		[ 'firehose.p0' => $fire, 'sources:php' => $php ] = $this->readers( $node );
+		$fire->next_offset( [ 'segment' => 31, 'offset' => 4404 ] );
+		$php->next_offset( [ 'segment' => 6, 'offset' => 2290 ] );
+		$fire->fire_cb();
+		$fetch = self::line_of( \Newspack_Nodes\Log_Sources::FETCH_BYTES );
+		self::answer( $fire, self::block_reply( [ 'firehose.p0', '31:4404' ], $fetch, 3 * \strlen( $fetch ) ) );
+
+		$php->fire_cb();
+
+		$this->assertSame( [ 'sources:php', '6:2290' ], $this->last_fetch_of( $http, 'sources:php' ) );
+	}
+
+	/** In line mode, a reader asks again only on a tick that finds no complete line, as a local reader does. */
+	public function test_a_line_mode_reader_asks_only_once_dry(): void {
+		[ , $reader, $sink, $http ] = $this->fetching_reader();
+		$reader->set_line_mode( true );
+		$reader->fire_cb();
+		$bytes = self::line( 'kea-6604' ) . self::line( 'tui-6604' );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 7719 ) );
+		$this->assertCount( 1, $this->fetches( $http ), 'two lines held: no ask' );
+
+		$reader->fire_cb();
+		$this->assertCount( 1, $this->fetches( $http ), 'one line held: no ask' );
+		$reader->fire_cb();
+		$this->assertCount( 1, $this->fetches( $http ), 'the last line drained: no ask yet' );
+		$reader->fire_cb();
+
+		$this->assertSame( [ 'kea-6604', 'tui-6604' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( [ 'firehose.p0', '31:' . ( 4404 + \strlen( $bytes ) ) ], $this->last_fetch( $http ) );
+	}
+
+	/** A reader holding back drains on its own tick, then asks for the bytes after what it held. */
 	public function test_a_drained_reader_asks_past_what_it_held(): void {
 		[ , $reader, $sink, $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$big = self::line( \str_repeat( 'r', \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 7713 ) );
-		$end = 4404 + \strlen( $big );
-		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $big, \strlen( $big ) + 9157 ) );
+		$fetch = self::line_of( \Newspack_Nodes\Log_Sources::FETCH_BYTES, 'r' );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $fetch, 3 * \strlen( $fetch ) ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch( $http ), $fetch, 2 * \strlen( $fetch ) ) );
+		$this->assertCount( 2, $this->fetches( $http ) );
 
 		$reader->fire_cb();
 
-		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( [ 'firehose.p0', "31:{$end}" ], $this->last_fetch( $http ) );
-		$this->assertCount( 2, $this->fetches( $http ) );
+		$this->assertCount( 2, $sink->captured );
+		$this->assertSame( [ 'firehose.p0', '31:' . ( 4404 + 2 * \strlen( $fetch ) ) ], $this->last_fetch( $http ) );
+		$this->assertCount( 3, $this->fetches( $http ) );
 	}
 
 	/** The end waits one retry interval, and the broker's tick, not the reader's poll, asks again. */

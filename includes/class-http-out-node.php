@@ -97,6 +97,12 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 */
 	private array $last_outcome = [ 'code' => null, 'error' => null ];
 
+	/** Replies delivered off the wire; `counter` also counts the commands sent. */
+	private int $replies = 0;
+
+	/** The largest reply delivered, in packed bytes. */
+	private int $largest_reply = 0;
+
 	/** One handshake at a time; a held batch must not fan out N /auth POSTs. */
 	protected bool $auth_in_flight = false;
 
@@ -317,6 +323,11 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 			return;
 		}
 		$reply = Message::unpacked( $line );
+		$size  = \strlen( $line );
+		// Read boundary: the JS twin tallies each reply's wire size here too.
+		$this->bytes_read   += $size;
+		$this->largest_reply = \max( $this->largest_reply, $size );
+		++$this->replies;
 		// HTTP_In prepends _output/ to FROM; strip it.
 		$to = Core::as_string( $reply[ Message::TO ] );
 		if ( \str_starts_with( $to, '_output/' ) ) {
@@ -638,6 +649,16 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 */
 	public function last_outcome(): array {
 		return $this->last_outcome;
+	}
+
+	/** The replies this channel has delivered off the wire. */
+	public function replies(): int {
+		return $this->replies;
+	}
+
+	/** The largest reply this channel has delivered, in packed bytes. */
+	public function largest_reply(): int {
+		return $this->largest_reply;
 	}
 
 	/**

@@ -538,13 +538,15 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( [ 'OFFSET' => '0:0', 'DISTANCE' => (string) \strlen( $line1 . $line2 ), 'ASKED' => 'start' ], $info );
 	}
 
-	public function test_read_block_cuts_a_mebibyte_wherever_it_falls(): void {
-		$lines = $this->seed_sized_records( [ 400009, 400019, 400031 ] );
+	/** A fetch pays for a whole request's start-up, so it reads more than one stream block. */
+	public function test_read_block_cuts_a_fetch_wherever_it_falls(): void {
+		$lines = $this->seed_sized_records( [ 900007, 900019, 900037, 900061, 900089 ] );
 		$all   = \implode( '', $lines );
 
 		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', '0:0' ] );
 
-		$this->assertSame( \substr( $all, 0, Log_Sources::BLOCK_BYTES ), $batch[ Message::VALUE ] );
+		$this->assertGreaterThan( Log_Sources::BLOCK_BYTES, Log_Sources::FETCH_BYTES );
+		$this->assertSame( \substr( $all, 0, Log_Sources::FETCH_BYTES ), $batch[ Message::VALUE ] );
 		$this->assertSame( '0:0', $info['OFFSET'] );
 		$this->assertSame( (string) \strlen( $all ), $info['DISTANCE'], 'measured from the batch\'s start' );
 	}

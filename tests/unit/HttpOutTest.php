@@ -849,6 +849,27 @@ class HttpOutTest extends TestCase {
 		return [ 'msg' => \CURLMSG_DONE, 'handle' => $easy, 'result' => $result ];
 	}
 
+	/** As the JS twin tallies them: each reply's packed bytes read, the replies, and the largest. */
+	public function test_on_curl_done_tallies_each_replys_bytes(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$small                   = Message::new_message();
+		$small[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$small[ Message::VALUE ] = 'kea-4431';
+		$large                   = $small;
+		$large[ Message::VALUE ] = \str_repeat( 'tui-4431 ', 61 );
+		$lines                   = [ Message::packed( $small ), Message::packed( $large ) ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => \implode( "\n", $lines ) . "\n", 'redirect' => '' ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
+
+		$this->assertSame( \strlen( $lines[0] ) + \strlen( $lines[1] ), $node->bytes_read() );
+		$this->assertSame( 2, $node->replies() );
+		$this->assertSame( \strlen( $lines[1] ), $node->largest_reply() );
+	}
+
 	public function test_on_curl_done_forwards_reply_messages_to_sink(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'settings-sync' );
