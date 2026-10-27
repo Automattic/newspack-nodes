@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.132.0] - 2026-10-27
+
 ### Changed
 - **`HTTP_Source` keeps up with a busy spoke.** On eln.newspackstaging.com it read wyofile.com's firehose at about 200 KB/s while the spoke wrote about 700 KB/s. Each 1 MiB fetch paid for a whole request's start-up, about a second on WP Cloud, while reading and packing the block took a few milliseconds. `raw-logs read_block` now answers up to 4 MiB (`Log_Sources::FETCH_BYTES`); a stream's block stays 1 MiB. Over a LAN, against a 3 GB backlog, one reader went from about 6.7 MB/s to about 11.4 MB/s.
 - **An `HTTP_Source` reader fetches while it drains.** A reader stopped asking while it held one block, and a full block always left it holding one, so each fetch waited for the last one to drain. A reader now asks while it holds at most one fetch, so one block drains while the next is in flight, each reader holds at most two fetches besides a line it is still assembling, and one POST carries at most one fetch per reader. Each reader decides on what it holds alone, so a reader catching up a backlog leaves its siblings free to ask, and readers at the end of their logs still ask on the same tick. In line mode or crawl, a reader asks only on a tick that finds no complete line, as a local reader does. While a reader holds back for either reason, its backlog stands without a newer header; a reader still asking reads its backlog unknown once its spoke has been silent 60 seconds. A spoke on an older release still answers 1 MiB blocks, which the hub takes as before.
