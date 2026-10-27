@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **An `HTTP_Source`'s readers at the end of their logs ask together.** Each reader waited `retry_ms` from its own last answer, so two readers whose waits began a second apart each cost the spoke a request of their own, and on a WP Cloud spoke each request spends about a second starting WordPress. Now, when the first reader's wait at the end of its log ends, every other reader waiting at the end of its log asks too, in the same POST. Their answers arrive together, so the readers stay in step after it. A reader the spoke refused still waits its full interval.
+
 ## [2.132.1] - 2026-10-27
 
 ### Fixed
