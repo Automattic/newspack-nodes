@@ -473,7 +473,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	/**
 	 * One `add` column's fold onto the row its key names: `sum` adds, `max`
 	 * keeps the larger and `min` the smaller. A null never displaces a value,
-	 * where SQLite's own two-argument MAX() and MIN() answer null. A numeric
+	 * where SQLite's `+` and its two-argument MAX() and MIN() answer null. A numeric
 	 * column's incoming value is cast to NUMERIC, which applies the column's
 	 * own affinity: on a table keyed by one INTEGER column, its rowid alias,
 	 * `excluded` carries the bound text of a float, and text outranks
@@ -488,12 +488,14 @@ final class Sqlite_Arm extends Durable_Arm {
 		$c        = self::quote( $column );
 		$numeric  = \str_starts_with( $type, 'INTEGER' ) || \str_starts_with( $type, 'REAL' );
 		$incoming = $numeric ? "CAST( excluded.{$c} AS NUMERIC )" : "excluded.{$c}";
-		$pick     = static fn ( string $function ): string => "CASE WHEN {$c} IS NULL THEN {$incoming} WHEN {$incoming} IS NULL THEN {$c} ELSE {$function}( {$c}, {$incoming} ) END";
-		return "{$c} = " . match ( $how ) {
-			'sum' => "{$c} + excluded.{$c}",
-			'max' => $pick( 'MAX' ),
-			'min' => $pick( 'MIN' ),
-		};
+		$either   = static fn ( string $both ): string => "CASE WHEN {$c} IS NULL THEN {$incoming} WHEN {$incoming} IS NULL THEN {$c} ELSE {$both} END";
+		return "{$c} = " . $either(
+			match ( $how ) {
+				'sum' => "{$c} + {$incoming}",
+				'max' => "MAX( {$c}, {$incoming} )",
+				'min' => "MIN( {$c}, {$incoming} )",
+			}
+		);
 	}
 
 	/**

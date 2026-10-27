@@ -303,7 +303,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		$schema = parent::node_schema();
 		return \array_merge( $schema, [
 			'category'    => 'I/O',
-			'description' => 'HTTP-pull broker: a durable reader per source `add_source` names, each fetching 1 MiB blocks from a spoke over /command (Vault-resolved); holds no SSE slot.',
+			'description' => 'HTTP-pull broker: a durable reader per source `add_source` names, each fetching blocks of up to 4 MiB from a spoke over /command (Vault-resolved); holds no SSE slot.',
 			'arguments'   => [
 				...Core::arr( $schema['arguments'] ),
 				[ 'name' => 'retry_ms', 'type' => 'int', 'required' => false, 'default' => '<config:http_retry_ms>', 'description' => 'Milliseconds a reader at the end of its log, or refused, waits before asking again, and the catalog between asks; at least 1. Defaults to http_retry_ms.' ],
