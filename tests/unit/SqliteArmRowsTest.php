@@ -816,7 +816,7 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertSame( [ [ $this->temp_store() ] ], $reader->rows( 'PRAGMA temp_store_directory', [] ) );
 		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA main.mmap_size', [] ) );
 		$this->assertSame( [ [ 'off' ] ], $reader->rows( 'PRAGMA main.journal_mode', [] ) );
-		$this->assertSame( [ [ -8192 ] ], $reader->rows( 'PRAGMA main.cache_size', [] ), 'the cache also caps each sort' );
+		$this->assertSame( [ [ -262144 ] ], $reader->rows( 'PRAGMA main.cache_size', [] ), 'the file it writes takes 256 MiB, which also caps each sort' );
 		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA p0.mmap_size', [] ) );
 		$this->assertSame( [ [ -8192 ] ], $reader->rows( 'PRAGMA p0.cache_size', [] ) );
 		$this->assertStringContainsString( 'readonly', $this->caught_pdo( static fn () => $reader->rows( "INSERT INTO p0.visits VALUES ( 'rid-x', 7341, 1, 0.5 )", [] ) )->getMessage() );

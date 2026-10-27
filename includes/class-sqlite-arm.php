@@ -89,14 +89,21 @@ final class Sqlite_Arm extends Durable_Arm {
 	public const WAL_LIMIT_BYTES = 67108864;
 
 	/**
-	 * Page cache per attached file in an `open_rows()` reader, and of the file
-	 * a `build_rows()` connection writes, in KiB: 8 MiB, so a reader attaching
-	 * all `Spawn_Coordinator::MAX_PARTITIONS` files stays inside the 64 MiB one
-	 * Table connection may take. `main`'s size is also the memory each sort
-	 * holds before it spills to a temporary file, so a build's sorts stay
-	 * near 8 MiB apiece.
+	 * Page cache per attached file in an `open_rows()` reader and a
+	 * `build_rows()` connection, in KiB: 8 MiB, so a reader attaching all
+	 * `Spawn_Coordinator::MAX_PARTITIONS` files stays inside the 64 MiB one
+	 * Table connection may take.
 	 */
 	private const ROWS_CACHE_KIB = 8192;
+
+	/**
+	 * Page cache of the file a `build_rows()` connection writes, in KiB:
+	 * 256 MiB. `main`'s size is also the memory each sort holds before it
+	 * spills to a temporary file, so it caps a build's sorts as well as its
+	 * pages, and a build's peak stays near that ceiling however many rows it
+	 * sorts.
+	 */
+	private const BUILD_CACHE_KIB = 262144;
 
 	/**
 	 * Bytes of a published snapshot an `open_immutable()` reader maps:
@@ -670,7 +677,7 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * Open a connection that builds a new SQLite file from the row tables:
-	 * `$file` as a writable `main`, journal off, with an 8 MiB page cache
+	 * `$file` as a writable `main`, journal off, with a 256 MiB page cache
 	 * and unmapped, each present partition file attached read-only as
 	 * `attach_all()` attaches it, and temporary B-trees on disk, as
 	 * `temp_on_disk()` puts them. The caller publishes the file; a crash
@@ -694,7 +701,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db->exec( 'PRAGMA busy_timeout = ' . self::BUSY_TIMEOUT_MS );
 		$db->exec( 'PRAGMA journal_mode = OFF' );
 		$db->exec( 'PRAGMA synchronous = OFF' );
-		$db->exec( 'PRAGMA main.cache_size = -' . self::ROWS_CACHE_KIB );
+		$db->exec( 'PRAGMA main.cache_size = -' . self::BUILD_CACHE_KIB );
 		$db->exec( 'PRAGMA main.mmap_size = 0' );
 		self::temp_on_disk( $db );
 		return new Row_Reader( $db, self::attach_all( $db, $files, $version ) );
