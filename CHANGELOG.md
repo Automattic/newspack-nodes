@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.132.1] - 2026-10-27
+
 ### Fixed
 - **A `sum` fold keeps its total when a row adds a null.** `Sqlite_Arm` folded `sum` as the column plus the incoming value, which SQLite answers null when either is, so one null erased the running total for good, against the fold's documented rule that a null never displaces a value. A `sum` now takes the other side when one is null, as `max` and `min` already did. A total a null already erased stays null.
 - **`HTTP_Source`'s schema says each fetch brings up to 4 MiB**, where it said 1 MiB blocks.
