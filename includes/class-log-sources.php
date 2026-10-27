@@ -49,8 +49,15 @@ class Log_Sources {
 	 */
 	public static ?\Closure $builtin_sources = null;
 
-	/** The most bytes one `read_block()` returns, from wherever it starts. */
+	/** The most bytes one raw block of a stream carries, from wherever it starts. */
 	public const BLOCK_BYTES = 1048576;
+
+	/**
+	 * The most bytes one `read_block()` returns. It is four stream blocks,
+	 * because each fetch pays for a whole request's start-up and a stream's
+	 * next block does not.
+	 */
+	public const FETCH_BYTES = 4 * self::BLOCK_BYTES;
 
 	/**
 	 * Legal registry-name charset, gating the config and topology families
@@ -294,7 +301,7 @@ class Log_Sources {
 
 	/**
 	 * One raw block from a position, as `Consumer_Node::raw_block()` reads it:
-	 * up to `BLOCK_BYTES` of one segment, untouched, with where it begins, the
+	 * up to `FETCH_BYTES` of one segment, untouched, with where it begins, the
 	 * bytes the log holds from there, and whether retention's deletion rewound
 	 * the position. Splitting lines, torn and cut ones included, is the
 	 * reader's work at the other end.
@@ -306,7 +313,7 @@ class Log_Sources {
 	 * @throws \InvalidArgumentException As `read()` throws.
 	 */
 	public static function read_block( string $log, string $position, bool $multi_writer ): array {
-		return self::positioned( $log, $position, 'read_block', $multi_writer, static fn ( Consumer_Node $reader ): array => $reader->raw_block( self::BLOCK_BYTES ) );
+		return self::positioned( $log, $position, 'read_block', $multi_writer, static fn ( Consumer_Node $reader ): array => $reader->raw_block( self::FETCH_BYTES ) );
 	}
 
 	/**

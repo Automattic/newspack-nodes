@@ -14,11 +14,12 @@ namespace Newspack_Nodes;
  * reader per stamp — but each reader fetches its own `raw-logs read_block`
  * over this broker's `HTTP_Out` instead of riding one SSE stream, so the
  * broker holds no slot from the spoke's `SSE_Slot_Pool` and sends no slot
- * heartbeat. A reader holding under `Log_Sources::BLOCK_BYTES` asks again
- * at once; one at the end, or refused, waits the broker's retry interval
- * for this broker's tick, so readers due in one second ask together. Every
- * reader asking in one tick rides one POST, so the patron's reply cap counts
- * the readers, each at one whole record's share.
+ * heartbeat. A reader asks again at once while it holds at most one fetch,
+ * so one fetch drains while the next is in flight. A reader at the end of
+ * the log, or one the spoke refused, waits the broker's retry interval and
+ * then asks on the broker's tick, so readers that fall due in the same second
+ * ask together. Every reader asking in one tick rides one POST, so the
+ * patron's reply cap counts the readers, each at one whole record's share.
  *
  * A glob source learns its stamps from the spoke's `raw-logs list_logs`
  * catalog, asked on the tick a retry interval after each answer.
@@ -146,17 +147,23 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * The status snapshot, under `Remote_Source`'s keys so a dashboard reads
-	 * both brokers alike, from the round trips the spoke answered, a reader's
-	 * fetch or this broker's catalog: `connected` while one was answered within
-	 * four retry intervals; the latest answer and its round trip, in milliseconds as
-	 * the Status tab reads it; the latest fetch or catalog ask sent; when the
-	 * soonest waiting reader asks again; and one error, the first of three
-	 * that stands: the patron's last
-	 * transfer, a refused catalog, a reader's refused fetch. A transfer's
-	 * error outranks a refusal as a stream's outranks a heartbeat's in
-	 * `Remote_Source`, and the broker's own ask outranks one reader's. It
-	 * fills no stream, backoff or slot heartbeat, which keep the base's blanks.
+	 * The status snapshot, under `Remote_Source`'s keys, so a dashboard reads
+	 * both brokers alike. It is built from the round trips the spoke answered,
+	 * whether a reader's fetch or this broker's catalog ask:
+	 *
+	 * - `connected` while one was answered within four retry intervals of
+	 *   now, or of the latest request while one is out, and `connecting`
+	 *   while a request is out and the broker is not connected;
+	 * - the latest answer, as `last_response` and as the server heartbeat,
+	 *   with its round trip in milliseconds, as the Status tab reads it;
+	 * - the latest fetch or catalog ask sent, and when the soonest waiting
+	 *   reader asks again;
+	 * - the retry interval as the backoff, in whole seconds as SSE_In counts;
+	 * - one error, the first that stands of three: the patron's last
+	 *   transfer, a refused catalog, and a reader's refused fetch. A
+	 *   transfer's error outranks a refusal, as a stream's outranks a
+	 *   heartbeat's in `Remote_Source`, and the broker's own ask outranks one
+	 *   reader's.
 	 *
 	 * @param HTTP_Out_Node $http The command channel.
 	 */
@@ -164,11 +171,13 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		$answered = $this->catalog_answered['at'] ?? null;
 		$rtt      = $this->catalog_answered['rtt'] ?? null;
 		$sent     = 0.0 < $this->catalog_sent_at ? $this->catalog_sent_at : null;
+		$out      = null !== $sent && $sent > ( $answered ?? -\INF ) && Core::$now - $sent < HTTP_Out_Node::REQUEST_TIMEOUT;
 		$next     = null;
 		$refused  = null;
 		foreach ( $this->reader_walk() as $child ) {
 			$stats    = $child->fetch_stats();
 			$refused ??= $stats['refused'];
+			$out       = $out || $child->fetching();
 			if ( null !== $stats['sent_at'] ) {
 				$sent = \max( $sent ?? $stats['sent_at'], $stats['sent_at'] );
 			}
@@ -180,14 +189,19 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 				$next = \min( $next ?? \INF, $stats['waiting_since'] + $this->retry_seconds() );
 			}
 		}
-		$outcome = $http->last_outcome();
+		$outcome   = $http->last_outcome();
+		$since     = $out && null !== $sent ? $sent : Core::$now;
+		$connected = null !== $answered && $since - $answered <= 4 * $this->retry_seconds();
 		$this->write_status( [
-			'connected'               => null !== $answered && Core::$now - $answered <= 4 * $this->retry_seconds(),
+			'connected'               => $connected,
+			'connecting'              => ! $connected && $out,
 			'last_connection_attempt' => null === $sent ? null : (int) $sent,
 			'last_http_code'          => $outcome['code'],
 			'last_error'              => $outcome['error']
 				?? self::refusal_line( 'Discovery', $this->catalog_refusal, 'list_logs refused' )
 				?? self::refusal_line( 'Block fetch', $refused, 'read_block refused' ),
+			'current_backoff'         => (int) \ceil( $this->retry_seconds() ),
+			'last_sse_heartbeat'      => null === $answered ? null : (int) $answered,
 			'scheduled_reconnect_at'  => null === $next ? null : (int) \ceil( $next ),
 			'last_response'           => null === $answered ? null : (int) $answered,
 			'last_rtt'                => null === $rtt ? null : self::round_trip_ms( $rtt ),
@@ -262,6 +276,21 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 
 	/** Nothing to reconnect: each fetch states its reader's own position. */
 	public function restream(): void {}
+
+	/** The replies HTTP_Out has delivered, as `Remote_Source` reports SSE_In's messages. */
+	public function counter(): int {
+		return null !== $this->http_out ? $this->http_out->replies() : parent::counter();
+	}
+
+	/** HTTP_Out's tally: the broker holds no socket of its own to read. */
+	public function bytes_read(): int {
+		return $this->http_out?->bytes_read() ?? 0;
+	}
+
+	/** The largest reply HTTP_Out has delivered. */
+	public function largest_msg_sent(): int {
+		return $this->http_out?->largest_reply() ?? 0;
+	}
 
 	/**
 	 * Palette entry: `Remote_Source`'s arguments and verbs over block fetches,

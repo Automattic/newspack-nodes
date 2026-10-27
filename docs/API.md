@@ -1341,7 +1341,8 @@ subscription diagram above.
 #### Raw blocks
 
 A log or source reader does not parse what it reads. Each read takes up to 1 MiB
-(`Log_Sources::BLOCK_BYTES`) of one segment from wherever the reader stands,
+(`Log_Sources::BLOCK_BYTES`), or 4 MiB for `raw-logs read_block`
+(`Log_Sources::FETCH_BYTES`), of one segment from wherever the reader stands,
 mid-line included, through
 [`Consumer_Node::raw_block()`](../includes/class-consumer-node.php), and
 `Consumer_Node::block_messages()` sends it as two messages:
@@ -1412,7 +1413,7 @@ The same registry backs `raw-logs`. `list_logs` lists every source as a
 `sources:<name>` row after the partition dirs, each row carrying `available`;
 `dump_log sources:<name>` sizes one, as `{ log_id, segments, segment_count,
 total_size }`; `read_message sources:<name> <position>` single-steps it; and
-`read_block sources:<name> <position>` answers one raw block of up to 1 MiB. A
+`read_block sources:<name> <position>` answers one raw block of up to 4 MiB. A
 source whose segments will not list takes an unavailable row carrying `error`
 beside every readable source, so one failure never blanks the picker. An active
 topology that will not read takes one too, labelled for the topology and keyed

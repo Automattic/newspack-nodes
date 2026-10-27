@@ -899,18 +899,20 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Ask the spoke for the next block, when this reader is live, holds under
-	 * one block, has none in flight and waits out no end or refusal, which
-	 * only `fetch_when_due()` ends. A fetch lost to a transport error is asked
-	 * again once HTTP_Out's own timeout has passed; a late reply to the first
-	 * then echoes arguments no longer held.
+	 * Ask the spoke for the next block. The reader asks only when it is live,
+	 * has no fetch in flight, and is not waiting out the end of the log or a
+	 * refusal; only `fetch_when_due()` ends that wait. It also waits while it
+	 * holds back, as `holding_back()` decides. A
+	 * fetch lost to a transport error is asked again once HTTP_Out's own
+	 * timeout has passed, and a late reply to the first fetch then echoes
+	 * arguments the reader no longer holds.
 	 */
 	public function fetch(): void {
 		if ( null === $this->broker
 			|| ! $this->is_live()
-			|| $this->holding_back()
 			|| null !== $this->waiting_since
-			|| Core::$now - ( $this->fetch_in_flight['at'] ?? -\INF ) < HTTP_Out_Node::REQUEST_TIMEOUT ) {
+			|| $this->fetching()
+			|| $this->holding_back() ) {
 			return;
 		}
 		$args = [ $this->stamp, $this->fetch_position(), ...( $this->broker->multi_writer() ? [ '--multi_writer=true' ] : [] ) ];
@@ -918,6 +920,11 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			$this->fetch_in_flight = [ 'args' => $args, 'at' => Core::$now ];
 			$this->fetch_sent_at   = Core::$now;
 		}
+	}
+
+	/** Whether a fetch is out and HTTP_Out's own timeout has not yet passed. */
+	public function fetching(): bool {
+		return Core::$now - ( $this->fetch_in_flight['at'] ?? -\INF ) < HTTP_Out_Node::REQUEST_TIMEOUT;
 	}
 
 	/** A paused reader is out of the stream; any other reads it live. */
@@ -1012,7 +1019,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * compared for sameness alone, because a file source's are inodes. Null
 	 * before the spoke first says, or once `DISTANCE_STALE_SECONDS` pass with
 	 * no word: a header, or the broker hearing that nothing more waits. A
-	 * quiet the hub keeps, a full reader or a shut valve, is not silence.
+	 * quiet the hub keeps, a full reader, is not silence.
 	 */
 	private function backlog(): ?int {
 		$distance = $this->distance;
@@ -1026,12 +1033,20 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		return $distance['distance'] + $this->held_before( $distance['segment'], $distance['offset'] );
 	}
 
-	/** A block's worth held undrained: the reader asks for no more until it drains. */
+	/**
+	 * Whether the reader chooses not to ask: it holds more than one fetch, so
+	 * with the next in flight it would hold more than two, or in line mode or
+	 * crawl it still holds a whole line, as a local reader does before it
+	 * refills. The hub is then quiet by its own choice, not because the spoke
+	 * has gone silent. A partial line is assembled outside the buffer and
+	 * counts for nothing, so a line longer than two fetches still completes.
+	 */
 	private function holding_back(): bool {
-		return $this->buffered_bytes() >= Log_Sources::BLOCK_BYTES;
+		return $this->buffered_bytes() > Log_Sources::FETCH_BYTES
+			|| ( ( $this->line_mode || $this->crawl ) && $this->buffer_has_line() );
 	}
 
-	/** Bytes buffered and not yet drained; the broker sums them for its valve. */
+	/** Bytes buffered and not yet drained. */
 	public function buffered_bytes(): int {
 		return \strlen( $this->buffer );
 	}
