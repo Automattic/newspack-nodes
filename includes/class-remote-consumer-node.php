@@ -887,15 +887,24 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/**
 	 * End a wait `$wait_s` old, and fetch: the broker's tick calls it with
-	 * its retry interval.
+	 * its retry interval, or with a wait of 0 to end this reader's wait now.
 	 *
-	 * @param float $wait_s The broker's retry interval, in seconds.
+	 * @param float $wait_s The wait, in seconds.
 	 */
 	public function fetch_when_due( float $wait_s ): void {
-		if ( null !== $this->waiting_since && Core::$now >= $this->waiting_since + $wait_s ) {
+		if ( $this->waited( $wait_s ) ) {
 			$this->waiting_since = null;
 			$this->fetch();
 		}
+	}
+
+	/**
+	 * Whether the reader waits, and has waited at least `$wait_s`.
+	 *
+	 * @param float $wait_s The wait, in seconds.
+	 */
+	public function waited( float $wait_s ): bool {
+		return null !== $this->waiting_since && Core::$now >= $this->waiting_since + $wait_s;
 	}
 
 	/**
@@ -1068,6 +1077,11 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			}
 		}
 		return $bytes;
+	}
+
+	/** Whether the spoke refused the reader's last fetch. */
+	public function refused(): bool {
+		return null !== $this->fetch_refusal;
 	}
 
 	/**

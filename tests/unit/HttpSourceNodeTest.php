@@ -862,6 +862,50 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0', 'sources:php', 'jobstats.p0' ], \array_column( \array_slice( $this->fetches( $http ), $asked ), 0 ) );
 	}
 
+	/**
+	 * A wait that ends takes every waiting reader with it, so readers whose
+	 * waits began apart ask in one POST and stay in step after it.
+	 */
+	public function test_one_readers_wait_ending_ends_every_waiting_readers(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
+		$node->fire();
+		$http = Core::node( 'pull-austin:http-out' );
+		foreach ( [ 'firehose.p0' => 503.1, 'sources:php' => 506.9 ] as $stamp => $at ) {
+			Core::$now = $at;
+			$reader    = $this->readers( $node )[ $stamp ];
+			$reader->fire_cb();
+			self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, $stamp ), '', null, '4:6100' ) );
+		}
+		$asked = \count( $this->fetches( $http ) );
+
+		Core::$now = 503.1 + self::RETRY_S + 0.2;
+		$node->fire();
+
+		$this->assertSame( [ 'firehose.p0', 'sources:php' ], \array_column( \array_slice( $this->fetches( $http ), $asked ), 0 ) );
+	}
+
+	/** A refused reader keeps its own retry interval when another reader's wait ends. */
+	public function test_a_refused_reader_waits_out_its_own_interval(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
+		$node->fire();
+		$http = Core::node( 'pull-austin:http-out' );
+		[ 'firehose.p0' => $fire, 'sources:php' => $php ] = $this->readers( $node );
+		Core::$now = 500.0;
+		$fire->fire_cb();
+		self::answer( $fire, self::block_reply( $this->last_fetch_of( $http, 'firehose.p0' ), '', null, '4:6100' ) );
+		Core::$now = 506.0;
+		$php->fire_cb();
+		self::answer( $php, [ self::refusal( $this->last_fetch_of( $http, 'sources:php' ), 'unknown log source php' ) ] );
+		$asked = \count( $this->fetches( $http ) );
+
+		Core::$now = 500.0 + self::RETRY_S + 0.1;
+		$node->fire();
+
+		$this->assertSame( [ 'firehose.p0' ], \array_column( \array_slice( $this->fetches( $http ), $asked ), 0 ) );
+	}
+
 	public function test_a_lost_fetch_is_asked_again_after_the_request_timeout(): void {
 		[ , $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();

@@ -17,8 +17,10 @@ namespace Newspack_Nodes;
  * heartbeat. A reader asks again at once while it holds at most one fetch,
  * so one fetch drains while the next is in flight. A reader at the end of
  * the log, or one the spoke refused, waits the broker's retry interval and
- * then asks on the broker's tick, so readers that fall due in the same second
- * ask together. Every reader asking in one tick rides one POST, so the
+ * then asks on the broker's tick. When the first reader's wait at the end
+ * of its log ends, every other reader waiting at the end of its log asks
+ * too, so they ask together. A reader the spoke refused waits its full
+ * interval. Every reader asking in one tick rides one POST, so the
  * patron's reply cap counts the readers, each at one whole record's share.
  *
  * A glob source learns its stamps from the spoke's `raw-logs list_logs`
@@ -87,8 +89,10 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 
 	/**
 	 * One tick's housekeeping, after the exact sources' readers are built: size
-	 * the channel's reply cap, end every wait fallen due, so readers due in one
-	 * second share one POST, and publish the status. A broker no Vault entry
+	 * the channel's reply cap, end the wait of every reader at the end of its
+	 * log once any one reader's wait falls due, so they share one POST and
+	 * stay in step after it, and publish the status. A reader the spoke
+	 * refused waits its full interval. A broker no Vault entry
 	 * names, or one whose partition owns no source, builds no channel and
 	 * writes no snapshot.
 	 */
@@ -100,8 +104,11 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		if ( null === $http ) {
 			return;
 		}
-		foreach ( $this->reader_walk() as $child ) {
-			$child->fetch_when_due( $this->retry_seconds() );
+		$retry   = $this->retry_seconds();
+		$readers = \iterator_to_array( $this->reader_walk(), false );
+		$ended   = \array_filter( $readers, static fn ( Remote_Consumer_Node $child ): bool => ! $child->refused() && $child->waited( $retry ) );
+		foreach ( $readers as $child ) {
+			$child->fetch_when_due( [] !== $ended && ! $child->refused() ? 0.0 : $retry );
 		}
 		$this->ask_catalog( $http );
 		$this->publish_status( $http );
