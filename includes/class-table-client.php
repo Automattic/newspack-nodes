@@ -23,6 +23,7 @@ namespace Newspack_Nodes;
  * because a Table's reply is never the asker's input.
  *
  * @phpstan-import-type Row_Op from Sqlite_Arm
+ * @phpstan-import-type Row_Delete from Sqlite_Arm
  */
 final class Table_Client {
 
@@ -181,7 +182,7 @@ final class Table_Client {
 	 *
 	 * @api A node writing row tables: event-logger-nodes' stats builder.
 	 * @param string                 $table The Row_Table's registered name.
-	 * @param list<Row_Op> $batch `[ op, table, row, then?, ids? ]` each, as `Sqlite_Arm::write_rows()` takes them.
+	 * @param list<Row_Op|Row_Delete> $batch `[ op, table, row, then?, ids? ]` each, a delete's row column => value, as `Sqlite_Arm::write_rows()` takes them.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the Row_Table refuses the batch or does
 	 *                           not answer, or the asker has no name or no sink.

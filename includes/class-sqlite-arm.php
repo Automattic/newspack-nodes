@@ -54,7 +54,8 @@ namespace Newspack_Nodes;
  *   fts?: list<string>
  * }
  * @phpstan-type Rows array{version:int, tables:array<string,Row_Spec>}
- * @phpstan-type Row_Op array{0:string, 1:string, 2:list<scalar|null>|array<string,scalar|null>, 3?:list<mixed>, 4?:array<int,int>}
+ * @phpstan-type Row_Op array{0:string, 1:string, 2:list<scalar|null>, 3?:list<mixed>, 4?:array<int,int>}
+ * @phpstan-type Row_Delete array{0:'delete', 1:string, 2:array<string,scalar|null>}
  */
 final class Sqlite_Arm extends Durable_Arm {
 
