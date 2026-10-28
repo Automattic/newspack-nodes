@@ -111,6 +111,31 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertArrayNotHasKey( 'arr', $GLOBALS['_enqueued_scripts'] );
 		}
 
+		public function test_a_bundle_localizing_a_bool_is_skipped_and_its_neighbour_still_enqueues(): void {
+			$dir = $this->tree_dir;
+			\add_filter(
+				self::HOOK,
+				static fn ( array $b ) => \array_merge(
+					$b,
+					[
+						[ 'handle' => 'flagged-tab', 'dir' => $dir, 'url' => 'http://x/flagged', 'localize' => [ 'canEdit' => true ] ],
+						[ 'handle' => 'counted-tab', 'dir' => $dir, 'url' => 'http://x/counted', 'localize' => [ 'limit' => 7 ] ],
+						[ 'handle' => 'contrib-tab', 'dir' => $dir, 'url' => 'http://x/contrib' ],
+					]
+				)
+			);
+			$_GET['page'] = Admin::STATION_MENU_SLUG;
+			$stderr       = $this->capture_stderr();
+
+			( new Admin() )->enqueue_station_tab_bundles();
+
+			$this->assertArrayNotHasKey( 'flagged-tab', $GLOBALS['_enqueued_scripts'] );
+			$this->assertArrayNotHasKey( 'counted-tab', $GLOBALS['_enqueued_scripts'] );
+			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
+			$this->assertCount( 1, self::stderr_lines( $stderr, 'skipped station tab bundle flagged-tab: localize extra canEdit is bool, not a string or an array' ) );
+			$this->assertCount( 1, self::stderr_lines( $stderr, 'skipped station tab bundle counted-tab: localize extra limit is int, not a string or an array' ) );
+		}
+
 		public function test_lazy_bundle_is_registered_for_on_demand_load_not_enqueued(): void {
 			// A bundle flagged `lazy` must NOT ship up front; instead its script +
 			// style URLs and localize payload are collected into the station's
