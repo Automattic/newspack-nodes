@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A plugin's `pre-push.local` can defer named gates.** It sets `DEFERRED_GATES` to any of the shared hook's `deferrable` gates — `js-coverage-gate`, `wp-pin`, `lint:php`, `lint:js`, `lint:types`, `lint:scss` and `coverage-gate` — and each deferred gate prints one dim line, `<gate> deferred by pre-push.local`, where it would otherwise have run, and runs nothing. A name outside that list fails the push. The hook empties the array before it sources the `.local` and makes it read-only once validated, so neither the environment nor a gate slot can change it. No plugin sets it, so every gate runs as before; newspack-community uses it for the gates its code does not yet pass.
+
 ## [2.132.2] - 2026-10-27
 
 ### Changed
