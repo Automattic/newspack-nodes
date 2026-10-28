@@ -45,7 +45,7 @@ class Row_Table_Node extends Table_Node {
 	private const FOLD = '/^(sum|max|min)$/D';
 
 	/** How a ROWS request is answered. */
-	private const ROWS_REPLY = 'one TM_RESPONSE "ROWS <rows written or folded>", or one TM_ERROR "ROWS: <why>", the batch rolled back';
+	private const ROWS_REPLY = 'one TM_RESPONSE "ROWS <rows written, folded or deleted>", or one TM_ERROR "ROWS: <why>", the batch rolled back';
 
 	/**
 	 * Build-file sync seam: `build()` syncs the finished build to disk before
@@ -535,7 +535,7 @@ class Row_Table_Node extends Table_Node {
 	 * written in one transaction, answered as every Table write is,
 	 * TM_RESPONSE `ROWS <written>`, or a TM_ERROR carrying the arm's message,
 	 * the whole batch rolled back. Counted as ROWS: the ops asked, the rows
-	 * written or folded.
+	 * written, folded or deleted.
 	 *
 	 * @param array<int,mixed>       $request The TM_REQUEST.
 	 * @param string                 $verb    `ROWS`.
