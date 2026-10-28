@@ -31,11 +31,10 @@ $skins: (
 		oxide-dark: #8a2324,
 		brass: var(--np-warning),
 		brass-dark: #8a6200,
-		cyan: var(--np-primary),
-		cyan-dark: var(--np-primary-hover),
+		cyan: var(--wp-admin-theme-color),
+		cyan-dark: var(--wp-admin-theme-color-darker-10),
 		sage: var(--np-success),
 		sage-dark: #00510f,
-		cyan-text: var(--cyan),
 		brass-text: #765400,
 		sage-text: var(--sage),
 		oxide-text: var(--oxide),
@@ -74,11 +73,10 @@ $skins: (
 		oxide-dark: #b32d2e,
 		brass: #ffa300,
 		brass-dark: #c77e00,
-		cyan: #003da5,
-		cyan-dark: #00296e,
+		cyan: var(--wp-admin-theme-color),
+		cyan-dark: var(--wp-admin-theme-color-darker-10),
 		sage: #117644,
 		sage-dark: #09552f,
-		cyan-text: var(--cyan),
 		brass-text: #855400,
 		sage-text: var(--sage-dark),
 		oxide-text: var(--oxide-dark),
@@ -702,7 +700,7 @@ $phosphor: (
 		math.round(color.channel($c, "blue", $space: rgb));
 }
 
-// The Newspack product skins, which keep WordPress's own accent.
+// The Newspack product skins, whose accent is WordPress's admin color scheme.
 $newspack-skins: (newspack, newspack-brand);
 
 // WordPress paints its accent (a primary button, a focus ring) from the admin

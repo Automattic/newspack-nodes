@@ -154,13 +154,11 @@ const ALLOWED_DERIVED_OVERRIDES = {
 };
 const EXPECTED_SEMANTIC_TEXT_OVERRIDES = {
 	newspack: {
-		'--cyan-text': 'var(--cyan)',
 		'--brass-text': '#765400',
 		'--sage-text': 'var(--sage)',
 		'--oxide-text': 'var(--oxide)',
 	},
 	'newspack-brand': {
-		'--cyan-text': 'var(--cyan)',
 		'--brass-text': '#855400',
 		'--sage-text': 'var(--sage-dark)',
 		'--oxide-text': 'var(--oxide-dark)',
@@ -342,7 +340,37 @@ const wordpressUiCascadeRecords = cascadeRecords(
 ).filter( ( record ) => ! record.selector.includes( ':has(' ) );
 const skinsSource = fs.readFileSync( SKINS_SCSS, 'utf8' );
 
-const effectiveSkin = ( slug ) => ( {
+/**
+ * WordPress 7.1's admin color schemes, as `base-styles/admin-schemes.css`
+ * sets them on `body`. Fresh sets none, so it takes the `:root` values
+ * `components/style.css` declares, Modern's. A Newspack skin draws its
+ * accent from whichever is in force; Modern is every user's default.
+ */
+const WP_ADMIN_SCHEMES = {
+	fresh: [ '#3858e9', 'rgb(33.0384615385, 68.7307692308, 230.4615384615)' ],
+	light: [ '#007cba', 'rgb(0, 107, 160.5)' ],
+	modern: [ '#3858e9', 'rgb(33.0384615385, 68.7307692308, 230.4615384615)' ],
+	blue: [ '#437aa8', 'rgb(59.729787234, 108.7617021277, 149.770212766)' ],
+	coffee: [ '#916745', 'rgb(127.7219626168, 90.726635514, 60.7780373832)' ],
+	ectoplasm: [ '#646c3e', 'rgb(85, 91.8, 52.7)' ],
+	midnight: [
+		'#cf4339',
+		'rgb(191.9634146341, 56.2317073171, 46.5365853659)',
+	],
+	ocean: [ '#567958', 'rgb(75.4057971014, 106.0942028986, 77.1594202899)' ],
+	sunrise: [ '#ad631e', 'rgb(151.2684729064, 86.5640394089, 26.2315270936)' ],
+};
+
+const adminScheme = ( scheme ) => {
+	const [ accent, darker ] = WP_ADMIN_SCHEMES[ scheme ];
+	return {
+		'--wp-admin-theme-color': accent,
+		'--wp-admin-theme-color-darker-10': darker,
+	};
+};
+
+const effectiveSkin = ( slug, scheme = 'modern' ) => ( {
+	...adminScheme( scheme ),
 	...( commonRules[ 0 ] || {} ),
 	...( skinMaps.get( slug ) || {} ),
 } );
@@ -2893,6 +2921,51 @@ describe( "WordPress's accent follows the skin", () => {
 					name.startsWith( '--wp-admin-theme-color' )
 				)
 			).toEqual( [] );
+		}
+	);
+
+	it.each(
+		NEWSPACK_SKINS.flatMap( ( slug ) =>
+			Object.keys( WP_ADMIN_SCHEMES ).map( ( scheme ) => [
+				slug,
+				scheme,
+			] )
+		)
+	)(
+		'%s keeps its accent pairs AA-readable in the %s admin color scheme',
+		( slug, scheme ) => {
+			const skin = effectiveSkin( slug, scheme );
+			const pairs = [
+				[ '--on-cyan', '--cyan' ],
+				[ '--on-cyan-dark', '--cyan-dark' ],
+				[ '--cyan-text', '--paper' ],
+				[ '--cyan-text', '--paper-2' ],
+				[ '--cyan-text', '--paper-3' ],
+				[ '--cyan-text', '--cyan-subtle' ],
+			];
+			expect(
+				pairs
+					.map( ( [ fg, bg ] ) => [
+						`${ fg } on ${ bg }`,
+						Number(
+							contrast(
+								resolvedColor( skin, fg ),
+								resolvedColor( skin, bg )
+							).toFixed( 2 )
+						),
+					] )
+					.filter( ( [ , ratio ] ) => ratio < 4.5 )
+			).toEqual( [] );
+		}
+	);
+
+	it.each( NEWSPACK_SKINS )(
+		"%s takes its accent from WordPress's admin color scheme",
+		( slug ) => {
+			expect( skinMaps.get( slug ) ).toMatchObject( {
+				'--cyan': 'var(--wp-admin-theme-color)',
+				'--cyan-dark': 'var(--wp-admin-theme-color-darker-10)',
+			} );
 		}
 	);
 } );
