@@ -280,6 +280,73 @@ final class SqliteArmRowsTest extends TestCase {
 		$arm->write_rows( [ [ 'set', 'loose', [ 5 ] ] ] );
 	}
 
+	/** A `delete` removes the rows whose named columns all match, and counts them. */
+	public function test_a_delete_removes_the_rows_its_named_columns_match(): void {
+		$arm = $this->rows_arm();
+		$arm->write_rows(
+			[
+				[ 'insert', 'tallies', [ 7341, 'heron', 3, 41.5 ] ],
+				[ 'insert', 'tallies', [ 7341, 'egret', 4, 39.0 ] ],
+				[ 'insert', 'tallies', [ 7342, 'heron', 9, 12.25 ] ],
+			]
+		);
+
+		$out = $arm->write_rows( [ [ 'delete', 'tallies', [ 'bucket' => 7341, 'kind' => 'heron' ] ] ] );
+		$this->assertSame( 1, $out );
+		$this->assertSame( [ [ 7341, 'egret' ], [ 7342, 'heron' ] ], $this->all( 'SELECT bucket, kind FROM tallies ORDER BY bucket, kind' ) );
+
+		$this->assertSame( 1, $arm->write_rows( [ [ 'delete', 'tallies', [ 'bucket' => 7341 ] ] ] ) );
+		$this->assertSame( [ [ 7342, 'heron' ] ], $this->all( 'SELECT bucket, kind FROM tallies' ) );
+	}
+
+	/** A delete then the rows replacing them, in one batch, leaves only the new rows. */
+	public function test_a_delete_clears_ahead_of_the_rows_its_batch_writes(): void {
+		$arm = $this->rows_arm();
+		$arm->write_rows( [ [ 'insert', 'tallies', [ 7341, 'heron', 3, 41.5 ] ], [ 'insert', 'tallies', [ 7341, 'egret', 4, 39.0 ] ] ] );
+
+		$arm->write_rows( [ [ 'delete', 'tallies', [ 'bucket' => 7341 ] ], [ 'insert', 'tallies', [ 7341, 'stork', 1, 2.5 ] ] ] );
+
+		$this->assertSame( [ [ 7341, 'stork' ] ], $this->all( 'SELECT bucket, kind FROM tallies' ) );
+	}
+
+	public function test_a_delete_carrying_then_or_ids_is_refused(): void {
+		$arm = $this->rows_arm();
+		foreach ( [ [ 'delete', 'tallies', [ 'bucket' => 7341 ], [ [ 'insert', 'tallies', [ 7341, 'heron', 1, 2.5 ] ] ] ], [ 'delete', 'tallies', [ 'bucket' => 7341 ], [], [ 0 => 0 ] ] ] as $op ) {
+			try {
+				$arm->write_rows( [ $op ] );
+				$this->fail( 'a delete took then or ids' );
+			} catch ( \RuntimeException $refused ) {
+				$this->assertSame( 'tallies: a delete takes no then or ids', $refused->getMessage() );
+			}
+		}
+	}
+
+	/** SQL's `= NULL` matches nothing, so a null would delete nothing and answer success. */
+	public function test_a_delete_matching_a_null_is_refused(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'tallies: a delete matches no null, as kind would' );
+		$this->rows_arm()->write_rows( [ [ 'delete', 'tallies', [ 'bucket' => 7341, 'kind' => null ] ] ] );
+	}
+
+	/** A table whose rows keep other rows retained is pruned by purge() alone, which releases what they named. */
+	public function test_a_delete_on_a_table_retaining_others_is_refused(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'visits: a delete would leave the rows it retains unreleased' );
+		$this->rows_arm()->write_rows( [ [ 'delete', 'visits', [ 'bucket' => 7341 ] ] ] );
+	}
+
+	public function test_a_delete_naming_no_column_is_refused(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'tallies: a delete names no column' );
+		$this->rows_arm()->write_rows( [ [ 'delete', 'tallies', [] ] ] );
+	}
+
+	public function test_a_delete_naming_an_undeclared_column_is_refused_naming_it(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'tallies: a delete names no such column wingspan' );
+		$this->rows_arm()->write_rows( [ [ 'delete', 'tallies', [ 'wingspan' => 3 ] ] ] );
+	}
+
 	public function test_an_undeclared_op_is_refused_naming_it(): void {
 		$arm = $this->rows_arm();
 		$this->expectException( \RuntimeException::class );
@@ -387,6 +454,25 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertSame( [ [ 'kea-4471' ] ], $this->all( 'SELECT b.name FROM visits v JOIN burrows b ON b.id = v.burrow_id' ) );
 	}
 
+	/**
+	 * A statement whose run failed in a refused batch runs again: the next
+	 * batch through it writes, never SQLITE_MISUSE.
+	 */
+	public function test_a_write_after_a_failed_batch_reuses_its_statements(): void {
+		$arm = $this->rows_arm();
+		$arm->write_rows( [ [ 'insert', 'tallies', [ 7341, 'heron', 3, 41.5 ] ] ] );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( "CREATE TRIGGER no_egret BEFORE INSERT ON tallies WHEN NEW.kind = 'egret' BEGIN SELECT RAISE( ROLLBACK, 'egret 4471' ); END" );
+		try {
+			$arm->write_rows( [ [ 'insert', 'tallies', [ 7342, 'heron', 1, 2.5 ] ], [ 'insert', 'tallies', [ 7342, 'egret', 1, 2.5 ] ] ] );
+			$this->fail( 'the trigger refused the batch' );
+		} catch ( \RuntimeException $refused ) {
+			$this->assertStringContainsString( 'egret 4471', $refused->getMessage() );
+		}
+
+		$this->assertSame( 1, $arm->write_rows( [ [ 'insert', 'tallies', [ 7343, 'heron', 1, 2.5 ] ] ] ) );
+		$this->assertSame( [ [ 7341 ], [ 7343 ] ], $this->all( 'SELECT bucket FROM tallies ORDER BY bucket' ) );
+	}
+
 	public function test_a_failed_write_rolls_back_the_whole_batch_and_raises(): void {
 		$arm = $this->rows_arm();
 		$e   = $this->caught(
@@ -456,6 +542,29 @@ final class SqliteArmRowsTest extends TestCase {
 		( new Sqlite_Arm( $this->path(), 'wombat:p3' ) )->set( 'sku-41', 'kea-41', 0 );
 		$this->assertSame( 'kea-41', $this->rows_arm()->get( 'sku-41' ) );
 		$this->assertSame( [ [ 7 ] ], $this->all( 'PRAGMA user_version' ) );
+	}
+
+	/** A purge refused on a later row of its DELETE … RETURNING runs again once the cause is gone. */
+	public function test_a_purge_refused_mid_fetch_runs_again(): void {
+		$arm = $this->rows_arm();
+		$arm->write_rows(
+			[
+				[ 'ignore', 'burrows', [ null, 'kea-4471' ] ],
+				[ 'insert', 'visits', [ 'rid-1000', 1000, null, 4.5 ], [], [ 2 => 0 ] ],
+				[ 'insert', 'visits', [ 'rid-1001', 1001, null, 4.5 ], [], [ 2 => 0 ] ],
+				[ 'insert', 'visits', [ 'rid-1002', 1002, null, 4.5 ], [], [ 2 => 0 ] ],
+			]
+		);
+		$db = new \PDO( 'sqlite:' . $this->path() );
+		$db->exec( "CREATE TRIGGER keep_1002 BEFORE DELETE ON visits WHEN OLD.rid = 'rid-1002' BEGIN SELECT RAISE( ABORT, 'keep 4473' ); END" );
+		$this->capture_stderr();
+		$arm->purge( 9100, 100 );
+		$this->assertSame( [ [ 'rid-1000' ], [ 'rid-1001' ], [ 'rid-1002' ] ], $this->all( 'SELECT rid FROM visits ORDER BY rid' ), 'the refused purge rolled back' );
+		$db->exec( 'DROP TRIGGER keep_1002' );
+
+		$arm->purge( 9100, 100 );
+
+		$this->assertSame( [], $this->all( 'SELECT rid FROM visits' ) );
 	}
 
 	public function test_purge_drops_rows_past_their_window_and_orphaned_names(): void {

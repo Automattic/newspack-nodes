@@ -54,7 +54,7 @@ namespace Newspack_Nodes;
  *   fts?: list<string>
  * }
  * @phpstan-type Rows array{version:int, tables:array<string,Row_Spec>}
- * @phpstan-type Row_Op array{0:string, 1:string, 2:list<scalar|null>, 3?:list<mixed>, 4?:array<int,int>}
+ * @phpstan-type Row_Op array{0:string, 1:string, 2:list<scalar|null>|array<string,scalar|null>, 3?:list<mixed>, 4?:array<int,int>}
  */
 final class Sqlite_Arm extends Durable_Arm {
 
@@ -139,7 +139,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	];
 
 	/** The row ops a batch may name. */
-	private const ROW_OPS = [ 'insert', 'ignore', 'add', 'set' ];
+	private const ROW_OPS = [ 'insert', 'ignore', 'add', 'set', 'delete' ];
 
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
 	private const IN_CHUNK = 500;
@@ -335,14 +335,16 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * resolves the row's id, inserted or found; `add` writes it or folds its
 	 * `add` columns onto the row its key names; `set` writes it or replaces
 	 * every column of the row its key names but the key and the
-	 * `autoincrement` id, which rows elsewhere name. `then` ops run only when
+	 * `autoincrement` id, which rows elsewhere name; `delete` takes its row as
+	 * column => value and removes every row whose named columns all match,
+	 * counting them. `then` ops run only when
 	 * their op wrote its row, so a replayed batch adds nothing twice. `ids` fills a
 	 * row position with the id an earlier `ignore` in the batch resolved,
 	 * named by its batch index, so one batch can name a row it creates.
 	 *
 	 * @param list<array<array-key,mixed>> $batch The ops, each a Row_Op, as a
 	 *                                     request carries them.
-	 * @return int Rows written or folded.
+	 * @return int Rows written, folded or deleted.
 	 * @throws \RuntimeException Naming the table and SQLite's message; the
 	 *                           whole batch is rolled back.
 	 * @api The row tables' one write path.
@@ -388,13 +390,19 @@ final class Sqlite_Arm extends Durable_Arm {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
 			throw new \RuntimeException( "{$table}: no such row op {$verb}" );
 		}
+		if ( 'delete' === $verb ) {
+			if ( isset( $op[3] ) || isset( $op[4] ) ) {
+				throw new \RuntimeException( "{$table}: a delete takes no then or ids" );
+			}
+			return [ $this->delete_matching( $table, $spec, $row ), null ];
+		}
 		foreach ( Core::arr( $op[4] ?? null ) as $position => $from ) {
 			$from = Core::as_int( $from );
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
 			$row[ $position ] = $ids[ $from ] ?? throw new \RuntimeException( "{$table}: batch op {$from} resolved no id" );
 		}
 		$stmt = $this->statement( $this->row_sql( $verb, $table, $spec ) );
-		$stmt->execute( \array_values( $row ) );
+		self::executed( $stmt, \array_values( $row ) );
 		$written = $stmt->rowCount();
 		$id      = 'ignore' === $verb && isset( $spec['autoincrement'] ) ? $this->resolved_id( $table, $spec, $row, $written ) : null;
 		if ( 1 === $written ) {
@@ -425,7 +433,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			$this->key_positions[ $table ] = \array_map( static fn ( string $column ): int => $positions[ $column ], $spec['key'] ?? [] );
 		}
 		$stmt = $this->statement( $this->row_sql( 'id', $table, $spec ) );
-		$stmt->execute( \array_map( static fn ( int $at ): mixed => $row[ $at ] ?? null, $this->key_positions[ $table ] ) );
+		self::executed( $stmt, \array_map( static fn ( int $at ): mixed => $row[ $at ] ?? null, $this->key_positions[ $table ] ) );
 		$found = $stmt->fetchAll( \PDO::FETCH_COLUMN );
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
 		return Core::as_int( $found[0] ?? throw new \RuntimeException( "{$table}: an ignored row holds no id" ) );
@@ -496,6 +504,43 @@ final class Sqlite_Arm extends Durable_Arm {
 				'min' => "MIN( {$c}, {$incoming} )",
 			}
 		);
+	}
+
+	/**
+	 * Delete the rows whose named columns all equal the values given.
+	 *
+	 * @param string                 $table The table.
+	 * @param Row_Spec               $spec  Its declaration.
+	 * @param array<array-key,mixed> $where Column => value, at least one.
+	 * @return int Rows deleted.
+	 * @throws \RuntimeException On no column, one the table does not declare,
+	 *                           a null, which `=` matches to nothing, or a
+	 *                           table whose rows retain others, which only
+	 *                           purge() releases.
+	 */
+	private function delete_matching( string $table, array $spec, array $where ): int {
+		if ( [] === $where ) {
+			throw new \RuntimeException( "{$table}: a delete names no column" );
+		}
+		if ( [] !== $this->releases[ $table ]['names'] ) {
+			throw new \RuntimeException( "{$table}: a delete would leave the rows it retains unreleased" );
+		}
+		$columns = \array_map( 'strval', \array_keys( $where ) );
+		foreach ( $columns as $column ) {
+			if ( ! isset( $spec['columns'][ $column ] ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+				throw new \RuntimeException( "{$table}: a delete names no such column {$column}" );
+			}
+			if ( null === $where[ $column ] ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+				throw new \RuntimeException( "{$table}: a delete matches no null, as {$column} would" );
+			}
+		}
+		$cache = "delete {$table} " . \implode( ',', $columns );
+		$sql   = $this->row_sql[ $cache ] ??= 'DELETE FROM ' . self::quote( $table ) . ' WHERE ' . \implode( ' AND ', \array_map( static fn ( string $c ): string => self::quote( $c ) . ' = ?', $columns ) );
+		$stmt  = $this->statement( $sql );
+		self::executed( $stmt, \array_values( $where ) );
+		return $stmt->rowCount();
 	}
 
 	/**
@@ -603,7 +648,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @return array{0:int, 1:array<mixed>} The rows deleted, and what they returned.
 	 */
 	private static function deleted( \PDOStatement $stmt, array $returning ): array {
-		$stmt->execute();
+		self::executed( $stmt );
 		$gone = $stmt->fetchAll( \PDO::FETCH_ASSOC );
 		// pdo_sqlite counts no changes for a statement with RETURNING.
 		return [ [] === $returning ? $stmt->rowCount() : \count( $gone ), $gone ];
@@ -745,7 +790,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private static function attach_read_only( \PDO $db, string $path, string $schema, int $version ): bool {
 		$attach = $db->prepare( "ATTACH DATABASE ? AS {$schema}" );
-		$attach->execute( [ self::read_only_uri( $path ) ] );
+		self::executed( $attach, [ self::read_only_uri( $path ) ] );
 		if ( $version !== self::user_version( $db, $schema ) ) {
 			$db->exec( "DETACH DATABASE {$schema}" );
 			return false;
@@ -935,7 +980,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		foreach ( \array_chunk( $keys, self::IN_CHUNK ) as $chunk ) {
 			$in   = \implode( ',', \array_fill( 0, \count( $chunk ), '?' ) );
 			$stmt = $db->prepare( "SELECT \"key\", \"value\", expires FROM kv WHERE \"key\" IN ( {$in} ) AND " . self::LIVE );
-			$stmt->execute( [ ...$chunk, self::now() ] );
+			self::executed( $stmt, [ ...$chunk, self::now() ] );
 			/** @var array<array-key,array{0: string, 1: int}> $rows The key column keys each row. */
 			$rows = $stmt->fetchAll( \PDO::FETCH_UNIQUE | \PDO::FETCH_NUM );
 			$out  = $rows + $out;
@@ -969,7 +1014,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			$stmt->bindValue( 1, (string) $key );
 			$stmt->bindValue( 2, $bytes, \PDO::PARAM_LOB );
 			$stmt->bindValue( 3, $expires, \PDO::PARAM_INT );
-			$stmt->execute();
+			self::executed( $stmt );
 			$changed += $stmt->rowCount();
 		}
 		return $changed;
@@ -982,7 +1027,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$stmt->bindValue( 2, $key );
 		$stmt->bindValue( 3, $old, \PDO::PARAM_LOB );
 		$stmt->bindValue( 4, self::now(), \PDO::PARAM_INT );
-		$stmt->execute();
+		self::executed( $stmt );
 		return 1 === $stmt->rowCount();
 	}
 
@@ -1162,7 +1207,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		foreach ( $ints as $value ) {
 			$stmt->bindValue( $at++, $value, \PDO::PARAM_INT );
 		}
-		$stmt->execute();
+		self::executed( $stmt );
 		return $stmt;
 	}
 
@@ -1174,7 +1219,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			$stmt->bindValue( 2, $member );
 			$stmt->bindValue( 3, $bytes, \PDO::PARAM_LOB );
 			$stmt->bindValue( 4, $expires, \PDO::PARAM_INT );
-			$stmt->execute();
+			self::executed( $stmt );
 		}
 	}
 
@@ -1193,7 +1238,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$read->bindValue( 1, $set_key );
 		$read->bindValue( 2, self::now(), \PDO::PARAM_INT );
 		$read->bindValue( 3, $limit, \PDO::PARAM_INT );
-		$read->execute();
+		self::executed( $read );
 		$rows = [];
 		foreach ( $read->fetchAll( \PDO::FETCH_NUM ) as $row ) {
 			$row    = Core::arr( $row );
@@ -1211,7 +1256,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function single_row( string $sql ): ?array {
 		$stmt = $this->statement( $sql );
-		$stmt->execute();
+		self::executed( $stmt );
 		$rows = $stmt->fetchAll( \PDO::FETCH_NUM );
 		return \is_array( $rows[0] ?? null ) ? $rows[0] : null;
 	}
@@ -1230,7 +1275,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function run( string $sql, array $args ): int {
 		$stmt = $this->statement( $sql );
-		$stmt->execute( $args );
+		self::executed( $stmt, $args );
 		return $stmt->rowCount();
 	}
 
@@ -1298,7 +1343,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			return $db;
 		}
 		$mode = $db->prepare( 'PRAGMA journal_mode = WAL' );
-		$mode->execute();
+		self::executed( $mode );
 		if ( 'wal' !== $mode->fetchColumn() ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
 			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$this->path}" );
@@ -1459,7 +1504,27 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private static function user_version( \PDO $db, string $schema ): int {
 		$read = $db->prepare( "PRAGMA {$schema}.user_version" );
-		$read->execute();
+		self::executed( $read );
 		return Core::as_int( $read->fetchColumn() );
+	}
+
+	/**
+	 * Run a prepared statement, closing its cursor when the run fails, so the
+	 * statement, cached or not, runs again: a failed execute() leaves it
+	 * unreset, and its next run answers SQLITE_MISUSE.
+	 *
+	 * @param \PDOStatement     $stmt   The statement.
+	 * @param list<mixed>|null $params Its positional values, or null for those bound.
+	 * @return \PDOStatement The statement, run.
+	 * @throws \PDOException When the run fails.
+	 */
+	private static function executed( \PDOStatement $stmt, ?array $params = null ): \PDOStatement {
+		try {
+			$stmt->execute( $params );
+		} catch ( \PDOException $e ) {
+			$stmt->closeCursor();
+			throw $e;
+		}
+		return $stmt;
 	}
 }
