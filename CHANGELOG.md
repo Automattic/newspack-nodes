@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **A plugin's `pre-push.local` can defer named gates.** It sets `DEFERRED_GATES` to any of the shared hook's `deferrable` gates — `js-coverage-gate`, `wp-pin`, `lint:php`, `lint:js`, `lint:types`, `lint:scss` and `coverage-gate` — and each deferred gate still runs wherever it would have run. While it fails, the push goes on, showing the last 40 lines of the gate's output and then `<gate> deferred by pre-push.local: still failing`. Once it passes, the push fails with `<gate> passes; remove it from DEFERRED_GATES in pre-push.local`, so the gate comes online on the next push. A name outside that list fails the push. The hook empties the array before it sources the `.local` and makes it read-only once validated, so neither the environment nor a gate slot can change it. A deferred gate that cannot run (exit 126, 127 or a signal), or whose log cannot be created, fails the push. No plugin sets the list yet, so every gate runs as before; newspack-community's `pre-push.local` will set it for the gates its code does not yet pass.
 
+### Fixed
+- **The Router no longer warns about a hitchhiker that unregistered during its own tick.** The tick walks a snapshot of the names riding it, and `_fleet` rides that tick. When a Vault entry left a group, `_fleet`'s RELOAD retracted the group's member, which unregistered, and the walk then reached the gone name and printed `<name> forgot to unregister`. The walk now skips a name that is no longer registered, unfired, so a timer stopped during the tick no longer fires on it either. A name still registered with no node behind it is warned about and dropped, as before.
+
 ## [2.132.2] - 2026-10-27
 
 ### Changed

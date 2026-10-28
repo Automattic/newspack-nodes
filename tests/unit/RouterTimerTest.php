@@ -43,6 +43,47 @@ class RouterTimerTest extends TestCase {
 		$this->assertArrayNotHasKey( 'ghost', $regs['TIMER'] );
 	}
 
+	/**
+	 * A name that leaves the TIMER channel during the walk is skipped without a
+	 * warning, whether its node was removed or only stopped; a name still
+	 * registered with no node behind it is warned about and dropped.
+	 */
+	public function test_a_name_that_leaves_the_channel_mid_walk_is_skipped_quietly(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$stopper = new class() extends Timer_Node {
+			/** @var list<\Closure():void> What this timer does to its peers when it fires. */
+			public array $acts = [];
+
+			protected function fire(): void {
+				foreach ( $this->acts as $act ) {
+					$act();
+				}
+			}
+		};
+		$stopper->name( 'kea-5108-stopper' );
+		$stopper->sink( new Capture_Sink_Node() );
+		$stopper->set_timer( 5000 );
+		$removed = new Timer_Node();
+		$removed->name( 'kea-5108-removed' );
+		$removed->set_timer( 5000 );
+		$stopped = new Timer_Node();
+		$stopped->name( 'kea-5108-stopped' );
+		$beats = new Capture_Sink_Node();
+		$stopped->sink( $beats );
+		$stopped->set_timer( 5000 );
+		$stopper->acts = [ static fn () => $removed->remove_node(), static fn () => $stopped->stop_timer() ];
+		$router->register( 'TIMER', 'kea-5108-ghost' );
+		$errors = $this->capture_stderr();
+
+		$router->fire_cb();
+
+		$regs = ( new \ReflectionObject( $router ) )->getProperty( 'registrations' )->getValue( $router );
+		$this->assertSame( [ '_router: WARNING: kea-5108-ghost forgot to unregister' ], self::stderr_lines( $errors ) );
+		$this->assertSame( [], $beats->captured, 'a timer stopped mid-walk does not fire on that tick' );
+		$this->assertSame( [ 'kea-5108-stopper' ], \array_keys( $regs['TIMER'] ) );
+	}
+
 	public function test_hitchhike_oneshot_unregisters_after_its_single_fire(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
