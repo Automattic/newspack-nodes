@@ -13,6 +13,11 @@
 # A gate that runs scripts/<file> when the plugin carries it is one
 # script_gate line; anything else is plain shell in its slot.
 #
+# The .local may also set DEFERRED_GATES, an array naming shared gates this
+# plugin does not pass yet, each from the deferrable array below. A deferred
+# gate prints one line where it would have run, and a name outside the array
+# fails the push. Neither the environment nor a gate slot can change the list.
+#
 # JS tests (npm run test:js:coverage) run on EVERY push — they're fast, and they
 # can break from a sibling-repo shared-runtime change this push never touched
 # (the @newspack-nodes/* alias resolves to the nodes source), which a
@@ -80,8 +85,22 @@ date_math_parity() {
 	ok "date_math parity clean"
 }
 
+# The shared gates a .local may defer, each named at one deferred() call.
+readonly -a deferrable=( js-coverage-gate wp-pin lint:php lint:js lint:types lint:scss coverage-gate )
+
+# True when $1 is one of the remaining arguments.
+listed() {
+	local name="$1" item
+	shift
+	for item in "$@"; do
+		[[ "$item" == "$name" ]] && return 0
+	done
+	return 1
+}
+
 local_conf="$(dirname "${BASH_SOURCE[0]}")/pre-push.local"
 [[ -f "$local_conf" ]] || fail "no ${local_conf} — it declares this plugin's constants and gates"
+DEFERRED_GATES=()
 # shellcheck source-path=SCRIPTDIR source=pre-push.local
 . "$local_conf"
 for constant in PLUGIN_SLUG CONTAINER DEPLOY_CONTAINER DEPLOY_SCRIPT \
@@ -91,6 +110,18 @@ done
 for slot in push_gates container_gates; do
 	declare -F "$slot" >/dev/null || fail "${local_conf} defines no ${slot}()"
 done
+# The +-expansion keeps an empty array legal under set -u on bash 3.2.
+for gate in ${DEFERRED_GATES[@]+"${DEFERRED_GATES[@]}"}; do
+	listed "$gate" "${deferrable[@]}" || fail "pre-push.local defers unknown gate ${gate}"
+done
+readonly DEFERRED_GATES
+
+# True, after printing its line, when the .local defers gate $1.
+deferred() {
+	listed "$1" "${deferrable[@]}" || fail "deferred ${1}: no such gate in deferrable"
+	listed "$1" ${DEFERRED_GATES[@]+"${DEFERRED_GATES[@]}"} || return 1
+	step "$(dim "$1 deferred by pre-push.local")"
+}
 
 # One stdin line per pushed ref; a base this clone lacks diffs from empty.
 empty_tree="$(git hash-object -t tree /dev/null)"
@@ -154,7 +185,7 @@ ok "test:js clean"
 # coverage-gate-js.mjs skips cleanly for a plugin with no JS.
 jsgate="${TOPLEVEL}/scripts/coverage-gate-js.mjs"
 jssummary="${TOPLEVEL}/coverage/coverage-summary.json"
-if [[ -f "$jsgate" ]] && command -v node >/dev/null 2>&1; then
+if [[ -f "$jsgate" ]] && command -v node >/dev/null 2>&1 && ! deferred js-coverage-gate; then
 	step "JS coverage gate (every src file ≥ 90%)"
 	node "$jsgate" "$jssummary" --threshold 90 >&2 \
 		|| fail "JS coverage gate failed — a src file is below 90% (see above)"
@@ -169,7 +200,7 @@ script_gate lint-docs.sh \
 
 # A @wordpress/* range or a drifted lock builds against the wrong WordPress.
 wppin="${TOPLEVEL}/scripts/lint-wp-pin.mjs"
-if [[ -f "$wppin" ]] && grep -q '"@wordpress/' "${TOPLEVEL}/package.json"; then
+if [[ -f "$wppin" ]] && grep -q '"@wordpress/' "${TOPLEVEL}/package.json" && ! deferred wp-pin; then
 	step "lint-wp-pin (@wordpress/* declared exactly and locked to it)"
 	node "$wppin" || fail "lint-wp-pin failed — a @wordpress/* dependency carries a range or the lock drifted (see above)"
 	ok "wp pin clean"
@@ -188,27 +219,27 @@ if [[ -z "$php_changed" && -z "$js_changed" && -z "$scss_changed" ]]; then
 fi
 
 # --- Lint pass — only run the linters for file types that actually changed. -
-if [[ -n "$php_changed" ]]; then
+if [[ -n "$php_changed" ]] && ! deferred lint:php; then
 	step "lint:php ($(echo "$php_changed" | wc -l | tr -d ' ') file(s) changed)"
 	npm run lint:php --silent || fail "lint:php failed — fix or push --no-verify"
 	ok "lint:php clean"
 	# phpstan runs in pre-commit, where the feedback loop is tightest.
 fi
-if [[ -n "$js_changed" ]]; then
+if [[ -n "$js_changed" ]] && ! deferred lint:js; then
 	step "lint:js ($(echo "$js_changed" | wc -l | tr -d ' ') file(s) changed)"
 	npm run lint:js --silent || fail "lint:js failed — fix or push --no-verify"
 	ok "lint:js clean"
 fi
 if [[ -n "$ts_changed" ]]; then
-	if grep -q '"lint:types"' "${TOPLEVEL}/package.json"; then
+	if ! grep -q '"lint:types"' "${TOPLEVEL}/package.json"; then
+		step "$(dim 'lint:types skipped — this plugin declares no lint:types script')"
+	elif ! deferred lint:types; then
 		step "lint:types ($(echo "$ts_changed" | wc -l | tr -d ' ') file(s) changed)"
 		npm run lint:types --silent || fail "lint:types failed — fix or push --no-verify"
 		ok "lint:types clean"
-	else
-		step "$(dim 'lint:types skipped — this plugin declares no lint:types script')"
 	fi
 fi
-if [[ -n "$scss_changed" ]]; then
+if [[ -n "$scss_changed" ]] && ! deferred lint:scss; then
 	step "lint:scss ($(echo "$scss_changed" | wc -l | tr -d ' ') file(s) changed)"
 	npm run lint:scss --silent || fail "lint:scss failed — fix or push --no-verify"
 	ok "lint:scss clean"
@@ -251,13 +282,13 @@ if [[ -n "$php_changed" ]]; then
 		# Per-class 90% gate; skips off-dndocker or without python3.
 		gate="${TOPLEVEL}/scripts/coverage-gate.py"
 		clover="${DNDOCKER}/volumes/pyrobase/tmp/${COVERAGE_DIR}/clover.xml"
-		if [[ -f "$gate" && -f "$clover" ]] && command -v python3 >/dev/null 2>&1; then
+		if [[ ! -f "$gate" || ! -f "$clover" ]] || ! command -v python3 >/dev/null 2>&1; then
+			step "$(dim 'coverage gate skipped (no clover / python3)')"
+		elif ! deferred coverage-gate; then
 			step "coverage gate (every class ≥ 90%)"
 			python3 "$gate" "$clover" --threshold 90 >&2 \
 				|| fail "coverage gate failed — a class is below 90% (see above)"
 			ok "coverage gate passed"
-		else
-			step "$(dim 'coverage gate skipped (no clover / python3)')"
 		fi
 	fi
 fi
