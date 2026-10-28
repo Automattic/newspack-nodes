@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The Newspack skins take their accent from the WordPress admin color scheme.** Buttons, chips, toggles, the active tab's underline and accent text in the Newspack and Newspack Brand skins drew Cobalt, while links and WordPress's own components drew the admin scheme's color, so one page showed two blues. Both skins now set `--cyan` and `--cyan-dark` to `--wp-admin-theme-color` and its darker-10 shade, and accent text takes the common rule, the accent mixed 20% toward ink, which reads at AA on every paper in all nine schemes WordPress 7.1 registers; Fresh, which sets no color of its own, takes Modern's, as WordPress's own buttons do. Newspack's `::` in the header stays Cobalt, as part of the mark.
+
 ## [2.133.0] - 2026-10-28
 
 ### Added

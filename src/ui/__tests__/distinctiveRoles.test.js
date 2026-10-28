@@ -920,12 +920,18 @@ describe( 'distinctive canonical roles', () => {
 		);
 	} );
 
+	// Newspack's separator is brand Cobalt, whatever admin scheme is in force.
 	it.each( [
-		[ 'newspack', '--cyan', SENTINELS.cyan ],
-		[ 'newspack-brand', '--sage', SENTINELS.sage ],
+		[ 'newspack', 'var(--np-primary)', null, null ],
+		[
+			'newspack-brand',
+			'var(--sage,var(--np-success))',
+			'--sage',
+			SENTINELS.sage,
+		],
 	] )(
 		'emits reachable %s header art from the canonical UI asset',
-		( skin, separatorToken, separatorSentinel ) => {
+		( skin, separatorColor, separatorToken, separatorSentinel ) => {
 			const { container } = render(
 				provider( <Header showControls={ false } />, skin )
 			);
@@ -950,16 +956,16 @@ describe( 'distinctive canonical roles', () => {
 				'url("data:image/png;base64,'
 			);
 			expect( matchingDeclarations( separator ).color ).toBe(
-				'--cyan' === separatorToken
-					? 'var(--cyan,var(--np-primary))'
-					: 'var(--sage,var(--np-success))'
+				separatorColor
 			);
-			expectUsesSentinel(
-				separator,
-				'color',
-				separatorToken,
-				separatorSentinel
-			);
+			if ( separatorToken ) {
+				expectUsesSentinel(
+					separator,
+					'color',
+					separatorToken,
+					separatorSentinel
+				);
+			}
 		}
 	);
 
