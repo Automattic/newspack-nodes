@@ -301,17 +301,21 @@ class Router_Node extends Timer_Node {
 	/**
 	 * Call each TIMER registrant's `fire_cb()` directly — no message, no `fill()`.
 	 *
-	 * The channel holds NAMES, so each is resolved fresh on every tick: a name
-	 * whose node is gone costs one warning and loses its registration, and a
-	 * registrant that is not a `Timer_Node` is skipped rather than fataled,
-	 * because one misregistration must not take the tick — and every other
-	 * hitchhiker riding it — down.
+	 * The channel holds NAMES, so each is resolved fresh on every tick: a
+	 * registered name whose node is gone costs one warning and loses its
+	 * registration, and a registrant that is not a `Timer_Node` is skipped
+	 * rather than fataled, because one misregistration must not take the
+	 * tick — and every other hitchhiker riding it — down.
 	 *
 	 * Iterating `array_keys()` walks a snapshot, so a registrant unregistering
-	 * itself or a peer from inside its own `fire_cb()` cannot disturb the walk.
+	 * itself or a peer from inside its own `fire_cb()` cannot disturb the walk,
+	 * and a name that left the channel during the walk is skipped unfired.
 	 */
 	public function notify_timer(): void {
 		foreach ( array_keys( $this->registrations['TIMER'] ) as $name ) {
+			if ( ! \array_key_exists( $name, $this->registrations['TIMER'] ) ) {
+				continue;
+			}
 			$node = Core::node( $name );
 			if ( null === $node ) {
 				$this->stderr( "WARNING: $name forgot to unregister" );
