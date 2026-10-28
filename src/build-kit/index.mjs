@@ -41,7 +41,7 @@ import { pathToFileURL } from 'node:url';
  *
  * @type {string}
  */
-const SUBSTRATE_VERSION = '2.132.2';
+const SUBSTRATE_VERSION = '2.133.0';
 
 /**
  * Read the substrate version this kit stamps into every bundle.
