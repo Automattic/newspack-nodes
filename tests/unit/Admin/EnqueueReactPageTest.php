@@ -208,14 +208,43 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertNotSame( '', $payload['data']['nonce'] );
 		}
 
+		/**
+		 * wp_localize_script() sends a top-level scalar as a string, so a flag
+		 * localized as `true` reaches the browser as `'1'`; the page refuses
+		 * one before it enqueues anything, built bundle or not.
+		 *
+		 * @return array<string,array{0:mixed}>
+		 */
+		public static function non_string_scalars(): array {
+			return [
+				'bool'  => [ true ],
+				'int'   => [ 7 ],
+				'float' => [ 0.5 ],
+			];
+		}
+
+		#[\PHPUnit\Framework\Attributes\DataProvider( 'non_string_scalars' )]
+		public function test_a_non_string_scalar_extra_is_refused_before_anything_is_enqueued( mixed $value ): void {
+			$_GET = [ 'page' => 'my-page' ];
+
+			try {
+				Admin::enqueue_react_page( $this->args( [ 'localize' => [ 'canCurate' => $value ] ] ) );
+				$this->fail( 'a non-string scalar extra was localized' );
+			} catch ( \InvalidArgumentException $refused ) {
+				$this->assertStringContainsString( 'canCurate', $refused->getMessage() );
+			}
+			$this->assertEmpty( $GLOBALS['_enqueued_scripts'] ?? [] );
+			$this->assertEmpty( $GLOBALS['_localized_scripts'] );
+		}
+
 		public function test_localize_extras_merge_in(): void {
 			$this->seed_tree();
 			$_GET = [ 'page' => 'my-page' ];
-			Admin::enqueue_react_page( $this->args( [ 'localize' => [ 'tree' => 'topology-console', 'extra' => 7 ] ] ) );
+			Admin::enqueue_react_page( $this->args( [ 'localize' => [ 'tree' => 'topology-console', 'extra' => [ 'limit' => 7 ] ] ] ) );
 
 			$data = $GLOBALS['_localized_scripts']['test-handle']['data'];
 			$this->assertSame( 'topology-console', $data['tree'] );
-			$this->assertSame( 7, $data['extra'] );
+			$this->assertSame( [ 'limit' => 7 ], $data['extra'], 'an array keeps its types' );
 			// Defaults still present alongside the extras.
 			$this->assertArrayHasKey( 'restUrl', $data );
 			$this->assertArrayHasKey( 'nonce', $data );

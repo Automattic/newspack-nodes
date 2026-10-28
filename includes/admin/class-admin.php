@@ -185,8 +185,9 @@ class Admin {
 	 * `lazy` bundle is not enqueued at all: its load recipe goes into the
 	 * `NewspackNodesLazyTabs` map on the station handle, and the shell fetches it on
 	 * first tab activation. An entry missing `handle`, `dir` or `url`, or carrying
-	 * a non-scalar one, is skipped whole, so one malformed contribution cannot
-	 * break the others; the three that pass are cast to string. The
+	 * a non-scalar one, is skipped whole, as is a plain one whose `localize`
+	 * `enqueue_react_page` refuses, with a line naming it, so one malformed
+	 * contribution cannot break the others; the three that pass are cast to string. The
 	 * build-existence gate and manifest resolution belong to `enqueue_react_page`
 	 * and `lazy_tab_script`.
 	 *
@@ -224,15 +225,19 @@ class Admin {
 				}
 				continue;
 			}
-			self::enqueue_react_page(
-				[
-					'handle'   => (string) $bundle['handle'],
-					'page'     => $pages,
-					'dir'      => (string) $bundle['dir'],
-					'url'      => (string) $bundle['url'],
-					'localize' => $localize,
-				]
-			);
+			try {
+				self::enqueue_react_page(
+					[
+						'handle'   => (string) $bundle['handle'],
+						'page'     => $pages,
+						'dir'      => (string) $bundle['dir'],
+						'url'      => (string) $bundle['url'],
+						'localize' => $localize,
+					]
+				);
+			} catch ( \InvalidArgumentException $refused ) {
+				Core::print_less_often( 'skipped station tab bundle ' . (string) $bundle['handle'] . ': ' . $refused->getMessage() );
+			}
 		}
 
 		if ( [] !== $lazy ) {
@@ -260,6 +265,7 @@ class Admin {
 	 *   directory and its public URL, and optional localize extras, version
 	 *   fallback and stylesheet dependencies.
 	 * @return string|null Enqueued script handle, or null when nothing was enqueued.
+	 * @throws \InvalidArgumentException When a localize extra is a non-string scalar.
 	 */
 	public static function enqueue_react_page( array $args ): ?string {
 		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
@@ -273,6 +279,7 @@ class Admin {
 			return null;
 		}
 
+		$data    = self::localize_data( $args['localize'] ?? [] );
 		$dir     = \rtrim( $args['dir'], '/' );
 		$url     = \rtrim( $args['url'], '/' );
 		$js_path = "{$dir}/index.js";
@@ -296,7 +303,7 @@ class Admin {
 			}
 		}
 
-		\wp_localize_script( $handle, 'NewspackNodesData', self::localize_data( $args['localize'] ?? [] ) );
+		\wp_localize_script( $handle, 'NewspackNodesData', $data );
 
 		return $handle;
 	}
@@ -309,10 +316,20 @@ class Admin {
 	 * fall back to a literal outside a WordPress runtime so building the payload
 	 * never fatals in a hermetic test harness.
 	 *
+	 * `wp_localize_script()` sends every top-level scalar as a string, so an
+	 * extra that is a bool, int or float would reach the browser as `'1'`,
+	 * `''` or `'7'`; it is refused. An array keeps its types.
+	 *
 	 * @param array<string,mixed> $localize Per-bundle extras (string keys).
 	 * @return array<string,mixed> The payload localized as `NewspackNodesData`.
+	 * @throws \InvalidArgumentException When an extra is a non-string scalar.
 	 */
 	private static function localize_data( array $localize ): array {
+		foreach ( $localize as $key => $value ) {
+			if ( \is_scalar( $value ) && ! \is_string( $value ) ) {
+				throw new \InvalidArgumentException( \esc_html( "localize extra {$key} is " . \get_debug_type( $value ) . ', not a string or an array: wp_localize_script() would send it as a string' ) );
+			}
+		}
 		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
 		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
 		return \array_merge(

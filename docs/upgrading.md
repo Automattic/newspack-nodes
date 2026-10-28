@@ -6,6 +6,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Admin::enqueue_react_page()` refuses a `localize` extra that is a bool,
+  int or float**, throwing `InvalidArgumentException` naming the key before it
+  enqueues anything. `wp_localize_script()` sends a top-level scalar as a
+  string, so such an extra never reached the browser with its type: `true`
+  arrived as `'1'`, `false` as `''` and `7` as `'7'`. Send a string the page
+  reads as such (`$flag ? '1' : ''`), or nest typed values in an array, which
+  keeps them.
 - **`Command_Auth::HANDLE_PATTERN` is an unanchored fragment.** It reads
   `[0-9a-f]{32}`, beside the new `KEY_PATTERN`, so a caller matching a whole
   handle writes `preg_match( '/^' . Command_Auth::HANDLE_PATTERN . '$/D', $id )`.

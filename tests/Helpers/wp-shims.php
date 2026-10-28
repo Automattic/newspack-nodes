@@ -1040,11 +1040,29 @@ if ( ! function_exists( 'wp_style_is' ) ) {
 		return isset( $GLOBALS['_enqueued_styles'][ $handle ] );
 	}
 }
+if ( ! function_exists( 'wp_shim_localized' ) ) {
+	/**
+	 * The data as `WP_Scripts::localize()` hands it to the browser: every
+	 * top-level scalar a string, its HTML entities decoded; arrays untouched.
+	 * Every `wp_localize_script()` double records through it.
+	 *
+	 * @param array<string,mixed> $l10n The data a caller localized.
+	 * @return array<string,mixed>
+	 */
+	function wp_shim_localized( array $l10n ): array {
+		foreach ( $l10n as $key => $value ) {
+			if ( is_scalar( $value ) ) {
+				$l10n[ $key ] = html_entity_decode( (string) $value, ENT_QUOTES, 'UTF-8' );
+			}
+		}
+		return $l10n;
+	}
+}
 if ( ! function_exists( 'wp_localize_script' ) ) {
 	function wp_localize_script( string $handle, string $object_name, array $data ): bool {
 		$GLOBALS['_localized_scripts'][ $handle ] = [
 			'object_name' => $object_name,
-			'data'        => $data,
+			'data'        => wp_shim_localized( $data ),
 		];
 		return true;
 	}
