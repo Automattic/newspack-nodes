@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.134.0] - 2026-10-27
+
 ### Added
 - **A Row_Table batch can delete rows.** `ROWS` takes a `delete` op, `[ 'delete', <table>, [ <column> => <value>, … ] ]`, which removes every row of that table whose named columns all equal the values given and counts them in the answer. It refuses an op naming no column, a column the table does not declare, a null (which `=` matches to nothing), a `then` or `ids`, or a table whose rows keep others retained (`retained_by`), which only the purge releases; each refusal names its cause and rolls the batch back like any refused op. Run first in a batch, it clears the rows the ops after it replace, so a projector rewriting a set that can shrink, such as an item's claims, leaves no row of the old set behind, and a replay writes the same rows.
 
