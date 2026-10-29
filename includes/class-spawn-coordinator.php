@@ -71,6 +71,18 @@ class Spawn_Coordinator {
 	 */
 	public const HOLD_OPTION = 'newspack_nodes_hold';
 
+	/**
+	 * Seam over the `rmdir()` that ends each level of the contained delete.
+	 * Tests reassign it to append a segment between the marker unlink and the
+	 * `rmdir()`, the race a writer runs against a sweep, and so drive the
+	 * marker restore with the real walk around it.
+	 *
+	 * Signature: `function ( string $dir ): bool`.
+	 *
+	 * @var (\Closure(string): bool)|null
+	 */
+	public static ?\Closure $rmdir = null;
+
 	/** Runtime state root holding locks/ and ipc/, trailing slash trimmed. */
 	protected string $base_dir;
 	/** @var array<string,float> Key: "{type}|{partition}", value: timestamp. */
@@ -530,7 +542,9 @@ class Spawn_Coordinator {
 	 * Containment is checked once by the public entry point, so this helper is
 	 * private — reached with an already-vetted root and never from outside.
 	 * Each read marker goes after every other entry, and stays while any of
-	 * them stays, so a record left behind is never left ungated (ADR-39).
+	 * them stays; a marker unlinked is read first, and put back as it was when
+	 * the dir still will not go, a writer having filled it in between, so a
+	 * record left behind is never left ungated (ADR-39).
 	 *
 	 * @param string $path      Directory to walk.
 	 * @param int    $max_depth Depth ceiling; a deeper node is left standing.
@@ -560,12 +574,26 @@ class Spawn_Coordinator {
 				$stayed = $stayed || \file_exists( $child );
 			}
 		}
-		foreach ( $stayed ? [] : $markers as $marker ) {
+		if ( $stayed ) {
+			return false;
+		}
+		$held = [];
+		foreach ( $markers as $marker ) {
+			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- a marker on local disk.
+			$text            = @\file_get_contents( $marker );
+			$held[ $marker ] = \is_string( $text ) ? $text : Log_Discovery::UNREADABLE_GATE . "\n";
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			@\unlink( $marker );
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
-		return @\rmdir( $path );
+		$rmdir = self::$rmdir ?? static fn ( string $dir ): bool => @\rmdir( $dir );
+		if ( $rmdir( $path ) ) {
+			return true;
+		}
+		foreach ( $held as $marker => $text ) {
+			Log_Discovery::write_marker( $marker, $text );
+		}
+		return false;
 	}
 
 	/**

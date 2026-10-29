@@ -2399,11 +2399,13 @@ class Partition_Node extends Timer_Node {
 
 	/**
 	 * Write this log's marker, the capability a raw read of it needs, when it
-	 * declares one the marker does not name yet (ADR-39): before every flush
-	 * puts a segment on disk, and atomically, through a temp file renamed over
-	 * it, so a reader never meets half a marker. A dir wiped since the last
-	 * mark is made again and marked again. An undeclared log leaves any
-	 * marker alone, because only an operator ungates a log.
+	 * declares one the marker does not name yet, or when the marker is gone
+	 * (ADR-39): before every flush puts a segment on disk, one stat a batch,
+	 * through `Log_Discovery::write_marker()`. The memo spares a re-read of
+	 * the marker's bytes, never the check that it is there, so a marker a
+	 * delete or an operator removed, or a dir wiped whole, is marked again
+	 * before the next segment. An undeclared log leaves any marker alone,
+	 * because only an operator ungates a log.
 	 *
 	 * @return bool False when the marker would not land, which refuses the write.
 	 */
@@ -2412,29 +2414,17 @@ class Partition_Node extends Timer_Node {
 			return true;
 		}
 		if ( ! \is_dir( $this->segment_dir() ) ) {
-			$this->marked_capability = '';
 			$this->ensure_segment_dir( $this->segment_dir() );
 		}
-		if ( $this->read_capability === $this->marked_capability ) {
+		$marker = $this->read_marker_path();
+		\clearstatcache( true, $marker );
+		if ( $this->read_capability === $this->marked_capability && \file_exists( $marker ) ) {
 			return true;
 		}
-		$marker = $this->read_marker_path();
-		$text   = "{$this->read_capability}\n";
+		$text = "{$this->read_capability}\n";
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- substrate-owned marker under base_dir.
-		if ( $text !== @\file_get_contents( $marker ) ) {
-			$temp       = $marker . '.' . \getmypid() . '.tmp';
-			$prev_umask = \umask( 0077 );
-			try {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename -- the log's own dir under base_dir; one atomic rename.
-				$landed = \strlen( $text ) === @\file_put_contents( $temp, $text ) && @\rename( $temp, $marker );
-			} finally {
-				\umask( $prev_umask );
-			}
-			if ( ! $landed ) {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-				@\unlink( $temp );
-				return false;
-			}
+		if ( $text !== @\file_get_contents( $marker ) && ! Log_Discovery::write_marker( $marker, $text ) ) {
+			return false;
 		}
 		$this->marked_capability = $this->read_capability;
 		return true;
