@@ -634,6 +634,32 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * Write a read marker atomically: the bytes to a temp file beside it,
+	 * private to its owner, renamed over it, so a reader never meets half a
+	 * marker. The one writer, for a log marking its dir and for a delete
+	 * putting back the markers of a dir that would not go (ADR-39).
+	 *
+	 * @param string $marker The marker's path.
+	 * @param string $text   What it holds: a capability and a newline, or the bytes read back.
+	 * @return bool False when it would not land; the temp file is removed.
+	 */
+	public static function write_marker( string $marker, string $text ): bool {
+		$temp       = $marker . '.' . \getmypid() . '.tmp';
+		$prev_umask = \umask( 0077 );
+		try {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename -- a log's own dir under base_dir; one atomic rename.
+			$landed = \strlen( $text ) === @\file_put_contents( $temp, $text ) && @\rename( $temp, $marker );
+		} finally {
+			\umask( $prev_umask );
+		}
+		if ( ! $landed ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+			@\unlink( $temp );
+		}
+		return $landed;
+	}
+
+	/**
 	 * Whether a dir entry is a read marker: a dir's own `READ_MARKER`, or a
 	 * Log's `.<file>` plus `READ_MARKER` beside its segments.
 	 *

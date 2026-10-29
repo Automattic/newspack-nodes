@@ -172,6 +172,17 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/deadletter/ledger-old.p0/.read-capability" ) );
 	}
 
+	/** A reader's cursor whose marker was deleted is marked again at its next frame. */
+	public function test_a_readers_cursor_marker_deleted_is_rewritten_at_its_next_frame(): void {
+		$c = $this->read_a_gated_source();
+		\unlink( "{$this->tmp}/offsets/ledger-reader.p0/.read-capability" );
+
+		$c->next_offset( 0 );
+		$c->checkpoint();
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/offsets/ledger-reader.p0/.read-capability" ) );
+	}
+
 	public function test_a_reader_of_an_ungated_dir_marks_nothing(): void {
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/ledger-public.p0" ] );

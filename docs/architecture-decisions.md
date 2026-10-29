@@ -2898,11 +2898,13 @@ without including its declaration all leave records on disk that no active line 
 (ADR-26).
 
 A gated log writes its capability and a newline to a marker,
-`Log_Discovery::READ_MARKER` (`.read-capability`), in its own dir, atomically, through a
-temp file renamed over it. The declaration marks a dir already on disk at once, so it gates
-the records already there; a dir not yet made is marked before the first flush puts a
-segment in it (lazily, ADR-5), a dir wiped since is made and marked again before its next
-segment, and a changed declaration rewrites the marker. A Log, whose segments share a dir
+`Log_Discovery::READ_MARKER` (`.read-capability`), in its own dir, atomically, through
+`Log_Discovery::write_marker()`, the one writer, which renames a temp file over it. The
+declaration marks a dir already on disk at once, so it gates the records already there; a
+dir not yet made is marked before the first flush puts a segment in it (lazily, ADR-5);
+and before every flush a gated writer stats its marker, once a batch, and writes it again
+when it is gone, so a marker deleted under it or a dir wiped whole is marked before the
+next segment. A changed declaration rewrites the marker. A Log, whose segments share a dir
 with other logs, writes `.<file>.read-capability` beside them (`Log_Discovery::log_marker()`),
 and because that dir always exists, its declaration marks at once. Every sidecar takes its
 patron's gate through `Sidecar::gate_sidecar()`, which each host declares in
@@ -2914,7 +2916,10 @@ after the reader was built still gates them. The leading `.` keeps the marker ou
 `SEGMENT_PATTERN`, a Log's segment pattern, every `glob( '*' )` and every listing.
 `Spawn_Coordinator::delete_directory_recursive()`, which `wp nodes gc`, the reconciles and
 uninstall delete through, removes every marker after every other entry of its dir
-(`Log_Discovery::is_read_marker()`), and leaves it in place while any of them stays.
+(`Log_Discovery::is_read_marker()`), and leaves it in place while any of them stays. It
+reads each marker before unlinking it, and when the dir still will not go, because a
+writer appended a segment in between, writes each back as it was read, through
+`write_marker()`, so a dir that survives keeps its gate.
 
 `Log_Discovery::gate_of_dir()` and `gate_of_file()` are the lookup: a dir's marker, and
 for a file its dir's marker, then the marker of the Log it is, then, with a trailing `.N`
@@ -2945,8 +2950,9 @@ marked yet marks its own dirs only once the source is.
   and the SSE stream reads the same logs past every verb.
 - An option listing gated dirs — rejected: a second list drifts from the data it names.
 
-**Consequences:** One stat per raw read, per glob match and per listed dir, one per
-gated flush, and one per reader checkpoint; a marker present costs one small read more. A broker reads a spoke's raw logs as the user its Vault
+**Consequences:** One stat per raw read, per glob match and per listed dir, two per
+gated flush batch (the dir and the marker), and one per reader checkpoint; a marker present
+costs one small read more. A broker reads a spoke's raw logs as the user its Vault
 entry authenticates, so the spoke's gate applies to the hub; the spoke sends no gate, so a
 broker's own cursor and dead letters carry no marker, and a hub whose user holds a spoke's
 capability keeps ungated copies. No stock topology pulls a gated log, and a hub's

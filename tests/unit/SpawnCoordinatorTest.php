@@ -137,6 +137,48 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->assertFileExists( "{$dir}/.ledger-notes.jsonl.read-capability" );
 	}
 
+	/** A segment appended after the scan keeps the dir, and the dir keeps its gate. */
+	public function test_a_dir_a_writer_refills_before_its_rmdir_gets_its_marker_back(): void {
+		$dir = "{$this->tmp}/logs/ledger-items.p7";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/.read-capability", "quay_manifest_reader\n" );
+		\file_put_contents( "{$dir}/0.log", 'restricted 6118' );
+		Spawn_Coordinator::$rmdir = static function ( string $path ) use ( $dir ): bool {
+			if ( $dir === $path ) {
+				\file_put_contents( "{$dir}/1.log", 'restricted 6119, appended mid-delete' );
+			}
+			return @\rmdir( $path );
+		};
+
+		try {
+			Spawn_Coordinator::delete_directory_recursive( $dir, $this->tmp );
+		} finally {
+			Spawn_Coordinator::$rmdir = null;
+		}
+
+		$this->assertFileExists( "{$dir}/1.log" );
+		$this->assertSame( "quay_manifest_reader\n", \file_get_contents( "{$dir}/.read-capability" ) );
+	}
+
+	/** A marker restored is restored as it was read, so a damaged one still refuses. */
+	public function test_a_restored_marker_keeps_the_bytes_it_held(): void {
+		$dir = "{$this->tmp}/logs/ledger-items.p8";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/.read-capability", "Quay-Manifest reader 6120\n" );
+		Spawn_Coordinator::$rmdir = static function ( string $path ) use ( $dir ): bool {
+			\file_put_contents( "{$dir}/0.log", 'restricted 6120' );
+			return @\rmdir( $path );
+		};
+
+		try {
+			Spawn_Coordinator::delete_directory_recursive( $dir, $this->tmp );
+		} finally {
+			Spawn_Coordinator::$rmdir = null;
+		}
+
+		$this->assertSame( "Quay-Manifest reader 6120\n", \file_get_contents( "{$dir}/.read-capability" ) );
+	}
+
 	public function test_delete_directory_recursive_removes_the_read_marker_with_the_rest(): void {
 		$dir = "{$this->tmp}/logs/ledger-items.p1";
 		\mkdir( $dir, 0755, true );

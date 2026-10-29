@@ -1616,6 +1616,19 @@ class PartitionTest extends TestCase {
 		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/ledger-items.p3/.read-capability" ) );
 	}
 
+	/** A marker deleted out from under a gated writer is written again before its next segment. */
+	public function test_a_marker_deleted_under_a_gated_writer_is_rewritten_before_its_next_segment(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p9" ] );
+		$p->set_read_capability( 'quay_manifest_reader' );
+		$this->produce_into( $p, 'first 6121' );
+		\unlink( "{$this->tmp}/ledger-items.p9/.read-capability" );
+
+		$this->produce_into( $p, 'second 6122' );
+
+		$this->assertSame( "quay_manifest_reader\n", \file_get_contents( "{$this->tmp}/ledger-items.p9/.read-capability" ) );
+	}
+
 	/** A declaration gates data already on disk at once, before any write. */
 	public function test_a_declaration_marks_an_existing_dir_at_once(): void {
 		$old = new Partition_Node();
