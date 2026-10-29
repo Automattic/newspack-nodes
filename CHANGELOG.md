@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.135.0] - 2026-10-28
+
 ### Added
 - **`TabBar`, the shared tab bar.** `@newspack-nodes/shared/tabs/TabBar` renders the WAI-ARIA tablist `TabHost` drew inline: each tab names the panel it controls, and the arrow keys, Home and End move and select. `tabDomId( scope, id )` and `panelDomId( scope )` give the ids a page's own panel carries, so a dashboard switching views from its own state gets the whole pattern by rendering the bar beside one panel. `TabHost` renders it, with the same ids and classes as before.
 
