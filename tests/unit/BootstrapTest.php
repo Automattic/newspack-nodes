@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Spawn_Coordinator;
@@ -1989,10 +1990,8 @@ class BootstrapTest extends TestCase {
 		$this->assertStringContainsString( NEWSPACK_NODES_VERSION, $html );
 	}
 	/**
-	 * The key is declared by the schema but has no value unless an operator
-	 * sets one — and `(bool) null` is false, which would silently turn spawn-POST
-	 * TLS verification OFF on every install that never touched the setting.
-	 * Unset must mean verify.
+	 * The schema declares the key true, so an install that never touched it
+	 * verifies the spawn-POST peer.
 	 */
 	public function test_spawn_tls_verification_defaults_on_when_unset(): void {
 		$runtime_ref     = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
@@ -2010,6 +2009,83 @@ class BootstrapTest extends TestCase {
 
 			$this->assertTrue( Core::$verify_spawn_tls );
 		} finally {
+			$runtime_ref->setValue( null, $saved_runtime );
+			$diagnostics_ref->setValue( null, $saved_diagnostics );
+			Core::$verify_spawn_tls = $saved_verify;
+		}
+	}
+
+	public function test_spawn_tls_verification_follows_an_explicit_false(): void {
+		$this->with_wired_diagnostics(
+			static fn ( array $base ): array => [ ...$base, 'spawn_verify_ssl' => false ],
+			function (): void {
+				Bootstrap::ensure_runtime_wired();
+				$this->assertFalse( Core::$verify_spawn_tls );
+			}
+		);
+	}
+
+	public function test_spawn_tls_verification_refuses_a_null_instead_of_turning_off(): void {
+		$this->with_wired_diagnostics(
+			static fn ( array $base ): array => [ ...$base, 'spawn_verify_ssl' => null ],
+			function (): void {
+				$this->expectException( \RuntimeException::class );
+				$this->expectExceptionMessage( 'spawn_verify_ssl' );
+				Bootstrap::ensure_runtime_wired();
+			}
+		);
+	}
+
+	public function test_spawn_tls_verification_reads_a_stored_one_as_on(): void {
+		$this->with_stored_spawn_verify( '1', function (): void {
+			Core::$verify_spawn_tls = false;
+			Bootstrap::ensure_runtime_wired();
+			$this->assertTrue( Core::$verify_spawn_tls );
+		} );
+	}
+
+	public function test_spawn_tls_verification_reads_a_stored_blank_as_off(): void {
+		$this->with_stored_spawn_verify( '', function (): void {
+			Bootstrap::ensure_runtime_wired();
+			$this->assertFalse( Core::$verify_spawn_tls );
+		} );
+	}
+
+	public function test_spawn_tls_verification_refuses_a_stored_word_that_is_no_boolean(): void {
+		$this->with_stored_spawn_verify( 'maybe-7731', function (): void {
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessage( 'spawn_verify_ssl' );
+			Bootstrap::ensure_runtime_wired();
+		} );
+	}
+
+	private function with_stored_spawn_verify( mixed $stored, \Closure $body ): void {
+		\update_option( 'newspack_nodes_spawn_verify_ssl', $stored );
+		try {
+			$this->with_wired_diagnostics( static fn ( array $base ): array => $base, $body );
+		} finally {
+			\delete_option( 'newspack_nodes_spawn_verify_ssl' );
+		}
+	}
+
+	private function with_wired_diagnostics( \Closure $shipped, \Closure $body ): void {
+		$runtime_ref       = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$diagnostics_ref   = new \ReflectionProperty( Bootstrap::class, 'diagnostics_wired' );
+		$saved_runtime     = $runtime_ref->getValue();
+		$saved_diagnostics = $diagnostics_ref->getValue();
+		$saved_verify      = Core::$verify_spawn_tls;
+		$saved_reader      = Config::$read_shipped_config;
+
+		try {
+			Core::$verify_spawn_tls      = true;
+			Config::$read_shipped_config = $shipped;
+			Config::reset();
+			$runtime_ref->setValue( null, false );
+			$diagnostics_ref->setValue( null, false );
+			$body();
+		} finally {
+			Config::$read_shipped_config = $saved_reader;
+			Config::reset();
 			$runtime_ref->setValue( null, $saved_runtime );
 			$diagnostics_ref->setValue( null, $saved_diagnostics );
 			Core::$verify_spawn_tls = $saved_verify;

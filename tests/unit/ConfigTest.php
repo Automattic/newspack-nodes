@@ -155,6 +155,61 @@ class ConfigTest extends TestCase {
 		$this->assertSame( 9, Config::value( 'num_partitions' ) );
 	}
 
+	/**
+	 * @return list<array{mixed, bool|null}> Stored value, and what it reads as; null means it throws.
+	 */
+	public static function bool_cases(): array {
+		return [
+			[ true, true ],
+			[ false, false ],
+			[ 1, true ],
+			[ 0, false ],
+			[ '1', true ],
+			[ '0', false ],
+			[ '', false ],
+			[ 'on', true ],
+			[ 'off', false ],
+			[ 'false', false ],
+			[ 'no', false ],
+			[ ' ', null ],
+			[ "\n", null ],
+			[ 'maybe-7731', null ],
+			[ 2, null ],
+			[ null, null ],
+			[ [], null ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'bool_cases' )]
+	public function test_bool_reads_the_substrate_bool_words_and_refuses_the_rest( mixed $stored, ?bool $expected ): void {
+		Config::$read_shipped_config = static fn ( array $base ): array => [ ...$base, 'vault_verify_ssl' => $stored ];
+		try {
+			Config::reset();
+			if ( null === $expected ) {
+				$this->expectException( \RuntimeException::class );
+				$this->expectExceptionMessage( "config key 'vault_verify_ssl' must be a bool" );
+			}
+			$this->assertSame( $expected, Config::bool( 'vault_verify_ssl' ) );
+		} finally {
+			Config::$read_shipped_config = null;
+			Config::reset();
+		}
+	}
+
+	/**
+	 * An option saved as int 1 or 0 reads back as that int from the options
+	 * cache, and the TLS posture follows it.
+	 */
+	public function test_bool_reads_a_stored_int_option_as_the_posture_it_names(): void {
+		foreach ( [ 0 => false, 1 => true ] as $stored => $expected ) {
+			\update_option( 'newspack_nodes_spawn_verify_ssl', $stored );
+			Config::reset();
+			$this->assertSame( $expected, Config::bool( 'spawn_verify_ssl' ), "stored {$stored}" );
+		}
+		\delete_option( 'newspack_nodes_spawn_verify_ssl' );
+		Config::reset();
+	}
+
 	public function test_value_resolves_config_file_only_key(): void {
 		// vault_verify_ssl is a config-file default, NOT a Settings_Schema key.
 		// The file IS a declaration, so value() must resolve it — returning the

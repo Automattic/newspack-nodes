@@ -28,6 +28,26 @@ final class VaultTest extends TestCase {
 		$this->assertFalse( Vault::https_required( 'http://plain-71.example/x' ), 'a plaintext url passes while ssl is optional' );
 	}
 
+	public function test_the_tls_postures_read_the_word_off_as_off(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => 'off', 'vault_verify_ssl' => 'off' ] );
+
+		$this->assertFalse( Vault::require_ssl() );
+		$this->assertFalse( Vault::verify_ssl() );
+	}
+
+	public function test_a_null_tls_posture_throws_instead_of_turning_it_off(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => null, 'vault_require_ssl' => null ] );
+
+		foreach ( [ 'vault_verify_ssl' => 'verify_ssl', 'vault_require_ssl' => 'require_ssl' ] as $key => $method ) {
+			try {
+				Vault::$method();
+				$this->fail( "{$key} null did not throw" );
+			} catch ( \RuntimeException $e ) {
+				$this->assertSame( "config key '{$key}' must be a bool", $e->getMessage() );
+			}
+		}
+	}
+
 	public function test_https_required_refuses_only_a_plaintext_url_under_require_ssl(): void {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
 

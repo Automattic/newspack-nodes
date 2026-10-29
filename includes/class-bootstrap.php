@@ -1222,8 +1222,8 @@ class Bootstrap {
 		if ( self::$diagnostics_wired ) {
 			return;
 		}
-		// Declared-but-unset must VERIFY; casting null is fail-open.
-		Core::$verify_spawn_tls = (bool) ( Config::value( 'spawn_verify_ssl' ) ?? true );
+		// A null or non-boolean throws; a cast would turn it into OFF.
+		Core::$verify_spawn_tls = Config::bool( 'spawn_verify_ssl' );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
