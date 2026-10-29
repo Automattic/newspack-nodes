@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.137.0] - 2026-10-29
+
 ### Added
 - **A Delay node parks records to reprocess later.** `make_node Delay <name> <dir> <offsets_dir> <deadletter_dir> [interval_s] [max_age_s]` parks a `TM_STRUCT` carrying a numeric `not_before`, with its KEY, on its own `{name}:queue` Partition, stamping `parked_at` on first park. Every `interval_s` (60 by default) it drains the queue with a `{name}:reader` Consumer built for the pass from the committed cursor and removed after it, as `Job_Delay` reads, so a line it quarantines is reached through the dead-letters alert and `wp nodes ingest`: an entry parked longer than `max_age_s` (a day by default) drops with a rate-limited line naming its KEY, a due one goes to target with its KEY and `parked_at`, `not_before` removed, so a target that parks it again keeps its first park time, and the rest circulate before the cursor commits. A delivery that throws is reported and retried next sweep, never escaping the timer. The queue takes 1 MiB segments, at most eight, pruned by age `max_age_s` as a segment rotates; before every park the Delay counts the segments not yet read, from the committed cursor or a sweep's own, and drops the entry loud, naming its KEY, once one more could let the hard cap prune one of them. Every dir must name `{partition}`. The topology analyzer's write set claims all three dirs, so `wp nodes gc` keeps them. `Delay_Node::circulate()` is the one drain-and-circulate loop: `Job_Delay::sweep()` runs it rather than a copy of its own.
 
