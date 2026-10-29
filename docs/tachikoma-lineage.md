@@ -249,7 +249,7 @@ Perl's `fill` returns values (`return $self->SUPER::fill(...)`, `return $self->c
 
 [`drain()`](../includes/class-consumer-node.php) polls the source until it is genuinely at EOF with no buffered complete line, then emits one terminal TM_EOF. An optional `$until` closure, asked after every poll, ends it early with no TM_EOF, so a read that must answer in time can stop between chunks. Upstream `Nodes/Consumer.pm` has no such method; `../Tachikoma.pm`'s `drain` is the process event loop, a different thing entirely.
 
-**Why:** it is the messaging interface a reader in request scope drives — event-logger-nodes' `wp nodes reqgrep` and its `Performance_CI_Node`, the substrate's own `Job_Delay` sweep — instead of hand-rolling `read_at()` and its own decode. The terminal marker follows `Nodes/FileHandle.pm`'s `handle_EOF`, which calls `send_EOF`, and the same TM_EOF bounce is what drains the attached `wp nodes cli` when stdin closes.
+**Why:** it is the messaging interface a reader in request scope drives — event-logger-nodes' `wp nodes reqgrep` and its `Performance_CI_Node`, the substrate's own `Delay_Node::circulate()` — instead of hand-rolling `read_at()` and its own decode. The terminal marker follows `Nodes/FileHandle.pm`'s `handle_EOF`, which calls `send_EOF`, and the same TM_EOF bounce is what drains the attached `wp nodes cli` when stdin closes.
 
 ### The event loop waits on timers, and on cURL alone
 

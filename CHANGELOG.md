@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A Delay node parks records to reprocess later.** `make_node Delay <name> <dir> <offsets_dir> <deadletter_dir> [interval_s] [max_age_s]` parks a `TM_STRUCT` carrying a numeric `not_before`, with its KEY, on its own `{name}:queue` Partition, stamping `parked_at` on first park. Every `interval_s` (60 by default) it drains the queue with a `{name}:reader` Consumer built for the pass from the committed cursor and removed after it, as `Job_Delay` reads, so a line it quarantines is reached through the dead-letters alert and `wp nodes ingest`: an entry parked longer than `max_age_s` (a day by default) drops with a rate-limited line naming its KEY, a due one goes to target with its KEY and `parked_at`, `not_before` removed, so a target that parks it again keeps its first park time, and the rest circulate before the cursor commits. A delivery that throws is reported and retried next sweep, never escaping the timer. The queue takes 1 MiB segments, at most eight, pruned by age `max_age_s` as a segment rotates; before every park the Delay counts the segments not yet read, from the committed cursor or a sweep's own, and drops the entry loud, naming its KEY, once one more could let the hard cap prune one of them. Every dir must name `{partition}`. The topology analyzer's write set claims all three dirs, so `wp nodes gc` keeps them. `Delay_Node::circulate()` is the one drain-and-circulate loop: `Job_Delay::sweep()` runs it rather than a copy of its own.
+
+### Fixed
+- **A delayed job's re-append lands on disk before the sweep's cursor commits.** `Job_Delay::sweep()` re-appended its held entries into a batch its intake flushed only after the checkpoint, so a flush that failed there left the cursor past entries no segment held, and those jobs were lost. The intake now closes before the checkpoint, and a failed flush replays the sweep.
+- **A delayed job whose delivery keeps failing is no longer lost.** A sweep whose delivery threw raised before committing its cursor, so five failing sweeps in a row climbed the reader into crawl, which quarantined the head of the delay log as a crash and committed past the jobs it held. The job is now re-parked `Job_Delay::RETRY_AFTER_S` (60 seconds) on, the sweep commits, and the failure is still raised for the reconcile pass to report. A job due mid-sweep whose live partition is locked parks again the same way, and a re-append that meets a lock held on `jobdelay.p0` stops there, committing the cursor just short of it, so the job is read again next sweep rather than lost.
+
 ## [2.136.0] - 2026-10-29
 
 ### Fixed

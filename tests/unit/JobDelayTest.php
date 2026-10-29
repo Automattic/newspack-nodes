@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Job_Delay;
 use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Message;
@@ -123,6 +124,26 @@ class JobDelayTest extends TestCase {
 		);
 	}
 
+	/** A held entry's re-append lands on disk before the cursor commits past it. */
+	public function test_a_re_append_whose_write_fails_leaves_the_cursor_behind_the_entry(): void {
+		$now = \microtime( true );
+		$this->seed_delayed( 'flushfail_h', $now + 3600.0 );
+		$saved                  = Partition_Node::$fwrite;
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): int|false => \str_contains( \stream_get_meta_data( $fh )['uri'], '/logs/jobdelay.p0' ) ? false : \fwrite( $fh, $bytes );
+
+		$caught = null;
+		try {
+			Job_Delay::sweep( $now );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		} finally {
+			Partition_Node::$fwrite = $saved;
+		}
+
+		$this->assertNotNull( $caught, 'the failed re-append escapes the sweep' );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 7200.0 ), 'the entry replays from the cursor the failed sweep left' );
+	}
+
 	public function test_a_delivery_failing_for_a_reason_other_than_contention_propagates(): void {
 		$now = \microtime( true );
 		$this->seed_delayed( 'refused_h', $now + 30.0, 'refkey-4471' );
@@ -140,7 +161,96 @@ class JobDelayTest extends TestCase {
 		$this->assertNotNull( $caught, 'only lock contention circulates; this failure escapes' );
 		$this->assertNotInstanceOf( \Newspack_Nodes\Write_Lock_Held::class, $caught );
 		\unlink( "{$this->tmp}/logs/jobintake.p{$p}" );
-		$this->assertSame( 1, Job_Delay::sweep( $now + 60.0 ), 'the cursor stayed behind the entry' );
+		$this->assertSame( 0, Job_Delay::sweep( $now + 60.0 ), 'the failed job waits out its retry' );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 60.0 + Job_Delay::RETRY_AFTER_S + 30.0 ), 'the failed job was re-parked, not lost' );
+	}
+
+	/** ADR-12: failing sweeps commit gracefully, so no crawl ever sacrifices a held job. */
+	public function test_five_failing_sweeps_lose_nothing_and_dead_letter_nothing(): void {
+		$now = \microtime( true );
+		[ $warm, $failing ] = $this->keys_on_distinct_partitions();
+		$this->seed_delayed( 'warm_h', $now + 10.0, $warm );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 100.0 ), 'a first sweep commits a cursor' );
+		$this->seed_delayed( 'held_h', $now + 1500.0, $failing );
+		$this->seed_delayed( 'due_h', $now + 30.0, $failing );
+		$blocker = "{$this->tmp}/logs/jobintake.p" . Partition_Node::hash_to_partition( $failing, 2 );
+		\file_put_contents( $blocker, 'not a directory' );
+
+		foreach ( [ 200.0, 400.0, 600.0, 800.0, 1000.0 ] as $offset ) {
+			$this->caught( static fn () => Job_Delay::sweep( $now + $offset ), 'a failing delivery is reported' );
+		}
+		\unlink( $blocker );
+
+		$this->assertSame( 2, Job_Delay::sweep( $now + 2000.0 ) );
+		$handlers = array_column( $this->read_all_jobintake_lines(), 'handler' );
+		sort( $handlers );
+		$this->assertSame( [ 'due_h', 'held_h', 'warm_h' ], $handlers );
+		$this->assertSame( [], \glob( "{$this->tmp}/deadletter/" . Job_Delay::READER . '.p0/*.log' ) ?: [] );
+	}
+
+	/**
+	 * Run $body while a second intake holds a write lock — jobdelay.p0's for
+	 * a delayed write, a live partition's for a due one — on a clock that
+	 * leaps past the 15s lock wait on each read, so contention answers at once.
+	 *
+	 * @param array<string,mixed> $options The holder's write_job options.
+	 */
+	private function while_held( ?string $key, array $options, callable $body ): void {
+		$holder = new Job_Intake( $this->tmp, 2 );
+		$this->assertTrue( $holder->write_job( 'holder_h', null, [], $key, $options ) );
+		$saved       = Core::$clock;
+		$t           = \microtime( true );
+		Core::$clock = static function () use ( &$t ): float {
+			$t += 20.0;
+			return $t;
+		};
+		try {
+			$body();
+		} finally {
+			Core::$clock = $saved;
+			$holder->close();
+		}
+	}
+
+	/** ADR-12: a re-append that meets a held lock commits short of its entry, never past it, and never climbs into crawl. */
+	public function test_five_passes_whose_re_append_meets_a_held_lock_lose_nothing(): void {
+		$now = \microtime( true );
+		$this->seed_delayed( 'warm_h', $now + 10.0 );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 100.0 ), 'a first sweep commits a cursor' );
+		$this->seed_delayed( 'locked_h', $now + 1.0e7, 'lockkey-8841' );
+
+		$this->while_held(
+			null,
+			[ 'not_before' => $now + 1.0e9 ],
+			static function () use ( $now ): void {
+				foreach ( [ 200.0, 400.0, 600.0, 800.0, 1000.0 ] as $offset ) {
+					Job_Delay::sweep( $now + $offset );
+				}
+			}
+		);
+
+		$this->assertSame( 1, Job_Delay::sweep( $now + 2.0e7 ) );
+		$handlers = array_column( $this->read_all_jobintake_lines(), 'handler' );
+		sort( $handlers );
+		$this->assertSame( [ 'locked_h', 'warm_h' ], $handlers );
+		$this->assertSame( [], \glob( "{$this->tmp}/deadletter/" . Job_Delay::READER . '.p0/*.log' ) ?: [] );
+	}
+
+	/** A job due mid-sweep whose live partition is locked parks RETRY_AFTER_S on instead. */
+	public function test_a_job_due_mid_sweep_behind_a_held_live_lock_parks_again(): void {
+		$real = \microtime( true );
+		$this->seed_delayed( 'midlock_h', $real + 1.0, 'midkey-6602' );
+
+		$this->while_held(
+			'midkey-6602',
+			[],
+			function () use ( $real ): void {
+				$this->assertSame( 0, Job_Delay::sweep( $real - 100.0 ) );
+			}
+		);
+
+		$this->assertSame( 1, Job_Delay::sweep( $real + 1.0e6 ) );
+		$this->assertContains( 'midlock_h', array_column( $this->read_all_jobintake_lines(), 'handler' ) );
 	}
 
 	public function test_a_close_failure_escapes_beside_the_drain_failure(): void {
