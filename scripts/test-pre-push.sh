@@ -380,6 +380,14 @@ write_local
 grep -q 'readonly' <<<"$out" && pass "naming the read-only list" || bad "no read-only failure: $out"
 grep -q 'deferred by' <<<"$out" && bad "and deferred coverage-gate: $out" || pass "rather than deferring coverage-gate"
 
+# (O) a push changing only the lockfile still lints and builds the frontend.
+out="$( STUB_FAILING='npm run build' push package-lock.json )"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q 'npm run build failed' <<<"$out" \
+	&& pass "a lockfile-only push runs the build" \
+	|| bad "a lockfile-only push skipped the build: $out"
+grep -q 'lint:js (1 file(s) changed)' <<<"$out" \
+	&& pass "and lint:js" || bad "a lockfile-only push skipped lint:js: $out"
+
 # The hook-driven cases once more under /bin/bash, when that differs.
 if [[ -z "${HOOK_BASH:-}" && -x /bin/bash ]]; then
 	other="$( /bin/bash -c 'echo "$BASH_VERSION"' )"

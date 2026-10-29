@@ -199,7 +199,7 @@ changed="$(printf '%s' "$changed" | sort -u)"
 
 # Classify the diff by file type. Exclude generated / vendored paths.
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"
-js_changed="$(echo   "$changed" | grep -E '\.(js|jsx|mjs|cjs|ts|tsx)$' | grep -v -E '^(node_modules/|build/|release/)' || true)"
+js_changed="$(echo   "$changed" | grep -E '\.(js|jsx|mjs|cjs|ts|tsx)$|^package(-lock)?\.json$' | grep -v -E '^(node_modules/|build/|release/)' || true)"
 ts_changed="$(echo   "$changed" | grep -E '\.(ts|tsx)$'       | grep -v -E '^(node_modules/|build/|release/)' || true)"
 scss_changed="$(echo "$changed" | grep -E '\.scss$'          | grep -v -E '^(node_modules/|build/|release/)' || true)"
 

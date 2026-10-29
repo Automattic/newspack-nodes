@@ -31,6 +31,7 @@ import {
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { getTabs, subscribeTabs, getTabsVersion } from './tabRegistry';
+import TabBar, { tabDomId, panelDomId } from './TabBar';
 import { getQueryParam, setQueryParam } from '../utils/queryParams';
 import './TabHost.scss';
 
@@ -126,17 +127,6 @@ export default function TabHost( {
 		return emptyState;
 	}
 
-	/**
-	 * DOM id of one tab button, which its panel points back at.
-	 *
-	 * The id carries the host because the station renders the floating overlay
-	 * beside its own tabs, putting both surfaces on one page.
-	 *
-	 * @param {import('./tabRegistry').TabDescriptor} t The tab descriptor.
-	 * @return {string} The button's DOM id.
-	 */
-	const tabDomId = ( t ) => `nodes-tab-host-tab-${ host }-${ t.id }`;
-	const panelDomId = `nodes-tab-host-panel-${ host }`;
 	const hasBar = tabs.length > 1;
 
 	/**
@@ -155,65 +145,23 @@ export default function TabHost( {
 		onActiveTabChange?.( id );
 	};
 
-	/**
-	 * Move and select with the keyboard, per the WAI-ARIA tabs pattern.
-	 *
-	 * Arrows wrap at both ends, Home and End jump to the edges, and selection
-	 * follows focus — which is what the roving `tabIndex` on the buttons is
-	 * for. Every other key falls through untouched, so Tab still leaves the bar.
-	 *
-	 * @param {import('react').KeyboardEvent} event A keydown on a tab button.
-	 */
-	const onTabKeyDown = ( event ) => {
-		const index = tabs.findIndex( ( t ) => t.id === active.id );
-		const last = tabs.length - 1;
-		const next = {
-			ArrowRight: index === last ? 0 : index + 1,
-			ArrowLeft: 0 === index ? last : index - 1,
-			Home: 0,
-			End: last,
-		}[ event.key ];
-		if ( undefined === next ) {
-			return;
-		}
-		event.preventDefault();
-		pick( tabs[ next ].id );
-		document.getElementById( tabDomId( tabs[ next ] ) )?.focus();
-	};
-
 	return (
 		<>
 			{ hasBar && (
-				<div
-					className="nodes-tab-host__tabbar"
-					role="tablist"
-					aria-label={ __( 'Developer tools', 'newspack-nodes' ) }
-				>
-					{ tabs.map( ( t ) => (
-						<button
-							key={ t.id }
-							id={ tabDomId( t ) }
-							type="button"
-							role="tab"
-							aria-selected={ t.id === active.id }
-							aria-controls={ panelDomId }
-							tabIndex={ t.id === active.id ? 0 : -1 }
-							className={ `nodes-tab-host__tab${
-								t.id === active.id ? ' is-active' : ''
-							}` }
-							onClick={ () => pick( t.id ) }
-							onKeyDown={ onTabKeyDown }
-						>
-							{ t.icon }
-							{ t.label }
-						</button>
-					) ) }
-				</div>
+				<TabBar
+					scope={ host }
+					label={ __( 'Developer tools', 'newspack-nodes' ) }
+					tabs={ tabs }
+					activeId={ active.id }
+					onPick={ pick }
+				/>
 			) }
 			<div
-				id={ panelDomId }
+				id={ panelDomId( host ) }
 				role={ hasBar ? 'tabpanel' : undefined }
-				aria-labelledby={ hasBar ? tabDomId( active ) : undefined }
+				aria-labelledby={
+					hasBar ? tabDomId( host, active.id ) : undefined
+				}
 				className={ `nodes-tab-host__tab-content${
 					active.fullBleed ? ' is-full-bleed' : ''
 				}` }

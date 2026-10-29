@@ -44,7 +44,7 @@ if ( ! function_exists( 'do_action' ) ) {
 			$cb( ...$args );
 		}
 	}
-	function add_action( string $hook, callable $cb, int $priority = 10, int $accepted_args = 1 ): void {
+	function add_action( string $hook, mixed $cb, int $priority = 10, int $accepted_args = 1 ): void {
 		$GLOBALS['_wp_actions'][ $hook ][] = $cb;
 		// Registration metadata is only recorded during plugin load (the
 		// snapshot below); per-test registrations skip the bookkeeping.
@@ -62,7 +62,7 @@ if ( ! function_exists( 'do_action' ) ) {
 		}
 		return $value;
 	}
-	function add_filter( string $hook, callable $cb, int $priority = 10, int $accepted_args = 1 ): void {
+	function add_filter( string $hook, mixed $cb, int $priority = 10, int $accepted_args = 1 ): void {
 		add_action( $hook, $cb, $priority, $accepted_args );
 	}
 	function remove_action( string $hook, callable $cb, int $priority = 10 ): bool {

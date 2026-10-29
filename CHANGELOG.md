@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`TabBar`, the shared tab bar.** `@newspack-nodes/shared/tabs/TabBar` renders the WAI-ARIA tablist `TabHost` drew inline: each tab names the panel it controls, and the arrow keys, Home and End move and select. `tabDomId( scope, id )` and `panelDomId( scope )` give the ids a page's own panel carries, so a dashboard switching views from its own state gets the whole pattern by rendering the bar beside one panel. `TabHost` renders it, with the same ids and classes as before.
+
 ### Fixed
+- **A push changing only `package.json` or `package-lock.json` lints and builds the frontend.** The shared `pre-push` counted only script files as a JS change, so a dependency bump skipped `lint:js` and `npm run build`, and an unbuildable bundle could reach `main`.
 - **A Router answers route misses after a bounce that threw.** `send_error()` raised its recursion guard before bouncing a TM_ERROR back down the FROM trail, and cleared it only when the bounce returned. A bounce whose delivery threw, such as a cooperative stop rising from the node it reached, left the guard raised, and that Router then dropped every later miss's bounce as `breaking recursion` until its process ended. The guard is now cleared in a `finally`.
 
 ## [2.134.0] - 2026-10-27
