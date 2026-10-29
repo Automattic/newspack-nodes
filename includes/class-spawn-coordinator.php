@@ -529,36 +529,43 @@ class Spawn_Coordinator {
 	 * The recursion itself: depth bound, plus a symlink refusal at every node.
 	 * Containment is checked once by the public entry point, so this helper is
 	 * private — reached with an already-vetted root and never from outside.
+	 * Each read marker goes after every other entry, and stays while any of
+	 * them stays, so a record left behind is never left ungated (ADR-39).
 	 *
 	 * @param string $path      Directory to walk.
 	 * @param int    $max_depth Depth ceiling; a deeper node is left standing.
 	 * @param int    $depth     Depth of $path, 0 at the vetted root.
+	 * @return bool True when $path is gone.
 	 */
-	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
-		if ( $depth > $max_depth ) {
-			return;
-		}
-		if ( \is_link( $path ) ) {
-			return;
+	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): bool {
+		if ( $depth > $max_depth || \is_link( $path ) ) {
+			return false;
 		}
 		if ( ! \is_dir( $path ) ) {
-			return;
+			return true;
 		}
-		$items = @\scandir( $path ) ?: [];
-		foreach ( $items as $item ) {
+		$markers = [];
+		$stayed  = false;
+		foreach ( @\scandir( $path ) ?: [] as $item ) {
 			if ( '.' === $item || '..' === $item ) {
 				continue;
 			}
 			$child = $path . '/' . $item;
-			if ( \is_dir( $child ) && ! \is_link( $child ) ) {
-				self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 );
-			} else {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-				@\unlink( $child );
+			if ( Log_Discovery::is_read_marker( $item ) ) {
+				$markers[] = $child;
+			} elseif ( \is_dir( $child ) && ! \is_link( $child ) ) {
+				$stayed = ! self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 ) || $stayed;
+			} elseif ( ! @\unlink( $child ) ) { // phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+				\clearstatcache( true, $child );
+				$stayed = $stayed || \file_exists( $child );
 			}
 		}
+		foreach ( $stayed ? [] : $markers as $marker ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+			@\unlink( $marker );
+		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
-		@\rmdir( $path );
+		return @\rmdir( $path );
 	}
 
 	/**

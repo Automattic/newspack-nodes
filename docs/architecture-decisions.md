@@ -49,6 +49,7 @@ supersede.
 | [36](#adr-36-oauth-issues-command-sessions) | OAuth issues command sessions |
 | [37](#adr-37-a-partition-may-keep-every-segment) | A Partition may keep every segment |
 | [38](#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server) | An MCP door is a declaration over the substrate's server |
+| [39](#adr-39-a-log-declares-the-capability-a-raw-read-of-it-needs) | A log declares the capability a raw read of it needs |
 
 ---
 
@@ -2873,3 +2874,85 @@ cross-plugin surface ([stability.md](stability.md)). A door can say nothing the
 declarations do not carry.
 
 **Revisit if:** a door needs a transport other than one POST.
+
+---
+
+## ADR-39: A log declares the capability a raw read of it needs
+
+**Status:** Accepted
+
+**Context:** The raw-log surface — `raw-logs list_logs`, `dump_log`, `read_message` and
+`read_block`, and the SSE stream — reads any log under the `logs`, `offsets` and
+`deadletter` roots, and every registry source, at `read`. An application keeping records
+some readers may not see, such as newspack-intelligence's restricted items in
+`intel:items`, gates its shaped reads on a capability of its own, and a `read` holder
+without that capability still read the log whole, once `read` is mapped below `manage`.
+The bytes outlive the topology that declared them: a deactivated topology, a partition
+count shrunk past `p2`, a renamed reader's old dead letters, or a topology reading a stream
+without including its declaration all leave records on disk that no active line names.
+
+**Decision:** The gate travels with the data. A Partition, a Log and a Delay take
+`command_node <name>:config set_read_capability <cap>`, a declared `setter` that
+`dump_setters()` round-trips and `Capabilities::read_capability()` refuses at load unless
+`<cap>` is lowercase letters, digits and underscores. Undeclared, it requires `manage`
+(ADR-26).
+
+A gated log writes its capability and a newline to a marker,
+`Log_Discovery::READ_MARKER` (`.read-capability`), in its own dir, atomically, through a
+temp file renamed over it. The declaration marks a dir already on disk at once, so it gates
+the records already there; a dir not yet made is marked before the first flush puts a
+segment in it (lazily, ADR-5), a dir wiped since is made and marked again before its next
+segment, and a changed declaration rewrites the marker. A Log, whose segments share a dir
+with other logs, writes `.<file>.read-capability` beside them (`Log_Discovery::log_marker()`),
+and because that dir always exists, its declaration marks at once. Every sidecar takes its
+patron's gate through `Sidecar::gate_sidecar()`, which each host declares in
+`sidecar_gate()`: a Partition's write quarantine its own capability, a Delay's queue the
+Delay's, and a reader's cursor and dead letters the marker of what it reads. A reader asks
+when it builds its sidecars, so a cursor or a dead-letter dir already on disk is marked at
+its initialization, and again before each frame and each quarantine, so a source marked
+after the reader was built still gates them. The leading `.` keeps the marker out of
+`SEGMENT_PATTERN`, a Log's segment pattern, every `glob( '*' )` and every listing.
+`Spawn_Coordinator::delete_directory_recursive()`, which `wp nodes gc`, the reconciles and
+uninstall delete through, removes every marker after every other entry of its dir
+(`Log_Discovery::is_read_marker()`), and leaves it in place while any of them stays.
+
+`Log_Discovery::gate_of_dir()` and `gate_of_file()` are the lookup: a dir's marker, and
+for a file its dir's marker, then the marker of the Log it is, then, with a trailing `.N`
+cut, the marker of the Log it is a segment of. A marker that
+does not read as a capability answers `UNREADABLE_GATE`, `do_not_allow`, which WordPress
+refuses every user, a super admin included, so it fails closed. Every raw read resolves its
+log through ADR-29's resolvers, and each asks: `dir_of()` refuses a gated dir and
+`Log_Sources::entry()` a gated source, to a caller `current_user_can( <cap> )` refuses,
+with `permission denied: log "<stamp>" needs the <cap> capability`; `dirs_matching()`
+leaves one out of a glob; `Raw_Logs_CI_Node`'s dir rows (`Log_Discovery::listable()`) and
+`Log_Sources::catalog()` omit it. A session's scope neither widens nor narrows the gate,
+and a request with no user holds none.
+
+Removing a declaration does not ungate a log: the marker stays, and an operator ungates
+one by deleting its marker on disk, deliberately.
+
+What stays ungated: bytes a writer that never carries the declaration puts in a dir, until
+a declaring writer or a reader of a gated source touches that dir — a declaration, a
+flush, a reader's initialization, a frame or a quarantine. A reader whose source is not
+marked yet marks its own dirs only once the source is.
+
+**Alternatives considered:**
+
+- Deriving the gated dirs from the active topologies — rejected: the bytes outlive the
+  configuration, so every reshaping of a fleet ungated a log, and a broken topology left
+  every gate unknown.
+- A capability per verb on `raw-logs` — rejected: a verb cannot know which log holds what,
+  and the SSE stream reads the same logs past every verb.
+- An option listing gated dirs — rejected: a second list drifts from the data it names.
+
+**Consequences:** One stat per raw read, per glob match and per listed dir, one per
+gated flush, and one per reader checkpoint; a marker present costs one small read more. A broker reads a spoke's raw logs as the user its Vault
+entry authenticates, so the spoke's gate applies to the hub; the spoke sends no gate, so a
+broker's own cursor and dead letters carry no marker, and a hub whose user holds a spoke's
+capability keeps ungated copies. No stock topology pulls a gated log, and a hub's
+`newspack_nodes_hub` user holds no application capability, so the spoke refuses such a log
+to it and leaves it out of `list_logs`. An open SSE stream is checked when it resolves its
+subscriptions, so a revoke reaches it only once it closes and reconnects. Nothing here
+gates the shaped reads an application serves, nor a worker's IPC output.
+
+**Revisit if:** a hub must pull a gated log, which needs the spoke to send its gate.

@@ -50,6 +50,31 @@ trait Sidecar {
 		$partition->sink( $this->sink );
 		// A sidecar quarantining its own writes would recurse.
 		$partition->without_write_deadletter();
+		$this->gate_sidecar( $partition );
 		return $partition;
 	}
+
+	/**
+	 * Hand a sidecar the gate its patron's records carry (ADR-39), so the
+	 * cursor, the quarantine or the queue marks its own dir on its next
+	 * write. A patron calls it again before each write a sidecar takes, so a
+	 * source marked after the sidecar was built still reaches it.
+	 *
+	 * @param Partition_Node $sidecar The patron's sidecar.
+	 * @throws \InvalidArgumentException On a gate `Capabilities::read_capability()` refuses.
+	 */
+	protected function gate_sidecar( Partition_Node $sidecar ): void {
+		$gate = $this->sidecar_gate();
+		if ( null !== $gate ) {
+			$sidecar->set_read_capability( $gate );
+		}
+	}
+
+	/**
+	 * The capability a raw read of what this patron's sidecars hold needs:
+	 * a writer's own declaration, a reader's source's marker, or null.
+	 *
+	 * @return string|null The capability, or null for none.
+	 */
+	abstract protected function sidecar_gate(): ?string;
 }

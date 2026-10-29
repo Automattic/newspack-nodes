@@ -110,6 +110,95 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( [], $this->values_in( $stale ), 'nothing reaches the superseded dir' );
 	}
 
+	/** A gated source, written, then read past one record by a reader with both sidecars. */
+	private function read_a_gated_source(): Consumer_Node {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/ledger-items.p0" ] );
+		$source->set_read_capability( 'harbor_ledger_reader' );
+		$this->produce_line( $source, 'ledger entry 6113' );
+		$c = new Consumer_Node();
+		$c->name( 'ledger-reader' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ "{$this->tmp}/ledger-items.p0", "{$this->tmp}/offsets/ledger-reader.p0", "{$this->tmp}/deadletter/ledger-reader.p0" ] );
+		$c->drain();
+		$c->checkpoint();
+		$this->quarantine( $c, 'spiked ledger 6113' );
+		return $c;
+	}
+
+	public function test_a_reader_of_a_gated_dir_marks_its_cursor_and_its_dead_letters(): void {
+		$this->read_a_gated_source();
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/offsets/ledger-reader.p0/.read-capability" ) );
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/deadletter/ledger-reader.p0/.read-capability" ) );
+	}
+
+	/** The source is marked only once its writer writes; the next checkpoint catches up. */
+	public function test_a_reader_built_before_its_source_was_marked_marks_its_cursor_at_its_next_checkpoint(): void {
+		\mkdir( "{$this->tmp}/ledger-items.p0", 0700, true );
+		$c = new Consumer_Node();
+		$c->name( 'ledger-early' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ "{$this->tmp}/ledger-items.p0", "{$this->tmp}/offsets/ledger-early.p0" ] );
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/ledger-items.p0" ] );
+		$source->set_read_capability( 'harbor_ledger_reader' );
+		$this->produce_line( $source, 'ledger entry 6113' );
+
+		$c->drain();
+		$c->checkpoint();
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/offsets/ledger-early.p0/.read-capability" ) );
+	}
+
+	/** A reader of a gated dir marks the cursor and dead letters it finds on disk at init. */
+	public function test_a_reader_marks_its_existing_sidecar_dirs_at_init(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/ledger-items.p0" ] );
+		$source->set_read_capability( 'harbor_ledger_reader' );
+		$this->produce_line( $source, 'ledger entry 6113' );
+		foreach ( [ 'offsets', 'deadletter' ] as $root ) {
+			$old = new Partition_Node();
+			$old->arguments( [ "{$this->tmp}/{$root}/ledger-old.p0" ] );
+			$this->produce_line( $old, "unmarked {$root} 6113" );
+		}
+		$c = new Consumer_Node();
+		$c->name( 'ledger-old' );
+		$c->sink( new Capture_Sink_Node() );
+
+		$c->arguments( [ "{$this->tmp}/ledger-items.p0", "{$this->tmp}/offsets/ledger-old.p0", "{$this->tmp}/deadletter/ledger-old.p0" ] );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/offsets/ledger-old.p0/.read-capability" ) );
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/deadletter/ledger-old.p0/.read-capability" ) );
+	}
+
+	public function test_a_reader_of_an_ungated_dir_marks_nothing(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/ledger-public.p0" ] );
+		$this->produce_line( $source, 'public entry 6113' );
+		$c = new Consumer_Node();
+		$c->name( 'public-reader' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ "{$this->tmp}/ledger-public.p0", "{$this->tmp}/offsets/public-reader.p0", "{$this->tmp}/deadletter/public-reader.p0" ] );
+		$c->drain();
+		$c->checkpoint();
+		$this->quarantine( $c, 'spiked public 6113' );
+
+		$this->assertFileDoesNotExist( "{$this->tmp}/offsets/public-reader.p0/.read-capability" );
+		$this->assertFileDoesNotExist( "{$this->tmp}/deadletter/public-reader.p0/.read-capability" );
+	}
+
+	/** The marker is no record, no offsetlog frame and no dead letter. */
+	public function test_the_marker_reads_as_no_record_frame_or_dead_letter(): void {
+		$c = $this->read_a_gated_source();
+
+		$records = \array_filter( $c->sink()->captured, static fn ( array $m ): bool => Message::TM_BYTESTREAM === $m[ Message::TYPE ] );
+		$this->assertSame( [ 'ledger entry 6113' ], \array_values( \array_column( $records, Message::VALUE ) ) );
+		$this->assertNotNull( $this->last_frame_in( "{$this->tmp}/offsets/ledger-reader.p0" ) );
+		$this->assertSame( [ 'spiked ledger 6113' ], $this->values_in( "{$this->tmp}/deadletter/ledger-reader.p0" ) );
+		$this->assertSame( 1, Partition_Node::quarantined_records( ( new \ReflectionProperty( $c, 'deadletter' ) )->getValue( $c ) ) );
+	}
+
 	/**
 	 * Read the reader's lag through the seam itself. `compute_lag()` is
 	 * protected — it is a seam for subclasses, not an API — and `probe_stats()`

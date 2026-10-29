@@ -101,6 +101,53 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->assertTrue( is_dir( "{$this->tmp}/data" ), 'parent must remain' );
 	}
 
+	/** The read marker goes last, and stays while anything else in the dir stays. */
+	public function test_delete_directory_recursive_keeps_the_read_marker_while_an_entry_stays(): void {
+		$dir = "{$this->tmp}/logs/ledger-items.p0";
+		\mkdir( "{$dir}/stuck-6113", 0755, true );
+		\file_put_contents( "{$dir}/.read-capability", "harbor_ledger_reader\n" );
+		\file_put_contents( "{$dir}/0.log", 'restricted 6113' );
+		\file_put_contents( "{$dir}/stuck-6113/0.log", 'restricted 6114' );
+		\chmod( "{$dir}/stuck-6113", 0500 );
+
+		try {
+			Spawn_Coordinator::delete_directory_recursive( $dir, $this->tmp );
+		} finally {
+			\chmod( "{$dir}/stuck-6113", 0755 );
+		}
+
+		$this->assertFileDoesNotExist( "{$dir}/0.log" );
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$dir}/.read-capability" ) );
+	}
+
+	/** A Log's marker beside its segments also goes last. */
+	public function test_delete_directory_recursive_keeps_a_logs_marker_while_its_segment_stays(): void {
+		$dir = "{$this->tmp}/logs";
+		\mkdir( "{$dir}/stuck-6115", 0755, true );
+		\file_put_contents( "{$dir}/.ledger-notes.jsonl.read-capability", "harbor_ledger_reader\n" );
+		\file_put_contents( "{$dir}/stuck-6115/ledger-notes.jsonl.0", 'restricted 6115' );
+		\chmod( "{$dir}/stuck-6115", 0500 );
+
+		try {
+			Spawn_Coordinator::delete_directory_recursive( $dir, $this->tmp );
+		} finally {
+			\chmod( "{$dir}/stuck-6115", 0755 );
+		}
+
+		$this->assertFileExists( "{$dir}/.ledger-notes.jsonl.read-capability" );
+	}
+
+	public function test_delete_directory_recursive_removes_the_read_marker_with_the_rest(): void {
+		$dir = "{$this->tmp}/logs/ledger-items.p1";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/.read-capability", "harbor_ledger_reader\n" );
+		\file_put_contents( "{$dir}/0.log", 'restricted 6116' );
+
+		Spawn_Coordinator::delete_directory_recursive( $dir, $this->tmp );
+
+		$this->assertDirectoryDoesNotExist( $dir );
+	}
+
 	public function test_delete_directory_recursive_refuses_outside_base(): void {
 		// Build a sibling tree alongside the base to verify path-containment.
 		$sibling = $this->make_temp_dir( 'siblling-' );

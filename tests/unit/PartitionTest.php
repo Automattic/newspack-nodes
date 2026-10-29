@@ -1555,6 +1555,207 @@ class PartitionTest extends TestCase {
 		$this->assertStringNotContainsString( 'keep_everything', $p->dump_config() );
 	}
 
+	public function test_set_read_capability_round_trips_through_dump_config(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0" ] );
+		$p->name( 'ledger-log' );
+
+		$this->assertSame( "ok\n", Core::node( 'ledger-log:config' )->dispatch( 'set_read_capability', [ 'harbor_ledger_reader' ] ) );
+
+		$this->assertStringContainsString( "command_node ledger-log:config set_read_capability harbor_ledger_reader\n", $p->dump_config() );
+	}
+
+	public function test_set_read_capability_takes_its_argument_by_name(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0" ] );
+		$p->name( 'ledger-log' );
+
+		Core::node( 'ledger-log:config' )->dispatch( 'set_read_capability', [ '--capability=harbor_ledger_reader' ] );
+
+		$this->assertStringContainsString( "set_read_capability harbor_ledger_reader\n", $p->dump_config() );
+	}
+
+	/** A gated Partition marks its dir on its first write, never at declaration (ADR-5). */
+	public function test_a_gated_partition_marks_its_dir_on_its_first_write(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p0" ] );
+		$p->set_read_capability( 'harbor_ledger_reader' );
+		$this->assertFileDoesNotExist( "{$this->tmp}/ledger-items.p0/.read-capability" );
+
+		$this->produce_into( $p, 'ledger entry 6113' );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/ledger-items.p0/.read-capability" ) );
+	}
+
+	public function test_a_changed_capability_rewrites_the_marker(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p0" ] );
+		$p->set_read_capability( 'harbor_ledger_reader' );
+		$this->produce_into( $p, 'ledger entry 6113' );
+
+		$p->set_read_capability( 'quay_manifest_reader' );
+		$this->produce_into( $p, 'ledger entry 6114' );
+
+		$this->assertSame( "quay_manifest_reader\n", \file_get_contents( "{$this->tmp}/ledger-items.p0/.read-capability" ) );
+	}
+
+	/** A declaration removed leaves the marker: only an operator ungates a log. */
+	/** A wiped dir is marked again before the next segment lands in it. */
+	public function test_a_wiped_gated_dir_is_marked_again_before_its_next_segment(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p3" ] );
+		$p->set_read_capability( 'harbor_ledger_reader' );
+		$this->produce_into( $p, 'before wipe 6113' );
+		( new \ReflectionMethod( $p, 'close_handle' ) )->invoke( $p );
+		$this->rmdir_recursive( "{$this->tmp}/ledger-items.p3" );
+		( new \ReflectionProperty( $p, 'current_segment_id' ) )->setValue( $p, null );
+		( new \ReflectionProperty( $p, 'segments_cache' ) )->setValue( $p, null );
+
+		$this->produce_into( $p, 'after wipe 6114' );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/ledger-items.p3/.read-capability" ) );
+	}
+
+	/** A declaration gates data already on disk at once, before any write. */
+	public function test_a_declaration_marks_an_existing_dir_at_once(): void {
+		$old = new Partition_Node();
+		$old->arguments( [ "{$this->tmp}/ledger-items.p4" ] );
+		$this->produce_into( $old, 'written before the gate 6113' );
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p4" ] );
+
+		$p->set_read_capability( 'harbor_ledger_reader' );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/ledger-items.p4/.read-capability" ) );
+	}
+
+	public function test_a_declaration_marks_a_log_with_data_on_disk_at_once(): void {
+		$old = new \Newspack_Nodes\Log_Node();
+		$old->arguments( [ "{$this->tmp}/ledger-late.jsonl" ] );
+		$this->produce_into( $old, 'written before the gate 6117' );
+		$log = new \Newspack_Nodes\Log_Node();
+		$log->arguments( [ "{$this->tmp}/ledger-late.jsonl" ] );
+
+		$log->set_read_capability( 'harbor_ledger_reader' );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/.ledger-late.jsonl.read-capability" ) );
+	}
+
+	/** A declaration on a dir not yet made creates nothing: the first write does (ADR-5). */
+	public function test_a_declaration_on_a_missing_dir_creates_nothing(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p5" ] );
+
+		$p->set_read_capability( 'harbor_ledger_reader' );
+
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/ledger-items.p5" );
+	}
+
+	/** A marker that will not land quarantines the batch under a reason naming the marker. */
+	public function test_a_marker_that_will_not_land_names_itself(): void {
+		$this->use_base_dir( $this->tmp );
+		\mkdir( "{$this->tmp}/logs/ledger-items.p6", 0700, true );
+		\mkdir( "{$this->tmp}/logs/ledger-items.p6/.read-capability", 0700 );
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/logs/ledger-items.p6" ] );
+		$p->name( 'ledger-items-6' );
+		$p->fill( $this->produce( 'unmarked 6113' ) );
+		( new \ReflectionProperty( $p, 'read_capability' ) )->setValue( $p, 'harbor_ledger_reader' );
+
+		try {
+			$p->flush();
+			$this->fail( 'the write must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'cannot write read marker', $e->getMessage() );
+		}
+		$this->assertSame( [], \glob( "{$this->tmp}/logs/ledger-items.p6/*.log" ) ?: [] );
+	}
+
+	public function test_an_ungated_writer_leaves_an_existing_marker_alone(): void {
+		\mkdir( "{$this->tmp}/ledger-items.p0", 0700, true );
+		\file_put_contents( "{$this->tmp}/ledger-items.p0/.read-capability", "harbor_ledger_reader\n" );
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p0" ] );
+
+		$this->produce_into( $p, 'ledger entry 6113' );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/ledger-items.p0/.read-capability" ) );
+	}
+
+	public function test_an_ungated_partition_writes_no_marker(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-public.p0" ] );
+
+		$this->produce_into( $p, 'public entry 6113' );
+
+		$this->assertSame( [], \glob( "{$this->tmp}/ledger-public.p0/.*capability*" ) ?: [] );
+	}
+
+	public function test_the_marker_is_never_read_as_a_segment(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/ledger-items.p0" ] );
+		$p->set_read_capability( 'harbor_ledger_reader' );
+		$this->produce_into( $p, 'ledger entry 6113' );
+
+		$this->assertSame( [ 0 ], \array_column( $p->get_segments( true ), 'id' ) );
+	}
+
+	public function test_a_gated_partitions_write_quarantine_carries_the_marker(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/logs/ledger-items.p0" ] );
+		$p->name( 'ledger-items' );
+		$p->set_read_capability( 'harbor_ledger_reader' );
+		$quarantine = ( new \ReflectionMethod( $p, 'ensure_deadletter' ) )->invoke( $p );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'unwritten 6113';
+		( new \ReflectionMethod( $p, 'dead_letter' ) )->invoke( $p, $message, 'segment open failed', null );
+		$quarantine->flush();
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/deadletter/logs.ledger-items.p0/.read-capability" ) );
+	}
+
+	public function test_a_gated_log_marks_its_own_file_and_not_the_shared_dir(): void {
+		$log = new \Newspack_Nodes\Log_Node();
+		$log->arguments( [ "{$this->tmp}/ledger-notes.jsonl" ] );
+		$log->set_read_capability( 'harbor_ledger_reader' );
+
+		$this->produce_into( $log, 'ledger note 6113' );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/.ledger-notes.jsonl.read-capability" ) );
+		$this->assertFileDoesNotExist( "{$this->tmp}/.read-capability" );
+	}
+
+	public function test_an_ungated_partition_dumps_no_read_capability(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0" ] );
+		$p->name( 'ledger-log' );
+
+		$this->assertStringNotContainsString( 'set_read_capability', $p->dump_config() );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function malformed_capabilities(): array {
+		return [
+			'empty'      => [ '' ],
+			'uppercase'  => [ 'Harbor_Ledger' ],
+			'hyphenated' => [ 'harbor-ledger' ],
+			'spaced'     => [ 'harbor ledger' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'malformed_capabilities' )]
+	public function test_set_read_capability_refuses_a_malformed_name( string $cap ): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0" ] );
+		$p->name( 'ledger-log' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessageMatches( '/^(invalid read capability: \'' . \preg_quote( $cap, '/' ) . '\'|missing required argument: capability)/' );
+		Core::node( 'ledger-log:config' )->dispatch( 'set_read_capability', [ $cap ] );
+	}
+
 	public function test_retention_hard_floor_of_two_segments(): void {
 		// Aggressive age prune (lifetime=1, min_seg clamps to 2) never drops below 2.
 		$p = new Partition_Node();

@@ -1184,6 +1184,16 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
+	 * Gate seam: a remote log's gate is the spoke's, and the spoke sends none,
+	 * so this broker's cursor and dead letters carry no marker (ADR-39).
+	 *
+	 * @return null Never a gate.
+	 */
+	protected function sidecar_gate(): ?string {
+		return null;
+	}
+
+	/**
 	 * Drop the slots the base cascade just tore down, so a later `ensure_offsetlog()`, which
 	 * `init_position()` reaches, rebuilds them instead of handing back a Partition whose name,
 	 * sink and patron that cascade already cleared.

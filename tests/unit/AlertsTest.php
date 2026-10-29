@@ -692,6 +692,10 @@ class AlertsTest extends TestCase {
 class Alerts_Quarantine_Double extends \Newspack_Nodes\Node {
 	use \Newspack_Nodes\Dead_Letter_Queue;
 
+	protected function sidecar_gate(): ?string {
+		return null;
+	}
+
 	public function fill( array $message ): void {}
 
 	public function open( string $dir ): void {

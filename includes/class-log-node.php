@@ -177,6 +177,14 @@ class Log_Node extends Partition_Node {
 	}
 
 	/**
+	 * Seam: a Log's segments share their dir with other logs, so its marker
+	 * names its file (`Log_Discovery::log_marker()`).
+	 */
+	protected function read_marker_path(): string {
+		return Log_Discovery::log_marker( $this->file );
+	}
+
+	/**
 	 * Topology console manifest: the required `file` positional in front of the
 	 * parent's retention knobs. The parent merge supplies the `I/O` category, the
 	 * `allow_large_writes`, `void_warranty` and `with_index` verbs, the `READY`

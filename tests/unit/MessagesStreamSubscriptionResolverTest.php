@@ -905,4 +905,79 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertStringContainsString( 'from-kea-7713.p4', $out, 'the rescan opened the unskipped dir' );
 		$this->assertStringNotContainsString( 'from-kea-7713.p3', $out );
 	}
+
+	/**
+	 * Write `ledger-items.p0` and `ledger-items.p1` gated on
+	 * `harbor_ledger_reader`, a reader's cursor over p0, and an ungated
+	 * `ledger-public.p0`, with no topology declaring any of them.
+	 */
+	private function gate_ledger(): SSE_Out_Node {
+		$this->use_base_dir( $this->tmp );
+		foreach ( [ 'ledger-items.p0' => true, 'ledger-items.p1' => true, 'ledger-public.p0' => false ] as $dir => $gated ) {
+			$log = new \Newspack_Nodes\Partition_Node();
+			$log->arguments( [ "{$this->tmp}/logs/{$dir}" ] );
+			if ( $gated ) {
+				$log->set_read_capability( 'harbor_ledger_reader' );
+			}
+			$this->produce_into( $log, "body 6113 in {$dir}" );
+		}
+		$reader = new Consumer_Node();
+		$reader->name( 'ledger-cursor' );
+		$reader->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$reader->arguments( [ "{$this->tmp}/logs/ledger-items.p0", "{$this->tmp}/offsets/ledger-items.p0" ] );
+		$reader->drain();
+		$reader->checkpoint();
+		$reader->remove_node();
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		return $ctrl;
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function gated_subscriptions(): array {
+		return [
+			'the log'           => [ 'ledger-items.p1' ],
+			'its reader cursor' => [ 'offsets:ledger-items.p0' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'gated_subscriptions' )]
+	public function test_a_gated_subscription_is_refused_to_a_caller_without_its_capability( string $sub ): void {
+		$ctrl = $this->gate_ledger();
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "permission denied: log \"{$sub}\" needs the harbor_ledger_reader capability" );
+		$ctrl->open_subscription( $sub, null );
+	}
+
+	public function test_a_glob_covering_a_gated_log_opens_only_what_the_caller_may_read(): void {
+		$ctrl = $this->gate_ledger();
+
+		$this->assertSame( [ 'ledger-public.p0' ], \array_keys( $ctrl->open_subscription( 'ledger-*', null ) ) );
+		$this->assertSame( [], $ctrl->open_subscription( 'offsets:ledger-*', null ) );
+	}
+
+	public function test_a_glob_reconcile_never_attaches_a_gated_log(): void {
+		$ctrl       = $this->gate_ledger();
+		$route      = new Node();
+		$consumers  = [];
+		$glob_owned = [];
+		$route->name( '_gate_route_' . \getmypid() );
+
+		$ctrl->reconcile_glob_consumers( [ 'ledger-*' ], $consumers, $glob_owned, $route, null );
+
+		$this->assertSame( [ 'ledger-public.p0' ], \array_keys( $consumers ) );
+	}
+
+	public function test_a_gated_subscription_opens_for_a_holder(): void {
+		$ctrl = $this->gate_ledger();
+		$GLOBALS['_wp_test_current_user_can']['harbor_ledger_reader'] = true;
+
+		try {
+			$this->assertSame( [ 'ledger-items.p0', 'ledger-items.p1', 'ledger-public.p0' ], \array_keys( $ctrl->open_subscription( 'ledger-*', null ) ) );
+			$this->assertSame( [ 'offsets:ledger-items.p0' ], \array_keys( $ctrl->open_subscription( 'offsets:ledger-items.p0', null ) ) );
+		} finally {
+			unset( $GLOBALS['_wp_test_current_user_can']['harbor_ledger_reader'] );
+		}
+	}
 }

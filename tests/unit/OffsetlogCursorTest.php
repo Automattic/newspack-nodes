@@ -14,6 +14,10 @@ use Newspack_Nodes\Tests\TestCase;
 class Offsetlog_Cursor_Double extends Node {
 	use Durable_Reader;
 
+	protected function sidecar_gate(): ?string {
+		return null;
+	}
+
 	public function fill( array $message ): void {}
 
 	/** @param array<array-key,mixed> $entry */

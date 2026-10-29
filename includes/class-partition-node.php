@@ -295,6 +295,12 @@ class Partition_Node extends Timer_Node {
 	/** @var array{at:float,sizes:array<int,int>}|null What the previous probe record measured: when, and each segment's size. */
 	private ?array $probe_window = null;
 
+	/** The capability a raw read of this log needs (ADR-39); '' for none. */
+	protected string $read_capability = '';
+
+	/** The capability this process last found or wrote in the marker; '' for none. */
+	private string $marked_capability = '';
+
 	/** Rotation threshold in bytes: a write that would exceed it starts a new segment. */
 	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
 
@@ -910,6 +916,9 @@ class Partition_Node extends Timer_Node {
 		}
 
 		\error_clear_last();
+		if ( ! $this->mark_read_capability() ) {
+			$this->quarantine_unwritten( $batch_args, 'read marker failed', $this->marker_refusal() );
+		}
 		$fh = $this->get_handle();
 		if ( null === $fh ) {
 			$cause = \error_get_last()['message'] ?? 'no handle';
@@ -1264,36 +1273,6 @@ class Partition_Node extends Timer_Node {
 			$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
 		}
 		return $this->fh;
-	}
-
-	/**
-	 * The segment directory, created 0700 and TIGHTENED to 0700 if it was not.
-	 *
-	 * Segments are 0600, but a traversable directory still publishes the
-	 * listing, and a segment name is an offset — how much was written, and when
-	 * it rotated. A mode passed to `mkdir` applies once, so a directory created
-	 * 0755 keeps that mode forever unless a writer fixes it on the way past;
-	 * nothing else probes permissions. Only the LEAF tightens: `mkdir` with
-	 * `$recursive` applies the mode to every ancestor it creates, and the base
-	 * tree is shared, so 0700 there would lock out a differing uid. Group and
-	 * other are MASKED off rather than the mode being set: a 0500 directory is
-	 * a deliberate state, and widening it back would be a change nobody asked
-	 * for.
-	 *
-	 * @param string $dir Directory to create or tighten.
-	 */
-	protected function ensure_segment_dir( string $dir ): void {
-		if ( ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $dir, 0755, true );
-		}
-		\clearstatcache( true, $dir );
-		$mode = @\fileperms( $dir );
-		if ( false !== $mode && 0 !== ( $mode & 0077 ) ) {
-			// Mask, never set: a 0500 dir is a deliberate state to leave alone.
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.chmod_chmod
-			@\chmod( $dir, $mode & 0700 );
-		}
 	}
 
 	/**
@@ -2058,18 +2037,6 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Seam (Log overrides): the on-disk path identifying this log, which
-	 * derive_write_deadletter_dir() turns into its quarantine dir and which,
-	 * relative to the runtime base, names it in a probe record. Partition =
-	 * the segment dir, one log per dir.
-	 *
-	 * @return string
-	 */
-	public function identity_path(): string {
-		return $this->partition_dir;
-	}
-
-	/**
 	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
 	 *
 	 * An allow_large_writes (single-writer) log skips the TTL: with no peer able to
@@ -2134,11 +2101,6 @@ class Partition_Node extends Timer_Node {
 	/** Seam (Log overrides): companion-index path for a segment. Partition = {dir}/{seg}.idx. */
 	protected function get_index_path( int $segment ): string {
 		return "{$this->segment_dir()}/{$segment}.idx";
-	}
-
-	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
-	protected function segment_dir(): string {
-		return $this->partition_dir;
 	}
 
 	/**
@@ -2417,6 +2379,129 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Name the capability a raw read of this log needs (ADR-39). A log whose
+	 * dir is already on disk is marked at once, so a declaration gates the
+	 * records already there; otherwise the first flush marks the dir it makes.
+	 * This Partition's write quarantine takes the gate too. A malformed name
+	 * is refused, so a topology naming one fails to load.
+	 *
+	 * @param string $cap A WordPress capability name.
+	 * @throws \InvalidArgumentException On an empty or malformed name.
+	 * @throws \RuntimeException When the marker would not land in an existing dir.
+	 */
+	public function set_read_capability( string $cap ): void {
+		$this->read_capability = Capabilities::read_capability( $cap );
+		\error_clear_last();
+		if ( '' !== $this->identity_path() && \is_dir( $this->segment_dir() ) && ! $this->mark_read_capability() ) {
+			throw $this->marker_refusal();
+		}
+	}
+
+	/**
+	 * Write this log's marker, the capability a raw read of it needs, when it
+	 * declares one the marker does not name yet (ADR-39): before every flush
+	 * puts a segment on disk, and atomically, through a temp file renamed over
+	 * it, so a reader never meets half a marker. A dir wiped since the last
+	 * mark is made again and marked again. An undeclared log leaves any
+	 * marker alone, because only an operator ungates a log.
+	 *
+	 * @return bool False when the marker would not land, which refuses the write.
+	 */
+	private function mark_read_capability(): bool {
+		if ( '' === $this->read_capability ) {
+			return true;
+		}
+		if ( ! \is_dir( $this->segment_dir() ) ) {
+			$this->marked_capability = '';
+			$this->ensure_segment_dir( $this->segment_dir() );
+		}
+		if ( $this->read_capability === $this->marked_capability ) {
+			return true;
+		}
+		$marker = $this->read_marker_path();
+		$text   = "{$this->read_capability}\n";
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- substrate-owned marker under base_dir.
+		if ( $text !== @\file_get_contents( $marker ) ) {
+			$temp       = $marker . '.' . \getmypid() . '.tmp';
+			$prev_umask = \umask( 0077 );
+			try {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename -- the log's own dir under base_dir; one atomic rename.
+				$landed = \strlen( $text ) === @\file_put_contents( $temp, $text ) && @\rename( $temp, $marker );
+			} finally {
+				\umask( $prev_umask );
+			}
+			if ( ! $landed ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+				@\unlink( $temp );
+				return false;
+			}
+		}
+		$this->marked_capability = $this->read_capability;
+		return true;
+	}
+
+	/**
+	 * Why a write or a declaration was refused when the marker would not land,
+	 * naming the marker and what PHP said.
+	 */
+	private function marker_refusal(): \RuntimeException {
+		$cause = \error_get_last()['message'] ?? 'no cause reported';
+		return new \RuntimeException( "Partition: cannot write read marker {$this->read_marker_path()}: {$cause}" );
+	}
+
+	/** Seam (Log overrides): where this log keeps its read-capability marker. */
+	protected function read_marker_path(): string {
+		return "{$this->partition_dir}/" . Log_Discovery::READ_MARKER;
+	}
+
+	/**
+	 * The segment directory, created 0700 and TIGHTENED to 0700 if it was not.
+	 *
+	 * Segments are 0600, but a traversable directory still publishes the
+	 * listing, and a segment name is an offset — how much was written, and when
+	 * it rotated. A mode passed to `mkdir` applies once, so a directory created
+	 * 0755 keeps that mode forever unless a writer fixes it on the way past;
+	 * nothing else probes permissions. Only the LEAF tightens: `mkdir` with
+	 * `$recursive` applies the mode to every ancestor it creates, and the base
+	 * tree is shared, so 0700 there would lock out a differing uid. Group and
+	 * other are MASKED off rather than the mode being set: a 0500 directory is
+	 * a deliberate state, and widening it back would be a change nobody asked
+	 * for.
+	 *
+	 * @param string $dir Directory to create or tighten.
+	 */
+	protected function ensure_segment_dir( string $dir ): void {
+		if ( ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $dir, 0755, true );
+		}
+		\clearstatcache( true, $dir );
+		$mode = @\fileperms( $dir );
+		if ( false !== $mode && 0 !== ( $mode & 0077 ) ) {
+			// Mask, never set: a 0500 dir is a deliberate state to leave alone.
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.chmod_chmod
+			@\chmod( $dir, $mode & 0700 );
+		}
+	}
+
+	/**
+	 * Seam (Log overrides): the on-disk path identifying this log, which
+	 * derive_write_deadletter_dir() turns into its quarantine dir and which,
+	 * relative to the runtime base, names it in a probe record. Partition =
+	 * the segment dir, one log per dir.
+	 *
+	 * @return string
+	 */
+	public function identity_path(): string {
+		return $this->partition_dir;
+	}
+
+	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
+	protected function segment_dir(): string {
+		return $this->partition_dir;
+	}
+
+	/**
 	 * When a segment's file was last written, unix seconds, as of the last
 	 * scan `get_segments()` made; null for a segment that scan did not list.
 	 *
@@ -2482,8 +2567,19 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * A write quarantine holds this log's records, so it carries this log's
+	 * gate.
+	 *
+	 * @return string|null The declared capability, or null for none.
+	 */
+	protected function sidecar_gate(): ?string {
+		return '' === $this->read_capability ? null : $this->read_capability;
+	}
+
+	/**
 	 * Emit the base config plus this Partition's verb-config, from STATE — the
-	 * large-write mode, the `with_index` formatter name and the declared toggles.
+	 * large-write mode, the `with_index` formatter name, the declared toggles and
+	 * the declared setters.
 	 * (The index callback itself cannot be dumped; the formatter name is its
 	 * round-trip form.)
 	 *
@@ -2500,7 +2596,7 @@ class Partition_Node extends Timer_Node {
 		if ( null !== $this->index_formatter_name ) {
 			$out .= $this->config_line( 'with_index', $this->index_formatter_name );
 		}
-		return $out . $this->dump_toggles();
+		return $out . $this->dump_toggles() . $this->dump_setters();
 	}
 
 	/**
@@ -2650,7 +2746,7 @@ class Partition_Node extends Timer_Node {
 
 	/**
 	 * Topology console manifest: the palette entry, the seven positional arguments
-	 * `parse_schema_args()` assigns, and the three config verbs.
+	 * `parse_schema_args()` assigns, and the config verbs.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -2689,6 +2785,14 @@ class Partition_Node extends Timer_Node {
 						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
 					],
 					'toggle'      => 'keep_everything',
+				],
+				[
+					'name'        => 'set_read_capability',
+					'description' => 'Name the WordPress capability a raw read of this log needs. The log writes it to a .read-capability marker in its dir at once when the dir exists, else before the flush that makes it; its write quarantine and every reader\'s cursor and dead letters copy it, and a raw-logs verb, the catalog and the SSE stream refuse them to a caller without it. Removing the line leaves the marker (ADR-39).',
+					'args'        => [
+						[ 'name' => 'capability', 'type' => 'string', 'required' => true, 'description' => 'Lowercase letters, digits and underscores.' ],
+					],
+					'setter'      => 'read_capability',
 				],
 				[
 					'name'        => 'with_index',

@@ -119,6 +119,16 @@ class Tail_Node extends Consumer_Node {
 	}
 
 	/**
+	 * Gate seam: a Tail reads a file, so its gate is the file's, a Log's
+	 * marker or a marked dir's.
+	 *
+	 * @return string|null The source's gate, or null for none.
+	 */
+	protected function sidecar_gate(): ?string {
+		return Log_Discovery::gate_of_file( $this->source_file );
+	}
+
+	/**
 	 * Path seam: Tail's source path is `source_file`, a file base rather than a
 	 * directory. Consumer keeps whatever comes back in `source_dir`, so the read
 	 * model never branches on which of the two shapes it is pointed at.
