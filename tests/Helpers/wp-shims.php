@@ -28,16 +28,21 @@ if ( ! function_exists( 'wp_doing_cron' ) ) {
 	}
 }
 
-if ( ! function_exists( 'do_action' ) ) {
-	$GLOBALS['_wp_actions']              = [];
-	$GLOBALS['_wp_action_registrations'] = [];
-	// Tests drive these via $GLOBALS['_wp_test_is_multisite'] / '_wp_test_is_main_site'.
+// Tests drive these via $GLOBALS['_wp_test_is_multisite'] / '_wp_test_is_main_site'.
+if ( ! function_exists( 'is_multisite' ) ) {
 	function is_multisite(): bool {
 		return (bool) ( $GLOBALS['_wp_test_is_multisite'] ?? false );
 	}
+}
+if ( ! function_exists( 'is_main_site' ) ) {
 	function is_main_site(): bool {
 		return (bool) ( $GLOBALS['_wp_test_is_main_site'] ?? true );
 	}
+}
+
+if ( ! function_exists( 'do_action' ) ) {
+	$GLOBALS['_wp_actions']              = [];
+	$GLOBALS['_wp_action_registrations'] = [];
 
 	function do_action( string $hook, ...$args ): void {
 		foreach ( $GLOBALS['_wp_actions'][ $hook ] ?? [] as $cb ) {

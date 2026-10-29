@@ -20,6 +20,7 @@ import {
 	useState,
 } from '@wordpress/element';
 import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
+import { useFocusTrap } from '@newspack-nodes/shared/hooks/useFocusTrap';
 import { ModalPortal } from '@newspack-nodes/shared/components/Modal';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField, useFieldRefusals } from './CtorField';
@@ -104,6 +105,7 @@ export function ModalShell( {
 	const [ panelRect, setPanelRect ] = useState( null );
 	// The backdrop needs no handler: a mousedown on it is outside the panel.
 	useDismissable( ref, onDismiss );
+	useFocusTrap( ref );
 
 	useLayoutEffect( () => {
 		const panel = anchorRef.current?.closest( '.nodes-debug__panel' );
