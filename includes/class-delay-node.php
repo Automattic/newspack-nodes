@@ -88,6 +88,9 @@ final class Delay_Node extends Timer_Node {
 	/** Seconds an entry may stay parked before a sweep drops it. */
 	protected int $max_age_s = self::DEFAULT_MAX_AGE_S;
 
+	/** The capability a raw read of the queue needs (ADR-39); '' for none. */
+	protected string $read_capability = '';
+
 	/** The `{name}:queue` sibling. */
 	private ?Partition_Node $queue = null;
 
@@ -96,6 +99,12 @@ final class Delay_Node extends Timer_Node {
 
 	/** Segment of the committed cursor, -1 for none; null until read. */
 	private ?int $committed = null;
+
+	/** Wire the `{name}:config` interpreter `set_read_capability` arrives on. */
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
 
 	/**
 	 * `<dir> <offsets_dir> <deadletter_dir> [interval_s] [max_age_s]`: build
@@ -386,6 +395,40 @@ final class Delay_Node extends Timer_Node {
 		return $this->queue ?? throw new \LogicException( \esc_html( "Delay {$this->name} has no queue; arguments() builds it" ) );
 	}
 
+	/**
+	 * Name the capability a raw read of the queue needs (ADR-39). The queue
+	 * takes it at once and marks its dir, at once when the dir exists; the
+	 * sweep's reader finds that marker and gates its cursor and dead letters
+	 * by it.
+	 *
+	 * @param string $cap A WordPress capability name.
+	 * @throws \InvalidArgumentException On an empty or malformed name.
+	 */
+	public function set_read_capability( string $cap ): void {
+		$this->read_capability = Capabilities::read_capability( $cap );
+		if ( null !== $this->queue ) {
+			$this->gate_sidecar( $this->queue );
+		}
+	}
+
+	/**
+	 * The queue holds what this Delay parks, so it carries this Delay's gate.
+	 *
+	 * @return string|null The declared capability, or null for none.
+	 */
+	protected function sidecar_gate(): ?string {
+		return '' === $this->read_capability ? null : $this->read_capability;
+	}
+
+	/**
+	 * The `make_node` line, then the declared setters.
+	 *
+	 * @return string The `make_node` line, plus one config line per setter that holds a value.
+	 */
+	public function dump_config(): string {
+		return parent::dump_config() . $this->dump_setters();
+	}
+
 	/** Let go of the queue the base cascade tears down. */
 	public function remove_node(): void {
 		parent::remove_node();
@@ -410,7 +453,16 @@ final class Delay_Node extends Timer_Node {
 				[ 'name' => 'interval_s', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Seconds between two sweeps, at least ' . self::MIN_INTERVAL_S . '.' ],
 				[ 'name' => 'max_age_s', 'type' => 'int', 'default' => self::DEFAULT_MAX_AGE_S, 'description' => 'Seconds an entry may stay parked from its first park, and the queue\'s retention by age; at least 1.' ],
 			],
-			'commands'    => [],
+			'commands'    => [
+				[
+					'name'        => 'set_read_capability',
+					'description' => 'Name the WordPress capability a raw read of the queue needs. The queue writes it to a .read-capability marker at once when its dir exists, else before its first flush; the sweep\'s cursor and dead letters copy it, and a raw-logs verb, the catalog and the SSE stream refuse them to a caller without it (ADR-39).',
+					'args'        => [
+						[ 'name' => 'capability', 'type' => 'string', 'required' => true, 'description' => 'Lowercase letters, digits and underscores.' ],
+					],
+					'setter'      => 'read_capability',
+				],
+			],
 		];
 	}
 }

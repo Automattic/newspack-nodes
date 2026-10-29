@@ -277,4 +277,26 @@ class TailTest extends TestCase {
 		@\unlink( $outside );
 	}
 
+	/** A Tail over a gated Log whose file ends in digits gates its cursor and dead letters. */
+	public function test_a_tail_of_a_gated_log_whose_file_ends_in_digits_marks_its_sidecars(): void {
+		$log = new \Newspack_Nodes\Log_Node();
+		$log->arguments( [ "{$this->tmp}/intel-notes.0" ] );
+		$log->set_read_capability( 'harbor_ledger_reader' );
+		$this->produce_into( $log, 'restricted note 6113' );
+		$tail = new Tail_Node();
+		$tail->name( 'notes-tail' );
+		$tail->sink( new Capture_Sink_Node() );
+
+		$tail->arguments( [ "{$this->tmp}/intel-notes.0", "{$this->tmp}/offsets/notes-tail.p0", "{$this->tmp}/deadletter/notes-tail.p0" ] );
+		$tail->next_offset( 0 );
+		$tail->drain();
+		$tail->checkpoint();
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'spiked note 6113';
+		( new \ReflectionMethod( $tail, 'dead_letter' ) )->invoke( $tail, $message, 'throw', null );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/offsets/notes-tail.p0/.read-capability" ) );
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/deadletter/notes-tail.p0/.read-capability" ) );
+	}
 }

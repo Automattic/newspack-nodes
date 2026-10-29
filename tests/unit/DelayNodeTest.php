@@ -452,6 +452,44 @@ class DelayNodeTest extends TestCase {
 		);
 	}
 
+	public function test_set_read_capability_round_trips_through_dump_config(): void {
+		$delay = $this->delay();
+
+		$this->assertSame( "ok\n", Core::node( self::NAME . ':config' )->dispatch( 'set_read_capability', [ 'harbor_ledger_reader' ] ) );
+
+		$this->assertStringContainsString( "command_node later-5521:config set_read_capability harbor_ledger_reader\n", $delay->dump_config() );
+	}
+
+	/** A gated Delay's queue, and the sweep's cursor over it, carry the marker. */
+	public function test_a_gated_delay_marks_its_queue_and_its_sweeps_cursor(): void {
+		$delay = $this->delay();
+		Core::node( self::NAME . ':config' )->dispatch( 'set_read_capability', [ 'harbor_ledger_reader' ] );
+		$this->park( $delay, [ 'not_before' => self::T0 + 600, 'item' => 'ledger 6113' ], 'ledger-key-6113' );
+
+		$this->sweep_at( $delay, self::T0 + 5 );
+
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/logs/later.p3/.read-capability" ) );
+		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$this->tmp}/offsets/later-sweep.p3/.read-capability" ) );
+	}
+
+	public function test_an_ungated_delay_marks_nothing(): void {
+		$delay = $this->delay();
+		$this->park( $delay, [ 'not_before' => self::T0 + 600, 'item' => 'public 6113' ], 'public-key-6113' );
+
+		$this->sweep_at( $delay, self::T0 + 5 );
+
+		$this->assertFileDoesNotExist( "{$this->tmp}/logs/later.p3/.read-capability" );
+		$this->assertFileDoesNotExist( "{$this->tmp}/offsets/later-sweep.p3/.read-capability" );
+	}
+
+	public function test_set_read_capability_refuses_a_malformed_name(): void {
+		$this->delay();
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "invalid read capability: 'Harbor-Ledger'" );
+		Core::node( self::NAME . ':config' )->dispatch( 'set_read_capability', [ 'Harbor-Ledger' ] );
+	}
+
 	public function test_the_sweep_rides_a_recurring_timer_at_interval_s(): void {
 		$delay = $this->delay();
 

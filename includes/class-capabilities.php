@@ -36,8 +36,10 @@
  * Know what you grant: `read` is not just the shaped dashboards. It reaches
  * the RAW log firehose — request URLs, hooks, payloads — live on the SSE
  * stream beside worker IPC and REPL output, and record by record through
- * `Raw_Logs_CI_Node`'s `read_message` and `read_block` verbs. The map is fully trusted too: a
- * filter can LOWER `manage` below manage_options, and there is no floor.
+ * `Raw_Logs_CI_Node`'s `read_message` and `read_block` verbs, for every log
+ * whose dir carries no read-capability marker (ADR-39). The
+ * map is fully trusted too: a filter can LOWER `manage` below
+ * manage_options, and there is no floor.
  *
  * @package Newspack_Nodes
  */
@@ -59,6 +61,9 @@ class Capabilities {
 
 	/** Fleet control, the credential vault, and issuing command sessions. */
 	public const MANAGE = 'manage';
+
+	/** A WordPress capability name: lowercase letters, digits and underscores. */
+	public const NAME_PATTERN = '/^[a-z0-9_]+$/D';
 
 	/**
 	 * A scope covering nothing. Deliberately off the ladder: `Command_Auth`
@@ -274,6 +279,24 @@ class Capabilities {
 		$held = \array_search( $scope, self::LADDER, true );
 		$want = \array_search( $role, self::LADDER, true );
 		return false !== $held && false !== $want && $held >= $want;
+	}
+
+	/**
+	 * A log's read capability as a topology declares it, refused unless it
+	 * spells a WordPress capability: lowercase letters, digits and
+	 * underscores. A Partition, a Log and a Delay refuse it at load through
+	 * this one rule, and a marker on disk is read by `NAME_PATTERN` (ADR-39).
+	 *
+	 * @param string $cap The capability a raw read of the log needs.
+	 * @return string The capability, unchanged.
+	 * @throws \InvalidArgumentException On an empty or malformed name.
+	 */
+	public static function read_capability( string $cap ): string {
+		if ( 1 !== \preg_match( self::NAME_PATTERN, $cap ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \InvalidArgumentException( "invalid read capability: '{$cap}' (want lowercase letters, digits and underscores)" );
+		}
+		return $cap;
 	}
 
 	/**

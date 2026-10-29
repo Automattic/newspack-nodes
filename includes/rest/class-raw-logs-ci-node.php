@@ -11,7 +11,9 @@
  * Live tailing belongs to `SSE_Out_Node`, not to this interpreter.
  *
  * A `log` no dir or registry entry carries is refused, never defaulted: a
- * paused step handed another log's record would read the wrong stream.
+ * paused step handed another log's record would read the wrong stream. A
+ * log whose read-capability marker names a capability the caller lacks is
+ * refused by name, and left out of the catalog (ADR-39).
  *
  * @package Newspack_Nodes
  */
@@ -57,6 +59,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * like a group, or named outside the stamp grammar `is_stamp()` reads,
 	 * has no stamp a stream could open, so it takes an unavailable row
 	 * carrying the refusal and no key, as a dir the scan could not read does.
+	 * A dir gated on a capability the caller lacks is left out (ADR-39).
 	 *
 	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 */
@@ -64,6 +67,9 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		$result = [];
 		foreach ( Log_Discovery::groups() as $group => $names ) {
 			foreach ( $names as $name ) {
+				if ( ! Log_Discovery::listable( $group, $name ) ) {
+					continue;
+				}
 				try {
 					$key = Log_Discovery::stamp_for( $group, $name );
 				} catch ( \InvalidArgumentException $e ) {

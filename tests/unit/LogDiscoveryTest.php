@@ -327,4 +327,14 @@ class LogDiscoveryTest extends TestCase {
 		$this->expectExceptionMessageMatches( '/base_directory not configured/' );
 		Log_Discovery::on_disk();
 	}
+
+	/** A Log whose file ends in digits keeps its own marker, read before a stripped base's. */
+	public function test_a_log_whose_file_ends_in_digits_is_gated_by_its_own_marker(): void {
+		\mkdir( "{$this->tmp}/logs", 0700, true );
+		\file_put_contents( "{$this->tmp}/logs/.intel-notes.0.read-capability", "harbor_ledger_reader\n" );
+
+		$this->assertSame( 'harbor_ledger_reader', Log_Discovery::gate_of_file( "{$this->tmp}/logs/intel-notes.0" ) );
+		$this->assertSame( 'harbor_ledger_reader', Log_Discovery::gate_of_file( "{$this->tmp}/logs/intel-notes.0.7" ) );
+		$this->assertNull( Log_Discovery::gate_of_file( "{$this->tmp}/logs/intel-notes" ) );
+	}
 }

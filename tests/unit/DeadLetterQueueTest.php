@@ -32,6 +32,10 @@ class Stopping_Sink_Node extends Node {
 class Dead_Letter_Queue_Double extends Node {
 	use Dead_Letter_Queue;
 
+	protected function sidecar_gate(): ?string {
+		return null;
+	}
+
 	public function fill( array $message ): void {}
 
 	public function build_dlq( string $dir ): ?Partition_Node {

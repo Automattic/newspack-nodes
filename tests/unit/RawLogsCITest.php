@@ -10,11 +10,13 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
@@ -885,5 +887,166 @@ class RawLogsCITest extends TestCase {
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
+	}
+
+	// -------------------------------------------------------------------------
+	// A log carrying a read-capability marker, and every dir derived from it.
+	// -------------------------------------------------------------------------
+
+	private const GATE_CAP = 'harbor_ledger_reader';
+
+	/**
+	 * Write, through real nodes and with no topology active, a gated
+	 * `ledger-items.p0`, a reader's cursor and dead letters over it, a gated
+	 * Log, an ungated `ledger-public.p0`, and the dirs a reshaped fleet leaves
+	 * behind: a `ledger-items.p2` past a shrunk partition count and a renamed
+	 * reader's old dead letters.
+	 */
+	private function gate_ledger(): void {
+		foreach ( [ 'ledger-items.p0', 'ledger-items.p2' ] as $dir ) {
+			$log = new Partition_Node();
+			$log->arguments( [ "{$this->tmp}/logs/{$dir}" ] );
+			$log->set_read_capability( self::GATE_CAP );
+			$this->produce_into( $log, "restricted body 6113 in {$dir}" );
+		}
+		$public = new Partition_Node();
+		$public->arguments( [ "{$this->tmp}/logs/ledger-public.p0" ] );
+		$this->produce_into( $public, 'public body 6113 in ledger-public.p0' );
+		$notes = new \Newspack_Nodes\Log_Node();
+		$notes->arguments( [ "{$this->tmp}/logs/ledger-notes.jsonl" ] );
+		$notes->set_read_capability( self::GATE_CAP );
+		$notes->fill( $this->produce( 'restricted note 6113' ) );
+		$notes->flush();
+		foreach ( [ 'ledger-items.p0', 'old-reader.ledger-items.p0' ] as $reader ) {
+			$c = new Consumer_Node();
+			$c->name( "reader-{$reader}" );
+			$c->sink( new Capture_Sink_Node() );
+			$c->arguments( [ "{$this->tmp}/logs/ledger-items.p0", "{$this->tmp}/offsets/{$reader}", "{$this->tmp}/deadletter/{$reader}" ] );
+			$c->drain();
+			$c->checkpoint();
+			$poison                   = Message::new_message();
+			$poison[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$poison[ Message::VALUE ] = 'restricted poison 6113';
+			( new \ReflectionMethod( Consumer_Node::class, 'dead_letter' ) )->invoke( $c, $poison, 'throw', null );
+			$c->remove_node();
+		}
+		$this->use_base_dir(
+			$this->tmp,
+			[
+				'num_partitions' => 1,
+				'topologies'     => [],
+				'log_sources'    => [
+					"ledger-leak={$this->tmp}/logs/ledger-items.p0/0.log",
+					"ledger-notes={$this->tmp}/logs/ledger-notes.jsonl.0",
+				],
+			]
+		);
+		Log_Discovery::reset();
+	}
+
+	/** @return array<string,array{0:string,1:list<string>}> */
+	public static function gated_reads(): array {
+		return [
+			'dump_log'                          => [ 'dump_log', [ 'ledger-items.p0' ] ],
+			'read_message'                      => [ 'read_message', [ 'ledger-items.p0', 'start' ] ],
+			'read_block'                        => [ 'read_block', [ 'ledger-items.p0', 'start' ] ],
+			'a shrunk partition\'s p2'          => [ 'read_message', [ 'ledger-items.p2', 'start' ] ],
+			'its reader\'s cursor'              => [ 'read_message', [ 'offsets:ledger-items.p0', 'start' ] ],
+			'its reader\'s dead letters'        => [ 'read_message', [ 'deadletter:ledger-items.p0', 'start' ] ],
+			'a renamed reader\'s dead letters'  => [ 'dump_log', [ 'deadletter:old-reader.ledger-items.p0' ] ],
+			'a file source inside a gated dir'  => [ 'read_message', [ 'sources:ledger-leak', 'start' ] ],
+			'a file source on a gated Log\'s segment' => [ 'read_message', [ 'sources:ledger-notes', 'start' ] ],
+		];
+	}
+
+	/**
+	 * Nothing declares these logs any longer: the marker on disk is the gate.
+	 *
+	 * @param list<string> $args
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'gated_reads' )]
+	public function test_a_marked_log_is_refused_to_a_caller_without_its_capability( string $verb, array $args ): void {
+		$this->gate_ledger();
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', $verb, $args );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( "permission denied: log \"{$args[0]}\" needs the " . self::GATE_CAP . ' capability', $result );
+		$this->assertStringNotContainsString( '6113', $result );
+	}
+
+	public function test_a_marked_log_reads_for_a_holder_of_its_capability(): void {
+		$this->gate_ledger();
+		$GLOBALS['_wp_test_current_user_can'][ self::GATE_CAP ] = true;
+
+		$record = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-items.p0', 'start' ] );
+		VerbHarness::reset();
+		[ $batch ] = $this->read_block( [ 'ledger-items.p0', 'start' ] );
+
+		$this->assertSame( 'restricted body 6113 in ledger-items.p0', $record['message'][ Message::VALUE ] );
+		$this->assertStringContainsString( 'restricted body 6113', $batch[ Message::VALUE ] );
+		$this->assertStringNotContainsString( 'harbor_ledger_reader', $batch[ Message::VALUE ], 'the marker is no segment' );
+	}
+
+	public function test_the_listing_omits_a_marked_log_and_what_derives_from_it(): void {
+		$this->gate_ledger();
+
+		$keys = \array_column( VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' ), 'key' );
+
+		$this->assertSame( [ 'ledger-public.p0' ], $keys );
+	}
+
+	public function test_the_listing_offers_a_marked_log_to_a_holder_and_no_marker_as_a_log(): void {
+		$this->gate_ledger();
+		$GLOBALS['_wp_test_current_user_can'][ self::GATE_CAP ] = true;
+
+		$keys = \array_column( VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' ), 'key' );
+
+		$this->assertSame(
+			[
+				'ledger-items.p0',
+				'ledger-items.p2',
+				'ledger-public.p0',
+				'offsets:ledger-items.p0',
+				'offsets:old-reader.ledger-items.p0',
+				'deadletter:ledger-items.p0',
+				'deadletter:old-reader.ledger-items.p0',
+				'sources:ledger-leak',
+				'sources:ledger-notes',
+			],
+			$keys
+		);
+	}
+
+	/** A marker that does not read as a capability refuses everyone, a holder included. */
+	public function test_a_malformed_marker_refuses_every_caller(): void {
+		$this->gate_ledger();
+		\file_put_contents( "{$this->tmp}/logs/ledger-public.p0/.read-capability", "Harbor-Ledger reader\n" );
+		$GLOBALS['_wp_test_current_user_can'][ self::GATE_CAP ] = true;
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'permission denied: log "ledger-public.p0" carries a read-capability marker that does not read', $result );
+	}
+
+	/** An idle log declared after its data was written is refused at once. */
+	public function test_an_idle_log_declared_after_its_data_is_refused_at_once(): void {
+		$this->gate_ledger();
+		$late = new Partition_Node();
+		$late->arguments( [ "{$this->tmp}/logs/ledger-public.p0" ] );
+
+		$late->set_read_capability( 'quay_manifest_reader' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
+
+		$this->assertSame( "permission denied: log \"ledger-public.p0\" needs the quay_manifest_reader capability\n", $result );
+	}
+
+	public function test_an_unmarked_log_beside_a_marked_one_reads_for_anyone(): void {
+		$this->gate_ledger();
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
+
+		$this->assertSame( 'public body 6113 in ledger-public.p0', $result['message'][ Message::VALUE ] );
 	}
 }

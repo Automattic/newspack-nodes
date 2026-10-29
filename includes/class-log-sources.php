@@ -75,14 +75,18 @@ class Log_Sources {
 	 * stamp, because it names no log; one failure never blanks the picker.
 	 * Every source is offered its listing, and a stop among the failures
 	 * escapes carrying the rest, which is `Worker_Should_Stop`'s rule. A file
-	 * two names reach is listed once, under the first; both still resolve.
+	 * two names reach is listed once, under the first; both still resolve. A
+	 * source gated on a capability the caller lacks is left out (ADR-39).
 	 *
 	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 * @throws Worker_Should_Stop When a stop is among the failures, carrying the rest.
 	 */
 	public static function catalog(): array {
 		[ $entries, $unreadable ] = self::readable_registry();
-		$registry                 = self::dedupe_by_realpath( $entries );
+		$registry                 = \array_filter(
+			self::dedupe_by_realpath( $entries ),
+			static fn ( array $entry ): bool => Log_Discovery::may_read( Log_Discovery::gate_of_file( $entry['path'] ) )
+		);
 		$rows                     = \array_fill_keys( \array_keys( $registry ), null );
 		$failed                    = Worker_Should_Stop::attempt_each(
 			$registry,
@@ -136,15 +140,6 @@ class Log_Sources {
 	 */
 	public static function is_available( array $entry ): bool {
 		return [] !== self::entry_footprint( $entry )['segments'];
-	}
-
-	/**
-	 * The stamp a registry name streams under.
-	 *
-	 * @param string $name Registry name.
-	 */
-	private static function stamp( string $name ): string {
-		return Log_Discovery::stamp_for( Log_Discovery::SOURCES_PREFIX, $name );
 	}
 
 	/**
@@ -396,19 +391,31 @@ class Log_Sources {
 	/**
 	 * The registry entry a name keys, or the ONE teaching error for a name
 	 * it lacks, naming every source there is — the REPL, the single-step
-	 * read and the SSE stream all phrase it identically.
+	 * read and the SSE stream all phrase it identically. A source gated on a
+	 * capability the caller lacks is refused by name (ADR-39).
 	 *
 	 * @param string $name Registry name.
 	 * @return array{path: string, mode: string}
-	 * @throws \InvalidArgumentException On a name the registry lacks.
+	 * @throws \InvalidArgumentException On a name the registry lacks, or a
+	 *                                   gated source the caller may not read.
 	 * @throws \Throwable What an active topology that will not read raised.
 	 */
 	public static function entry( string $name ): array {
 		$registry = self::registry();
-		if ( isset( $registry[ $name ] ) ) {
-			return $registry[ $name ];
+		if ( ! isset( $registry[ $name ] ) ) {
+			throw self::unknown_source( $name, \array_keys( $registry ) );
 		}
-		throw self::unknown_source( $name, \array_keys( $registry ) );
+		Log_Discovery::admit( self::stamp( $name ), Log_Discovery::gate_of_file( $registry[ $name ]['path'] ) );
+		return $registry[ $name ];
+	}
+
+	/**
+	 * The stamp a registry name streams under.
+	 *
+	 * @param string $name Registry name.
+	 */
+	private static function stamp( string $name ): string {
+		return Log_Discovery::stamp_for( Log_Discovery::SOURCES_PREFIX, $name );
 	}
 
 	/**

@@ -770,7 +770,7 @@ role rather than the loosest.
 | `classes` | [`Classes_CI_Node`](../includes/rest/class-classes-ci-node.php) | `dump` (read) |
 | `layouts` | [`Layouts_CI_Node`](../includes/rest/class-layouts-ci-node.php) | `get` (read), `save` (tune) |
 | `topologies` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php) | `dump` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input`, `mount_tables` (manage) |
-| `raw-logs` | [`Raw_Logs_CI_Node`](../includes/rest/class-raw-logs-ci-node.php) | `list_logs`, `dump_log`, `read_message`, `read_block` (read) |
+| `raw-logs` | [`Raw_Logs_CI_Node`](../includes/rest/class-raw-logs-ci-node.php) | `list_logs`, `dump_log`, `read_message`, `read_block` (read; a log carrying a read-capability marker also needs its capability, [ADR-39](architecture-decisions.md#adr-39-a-log-declares-the-capability-a-raw-read-of-it-needs)) |
 | `vault` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php) | `list`, `get`, `add`, `update`, `delete`, `test` (manage) |
 | `aggregator` | [`Aggregator_CI_Node`](../includes/rest/class-aggregator-ci-node.php) | `summary` (read), `list_servers` (read), `probe` (manage — on-demand per-spoke deep roll-up) |
 | `settings` | [`Settings_CI_Node`](../includes/rest/class-settings-ci-node.php) | `get` (read), `set` (tune) |
@@ -1423,7 +1423,15 @@ so `read_message`, `read_block` and `dump_log` refuse what the stream refuses, w
 message.
 
 **Permission**: inherited from `/messages/stream` — the fleet gate, then the
-READ role, with no nonce.
+READ role, with no nonce. A dir carrying a `.read-capability` marker — a log
+whose topology declared `set_read_capability <cap>`, its write quarantine, and
+every reader's cursor and dead letters over it — also needs
+`current_user_can( <cap> )`
+([ADR-39](architecture-decisions.md#adr-39-a-log-declares-the-capability-a-raw-read-of-it-needs)):
+`dump_log`, `read_message`, `read_block` and an exact subscription refuse such a
+log with `permission denied: log "<stamp>" needs the <cap> capability`, a glob
+leaves it out, and `list_logs` omits it. The marker stays after the declaration
+goes, and a marker that will not read refuses everyone.
 
 ### Subscription parameters
 

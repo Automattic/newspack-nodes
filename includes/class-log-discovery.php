@@ -9,6 +9,11 @@
  * soon as its directory exists, with no registration step and no
  * per-application catalog to keep in step with the topologies.
  *
+ * Every stamp a raw read resolves passes the dir's gate too, read from the
+ * `READ_MARKER` its writer left there (ADR-39): `dir_of()` refuses a gated
+ * dir to a caller without its capability, `dirs_matching()` leaves one out,
+ * and `Log_Sources::entry()` refuses a gated source the same way.
+ *
  * @package Newspack_Nodes
  */
 
@@ -62,6 +67,22 @@ final class Log_Discovery {
 	 * `dir_of()` joins a dir stamp onto one of these roots and no other.
 	 */
 	public const GROUPS = [ 'logs', ...self::READER_GROUPS ];
+
+	/**
+	 * The file in a log's dir naming the capability a raw read of it needs
+	 * (ADR-39): the capability and a newline. Its leading `.` keeps it out
+	 * of every glob, segment pattern and listing the runtime reads.
+	 */
+	public const READ_MARKER = '.read-capability';
+
+	/**
+	 * The gate a marker that does not read stands for: WordPress refuses
+	 * `do_not_allow` to every user, a super admin included, so it fails closed.
+	 */
+	public const UNREADABLE_GATE = 'do_not_allow';
+
+	/** The most bytes a marker read takes: a capability, its newline, one more. */
+	private const MAX_MARKER_BYTES = 256;
 
 	/** The stamp prefix naming a `Log_Sources` registry entry: `sources:<name>`. */
 	public const SOURCES_PREFIX = 'sources';
@@ -137,16 +158,37 @@ final class Log_Discovery {
 	 * name the guard refuses are refused, so no stamp reaches a dir the
 	 * stream would not. It reads no listing: a broker's root and a Consumer's
 	 * cursor are both one flat name, which no shape tells apart, so a root
-	 * resolves to its dir, which holds no segments.
+	 * resolves to its dir, which holds no segments. A dir a log's read
+	 * capability gates is refused to a caller without it (ADR-39).
 	 *
 	 * @param string $stamp A dir stamp: `firehose.p0`, `offsets:…`, `deadletter:…`, `offsets:<root>:<stamp>`.
 	 * @param string $base  The runtime base the roots sit under.
 	 * @return string|null The absolute dir, or null when it does not exist.
-	 * @throws \InvalidArgumentException On a stamp the guard refuses.
+	 * @throws \InvalidArgumentException On a stamp the guard refuses, or a gated
+	 *                                   dir the caller may not read.
 	 */
 	public static function dir_of( string $stamp, string $base ): ?string {
 		[ , $dir ] = self::guarded( $stamp, $base, false );
+		self::admit( $stamp, self::gate_of_dir( $dir ) );
 		return \is_dir( $dir ) ? $dir : null;
+	}
+
+	/**
+	 * Refuse a raw read of a log to a caller without the capability its gate
+	 * names, naming the log and the capability; a gate that will not read
+	 * refuses everyone.
+	 *
+	 * @param string      $stamp The log as the caller named it.
+	 * @param string|null $gate  Its gate, from `gate_of_dir()` or `gate_of_file()`.
+	 * @throws \InvalidArgumentException When the caller may not read it.
+	 */
+	public static function admit( string $stamp, ?string $gate ): void {
+		if ( self::may_read( $gate ) ) {
+			return;
+		}
+		$why = self::UNREADABLE_GATE === $gate ? 'carries a read-capability marker that does not read' : "needs the {$gate} capability";
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		throw new \InvalidArgumentException( "permission denied: log \"{$stamp}\" {$why}" );
 	}
 
 	/**
@@ -157,7 +199,8 @@ final class Log_Discovery {
 	 * reader stamp matches its own dir. A broker's root is not a match, as the
 	 * catalog lists none, and a glob reaches none of its readers, since no
 	 * glob names a root. A match whose stamp `is_stamp()` refuses is left out,
-	 * so a glob opens no dir `dir_of()` would refuse. A glob I/O fault
+	 * so a glob opens no dir `dir_of()` would refuse, and a dir gated on a
+	 * capability the caller lacks is left out too (ADR-39). A glob I/O fault
 	 * answers null rather than an empty map, so a caller never mistakes it
 	 * for "nothing there".
 	 *
@@ -181,7 +224,7 @@ final class Log_Discovery {
 				continue;
 			}
 			$stamp = self::stamp_for( $group, $name );
-			if ( self::is_stamp( $stamp ) ) {
+			if ( self::is_stamp( $stamp ) && self::may_read( self::gate_of_dir( $dir ) ) ) {
 				$dirs[ $stamp ] = $dir;
 			}
 		}
@@ -265,6 +308,85 @@ final class Log_Discovery {
 			&& self::SOURCES_PREFIX !== $group
 			&& ! \str_starts_with( $rest, '*' )
 			&& Log_Sources::is_valid_name( \str_replace( '*', 'a', $rest ) );
+	}
+
+	/**
+	 * Whether a catalog may list the dir a group's entry names.
+	 *
+	 * @param string $group A `GROUPS` root.
+	 * @param string $name  An entry `groups()` lists under it.
+	 * @throws \RuntimeException When the runtime base directory will not resolve.
+	 */
+	public static function listable( string $group, string $name ): bool {
+		return self::may_read( self::gate_of_dir( self::path( Config::get_base_directory(), $group, $name ) ) );
+	}
+
+	/**
+	 * Whether the caller may read a log behind `$gate`: an ungated log, or
+	 * one whose capability `current_user_can()` answers for. No user holds
+	 * one, and nobody holds `UNREADABLE_GATE`.
+	 *
+	 * @param string|null $gate The log's gate, or null for none.
+	 */
+	public static function may_read( ?string $gate ): bool {
+		return null === $gate || ( \function_exists( 'current_user_can' ) && \current_user_can( $gate ) );
+	}
+
+	/**
+	 * A file's gate: its dir's, so a segment inside a gated Partition is
+	 * gated; else the marker of the Log it is; else, with a trailing `.N`
+	 * cut, the marker of the Log it is a segment of. The file's own marker
+	 * is read first, so a Log whose `{file}` ends in digits is its own.
+	 *
+	 * @param string $file A registry source's path, a Log's `{file}` or a file.
+	 * @return string|null The capability, `UNREADABLE_GATE`, or null.
+	 */
+	public static function gate_of_file( string $file ): ?string {
+		if ( '' === $file ) {
+			return null;
+		}
+		$log = (string) \preg_replace( '/\.\d+$/D', '', $file );
+		return self::gate_of_dir( \dirname( $file ) )
+			?? self::marker_gate( self::log_marker( $file ) )
+			?? ( $log === $file ? null : self::marker_gate( self::log_marker( $log ) ) );
+	}
+
+	/**
+	 * Where a Log writing `{file}.{seg}` keeps its marker: `.<file>` plus
+	 * `READ_MARKER` beside its segments, since the dir it sits in is shared.
+	 *
+	 * @param string $file The Log's `{file}`.
+	 */
+	public static function log_marker( string $file ): string {
+		return \dirname( $file ) . '/.' . \basename( $file ) . self::READ_MARKER;
+	}
+
+	/**
+	 * A dir's gate (ADR-39): the capability its marker names, null when it
+	 * carries none, and `UNREADABLE_GATE` when the marker does not read.
+	 *
+	 * @param string $dir A partition, cursor or quarantine dir.
+	 * @return string|null The capability, or null.
+	 */
+	public static function gate_of_dir( string $dir ): ?string {
+		return '' === $dir ? null : self::marker_gate( "{$dir}/" . self::READ_MARKER );
+	}
+
+	/**
+	 * What a marker names: null when there is none, the capability when it
+	 * reads as one, and `UNREADABLE_GATE` for anything else, so a marker
+	 * damaged or unreadable fails closed.
+	 *
+	 * @param string $marker The marker's path.
+	 */
+	private static function marker_gate( string $marker ): ?string {
+		if ( ! \file_exists( $marker ) ) {
+			return null;
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- a marker on local disk.
+		$text = @\file_get_contents( $marker, false, null, 0, self::MAX_MARKER_BYTES );
+		$cap  = \is_string( $text ) && \str_ends_with( $text, "\n" ) ? \substr( $text, 0, -1 ) : '';
+		return 1 === \preg_match( Capabilities::NAME_PATTERN, $cap ) ? $cap : self::UNREADABLE_GATE;
 	}
 
 	/**
@@ -509,6 +631,16 @@ final class Log_Discovery {
 	 */
 	public static function is_glob( string $sub ): bool {
 		return \str_contains( $sub, '*' );
+	}
+
+	/**
+	 * Whether a dir entry is a read marker: a dir's own `READ_MARKER`, or a
+	 * Log's `.<file>` plus `READ_MARKER` beside its segments.
+	 *
+	 * @param string $name A dir entry's basename.
+	 */
+	public static function is_read_marker( string $name ): bool {
+		return \str_starts_with( $name, '.' ) && \str_ends_with( $name, self::READ_MARKER );
 	}
 
 	/**

@@ -203,20 +203,24 @@ trait Durable_Reader {
 	/**
 	 * Commit one frame: mint a TM_STRUCT Message stamped FROM this node, carry the
 	 * caller's VALUE, fill the offsetlog and flush synchronously (don't wait on the
-	 * Partition's PIPE_BUF threshold — a cursor frame must be durable now).
+	 * Partition's PIPE_BUF threshold — a cursor frame must be durable now). The
+	 * offsetlog takes the source's gate first, so a source marked after this
+	 * reader was built gates its cursor from the next frame on (ADR-39).
 	 *
 	 * @param array<array-key,mixed> $value The caller-owned frame schema.
 	 */
 	protected function commit_offsetlog_frame( array $value ): void {
-		if ( null === $this->offsetlog ) {
+		$offsetlog = $this->offsetlog;
+		if ( null === $offsetlog ) {
 			return;
 		}
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::FROM ]  = $this->name;
 		$message[ Message::VALUE ] = $value;
-		$this->offsetlog->fill( $message );
-		$this->offsetlog->flush();
+		$this->gate_sidecar( $offsetlog );
+		$offsetlog->fill( $message );
+		$offsetlog->flush();
 	}
 
 	/**

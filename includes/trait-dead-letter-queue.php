@@ -281,6 +281,7 @@ trait Dead_Letter_Queue {
 			// Staged for the .idx callback; cleared in the finally.
 			$this->deadletter_reason = $reason;
 			try {
+				$this->gate_sidecar( $quarantine );
 				$quarantine->fill( $message );
 				$quarantine->flush();
 			} catch ( \Throwable $e ) {

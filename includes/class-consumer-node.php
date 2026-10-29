@@ -983,6 +983,17 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
+	 * Gate seam: a reader's cursor and dead letters hold its source's records,
+	 * so they carry the gate its source's dir is marked with (ADR-39). Tail
+	 * reads its file's instead.
+	 *
+	 * @return string|null The source's gate, or null for none.
+	 */
+	protected function sidecar_gate(): ?string {
+		return Log_Discovery::gate_of_dir( $this->source_dir );
+	}
+
+	/**
 	 * Drop the state carried for a snapshot node this reader no longer names,
 	 * so it rides no later frame.
 	 *
