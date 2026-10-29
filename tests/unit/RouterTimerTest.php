@@ -23,7 +23,7 @@ class RouterTimerTest extends TestCase {
 		$listener->name( 't1' );
 
 		$router->register( 'TIMER', 't1' );
-		$this->assertTrue( true );
+		$this->assertSame( [ 'TIMER' => [ 't1' ] ], $router->registered_listeners() );
 	}
 
 	/**

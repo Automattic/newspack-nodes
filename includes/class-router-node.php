@@ -279,23 +279,25 @@ class Router_Node extends Timer_Node {
 			$this->drop_message( $message, 'breaking recursion' );
 			return;
 		}
-		$this->handling_error = true;
 		if ( $type & Message::TM_ERROR ) {
-			$this->handling_error = false;
 			return;
 		}
-		if ( Core::has_value( Core::as_string( $message[ Message::FROM ] ) ) ) {
-			$err                       = Message::new_message();
-			$err[ Message::TYPE ]      = Message::TM_ERROR;
-			$err[ Message::TIMESTAMP ] = Core::$now;
-			$err[ Message::FROM ]      = $message[ Message::TO ];
-			$err[ Message::TO ]        = $message[ Message::FROM ];
-			$err[ Message::ID ]        = $message[ Message::ID ];
-			$err[ Message::VALUE ]     = "{$error}\n";
-			$this->fill( $err );
+		$this->handling_error = true;
+		try {
+			if ( Core::has_value( Core::as_string( $message[ Message::FROM ] ) ) ) {
+				$err                       = Message::new_message();
+				$err[ Message::TYPE ]      = Message::TM_ERROR;
+				$err[ Message::TIMESTAMP ] = Core::$now;
+				$err[ Message::FROM ]      = $message[ Message::TO ];
+				$err[ Message::TO ]        = $message[ Message::FROM ];
+				$err[ Message::ID ]        = $message[ Message::ID ];
+				$err[ Message::VALUE ]     = "{$error}\n";
+				$this->fill( $err );
+			}
+			$this->drop_message( $message, $error );
+		} finally {
+			$this->handling_error = false;
 		}
-		$this->drop_message( $message, $error );
-		$this->handling_error = false;
 	}
 
 	/**
