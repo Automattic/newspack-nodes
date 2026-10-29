@@ -1019,6 +1019,12 @@ class Topology_Analyzer {
 					$seen[ 'deadletter:' . $values[5] ] = true;
 				}
 			}
+			// Delay: <node> <dir> <offsets_dir> <deadletter_dir>, sole-writer.
+			if ( 'make_node' === $verb && self::type_is( $class, Delay_Node::class ) ) {
+				$seen[ 'partition:' . ( $values[3] ?? '' ) ]  = true;
+				$seen[ 'offsetlog:' . ( $values[4] ?? '' ) ]  = true;
+				$seen[ 'deadletter:' . ( $values[5] ?? '' ) ] = true;
+			}
 			// Broker: <node> <vault> <offsetlog_root> <deadletter_root>
 			if ( 'make_node' === $verb && self::type_is( $class, Remote_Broker_Node::class ) ) {
 				// @longform Both roots are required; every reader nests under

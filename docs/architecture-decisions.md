@@ -652,10 +652,12 @@ A reader with no quarantine configured has nowhere to put poison, so `dead_lette
 the error that condemned the message and the successor replays it; a message condemned with no
 error — a crash suspect, a fair-shot strike — is reported and dropped.
 
-A sink that can tell a transient failure from poison catches it rather than let the reader
-dead-letter the message on sight: [`Job_Delay::sweep()`](../includes/class-job-delay.php) holds
-every failed delivery, raises them after the drain and skips the checkpoint, so an intake write
-that failed once replays next pass instead of landing in the sweep's quarantine.
+A delay queue does not dead-letter a delivery that throws at all: [`Delay_Node::circulate()`](../includes/class-delay-node.php),
+which the Delay node and `Job_Delay::sweep()` both run, holds the entry of every delivery that
+threw, re-appends it with the entries not yet due and commits the pass, answering the throws to
+its caller. The Delay node retries every delivery failure each sweep until `max_age_s` since the
+entry's first park drops it, and `Job_Delay` retries a failed job `RETRY_AFTER_S` on; a target that
+fails every pass never climbs the reader's attempt count into crawl.
 
 A quarantine that cannot be written is not a quarantine. `dead_letter()` then raises the write
 failure combined with the error that condemned the message, through

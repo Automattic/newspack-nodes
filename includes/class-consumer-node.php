@@ -1070,7 +1070,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * because the stream did not end.
 	 * A tick reads a chunk, so the stop lands between chunks, not between lines.
 	 *
-	 * @api Driven by Job_Delay's due sweep here, and across plugins by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
+	 * @api Driven by Delay_Node::circulate() here, and across plugins by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
 	 * @param (\Closure(): bool)|null $until Stop early once this answers true.
 	 * @return bool True when the read reached EOF, false when `$until` ended it.
 	 */
