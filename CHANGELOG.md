@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A Router answers route misses after a bounce that threw.** `send_error()` raised its recursion guard before bouncing a TM_ERROR back down the FROM trail, and cleared it only when the bounce returned. A bounce whose delivery threw, such as a cooperative stop rising from the node it reached, left the guard raised, and that Router then dropped every later miss's bounce as `breaking recursion` until its process ended. The guard is now cleared in a `finally`.
+
 ## [2.134.0] - 2026-10-27
 
 ### Added

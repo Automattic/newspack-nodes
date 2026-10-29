@@ -136,6 +136,41 @@ class RouterTest extends TestCase {
 		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
 	}
 
+	/**
+	 * The recursion guard spans one bounce only: a bounce whose delivery
+	 * throws leaves the Router answering the next route miss.
+	 */
+	public function test_a_bounce_that_throws_leaves_the_next_miss_answered(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$falls = new class() extends Capture_Sink_Node {
+			public function fill( array $message ): void {
+				throw new \RuntimeException( 'bounce refused' );
+			}
+		};
+		$falls->name( 'falls' );
+		$producer = new Capture_Sink_Node();
+		$producer->name( 'producer' );
+
+		$first                  = Message::new_message();
+		$first[ Message::TO ]   = 'ghost-one';
+		$first[ Message::FROM ] = 'falls';
+		try {
+			$router->fill( $first );
+			$this->fail( 'the bounce to falls should throw' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'bounce refused', $e->getMessage() );
+		}
+
+		$second                  = Message::new_message();
+		$second[ Message::TO ]   = 'ghost-two';
+		$second[ Message::FROM ] = 'producer';
+		$router->fill( $second );
+
+		$this->assertCount( 1, $producer->captured );
+		$this->assertSame( 'ghost-two', $producer->captured[0][ Message::FROM ] );
+	}
+
 	public function test_a_noreply_command_no_node_answers_throws_and_bounces_nothing(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
