@@ -669,7 +669,7 @@ class Vault {
 
 	/** Whether to verify a server's TLS certificate. Read by every transport. */
 	public static function verify_ssl(): bool {
-		return (bool) Config::value( 'vault_verify_ssl' );
+		return Config::bool( 'vault_verify_ssl' );
 	}
 
 	/**
@@ -694,7 +694,7 @@ class Vault {
 	 * @return bool True when the operator refuses plaintext servers.
 	 */
 	public static function require_ssl(): bool {
-		return (bool) Config::value( 'vault_require_ssl' );
+		return Config::bool( 'vault_require_ssl' );
 	}
 
 	/**

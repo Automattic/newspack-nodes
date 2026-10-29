@@ -255,6 +255,53 @@ class Config {
 	}
 
 	/**
+	 * The key a blank $key follows, or '' when a blank there reads the files:
+	 * $key follows nothing, or a config file sets it explicitly.
+	 *
+	 * @api
+	 * @param string $key Unprefixed substrate config key.
+	 * @throws \RuntimeException When the substrate schema does not declare $key, or a config file is invalid.
+	 */
+	public static function blank_follows( string $key ): string {
+		$field = '' === $key ? null : Settings_Schema::get()->field_for_short( $key );
+		if ( null === $field ) {
+			throw new \RuntimeException(
+				\sprintf( "unknown config key '%s' — not declared by the substrate schema", \esc_html( $key ) )
+			);
+		}
+		$set_by_a_file = null !== ( self::load_config_files()[ $key ] ?? null );
+		return $set_by_a_file ? '' : $field->follows;
+	}
+
+	/**
+	 * Read a declared `bool` key as a bool.
+	 *
+	 * A bool or an int 0 or 1 passes, a stored blank is off, and any other string reads as one
+	 * of `Command_Args::typed()`'s bool words. Anything else throws naming
+	 * the key, so a malformed value never chooses a posture by a cast.
+	 *
+	 * @api
+	 * @param string $key Unprefixed config key.
+	 * @return bool The key as a bool.
+	 * @throws \RuntimeException When the key is undeclared or does not hold a bool word.
+	 */
+	public static function bool( string $key ): bool {
+		$value = self::value( $key );
+		if ( \is_bool( $value ) ) {
+			return $value;
+		}
+		// A saved checkbox reads back from the options cache as int 1 or 0.
+		if ( 0 === $value || 1 === $value ) {
+			return 1 === $value;
+		}
+		$parsed = \is_string( $value ) ? ( '' === $value ? false : Command_Args::typed( $value, 'bool' ) ) : null;
+		if ( null === $parsed ) {
+			throw new \RuntimeException( \sprintf( "config key '%s' must be a bool", \esc_html( $key ) ) );
+		}
+		return true === $parsed;
+	}
+
+	/**
 	 * Fail-loud single-key config read: an undeclared key throws instead of
 	 * limping on a `?? default` — that's the guard that catches a renamed or
 	 * typo'd key. A declared key resolves to load_config()[$key] (option overlay
@@ -358,25 +405,6 @@ class Config {
 				self::$registered_keys[ $key ] = true;
 			}
 		}
-	}
-
-	/**
-	 * The key a blank $key follows, or '' when a blank there reads the files:
-	 * $key follows nothing, or a config file sets it explicitly.
-	 *
-	 * @api
-	 * @param string $key Unprefixed substrate config key.
-	 * @throws \RuntimeException When the substrate schema does not declare $key, or a config file is invalid.
-	 */
-	public static function blank_follows( string $key ): string {
-		$field = '' === $key ? null : Settings_Schema::get()->field_for_short( $key );
-		if ( null === $field ) {
-			throw new \RuntimeException(
-				\sprintf( "unknown config key '%s' — not declared by the substrate schema", \esc_html( $key ) )
-			);
-		}
-		$set_by_a_file = null !== ( self::load_config_files()[ $key ] ?? null );
-		return $set_by_a_file ? '' : $field->follows;
 	}
 
 	/**
