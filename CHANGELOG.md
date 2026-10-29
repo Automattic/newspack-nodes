@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.138.0] - 2026-10-29
+
 ### Fixed
 - **The three TLS keys read through `Config::bool()`, and a value that is not a boolean throws.** `spawn_verify_ssl` was read as `(bool) ( … ?? true )`, and `vault_verify_ssl` and `vault_require_ssl` as bare `(bool)` casts, so a null turned peer verification or the HTTPS requirement off. `Config::bool()` passes a bool or an int `0` or `1` (what a saved checkbox reads back as from the options cache), reads a stored `''` as off, and reads any other string as one of `Command_Args::typed()`'s bool words (`1`, `true`, `yes`, `on`, `0`, `false`, `no`, `off`); a null, an integer, an array, a whitespace string or any other word throws naming the key. Posture change: a stored `false`, `no` or `off` now disables verification where the old cast read it as on, and a value that is not a boolean now throws at plugin load, which takes down wp-admin and every `wp` command. Recover with `wp --skip-plugins=newspack-nodes option delete newspack_nodes_spawn_verify_ssl` (or `newspack_nodes_vault_verify_ssl`, `newspack_nodes_vault_require_ssl`), or correct the key in the config file.
 
