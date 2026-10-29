@@ -1,5 +1,6 @@
 import { createPortal, useRef } from '@wordpress/element';
 import { useDismissable } from '../hooks/useDismissable';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { submitProps } from '../utils/submitProps';
 import './Modal.scss';
 
@@ -50,7 +51,8 @@ export function ModalPortal( { children } ) {
  * `@wordpress/components` modal it was summoned from.
  *
  * Callers own their own initial focus, so each dialog can focus the element
- * that fits it.
+ * that fits it; `useFocusTrap` keeps Tab inside the box and hands focus back
+ * to the opener on close.
  *
  * Given `onSubmit`, the box itself is the dialog's `<form>` (see
  * `submitProps`), so Enter in a field runs the default action; the caller's
@@ -79,6 +81,7 @@ export default function Modal( {
 } ) {
 	const dialogRef = useRef( null );
 	useDismissable( dialogRef, onClose );
+	useFocusTrap( dialogRef );
 	const Box = onSubmit ? 'form' : 'div';
 
 	return (

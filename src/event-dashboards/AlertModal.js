@@ -25,6 +25,7 @@
 import { useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
+import { useFocusTrap } from '@newspack-nodes/shared/hooks/useFocusTrap';
 
 /**
  * @param {Object}     props
@@ -43,6 +44,7 @@ export default function AlertModal( { title, message, onClose } ) {
 	useEffect( () => okRef.current?.focus(), [] );
 	// ESC + click-outside; the backdrop is the region outside the dialog.
 	useDismissable( dialogRef, onClose );
+	useFocusTrap( dialogRef );
 
 	return (
 		<div className="nodes-tm__alert-backdrop" role="presentation">

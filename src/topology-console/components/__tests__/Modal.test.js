@@ -44,6 +44,22 @@ describe( 'ModalShell', () => {
 		).toBe( 'topology-modal__close newspack-nodes-modal__close' );
 	} );
 
+	it( 'wraps Tab from its last control back inside the panel', () => {
+		const { getByText, getByRole } = render(
+			<ModalShell title="t" onDismiss={ () => {} }>
+				<button type="button">last-523</button>
+			</ModalShell>
+		);
+		const last = getByText( 'last-523' );
+		last.focus();
+
+		expect( fireEvent.keyDown( last, { key: 'Tab' } ) ).toBe( false );
+		expect( document.activeElement ).not.toBe( last );
+		expect( getByRole( 'dialog' ).contains( document.activeElement ) ).toBe(
+			true
+		);
+	} );
+
 	it( 'renders its panel as a noValidate form when given onSubmit', () => {
 		const onSubmit = jest.fn();
 		const { baseElement } = render(

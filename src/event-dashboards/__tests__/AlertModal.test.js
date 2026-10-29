@@ -19,6 +19,30 @@ describe( 'AlertModal', () => {
 		expect( onClose ).toHaveBeenCalledTimes( 1 );
 	} );
 
+	it( 'returns focus to its opener on close', () => {
+		const { getByText } = render(
+			<button type="button">opener-611</button>
+		);
+		const opener = getByText( 'opener-611' );
+		opener.focus();
+		const { unmount } = render(
+			<AlertModal title="t" message="m" onClose={ jest.fn() } />
+		);
+
+		unmount();
+		expect( document.activeElement ).toBe( opener );
+	} );
+
+	it( 'keeps Tab on its one button', () => {
+		const { getByRole } = render(
+			<AlertModal title="t" message="m" onClose={ jest.fn() } />
+		);
+		const ok = getByRole( 'button', { name: 'OK' } );
+
+		expect( fireEvent.keyDown( ok, { key: 'Tab' } ) ).toBe( false );
+		expect( document.activeElement ).toBe( ok );
+	} );
+
 	it( 'renders the OK button with the canonical .button class, not a bespoke one', () => {
 		const { getByRole } = render(
 			<AlertModal title="t" message="m" onClose={ jest.fn() } />

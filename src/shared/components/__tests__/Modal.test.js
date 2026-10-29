@@ -4,6 +4,7 @@
  */
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import { useEffect, useRef } from '@wordpress/element';
 import Modal, { ModalPortal } from '../Modal';
 
 test( 'it renders a labelled dialog carrying the canonical modal role', () => {
@@ -47,6 +48,76 @@ test( 'a backdrop mousedown closes it but a click inside does not', () => {
 		document.body.querySelector( '.newspack-nodes-modal__backdrop' )
 	);
 	expect( onClose ).toHaveBeenCalledTimes( 1 );
+} );
+
+test( 'Tab and Shift+Tab wrap focus inside the dialog', () => {
+	render(
+		<Modal ariaLabel="x" onClose={ () => {} }>
+			<button type="button">first-417</button>
+			<input aria-label="middle-417" />
+			<button type="button">last-417</button>
+		</Modal>
+	);
+	const first = screen.getByText( 'first-417' );
+	const last = screen.getByText( 'last-417' );
+
+	last.focus();
+	fireEvent.keyDown( last, { key: 'Tab' } );
+	expect( document.activeElement ).toBe( first );
+
+	fireEvent.keyDown( first, { key: 'Tab', shiftKey: true } );
+	expect( document.activeElement ).toBe( last );
+} );
+
+test( 'Tab inside the dialog away from its edges is left to the browser', () => {
+	render(
+		<Modal ariaLabel="x" onClose={ () => {} }>
+			<button type="button">first-418</button>
+			<button type="button">last-418</button>
+		</Modal>
+	);
+	const first = screen.getByText( 'first-418' );
+	first.focus();
+
+	expect( fireEvent.keyDown( first, { key: 'Tab' } ) ).toBe( true );
+	expect( document.activeElement ).toBe( first );
+} );
+
+test( 'closing it returns focus to what opened it', () => {
+	render( <button type="button">opener-419</button> );
+	const opener = screen.getByText( 'opener-419' );
+	opener.focus();
+	const { unmount } = render(
+		<Modal ariaLabel="x" onClose={ () => {} }>
+			<button type="button">inside-419</button>
+		</Modal>
+	);
+	screen.getByText( 'inside-419' ).focus();
+
+	unmount();
+	expect( document.activeElement ).toBe( opener );
+} );
+
+test( 'closing it returns focus to the opener even when a child took focus on mount', () => {
+	const Autofocus = () => {
+		const ref = useRef( null );
+		useEffect( () => ref.current.focus(), [] );
+		return <input ref={ ref } aria-label="field-612" />;
+	};
+	render( <button type="button">opener-612</button> );
+	const opener = screen.getByText( 'opener-612' );
+	opener.focus();
+	const { unmount } = render(
+		<Modal ariaLabel="x" onClose={ () => {} }>
+			<Autofocus />
+		</Modal>
+	);
+	expect( document.activeElement ).toBe(
+		screen.getByLabelText( 'field-612' )
+	);
+
+	unmount();
+	expect( document.activeElement ).toBe( opener );
 } );
 
 test( 'the listener is removed on unmount', () => {
