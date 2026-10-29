@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.136.0] - 2026-10-29
+
 ### Fixed
 - **A modal dialog keeps keyboard focus inside it.** The shared `Modal`, the Overview's `AlertModal` and the topology console's `ModalShell` each declared `aria-modal="true"` but let Tab walk out to the page behind them. `useFocusTrap( ref )` (`@newspack-nodes/shared/hooks/useFocusTrap`) wraps Tab and Shift+Tab at the dialog's edges and, on close, returns focus to whatever held it when the dialog opened; all three dialogs call it.
 
