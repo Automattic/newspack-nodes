@@ -32,7 +32,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * @implements Curl_Owner<array{context:string,body:\Closure(): string}>
+ * @implements Curl_Owner<array{context:string,body:\Closure(): string,headers:\Closure(): array<string,string>}>
  */
 class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	use Schema_Reflection;
@@ -254,7 +254,7 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 			\CURLOPT_HTTPHEADER => $headers,
 			\CURLOPT_TIMEOUT    => self::REQUEST_TIMEOUT,
 		] + Vault::tls_opts();
-		if ( $this->start_transfer( $opts, $kind ) ) {
+		if ( $this->start_transfer( $opts, $kind, [] ) ) {
 			return;
 		}
 		$this->print_less_often( 'curl_init failed' );

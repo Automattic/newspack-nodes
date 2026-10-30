@@ -4,8 +4,9 @@
  * Event_Framework's shared multi.
  *
  * What a node that fetches one whole body needs and does not decide for
- * itself: the cap on that body, a buffer of its own per transfer, and the read
- * of the status and body once it completes. The Event_Framework owns the
+ * itself: the cap on that body, a buffer of its own per transfer, the
+ * response headers it names, and the read of the status and body once it
+ * completes. The Event_Framework owns the
  * handle — making it, holding it and releasing it — so a node supplies its
  * request opts, a context, and `on_transfer_done()`, and never sees a handle.
  *
@@ -29,6 +30,9 @@ trait Curl_Transfer {
 	/** Default cap on one response body, 8 MiB; it is buffered into the PHP heap. */
 	public const MAX_REPLY_BYTES = 8388608;
 
+	/** Bytes of one response header's value a transfer keeps. */
+	public const MAX_HEADER_BYTES = 256;
+
 	/**
 	 * libcurl result-read seam. Null reads the handle's HTTP code and the
 	 * transfer's own buffer. Tests reassign it to inject a status and a body,
@@ -48,16 +52,40 @@ trait Curl_Transfer {
 
 	/**
 	 * Add the body cap to a node's opts and start the transfer under
-	 * `$context`. Each transfer buffers into its own string, appended in place.
-	 * A dispatch that yields no handle starts nothing; the caller reports it.
+	 * `$context`. Each transfer buffers into its own string, appended in place,
+	 * and, when `$names` names any, keeps the first value of each of those
+	 * response headers, trimmed and cut to MAX_HEADER_BYTES, from the final
+	 * response's head alone: a status line starts the headers again, so a
+	 * redirect hop's give way, and the blank line ending a head stops them, so
+	 * a chunked body's trailers never land. A dispatch that yields no handle
+	 * starts nothing; the caller reports it.
 	 *
 	 * @param array<int,mixed> $opts    The node's own request opts.
 	 * @param TContext         $context What `on_transfer_done()` is handed back.
+	 * @param list<string>     $names   The response headers to keep, lowercased; none reads none.
 	 * @return bool Whether a transfer is now in flight.
 	 */
-	protected function start_transfer( array $opts, mixed $context ): bool {
-		$body  = '';
-		$cap   = $this->reply_cap();
+	protected function start_transfer( array $opts, mixed $context, array $names ): bool {
+		$body    = '';
+		$headers = [];
+		$cap     = $this->reply_cap();
+		if ( [] !== $names ) {
+			$ended = false;
+			$opts[ \CURLOPT_HEADERFUNCTION ] = static function ( $easy, string $line ) use ( &$headers, &$ended, $names ): int {
+				if ( \str_starts_with( $line, 'HTTP/' ) ) {
+					$headers = [];
+					$ended   = false;
+				} elseif ( '' === \trim( $line ) ) {
+					$ended = true;
+				} elseif ( ! $ended && 1 === \preg_match( '/^(' . Vault::HEADER_NAME . '):(.*)$/s', $line, $match ) ) {
+					$name = \strtolower( $match[1] );
+					if ( \in_array( $name, $names, true ) && ! isset( $headers[ $name ] ) ) {
+						$headers[ $name ] = \substr( \trim( $match[2] ), 0, self::MAX_HEADER_BYTES );
+					}
+				}
+				return \strlen( $line );
+			};
+		}
 		$opts += [
 			// MAXFILESIZE needs a declared length; the callback does the work.
 			\CURLOPT_MAXFILESIZE   => $cap,
@@ -75,6 +103,9 @@ trait Curl_Transfer {
 			'body'    => static function () use ( &$body ): string {
 				return $body;
 			},
+			'headers' => static function () use ( &$headers ): array {
+				return $headers;
+			},
 		];
 		if ( null === Event_Framework::instance()->start_curl( $this, $opts, $transfer ) ) {
 			return false;
@@ -90,13 +121,15 @@ trait Curl_Transfer {
 
 	/**
 	 * Read a finished transfer — its status and body when it completed, zero
-	 * and '' when libcurl failed it — and hand that to `on_transfer_done()`.
+	 * and '' when libcurl failed it — and hand that to `on_transfer_done()`,
+	 * with the response headers it kept, which the header callback, not the
+	 * result seam, fills.
 	 *
 	 * @api Called by the Event_Framework.
 	 *
-	 * @param \CurlHandle                                        $handle   The completed easy handle.
-	 * @param int                                                $result   The transfer's CURLE_* code.
-	 * @param array{context:TContext,body:\Closure(): string} $transfer What `start_transfer()` started it under.
+	 * @param \CurlHandle                                                                             $handle   The completed easy handle.
+	 * @param int                                                                                     $result   The transfer's CURLE_* code.
+	 * @param array{context:TContext,body:\Closure(): string,headers:\Closure(): array<string,string>} $transfer What `start_transfer()` started it under.
 	 */
 	public function on_curl_done( \CurlHandle $handle, int $result, mixed $transfer ): void {
 		--$this->in_flight;
@@ -115,6 +148,7 @@ trait Curl_Transfer {
 			// phpcs:enable
 			$response = $read( $handle );
 		}
+		$response['headers'] = ( $transfer['headers'] )();
 		$this->on_transfer_done( $result, $response, $transfer['context'] );
 	}
 
@@ -122,7 +156,7 @@ trait Curl_Transfer {
 	 * Act on one finished transfer.
 	 *
 	 * @param int                         $result   The transfer's CURLE_* code.
-	 * @param array{code:int,body:string,redirect:string} $response Its status, body and unfollowed Location; zero and '' unless CURLE_OK.
+	 * @param array{code:int,body:string,redirect:string,headers:array<string,string>} $response Its status, body, unfollowed Location and kept headers; zero and '' unless CURLE_OK.
 	 * @param TContext                    $context  What `start_transfer()` was handed.
 	 */
 	abstract protected function on_transfer_done( int $result, array $response, mixed $context ): void;

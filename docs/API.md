@@ -803,8 +803,9 @@ or `<header>: <password>` with no scheme, where an entry with a username and
 a password sends `Authorization: Basic`, and any other entry sends nothing.
 `Vault::credential_header()` is that one rule for
 every transport. The header is empty for none, or 1 to 64 letters, digits and hyphens, and never
-`Host`, `Cookie`, `Content-Length`, `Content-Type`, `Transfer-Encoding` or
-`Connection` in any case; the scheme is empty or 1 to 32 of the same. Each
+one of `Vault::FRAMING_HEADERS` (`Host`, `Cookie`, `Content-Length`,
+`Transfer-Encoding`, `Connection`, `Expect`, `Upgrade`, `TE`, `Keep-Alive`,
+`Proxy-Connection`, `Proxy-Authorization`) or `Content-Type`, in any case; the scheme is empty or 1 to 32 of the same. Each
 verb refuses either by name, `invalid header: <header>` or `invalid scheme:
 <scheme>`, and an absent option leaves the stored one alone on `update`.
 `has_credentials` is true when the entry sends a line.
@@ -1526,9 +1527,28 @@ thereafter.
 fetches the url a TM_BYTESTREAM carries with a GET on the same shared multi,
 through the [`Curl_Transfer`](../includes/trait-curl-transfer.php) mechanism
 `HTTP_Out_Node` runs on. `make_node Curl <name> [vault_group]`. A TM_STRUCT
-carries a request instead, `{ url, method, body }`: `method` is `GET` or
-`POST`, and a POST sends its `body`, a string of at most `MAX_BODY_BYTES`
-(64 KiB, '' when absent), as `Content-Type: application/json`. Both forms share
+carries a request instead, `{ url, method, body, headers, proxy,
+response_headers }`: `method` is `GET`, `POST` or `DELETE`, a POST sends its
+`body`, a string of at most `MAX_BODY_BYTES` (64 KiB, '' when absent), as
+`Content-Type: application/json`, and a GET or a DELETE sends none. `headers`,
+when present, is a list of `Name: value` lines sent after that type and before
+the vault credential, a `Content-Type` among them replacing the JSON one. A
+line must carry a value, since libcurl reads an empty one as removing the
+header, and may not name one of `Vault::FRAMING_HEADERS` (`Host`, `Cookie`,
+`Content-Length`, `Transfer-Encoding`, `Connection`, `Expect`, `Upgrade`, `TE`,
+`Keep-Alive`, `Proxy-Connection`, `Proxy-Authorization`), in any case, nor
+`Authorization` or the header the credential rides in where the vault group
+lends the origin one. `proxy`, when present, is the `<scheme>://<host>:<port>`
+the fetch goes through, set as `CURLOPT_PROXY` with `CURLOPT_NOPROXY` empty, so
+no `no_proxy` variable bypasses it, its TLS verified as `vault_verify_ssl`
+says: its scheme `socks5h`, `socks5`, `http` or `https`, a trailing slash
+allowed, and nothing else, userinfo above all; beside a credential, the
+vault's or a header line of the request's own, the url must be https. `response_headers`, when present, names at most eight
+response headers to read; the success then answers a TM_STRUCT copy whose
+VALUE is `{ body, headers }`, each named header the final response's head
+sent, a trailer never, under its lowercased name, its first value trimmed and
+cut to 256 bytes. A header name is 1–64 letters, digits and hyphens
+(`Vault::HEADER_NAME`) wherever one is read. Both forms share
 the vault group, `vault_require_ssl`, `MAX_IN_FLIGHT` and the answer. The completion
 emits a copy of the input message, FROM, ID and KEY intact and TO stamped from
 `target`, with its whole TYPE replaced: TM_BYTESTREAM carrying the body below
@@ -1551,11 +1571,23 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 | `HTTP <code> <url>` | The response's status is 400 or more, or, following no redirects, 300-399 with no Location. |
 | `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
 | `invalid url <value>` | VALUE, or a request's `url`, is not an absolute http(s) url with a host. |
-| `redirect not followed: credential in <header> <url>` | The node follows redirects, the url's credential rides in a header other than `Authorization`, and the response is a 3xx naming a Location; the header's value is left out. |
-| `invalid method <method> <url>` | A request's `method` is not `GET` or `POST`, or is absent. |
-| `body on a GET <url>` | A GET request carries a `body`, even an empty one. |
+| `redirect not followed: credential in <header> <url>`, `redirect not followed: credential in request headers <url>`, `redirect not followed: a DELETE <url>` | The node follows redirects, the response is a 3xx naming a Location, and the fetch followed none: the url's credential rides in a header other than `Authorization`, the request carries header lines of its own, or it is a DELETE. No value is shown. |
+| `invalid method <method> <url>` | A request's `method` is not `GET`, `POST` or `DELETE`, or is absent. |
+| `body on a GET <url>`, `body on a DELETE <url>` | A GET or DELETE request carries a `body`, even an empty one. |
 | `invalid body <url>` | A POST request's `body` is not a string. |
 | `body over 65536 bytes <url>` | A POST request's `body` is longer than `MAX_BODY_BYTES`. |
+| `invalid headers <url>` | A request's `headers` is not a list, or one of its lines is not a string opening with a name of 1–64 letters, digits and hyphens and a colon. |
+| `header carries CR or LF <url>` | A request's header line holds a carriage return or a line feed; the line is left out. |
+| `refused header <name> <url>` | A request's header line names one of `Vault::FRAMING_HEADERS`; the value is left out. |
+| `refused header <name> beside a vault credential <url>` | A request's header line names `Authorization`, or the header the credential rides in, and an entry of the vault group sits on the url's origin. |
+| `empty header <name> <url>` | A request's header line carries no value but whitespace. |
+| `refused proxy beside a credential on a plain url <url>` | A request names a proxy and carries a credential, an entry of the vault group on the url's origin or header lines of its own, and the url is not https. |
+| `invalid proxy <url>` | A request's `proxy` is not a string naming one of the four schemes, a host and a port, and nothing more but a trailing slash; the proxy is left out. |
+| `invalid proxy carrying userinfo <url>` | A request's `proxy` holds an `@`; the proxy, which may hold a credential, is left out. |
+| `invalid response headers <url>` | A request's `response_headers` is not a list of at most eight names of 1–64 letters, digits and hyphens. |
+| `refused response header <name> <url>` | A request's `response_headers` names one of `Vault::FRAMING_HEADERS`, `Set-Cookie` or `Authorization`, in any case. |
+| `refused response header <name> beside a vault credential <url>` | A request's `response_headers` names the header the vault's credential for the url's origin rides in. |
+| `proxy carries CR or LF <url>` | A request's `proxy` holds a carriage return or a line feed; the proxy is left out. |
 | `invalid url carrying userinfo` | VALUE carries userinfo before its host, as `Vault::url_carries_credentials()` reads it; the url, which may hold a credential, is left out. PHP and libcurl split an authority holding two `@` at different ones, so the origin read here need not be the host fetched. |
 | `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so no one credential belongs to the url. |
 | `vault_require_ssl set but url is not https <url>` | The url is plaintext, an entry of the vault group sits on its origin, and `vault_require_ssl` is set. |
@@ -1579,7 +1611,9 @@ written; a vault entry's path plays no part. A credential starts on its own
 origin and stays there: the transfer sets `CURLOPT_UNRESTRICTED_AUTH` off, so
 libcurl (7.83.1 and later) drops an `Authorization` header when a redirect
 changes host, port or scheme. libcurl sends every other header past a redirect,
-so a fetch whose credential rides in another header follows no redirect: on a
+so a fetch whose credential rides in another header, a request carrying header
+lines of its own, any of which may be a credential, and a DELETE, whose method
+libcurl would carry along, follow no redirect: on a
 node following redirects its 3xx naming a Location answers the TM_ERROR
 `redirect not followed`, and on one following none it answers the Location as
 any 3xx does. A node following no redirects sends nothing past the first

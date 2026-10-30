@@ -60,7 +60,7 @@ final class VaultTest extends TestCase {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => false ] );
 
 		$this->assertSame(
-			[ \CURLOPT_SSL_VERIFYPEER => false, \CURLOPT_SSL_VERIFYHOST => 0 ],
+			[ \CURLOPT_SSL_VERIFYPEER => false, \CURLOPT_SSL_VERIFYHOST => 0, \CURLOPT_PROXY_SSL_VERIFYPEER => false, \CURLOPT_PROXY_SSL_VERIFYHOST => 0 ],
 			Vault::tls_opts()
 		);
 	}
@@ -69,7 +69,7 @@ final class VaultTest extends TestCase {
 		$this->use_base_dir( $this->make_temp_dir() );
 
 		$this->assertSame(
-			[ \CURLOPT_SSL_VERIFYPEER => true, \CURLOPT_SSL_VERIFYHOST => 2 ],
+			[ \CURLOPT_SSL_VERIFYPEER => true, \CURLOPT_SSL_VERIFYHOST => 2, \CURLOPT_PROXY_SSL_VERIFYPEER => true, \CURLOPT_PROXY_SSL_VERIFYHOST => 2 ],
 			Vault::tls_opts()
 		);
 	}
@@ -595,6 +595,12 @@ final class VaultTest extends TestCase {
 			'Content-Type'      => [ 'Content-type' ],
 			'Transfer-Encoding' => [ 'transfer-Encoding' ],
 			'Connection'        => [ 'CONNECTION' ],
+			'Expect'            => [ 'expect' ],
+			'Upgrade'           => [ 'UPGRADE' ],
+			'TE'                => [ 'te' ],
+			'Keep-Alive'        => [ 'keep-alive' ],
+			'Proxy-Connection'  => [ 'Proxy-connection' ],
+			'Proxy-Authorization' => [ 'PROXY-AUTHORIZATION' ],
 		];
 	}
 
@@ -626,6 +632,16 @@ final class VaultTest extends TestCase {
 
 	public function test_an_empty_header_names_none_and_is_valid(): void {
 		$this->assertTrue( Vault::is_valid_auth_header( '' ) );
+	}
+
+	/** One grammar names a header: 1 to 64 letters, digits and hyphens, and nothing after. */
+	public function test_one_grammar_names_a_header(): void {
+		foreach ( [ 'X-Api-Key', 'Mcp-Session-Id', 'a', 'X-9-' . \str_repeat( 'b', 60 ) ] as $name ) {
+			$this->assertTrue( Vault::is_header_name( $name ), $name );
+		}
+		foreach ( [ '', 'X Api', 'X-Api:', 'X_Api', "X-Api\n", \str_repeat( 'a', 65 ) ] as $name ) {
+			$this->assertFalse( Vault::is_header_name( $name ), \json_encode( $name ) );
+		}
 	}
 
 	public function test_a_header_name_of_sixty_four_letters_digits_and_hyphens_is_valid(): void {
