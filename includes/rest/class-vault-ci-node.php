@@ -42,18 +42,21 @@ use Newspack_Nodes\Vault;
 class Vault_CI_Node extends Service_CI_Node {
 
 	/**
-	 * Credential arg name => stored config key. An operator types `user` and
-	 * `password`; the store, the node arguments and the wire keep the `auth_`
-	 * spelling. The two config builders write through this one declaration.
+	 * Credential arg name => stored config key. An operator types `user`,
+	 * `password`, `header` and `scheme`; the store, the node arguments and the
+	 * wire keep the `auth_` spelling. The two config builders write through
+	 * this one declaration.
 	 */
 	private const CREDENTIAL_OPTION_TO_KEY = [
 		'user'     => 'auth_username',
 		'password' => 'auth_password',
+		'header'   => 'auth_header',
+		'scheme'   => 'auth_scheme',
 	];
 
 	/**
-	 * Verb arg name => stored config key, for the four fields `add` and
-	 * `update` write. One declaration serves both the whole blob and the partial
+	 * Verb arg name => stored config key, for the fields `add` and `update`
+	 * write. One declaration serves both the whole blob and the partial
 	 * one; `url` and `group` are the same word on both sides.
 	 */
 	private const OPTION_TO_KEY = [ 'url' => 'url', 'group' => 'group' ] + self::CREDENTIAL_OPTION_TO_KEY;
@@ -93,10 +96,12 @@ class Vault_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Project a stored server config into its public dashboard shape. Strips the
-	 * password and adds the computed `has_credentials` flag. The username
-	 * stays: it is half an address, not a secret, and an edit form cannot
-	 * offer to change what it cannot show — which holds only while every
-	 * vault verb is MANAGE by construction. Declaring one READ discloses it.
+	 * password and adds the computed `has_credentials` flag, true where
+	 * `Vault::credential_header()` sends a line. The username, the header and
+	 * the scheme stay: each is half an address, not a secret, and an edit form
+	 * cannot offer to change what it cannot show — which holds only while
+	 * every vault verb is MANAGE by construction. Declaring one READ discloses
+	 * them.
 	 *
 	 * @param string              $id     Server id.
 	 * @param array<string,mixed> $config Stored server config.
@@ -107,7 +112,9 @@ class Vault_CI_Node extends Service_CI_Node {
 			'id'              => $id,
 			'url'             => Core::as_string( $config['url'] ?? '' ),
 			'auth_username'   => Core::as_string( $config['auth_username'] ?? '' ),
-			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
+			'auth_header'     => Core::as_string( $config['auth_header'] ?? '' ),
+			'auth_scheme'     => Core::as_string( $config['auth_scheme'] ?? '' ),
+			'has_credentials' => '' !== Vault::credential_header( $config ),
 			'group'           => Core::as_string( $config['group'] ?? '' ),
 		];
 	}
@@ -115,11 +122,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `add` verb handler — register a server under `id`; returns that id.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id, url, and the optional group, user, password.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id, url, and the optional group, user, password, header, scheme.
 	 * @return array<string,mixed> The stored id, as `[ 'id' => <id> ]`.
-	 * @throws \RuntimeException When the id is malformed or taken, the group is
-	 *                           malformed, the url carries credentials, or the
-	 *                           store refuses the entry.
+	 * @throws \RuntimeException When the id is malformed or taken, the group,
+	 *                           header or scheme is malformed, the url carries
+	 *                           credentials, or the store refuses the entry.
 	 */
 	public static function cmd_add( array $args ): array {
 		$id       = Core::as_string( $args['id'] );
@@ -127,6 +134,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		$registry = Vault::fresh();
 		self::assert_free_id( $id, $registry );
 		self::assert_valid_group( $opts );
+		self::assert_valid_header( $opts );
 		self::assert_url_without_credentials( $opts['url'] ?? '', 'url' );
 		$config = self::extract_server_config( $opts );
 		if ( ! $registry->add( $id, $config ) ) {
@@ -138,15 +146,14 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the complete four-key blob `add` stores, defaulting an absent
-	 * option to ''.
+	 * Build the complete blob `add` stores, defaulting an absent option to ''.
 	 *
 	 * `Vault::add()` stores exactly this projection and carries nothing over
 	 * from a previous entry, so the blob has to be whole; `partial_config()` is
 	 * the deliberate opposite, for the same reason.
 	 *
 	 * @param array<string,string> $opts The given args, from `given()`.
-	 * @return array<string,mixed> The url, group, auth_username and auth_password quad.
+	 * @return array<string,mixed> Every stored key `OPTION_TO_KEY` names.
 	 */
 	private static function extract_server_config( array $opts ): array {
 		$config = [];
@@ -161,12 +168,12 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * entry, moving it when `new_id` names somewhere else. Returns the id the
 	 * entry now carries.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id, and the optional new_id, url, group, user, password.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id, and the optional new_id, url, group, user, password, header, scheme.
 	 * @return array<string,mixed> The entry's id after the write, as `[ 'id' => <id> ]`.
-	 * @throws \RuntimeException When the id is unknown, the new id or the group is
-	 *                           unusable, the url it would store carries
-	 *                           credentials or will not parse, or the store
-	 *                           refuses the write.
+	 * @throws \RuntimeException When the id is unknown, the new id, the group,
+	 *                           the header or the scheme is unusable, the url it
+	 *                           would store carries credentials or will not
+	 *                           parse, or the store refuses the write.
 	 */
 	public static function cmd_update( array $args ): array {
 		$id       = Core::as_string( $args['id'] );
@@ -178,6 +185,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		}
 		$new_id = self::renamed_to( null === $args['new_id'] ? null : Core::as_string( $args['new_id'] ), $id, $registry );
 		self::assert_valid_group( $opts );
+		self::assert_valid_header( $opts );
 		self::assert_url_without_credentials( $opts['url'] ?? Core::as_string( $existing['url'] ?? '' ), isset( $opts['url'] ) ? 'url' : 'stored url' );
 		$partial = self::partial_config( $opts );
 		if ( ! $registry->update( $id, $partial, $new_id ) ) {
@@ -258,6 +266,24 @@ class Vault_CI_Node extends Service_CI_Node {
 		$group = $opts['group'] ?? '';
 		if ( '' !== $group && ! Vault::is_valid_id( $group ) ) {
 			throw new \RuntimeException( \esc_html( "invalid group: {$group}" ) );
+		}
+	}
+
+	/**
+	 * Refuse a `header` or `scheme` the store would reject, naming it, where
+	 * the store answers only `false`. An absent or empty header names none.
+	 *
+	 * @param array<string,string> $opts The given args, from `given()`.
+	 * @throws \RuntimeException When the header breaks `Vault::is_valid_auth_header()` or the scheme `Vault::is_valid_auth_scheme()`.
+	 */
+	private static function assert_valid_header( array $opts ): void {
+		$header = $opts['header'] ?? '';
+		if ( ! Vault::is_valid_auth_header( $header ) ) {
+			throw new \RuntimeException( \esc_html( "invalid header: {$header}" ) );
+		}
+		$scheme = $opts['scheme'] ?? '';
+		if ( ! Vault::is_valid_auth_scheme( $scheme ) ) {
+			throw new \RuntimeException( \esc_html( "invalid scheme: {$scheme}" ) );
 		}
 	}
 
@@ -425,13 +451,15 @@ class Vault_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'add',
-					'description' => 'Add a new server under an id and an https url (manage_options).',
+					'description' => 'Add a new server under an id and an https url, with an optional credential header and scheme (manage_options).',
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'url', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'group', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'password', 'type' => 'string', 'required' => false, 'secret' => true ],
+						[ 'name' => 'header', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'scheme', 'type' => 'string', 'required' => false ],
 					],
 					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_add( $args ),
 				],
@@ -445,6 +473,8 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'group', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'password', 'type' => 'string', 'required' => false, 'secret' => true ],
+						[ 'name' => 'header', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'scheme', 'type' => 'string', 'required' => false ],
 					],
 					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_update( $args ),
 				],
@@ -458,7 +488,7 @@ class Vault_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'test',
-					'description' => "Probe a spoke's /command status endpoint with stored Basic Auth (manage_options).",
+					'description' => "Probe a spoke's /command status endpoint with its stored credential (manage_options).",
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],

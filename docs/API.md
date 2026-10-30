@@ -793,8 +793,21 @@ up by it. It is also what `help Layouts_CI` renders a schema for, because
 **`vault add` and `update` take a `group`.** A server's optional `group`
 option, held to the same id rule as its own id, groups it with any other
 server sharing the name; `public_shape()` echoes it back on `list` and `get`
-alongside `url`, `auth_username` and `has_credentials`. It is the field a
+alongside `url`, `auth_username`, `auth_header`, `auth_scheme` and
+`has_credentials`. It is the field a
 [`Vault_Group`](#the-substrate-as-client) node reads to decide its members.
+
+**`vault add` and `update` take a `header` and a `scheme`.** An entry with a
+password, no username and a `header` sends `<header>: <scheme> <password>`,
+or `<header>: <password>` with no scheme, where every other entry sends
+`Authorization: Basic` for a username and password, else `Authorization:
+Bearer` for a stored token. `Vault::credential_header()` is that one rule for
+every transport. The header is empty for none, or 1 to 64 letters, digits and hyphens, and never
+`Host`, `Cookie`, `Content-Length`, `Content-Type`, `Transfer-Encoding` or
+`Connection` in any case; the scheme is empty or 1 to 32 of the same. Each
+verb refuses either by name, `invalid header: <header>` or `invalid scheme:
+<scheme>`, and an absent option leaves the stored one alone on `update`.
+`has_credentials` is true when the entry sends a line.
 
 **`workers.dump_graph` vs `dump_metadata` — different verbs, different shapes.**
 The `workers` CI's `dump_graph` returns the dashboard payload:
@@ -1512,7 +1525,11 @@ thereafter.
 [`Curl_Node`](../includes/class-curl-node.php) calls no endpoint of ours: it
 fetches the url a TM_BYTESTREAM carries with a GET on the same shared multi,
 through the [`Curl_Transfer`](../includes/trait-curl-transfer.php) mechanism
-`HTTP_Out_Node` runs on. `make_node Curl <name> [vault_group]`. The completion
+`HTTP_Out_Node` runs on. `make_node Curl <name> [vault_group]`. A TM_STRUCT
+carries a request instead, `{ url, method, body }`: `method` is `GET` or
+`POST`, and a POST sends its `body`, a string of at most `MAX_BODY_BYTES`
+(64 KiB, '' when absent), as `Content-Type: application/json`. Both forms share
+the vault group, `vault_require_ssl`, `MAX_IN_FLIGHT` and the answer. The completion
 emits a copy of the input message, FROM, ID and KEY intact and TO stamped from
 `target`, with its whole TYPE replaced: TM_BYTESTREAM carrying the body below
 status 400, and otherwise a TM_ERROR whose VALUE opens with a fixed prefix a
@@ -1533,7 +1550,12 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 |---|---|
 | `HTTP <code> <url>` | The response's status is 400 or more, or, following no redirects, 300-399 with no Location. |
 | `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
-| `invalid url <value>` | VALUE is not an absolute http(s) url with a host. |
+| `invalid url <value>` | VALUE, or a request's `url`, is not an absolute http(s) url with a host. |
+| `redirect not followed: credential in <header> <url>` | The node follows redirects, the url's credential rides in a header other than `Authorization`, and the response is a 3xx naming a Location; the header's value is left out. |
+| `invalid method <method> <url>` | A request's `method` is not `GET` or `POST`, or is absent. |
+| `body on a GET <url>` | A GET request carries a `body`, even an empty one. |
+| `invalid body <url>` | A POST request's `body` is not a string. |
+| `body over 65536 bytes <url>` | A POST request's `body` is longer than `MAX_BODY_BYTES`. |
 | `invalid url carrying userinfo` | VALUE carries userinfo before its host, as `Vault::url_carries_credentials()` reads it; the url, which may hold a credential, is left out. PHP and libcurl split an authority holding two `@` at different ones, so the origin read here need not be the host fetched. |
 | `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so no one credential belongs to the url. |
 | `vault_require_ssl set but url is not https <url>` | The url is plaintext, an entry of the vault group sits on its origin, and `vault_require_ssl` is set. |
@@ -1542,21 +1564,25 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 | `curl_init failed <url>` | libcurl yielded no handle, so no transfer started. |
 
 The output goes to `target` like any forwarded message, never back along FROM.
-Anything but a TM_BYTESTREAM is dropped with one rate-limited line. A transfer
+Anything but a TM_BYTESTREAM or a TM_STRUCT is dropped with one rate-limited line. A transfer
 still in flight when the node is removed is lost, and one rate-limited line
 counts the discards ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)).
 
 Under a vault group each fetch looks up the group's entries through
 `Vault::in_group()` and keeps those whose `Vault::url_of()` has the url's
 origin, by `Curl_Node::origin_of()`: the same scheme, host and effective port.
-None fetches the url with no `Authorization`, and an entry with no url sits on
-no origin. One sends its `Vault::credential_header_for()` as `Authorization`,
+None fetches the url with no credential, and an entry with no url sits on
+no origin. One sends the header line its `Vault::credential_header()` answers,
 and under `vault_require_ssl` refuses a plaintext url and takes https alone,
 redirects included. Two or more refuse, naming every one. The url is fetched as
 written; a vault entry's path plays no part. A credential starts on its own
 origin and stays there: the transfer sets `CURLOPT_UNRESTRICTED_AUTH` off, so
-libcurl (7.83.1 and later) drops the header when a redirect changes host, port
-or scheme, and a node following no redirects sends nothing past the first
+libcurl (7.83.1 and later) drops an `Authorization` header when a redirect
+changes host, port or scheme. libcurl sends every other header past a redirect,
+so a fetch whose credential rides in another header follows no redirect: on a
+node following redirects its 3xx naming a Location answers the TM_ERROR
+`redirect not followed`, and on one following none it answers the Location as
+any 3xx does. A node following no redirects sends nothing past the first
 response. Every fetch, vault group or not, verifies TLS as `vault_verify_ssl`
 says, through `Vault::tls_opts()`.
 
@@ -1568,6 +1594,7 @@ sizes each refill by Curl's own count.
 | Constant | Value | Bounds |
 |---|---|---|
 | `MAX_IN_FLIGHT` | 16 | Transfers one node runs at once. |
+| `MAX_BODY_BYTES` | 65536 | Bytes a POST request's body may carry. |
 | `REQUEST_TIMEOUT` | 30 seconds | One fetch, redirects included, as `CURLOPT_TIMEOUT`. |
 | `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone for a fetch carrying a credential while `vault_require_ssl` is set. |
 | `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One response body, buffered into the PHP heap. |

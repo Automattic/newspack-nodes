@@ -63,11 +63,25 @@ class Vault {
 	public static ?\Closure $sodium_available = null;
 
 	/**
-	 * The only keys `update()` takes from a caller. Everything else in the partial
-	 * is dropped before the merge, so a form post cannot reach a stored key this
-	 * class does not manage.
+	 * Header names a credential may not ride in, lowercased: each would let the
+	 * stored credential rewrite the request it rides on rather than authorize it.
 	 */
-	private const ALLOWED_KEYS = [ 'url', 'auth_username', 'auth_password', 'group' ];
+	private const REFUSED_AUTH_HEADERS = [ 'host', 'cookie', 'content-length', 'content-type', 'transfer-encoding', 'connection' ];
+
+	/**
+	 * The keys this class manages, each '' where the option holds none: every
+	 * entry reads back with them, and they are the only keys `update()` takes
+	 * from a caller, so a form post cannot reach a stored key this class does
+	 * not manage.
+	 */
+	private const ENTRY_DEFAULTS = [
+		'url'           => '',
+		'auth_username' => '',
+		'auth_password' => '',
+		'group'         => '',
+		'auth_header'   => '',
+		'auth_scheme'   => '',
+	];
 
 	/**
 	 * Singleton instance.
@@ -143,7 +157,8 @@ class Vault {
 	/**
 	 * Register a new server.
 	 *
-	 * The stored entry is exactly `validate_config()`'s four-key projection.
+	 * The stored entry is exactly `validate_config()`'s projection onto
+	 * `ENTRY_DEFAULTS`.
 	 * Unlike `update()`, nothing is carried over from what was there before,
 	 * because a new id has nothing to carry.
 	 *
@@ -221,7 +236,7 @@ class Vault {
 		}
 
 		// Whitelist keys before merge.
-		$partial = \array_intersect_key( $partial, \array_flip( self::ALLOWED_KEYS ) );
+		$partial = \array_intersect_key( $partial, self::ENTRY_DEFAULTS );
 
 		$merged    = \array_merge( $all[ $id ], $partial );
 		$validated = $this->validate_config( $merged );
@@ -254,7 +269,7 @@ class Vault {
 	}
 
 	/**
-	 * Project a raw configuration onto the four keys this class manages,
+	 * Project a raw configuration onto the managed keys, `ENTRY_DEFAULTS`,
 	 * sanitized, with the password sealed.
 	 *
 	 * A missing, non-string or non-HTTPS URL refuses the whole config: plain HTTP
@@ -268,11 +283,12 @@ class Vault {
 	 * by the caller, so it is verified rather than re-sealed, and dropped when it no
 	 * longer opens under the current key.
 	 *
-	 * The group, when set, must obey `is_valid_id()`; an invalid one refuses the
-	 * whole config rather than silently dropping it.
+	 * The group, when set, must obey `is_valid_id()`, the header
+	 * `is_valid_auth_header()` and the scheme `is_valid_auth_scheme()`; an
+	 * invalid one refuses the whole config rather than silently dropping it.
 	 *
 	 * @param array<string,mixed> $config Raw configuration.
-	 * @return array<string,mixed>|null The url, auth_username, auth_password and group quad, or null when invalid.
+	 * @return array<string,mixed>|null The managed keys, or null when invalid.
 	 */
 	private function validate_config( array $config ): ?array {
 		// URL is required, must be string, must be HTTPS.
@@ -287,12 +303,8 @@ class Vault {
 			return null;
 		}
 
-		$validated = [
-			'url'           => \rtrim( $url, '/' ),
-			'auth_username' => '',
-			'auth_password' => '',
-			'group'         => '',
-		];
+		$validated        = self::ENTRY_DEFAULTS;
+		$validated['url'] = \rtrim( $url, '/' );
 
 		// auth_username — sanitize + 256-byte cap.
 		if ( ! empty( $config['auth_username'] ) && \is_string( $config['auth_username'] ) ) {
@@ -331,7 +343,41 @@ class Vault {
 		}
 		$validated['group'] = $group;
 
+		$header = $config['auth_header'] ?? '';
+		$scheme = $config['auth_scheme'] ?? '';
+		if ( ! \is_string( $header ) || ! self::is_valid_auth_header( $header ) ) {
+			return null;
+		}
+		if ( ! \is_string( $scheme ) || ! self::is_valid_auth_scheme( $scheme ) ) {
+			return null;
+		}
+		$validated['auth_header'] = $header;
+		$validated['auth_scheme'] = $scheme;
+
 		return $validated;
+	}
+
+	/**
+	 * Whether a string may be the scheme before a named header's credential:
+	 * empty for none, or 1-32 letters, digits and hyphens.
+	 *
+	 * @param string $scheme Candidate scheme.
+	 */
+	public static function is_valid_auth_scheme( string $scheme ): bool {
+		return 1 === \preg_match( '/^[A-Za-z0-9-]{0,32}$/D', $scheme );
+	}
+
+	/**
+	 * Whether a string may name the header a credential rides in: empty for
+	 * none, or 1-64 letters, digits and hyphens and none of
+	 * `REFUSED_AUTH_HEADERS` in any case. The `vault` CI asks first, so it can
+	 * name the refusal.
+	 *
+	 * @param string $header Candidate header name.
+	 */
+	public static function is_valid_auth_header( string $header ): bool {
+		return 1 === \preg_match( '/^[A-Za-z0-9-]{0,64}$/D', $header )
+			&& ! \in_array( \strtolower( $header ), self::REFUSED_AUTH_HEADERS, true );
 	}
 
 	/**
@@ -490,7 +536,7 @@ class Vault {
 	}
 
 	/**
-	 * The whole registry, every entry filled out to the four managed keys and
+	 * The whole registry, every entry filled out to the managed keys and
 	 * its password opened.
 	 *
 	 * Memoized for the process, so `reset_cache()` is the only way back to the
@@ -510,12 +556,7 @@ class Vault {
 					continue;
 				}
 				/** @var array<string,mixed> $server — config map is string-keyed by design. */
-				$server += [
-					'url'           => '',
-					'auth_username' => '',
-					'auth_password' => '',
-					'group'         => '',
-				];
+				$server = $server + self::ENTRY_DEFAULTS;
 				$pw = $server['auth_password'];
 				if ( '' !== $pw && \is_scalar( $pw ) ) {
 					$server['auth_password'] = self::decrypt( (string) $pw );
@@ -613,46 +654,6 @@ class Vault {
 	}
 
 	/**
-	 * `credential_header()` reached with a whole decrypted entry, so a caller
-	 * holding the record does not spell the three key names itself.
-	 *
-	 * @param array<array-key,mixed> $server Decrypted vault server config.
-	 * @return string The header value, or '' when the entry carries no credential.
-	 */
-	public static function credential_header_for( array $server ): string {
-		return self::credential_header(
-			Core::as_string( $server['auth_username'] ?? '' ),
-			Core::as_string( $server['auth_password'] ?? '' ),
-			Core::as_string( $server['token'] ?? '' )
-		);
-	}
-
-	/**
-	 * THE `Authorization` header value for a spoke's stored credentials, or ''
-	 * when it needs none. Basic wins over Bearer: a config carrying both means
-	 * the operator set a username and password, which is the more specific
-	 * statement.
-	 *
-	 * Lives on the Vault because the Vault owns credentials. Three transports
-	 * reach a spoke — HTTP_Out (push), SSE_In (pull) and HTTP_Out's blocking
-	 * probe — and a rule spelled three times is a rule they can disagree about:
-	 * a probe that skips the Bearer token leaves a token-only spoke reachable by
-	 * the graph and unreachable by the operator's own Test button.
-	 *
-	 * @param string $user  Stored username.
-	 * @param string $pass  Stored password.
-	 * @param string $token Stored bearer token.
-	 * @return string `Basic <base64 of user:pass>`, `Bearer <token>`, or ''.
-	 */
-	public static function credential_header( string $user, string $pass, string $token = '' ): string {
-		if ( '' !== $user && '' !== $pass ) {
-			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
-			return 'Basic ' . \base64_encode( $user . ':' . $pass );
-		}
-		return '' === $token ? '' : 'Bearer ' . $token;
-	}
-
-	/**
 	 * The libcurl TLS opts for a transfer to a server: verify the peer and its
 	 * name, or neither, as `vault_verify_ssl` says. Applied where a transport
 	 * resolves its destination.
@@ -721,6 +722,37 @@ class Vault {
 			self::$instance = new self();
 		}
 		return self::$instance;
+	}
+
+	/**
+	 * THE credential header line for a spoke's decrypted entry, or '' when it
+	 * needs none. A password with no username and an `auth_header` rides in
+	 * that header, after `auth_scheme` when one is set. Otherwise Basic wins
+	 * over Bearer on `Authorization`: a username and password are the more
+	 * specific statement than a stored token.
+	 *
+	 * Lives on the Vault because the Vault owns credentials. Every transport
+	 * reaching out — HTTP_Out (push and its blocking probe), SSE_In (pull) and
+	 * Curl — sends this line as it is, and a rule spelled once is one they
+	 * cannot disagree about.
+	 *
+	 * @param array<array-key,mixed> $server Decrypted vault server config.
+	 * @return string `<Header>: <value>`, or ''.
+	 */
+	public static function credential_header( array $server ): string {
+		$user   = Core::as_string( $server['auth_username'] ?? '' );
+		$pass   = Core::as_string( $server['auth_password'] ?? '' );
+		$header = Core::as_string( $server['auth_header'] ?? '' );
+		if ( '' === $user && '' !== $pass && '' !== $header ) {
+			$scheme = Core::as_string( $server['auth_scheme'] ?? '' );
+			return "{$header}: " . ( '' === $scheme ? '' : "{$scheme} " ) . $pass;
+		}
+		if ( '' !== $user && '' !== $pass ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
+			return 'Authorization: Basic ' . \base64_encode( $user . ':' . $pass );
+		}
+		$token = Core::as_string( $server['token'] ?? '' );
+		return '' === $token ? '' : 'Authorization: Bearer ' . $token;
 	}
 
 	/**

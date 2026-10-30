@@ -140,9 +140,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		};
 		$sse->configure(
 			Vault::url_of( $entry ),
-			Core::as_string( $entry['auth_username'] ?? '' ),
-			Core::as_string( $entry['auth_password'] ?? '' ),
-			Core::as_string( $entry['token'] ?? '' ),
+			Vault::credential_header( $entry ),
 			Vault::tls_opts(),
 			Vault::require_ssl()
 		);

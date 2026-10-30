@@ -516,30 +516,167 @@ final class VaultTest extends TestCase {
 	}
 
 	/**
-	 * `credential_header_for()` is the array-shaped door onto `credential_header()`
-	 * — one rule for all three transports, so no copy can drop Bearer and leave
-	 * a token-only spoke reachable by the graph but not by the operator's own
-	 * test.
+	 * `credential_header()` is the one rule for every transport, answering the
+	 * whole header line, so no copy can drop Bearer and leave a token-only
+	 * spoke reachable by the graph but not by the operator's own test.
 	 */
-	public function test_credential_header_for_prefers_basic_over_a_bearer_token(): void {
+	public function test_credential_header_prefers_basic_over_a_bearer_token(): void {
 		$this->assertSame(
-			'Basic ' . \base64_encode( 'u:p' ),
-			Vault::credential_header_for(
-				[ 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ]
+			'Authorization: Basic ' . \base64_encode( 'svc-4417:pw-8830' ),
+			Vault::credential_header(
+				[ 'auth_username' => 'svc-4417', 'auth_password' => 'pw-8830', 'token' => 'tok-2291' ]
 			)
 		);
 	}
 
-	public function test_credential_header_for_falls_back_to_the_bearer_token(): void {
-		$this->assertSame( 'Bearer t', Vault::credential_header_for( [ 'token' => 't' ] ) );
+	public function test_credential_header_falls_back_to_the_bearer_token(): void {
+		$this->assertSame( 'Authorization: Bearer tok-2291', Vault::credential_header( [ 'token' => 'tok-2291' ] ) );
 	}
 
-	public function test_credential_header_for_needs_both_halves_of_basic(): void {
-		$this->assertSame( '', Vault::credential_header_for( [ 'auth_username' => 'u' ] ) );
+	public function test_credential_header_needs_both_halves_of_basic(): void {
+		$this->assertSame( '', Vault::credential_header( [ 'auth_username' => 'svc-4417' ] ) );
 	}
 
-	public function test_credential_header_for_is_empty_when_a_spoke_needs_no_credential(): void {
-		$this->assertSame( '', Vault::credential_header_for( [] ) );
+	public function test_credential_header_is_empty_when_a_spoke_needs_no_credential(): void {
+		$this->assertSame( '', Vault::credential_header( [] ) );
+	}
+
+	public function test_a_password_without_a_username_or_a_named_header_sends_nothing(): void {
+		$this->assertSame( '', Vault::credential_header( [ 'auth_password' => 'pw-8830' ] ) );
+	}
+
+	public function test_a_named_header_carries_its_scheme_and_the_password(): void {
+		$this->assertSame(
+			'X-Api-Key-71: Token-3 key-5512',
+			Vault::credential_header( [ 'auth_password' => 'key-5512', 'auth_header' => 'X-Api-Key-71', 'auth_scheme' => 'Token-3' ] )
+		);
+	}
+
+	public function test_a_named_header_without_a_scheme_carries_the_password_alone(): void {
+		$this->assertSame(
+			'Authorization: lin-key-6604',
+			Vault::credential_header( [ 'auth_password' => 'lin-key-6604', 'auth_header' => 'Authorization', 'auth_scheme' => '' ] )
+		);
+	}
+
+	public function test_a_named_header_wins_over_a_stored_token(): void {
+		$this->assertSame(
+			'X-Api-Key-71: key-5512',
+			Vault::credential_header( [ 'auth_password' => 'key-5512', 'auth_header' => 'X-Api-Key-71', 'token' => 'tok-2291' ] )
+		);
+	}
+
+	/** The named header binds a password-only entry; a username keeps Basic. */
+	public function test_a_named_header_beside_a_username_keeps_basic(): void {
+		$this->assertSame(
+			'Authorization: Basic ' . \base64_encode( 'svc-4417:pw-8830' ),
+			Vault::credential_header( [ 'auth_username' => 'svc-4417', 'auth_password' => 'pw-8830', 'auth_header' => 'X-Api-Key-71', 'auth_scheme' => 'Token-3' ] )
+		);
+	}
+
+	public function test_a_named_header_with_no_password_falls_back_to_the_token(): void {
+		$this->assertSame( 'Authorization: Bearer tok-2291', Vault::credential_header( [ 'auth_header' => 'X-Api-Key-71', 'token' => 'tok-2291' ] ) );
+	}
+
+	public function test_the_header_and_scheme_round_trip_through_add_and_update(): void {
+		$vault = Vault::get_instance();
+		$this->assertTrue( $vault->add( 'unthread-7', [ 'url' => 'https://api.unthread-7.example', 'auth_password' => 'key-7731', 'auth_header' => 'X-Api-Key', 'auth_scheme' => 'Key-9' ] ) );
+		$stored = Vault::fresh()->get( 'unthread-7' );
+		$this->assertSame( 'X-Api-Key', $stored['auth_header'] );
+		$this->assertSame( 'Key-9', $stored['auth_scheme'] );
+		$this->assertSame( 'X-Api-Key: Key-9 key-7731', Vault::credential_header( $stored ) );
+
+		$this->assertTrue( $vault->update( 'unthread-7', [ 'auth_header' => 'Authorization', 'auth_scheme' => '' ] ) );
+		$stored = Vault::fresh()->get( 'unthread-7' );
+		$this->assertSame( 'Authorization', $stored['auth_header'] );
+		$this->assertSame( '', $stored['auth_scheme'] );
+		$this->assertSame( 'key-7731', $stored['auth_password'], 'the password survives an edit of its header' );
+	}
+
+	public function test_an_entry_stored_before_the_two_keys_reads_them_as_empty(): void {
+		\update_option( Vault::OPTION_KEY, [ 'old-41' => [ 'url' => 'https://old-41.example' ] ] );
+		$stored = Vault::fresh()->get( 'old-41' );
+		$this->assertSame( '', $stored['auth_header'] );
+		$this->assertSame( '', $stored['auth_scheme'] );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function refused_header_provider(): array {
+		return [
+			'Host'              => [ 'Host' ],
+			'Cookie'            => [ 'cookie' ],
+			'Content-Length'    => [ 'CONTENT-LENGTH' ],
+			'Content-Type'      => [ 'Content-type' ],
+			'Transfer-Encoding' => [ 'transfer-Encoding' ],
+			'Connection'        => [ 'CONNECTION' ],
+		];
+	}
+
+	#[DataProvider( 'refused_header_provider' )]
+	public function test_a_header_that_would_rewrite_the_request_is_refused( string $header ): void {
+		$vault = Vault::get_instance();
+
+		$this->assertFalse( Vault::is_valid_auth_header( $header ) );
+		$this->assertFalse( $vault->add( 'hdr-19', [ 'url' => 'https://hdr-19.example', 'auth_password' => 'pw-19', 'auth_header' => $header ] ) );
+		$this->assertNull( Vault::fresh()->get( 'hdr-19' ) );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function malformed_header_provider(): array {
+		return [
+			'space'           => [ 'X Api' ],
+			'colon'           => [ 'X-Api:' ],
+			'underscore'      => [ 'X_Api' ],
+			'newline'         => [ "X-Api\n" ],
+			'sixty-five long' => [ \str_repeat( 'a', 65 ) ],
+		];
+	}
+
+	#[DataProvider( 'malformed_header_provider' )]
+	public function test_a_malformed_header_name_is_refused( string $header ): void {
+		$this->assertFalse( Vault::is_valid_auth_header( $header ) );
+		$this->assertFalse( Vault::get_instance()->add( 'hdr-23', [ 'url' => 'https://hdr-23.example', 'auth_header' => $header ] ) );
+	}
+
+	public function test_an_empty_header_names_none_and_is_valid(): void {
+		$this->assertTrue( Vault::is_valid_auth_header( '' ) );
+	}
+
+	public function test_a_header_name_of_sixty_four_letters_digits_and_hyphens_is_valid(): void {
+		$this->assertTrue( Vault::is_valid_auth_header( 'X-9-' . \str_repeat( 'b', 60 ) ) );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function malformed_scheme_provider(): array {
+		return [
+			'space'            => [ 'Bearer x' ],
+			'colon'            => [ 'Bearer:' ],
+			'slash'            => [ 'Bear/er' ],
+			'newline'          => [ "Bearer\n" ],
+			'thirty-three long' => [ \str_repeat( 's', 33 ) ],
+		];
+	}
+
+	#[DataProvider( 'malformed_scheme_provider' )]
+	public function test_a_malformed_scheme_is_refused( string $scheme ): void {
+		$vault = Vault::get_instance();
+
+		$this->assertFalse( Vault::is_valid_auth_scheme( $scheme ) );
+		$this->assertFalse( $vault->add( 'sch-29', [ 'url' => 'https://sch-29.example', 'auth_password' => 'pw-29', 'auth_header' => 'X-Key-29', 'auth_scheme' => $scheme ] ) );
+		$this->assertNull( Vault::fresh()->get( 'sch-29' ) );
+	}
+
+	public function test_an_empty_scheme_and_one_of_thirty_two_are_valid(): void {
+		$this->assertTrue( Vault::is_valid_auth_scheme( '' ) );
+		$this->assertTrue( Vault::is_valid_auth_scheme( 'Z-' . \str_repeat( '9', 30 ) ) );
+	}
+
+	public function test_update_refuses_a_header_that_would_rewrite_the_request(): void {
+		$vault = Vault::get_instance();
+		$vault->add( 'hdr-37', [ 'url' => 'https://hdr-37.example', 'auth_password' => 'pw-37', 'auth_header' => 'X-Key-37' ] );
+
+		$this->assertFalse( $vault->update( 'hdr-37', [ 'auth_header' => 'Host' ] ) );
+		$this->assertSame( 'X-Key-37', Vault::fresh()->get( 'hdr-37' )['auth_header'] );
 	}
 	/**
 	 * `$` matches before a trailing newline; the docblock says the id stays

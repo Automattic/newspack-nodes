@@ -492,8 +492,8 @@ final class CrawlerNodeTest extends TestCase {
 		$this->in_drain( fn () => $this->seed( $crawler, 'https://bare-8820.example/c-3' ) );
 
 		$auth = fn ( string $url ): array => \array_values( \array_filter( $this->opts[ $url ][ \CURLOPT_HTTPHEADER ] ?? [], static fn ( string $h ): bool => \str_starts_with( $h, 'Authorization:' ) ) );
-		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-a19', 'pw-a28' ) ], $auth( self::SITE . '/a-1' ) );
-		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-b37', 'pw-b46' ) ], $auth( 'https://other-7710.example:9443/b-2' ) );
+		$this->assertSame( [ 'Authorization: Basic ' . \base64_encode( 'svc-a19:pw-a28' ) ], $auth( self::SITE . '/a-1' ) );
+		$this->assertSame( [ 'Authorization: Basic ' . \base64_encode( 'svc-b37:pw-b46' ) ], $auth( 'https://other-7710.example:9443/b-2' ) );
 		$this->assertSame( [], $auth( 'https://bare-8820.example/c-3' ), 'an origin outside the group goes bare' );
 	}
 

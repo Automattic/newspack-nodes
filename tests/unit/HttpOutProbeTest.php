@@ -148,6 +148,23 @@ class HttpOutProbeTest extends TestCase {
 		);
 	}
 
+	public function test_a_named_header_rides_the_probe_under_its_own_name(): void {
+		$this->seed_http( [
+			$this->response( 200, $this->issued_session() ),
+			$this->response( 200, $this->reply_line( [] ) ),
+		] );
+
+		HTTP_Out_Node::probe_command(
+			self::SPOKE,
+			$this->server( [ 'auth_password' => 'probe-key-3318', 'auth_header' => 'X-Probe-Key-5', 'auth_scheme' => 'Tok-8' ] ),
+			'settings',
+			'get'
+		);
+
+		$this->assertSame( 'Tok-8 probe-key-3318', $this->calls[0]['args']['headers']['X-Probe-Key-5'] );
+		$this->assertArrayNotHasKey( 'Authorization', $this->calls[0]['args']['headers'] );
+	}
+
 	public function test_an_empty_payload_string_reads_as_an_empty_array(): void {
 		$this->seed_http( [
 			$this->response( 200, $this->issued_session() ),

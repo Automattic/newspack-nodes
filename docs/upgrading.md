@@ -6,6 +6,21 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Vault::credential_header()` takes the decrypted entry and answers the
+  whole header line; `Vault::credential_header_for()` is gone.** Replace
+  `Vault::credential_header_for( $server )` and `Vault::credential_header(
+  $user, $pass, $token )` with `Vault::credential_header( $server )`, and send
+  what it returns as the header line it is (`Authorization: Basic …`,
+  `Authorization: Bearer …`, or `<auth_header>: [<auth_scheme> ]<password>`),
+  never behind an `Authorization: ` prefix of your own. A WP-HTTP caller
+  splits it at the first `: ` into the header's name and value.
+- **`SSE_In_Node::configure()` takes the credential line.** `configure( $url,
+  $credential, $tls_opts, $require_ssl )`, where `$credential` is
+  `Vault::credential_header( $entry )`, replaces the username, password and
+  token arguments.
+- **`Curl_Node` answers a TM_STRUCT as a request.** A TM_STRUCT filled into a
+  Curl was dropped with a warning; it is now read as `{ url, method, body }`,
+  and one that is not answers a TM_ERROR to target.
 - **`Admin::enqueue_react_page()` refuses a `localize` extra that is a bool,
   int or float**, throwing `InvalidArgumentException` naming the key before it
   enqueues anything. `wp_localize_script()` sends a top-level scalar as a

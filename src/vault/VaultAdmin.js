@@ -12,7 +12,7 @@
  * its own line while a sibling is being tested.
  *
  * ONE form serves add and edit, seeded blank or from the row: the two collect
- * the same four fields, and the verb is the only difference — so it is the only
+ * the same fields, and the verb is the only difference — so it is the only
  * thing that varies, right down to the words the status line uses.
  *
  * A successful add, update or delete refreshes the catalog slice, and the table
@@ -121,7 +121,14 @@ const VERB_TEXTS = {
  * `'' === server.id` to tell an add from an edit, so there is no second mode
  * flag that could disagree with the seed.
  */
-const BLANK_SERVER = { id: '', url: '', auth_username: '', group: '' };
+const BLANK_SERVER = {
+	id: '',
+	url: '',
+	auth_username: '',
+	group: '',
+	auth_header: '',
+	auth_scheme: '',
+};
 
 /** The `Vault::is_valid_id()` rule, which a server id and a group both obey. */
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -134,7 +141,7 @@ const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
  * hands each row its own, and a sibling being tested cannot blank this line.
  *
  * @param {Object}                          props          Component props.
- * @param {Object}                          props.server   Public server shape from the view model: id, url, auth_username, has_credentials, group.
+ * @param {Object}                          props.server   Public server shape from the view model: id, url, auth_username, auth_header, auth_scheme, has_credentials, group.
  * @param {?{verb: string, error: ?string}} props.answer   This row's last answer, or null.
  * @param {?string}                         props.pending  The verb outstanding about this row, if any.
  * @param {Function}                        props.onEdit   Opens the form on this server; called with the row.
@@ -249,7 +256,8 @@ function validate( id, url, group ) {
 }
 
 /**
- * The server modal — id, url, group, username and password, plus submit. Owns
+ * The server modal — id, url, group, username, password, credential header
+ * and scheme, plus submit. Owns
  * the field state and the validation/status line. The dialog is the form, so
  * Enter in a field saves, as the footer button does; it closes on a successful
  * save (the answer clears `editing`) or on ESC / backdrop / Cancel.
@@ -261,7 +269,7 @@ function validate( id, url, group ) {
  *
  * @param {Object}                          props         Component props.
  * @param {Object}                          props.server  The row being edited, or BLANK_SERVER.
- * @param {Function}                        props.onSave  Save callback; called with the five trimmed fields.
+ * @param {Function}                        props.onSave  Save callback; called with the form's fields, the password untrimmed.
  * @param {?{verb: string, error: ?string}} props.answer  The answer for the submitted id, if any.
  * @param {boolean}                         props.busy    Whether the save is outstanding.
  * @param {() => void}                      props.onClose Dismisses the modal.
@@ -278,6 +286,8 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 	const [ username, setUsername ] = useState( server.auth_username ?? '' );
 	// Never seeded: the stored password does not reach the browser at all.
 	const [ password, setPassword ] = useState( '' );
+	const [ header, setHeader ] = useState( server.auth_header ?? '' );
+	const [ scheme, setScheme ] = useState( server.auth_scheme ?? '' );
 	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
 	const idRef = useRef( null );
@@ -306,6 +316,8 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 			group: trimmedGroup,
 			auth_username: username.trim(),
 			auth_password: password,
+			auth_header: header.trim(),
+			auth_scheme: scheme.trim(),
 		} );
 	};
 
@@ -442,6 +454,56 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 											'Leave blank to keep the stored password.',
 											'newspack-nodes'
 									  ) }
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th>
+							<label htmlFor="vault-server-header">
+								{ __( 'Credential header', 'newspack-nodes' ) }
+							</label>
+						</th>
+						<td>
+							<input
+								type="text"
+								id="vault-server-header"
+								className="regular-text"
+								placeholder="X-Api-Key"
+								value={ header }
+								onChange={ ( e ) =>
+									setHeader( e.target.value )
+								}
+							/>
+							<p className="description">
+								{ __(
+									'With no username, the password is sent in this header. Leave blank for Basic auth.',
+									'newspack-nodes'
+								) }
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th>
+							<label htmlFor="vault-server-scheme">
+								{ __( 'Scheme', 'newspack-nodes' ) }
+							</label>
+						</th>
+						<td>
+							<input
+								type="text"
+								id="vault-server-scheme"
+								className="regular-text"
+								placeholder="Bearer"
+								value={ scheme }
+								onChange={ ( e ) =>
+									setScheme( e.target.value )
+								}
+							/>
+							<p className="description">
+								{ __(
+									'Sent before the password in the credential header. Leave blank to send the password alone.',
+									'newspack-nodes'
+								) }
 							</p>
 						</td>
 					</tr>
