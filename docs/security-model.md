@@ -136,7 +136,6 @@ Every `@wordpress/*` runtime package is pinned to the `wp-7.0` dist tag, and eac
 | `layouts save` | `tune` | Name, size and every coordinate, before a byte is written. |
 | `wp nodes ingest`, `scaffold`, `cli`, `run` | A shell as the site user | Root refused; input files must exist; `ingest` does not confine its destination, which a shell reaches anyway. |
 | The TLS toggles `spawn_verify_ssl`, `vault_verify_ssl`, `vault_require_ssl` | The config file | Default on; the Vault refuses `http://` regardless; the last matters only for a url planted in the option by database write. |
-| `curl_allow_private_addresses` | The config file | Default off: a `Curl_Node` fetch refuses a private or reserved address in libcurl's pre-request callback, judged on the address each request connected to, so a redirect hop is held to it too; on PHP below 8.4 every fetch is refused instead. Raise it only for an internal source under test. |
 
 The logger's MCP server and profiler mu-plugin are two more doors, described in [its security model](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/security-model.md#the-other-doors).
 
