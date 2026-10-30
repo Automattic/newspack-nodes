@@ -30,16 +30,6 @@
  * a Location answers a TM_RESPONSE copy whose VALUE is that absolute url, and
  * a 3xx naming none answers a TM_ERROR as a status of 400 or more does.
  *
- * Unless `curl_allow_private_addresses` is set, libcurl's pre-request
- * callback checks the address each request actually connected to, every
- * redirect hop included, so the address judged is the one libcurl reached,
- * never one a separate lookup resolved. A private or reserved address aborts
- * the transfer, which answers a TM_ERROR `private address refused: <ip>
- * <url>`. Through a proxy, which libcurl takes from the proxy environment
- * variables, the check judges the proxy's address, not the target's. Where
- * PHP lacks that callback (before 8.4), every fetch answers a TM_ERROR
- * saying so rather than fetching unchecked.
- *
  * @package Newspack_Nodes
  */
 
@@ -50,12 +40,12 @@ namespace Newspack_Nodes;
 /**
  * Curl node — `make_node Curl <name> [vault_group]`.
  *
- * @implements Curl_Owner<array{context:array{message:array<int,mixed>,url:string,refused:string},body:\Closure(): string}>
+ * @implements Curl_Owner<array{context:array{message:array<int,mixed>,url:string},body:\Closure(): string}>
  */
 class Curl_Node extends Node implements Curl_Owner {
 	use Schema_Reflection;
 
-	/** @use Curl_Transfer<array{message:array<int,mixed>,url:string,refused:string}> */
+	/** @use Curl_Transfer<array{message:array<int,mixed>,url:string}> */
 	use Curl_Transfer;
 
 	/** Transfers in flight at once; a fill past it is turned away as busy. */
@@ -79,50 +69,6 @@ class Curl_Node extends Node implements Curl_Owner {
 	/** The User-Agent every fetch sends; some hosts refuse a request naming none. */
 	public const USER_AGENT = 'newspack-nodes/' . \NEWSPACK_NODES_VERSION;
 
-	/**
-	 * IPv6 prefixes carrying an IPv4 address, each with the byte the IPv4
-	 * starts at: IPv4-mapped, NAT64 and 6to4. Such an address is judged by
-	 * the IPv4 it carries.
-	 */
-	private const IPV4_EMBEDDINGS = [
-		'::ffff:0:0/96' => 12,
-		'64:ff9b::/96'  => 12,
-		'2002::/16'     => 2,
-	];
-
-	/**
-	 * Ranges refused beside those `filter_var()`'s private and reserved flags
-	 * refuse, which on PHP 8.4 leave these passing. `::/96` is IPv4-compatible
-	 * and `::ffff:0:0:0/96` IPv4-translated, both refused whatever they carry.
-	 */
-	private const REFUSED_RANGES = [
-		'100.64.0.0/10',
-		'192.0.0.0/24',
-		'192.0.2.0/24',
-		'192.88.99.0/24',
-		'198.18.0.0/15',
-		'198.51.100.0/24',
-		'203.0.113.0/24',
-		'224.0.0.0/4',
-		'::/96',
-		'::ffff:0:0:0/96',
-		'100::/64',
-		'2001::/23',
-		'2001:db8::/32',
-		'fec0::/10',
-		'64:ff9b:1::/48',
-		'ff00::/8',
-	];
-
-	/**
-	 * `IPV4_EMBEDDINGS` and `REFUSED_RANGES` packed, built on first use and
-	 * kept for the process: each embedding as network, prefix bits and IPv4
-	 * offset, each range as network and prefix bits.
-	 *
-	 * @var array{0:list<array{0:string,1:int,2:int}>,1:list<array{0:string,1:int}>}|null
-	 */
-	private static ?array $networks = null;
-
 	/** The schemes a fetch and its redirects may use; https alone for a credential under `vault_require_ssl`. */
 	private const PROTOCOLS = \CURLPROTO_HTTP | \CURLPROTO_HTTPS;
 
@@ -135,17 +81,6 @@ class Curl_Node extends Node implements Curl_Owner {
 		'http'  => 80,
 		'https' => 443,
 	];
-
-	/**
-	 * Pre-request-callback availability seam, replacing
-	 * `\defined( 'CURLOPT_PREREQFUNCTION' )`, which PHP 8.4 adds. Tests
-	 * reassign it to `fn () => false` to reach the refusal an older PHP
-	 * answers, without running one.
-	 * Signature: `function (): bool`
-	 *
-	 * @var (\Closure(): bool)|null
-	 */
-	public static ?\Closure $prereq_available = null;
 
 	/** Vault group whose entries lend each fetch on their origin a credential; '' for none. */
 	protected string $vault_group = '';
@@ -185,32 +120,13 @@ class Curl_Node extends Node implements Curl_Owner {
 			if ( $in_flight >= self::MAX_IN_FLIGHT ) {
 				self::refuse( "busy: {$in_flight} requests in flight {$url}" );
 			}
-			$checked    = self::checks_address( $url );
 			$credential = $this->credential_for( $url );
 			$body       = self::body_of( $request, $url );
 		} catch ( \UnexpectedValueException $refusal ) {
 			$this->emit( $message, Message::TM_ERROR, $refusal->getMessage() );
 			return;
 		}
-		$this->fetch( $message, $url, $body, $credential, $checked );
-	}
-
-	/**
-	 * Whether a fetch checks the address it connects to: always, unless
-	 * `curl_allow_private_addresses` is set.
-	 *
-	 * @param string $url The trimmed url, for the refusal.
-	 * @throws \UnexpectedValueException When it must check and PHP has no pre-request callback.
-	 */
-	private static function checks_address( string $url ): bool {
-		if ( Config::bool( 'curl_allow_private_addresses' ) ) {
-			return false;
-		}
-		$available = self::$prereq_available ?? static fn (): bool => \defined( 'CURLOPT_PREREQFUNCTION' );
-		if ( ! $available() ) {
-			self::refuse( "curl_allow_private_addresses is off and refusing a private address needs PHP 8.4 {$url}" );
-		}
-		return true;
+		$this->fetch( $message, $url, $body, $credential );
 	}
 
 	/**
@@ -251,17 +167,14 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * the handle, because the output is a copy of it. A dispatch that yields no
 	 * handle emits its TM_ERROR at once. A fetch carrying a credential under
 	 * `vault_require_ssl` takes https alone, its redirects too, and no
-	 * redirect to another host, port or scheme carries the credential. A
-	 * checked fetch records the address its pre-request callback refused in
-	 * the transfer's own context, where the completion reads it.
+	 * redirect to another host, port or scheme carries the credential.
 	 *
 	 * @param array<int,mixed> $message    The input message.
 	 * @param string           $url        The url.
 	 * @param string|null      $body       A POST's body, or null for a GET.
 	 * @param string           $credential The credential header line, or ''.
-	 * @param bool             $checked    Whether to refuse a private address.
 	 */
-	private function fetch( array $message, string $url, ?string $body, string $credential, bool $checked ): void {
+	private function fetch( array $message, string $url, ?string $body, string $credential ): void {
 		$protocols = '' !== $credential && Vault::require_ssl() ? \CURLPROTO_HTTPS : self::PROTOCOLS;
 		$follow  = $this->follow && self::stays_on_origin( $credential );
 		$method  = null === $body
@@ -287,22 +200,11 @@ class Curl_Node extends Node implements Curl_Owner {
 		if ( [] !== $headers ) {
 			$opts[ \CURLOPT_HTTPHEADER ] = $headers;
 		}
-		$refused = '';
-		if ( $checked ) {
-			$opts[ \CURLOPT_PREREQFUNCTION ] = static function ( \CurlHandle $ch, string $primary_ip ) use ( &$refused ): int {
-				if ( self::is_public_address( $primary_ip ) ) {
-					return \CURL_PREREQFUNC_OK;
-				}
-				$refused = $primary_ip;
-				return \CURL_PREREQFUNC_ABORT;
-			};
-		}
 		$started = $this->start_transfer(
 			$opts,
 			[
 				'message' => $message,
 				'url'     => $url,
-				'refused' => &$refused,
 			]
 		);
 		if ( ! $started ) {
@@ -312,26 +214,20 @@ class Curl_Node extends Node implements Curl_Owner {
 
 	/**
 	 * Emit the completed fetch as a copy of its input message: the body below
-	 * status 400, a TM_ERROR naming the status at or above it, a TM_ERROR
-	 * naming the address the pre-request callback refused, and a TM_ERROR
-	 * naming the curl error when the transfer failed otherwise — a timeout, a
-	 * refused connection, or the body cap's short write. Following no redirects, a
+	 * status 400, a TM_ERROR naming the status at or above it, and a TM_ERROR
+	 * naming the curl error when the transfer failed — a timeout, a refused
+	 * connection, or the body cap's short write. Following no redirects, a
 	 * 3xx answers its Location as a TM_RESPONSE, or with none, a TM_ERROR.
 	 * Following them, only the credential guard leaves a 3xx's Location
 	 * unfollowed, and that answers a TM_ERROR naming the credential's header.
 	 *
 	 * @param int                                         $result   The transfer's CURLE_* code.
 	 * @param array{code:int,body:string,redirect:string} $response Its status, body and unfollowed Location.
-	 * @param array{message:array<int,mixed>,url:string,refused:string} $request The input message, the url and the refused address.
+	 * @param array{message:array<int,mixed>,url:string} $request  The input message and the url.
 	 */
 	protected function on_transfer_done( int $result, array $response, mixed $request ): void {
 		$url = $request['url'];
 		if ( \CURLE_OK !== $result ) {
-			$refused = $request['refused'];
-			if ( '' !== $refused ) {
-				$this->emit( $request['message'], Message::TM_ERROR, "private address refused: {$refused} {$url}" );
-				return;
-			}
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_strerror
 			$reason = Core::as_string( \curl_strerror( $result ) );
 			$this->emit( $request['message'], Message::TM_ERROR, "curl error {$result} ({$reason}) {$url}" );
@@ -351,87 +247,6 @@ class Curl_Node extends Node implements Curl_Owner {
 			return;
 		}
 		$this->emit( $request['message'], Message::TM_BYTESTREAM, $response['body'] );
-	}
-
-	/**
-	 * Whether a connected address is public: not one `filter_var()`'s private
-	 * and reserved flags refuse, nor in `REFUSED_RANGES`. An address under
-	 * one of `IPV4_EMBEDDINGS` is judged by the IPv4 it carries; a string
-	 * that is not an address fails.
-	 *
-	 * @param string $ip The address libcurl connected to.
-	 */
-	private static function is_public_address( string $ip ): bool {
-		$packed = \inet_pton( $ip );
-		if ( false === $packed ) {
-			return false;
-		}
-		[ $embeddings, $refused ] = self::$networks ??= self::pack_networks();
-		foreach ( $embeddings as [ $network, $bits, $offset ] ) {
-			if ( self::in_range( $packed, $network, $bits ) ) {
-				$packed = \substr( $packed, $offset, 4 );
-				$ip     = Core::as_string( \inet_ntop( $packed ) );
-				break;
-			}
-		}
-		if ( false === \filter_var( $ip, \FILTER_VALIDATE_IP, \FILTER_FLAG_NO_PRIV_RANGE | \FILTER_FLAG_NO_RES_RANGE ) ) {
-			return false;
-		}
-		foreach ( $refused as [ $network, $bits ] ) {
-			if ( self::in_range( $packed, $network, $bits ) ) {
-				return false;
-			}
-		}
-		return true;
-	}
-
-	/**
-	 * Pack `IPV4_EMBEDDINGS` and `REFUSED_RANGES` into the shape
-	 * `$networks` holds.
-	 *
-	 * @return array{0:list<array{0:string,1:int,2:int}>,1:list<array{0:string,1:int}>}
-	 */
-	private static function pack_networks(): array {
-		$embeddings = [];
-		foreach ( self::IPV4_EMBEDDINGS as $cidr => $offset ) {
-			[ $network, $bits ] = self::pack_cidr( $cidr );
-			$embeddings[]       = [ $network, $bits, $offset ];
-		}
-		$ranges = [];
-		foreach ( self::REFUSED_RANGES as $cidr ) {
-			$ranges[] = self::pack_cidr( $cidr );
-		}
-		return [ $embeddings, $ranges ];
-	}
-
-	/**
-	 * A CIDR range's network, as `inet_pton()` packs it, and its prefix bits.
-	 *
-	 * @param string $cidr `<network>/<bits>`.
-	 * @return array{0:string,1:int}
-	 */
-	private static function pack_cidr( string $cidr ): array {
-		[ $network, $bits ] = \explode( '/', $cidr );
-		return [ Core::as_string( \inet_pton( $network ) ), (int) $bits ];
-	}
-
-	/**
-	 * Whether a packed address falls in a packed network of its own family.
-	 *
-	 * @param string $packed  The address, as `inet_pton()` packs it.
-	 * @param string $network The network, packed the same way.
-	 * @param int    $bits    The network's prefix length.
-	 */
-	private static function in_range( string $packed, string $network, int $bits ): bool {
-		if ( \strlen( $network ) !== \strlen( $packed ) ) {
-			return false;
-		}
-		$whole = $bits >> 3;
-		if ( 0 !== \strncmp( $packed, $network, $whole ) ) {
-			return false;
-		}
-		$mask = ( 0xff << ( 8 - ( $bits & 7 ) ) ) & 0xff;
-		return 0 === $mask || ( \ord( $packed[ $whole ] ) & $mask ) === ( \ord( $network[ $whole ] ) & $mask );
 	}
 
 	/**

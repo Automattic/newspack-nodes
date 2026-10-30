@@ -357,22 +357,6 @@ class ConfigSchemaTest extends TestCase {
 	}
 
 	/**
-	 * Letting a Curl fetch reach a private address is a config-file decision,
-	 * off unless an operator raises it, never a checkbox.
-	 */
-	public function test_curl_allow_private_addresses_is_off_and_never_rendered(): void {
-		$schema = Settings_Schema::get();
-		$field  = $schema->field_for_short( 'curl_allow_private_addresses' );
-
-		$this->assertNotNull( $field );
-		$this->assertSame( 'bool', $field->type );
-		$this->assertFalse( $field->default );
-		$this->assertFalse( $field->ui );
-		$this->assertContains( 'curl_allow_private_addresses', $schema->overlay_keys() );
-		$this->assertNotContains( 'newspack_nodes_curl_allow_private_addresses', $schema->setting_option_names() );
-	}
-
-	/**
 	 * The credential store is not a config key. `newspack_nodes_vault` is the
 	 * Vault's own option, outside `overlay_keys()`, so `Options_Overlay` never
 	 * merges it into `load_config()` and a TSL `<config:vault>` token resolves

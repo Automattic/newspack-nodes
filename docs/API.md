@@ -1535,24 +1535,6 @@ emits a copy of the input message, FROM, ID and KEY intact and TO stamped from
 status 400, and otherwise a TM_ERROR whose VALUE opens with a fixed prefix a
 consumer can match.
 
-A fetch connects only to a public address unless the `ui: false` setting
-`curl_allow_private_addresses` is true; it is false by default, and raised only
-for an internal source under test. libcurl's pre-request callback
-(`CURLOPT_PREREQFUNCTION`) checks the address each request actually connected
-to, every redirect hop included, so the address judged is the one libcurl
-reached, never one a separate lookup resolved. It refuses the ranges
-WordPress's `wp_http_validate_url()` refuses — 0/8, 10/8, 100.64/10, 127/8,
-169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16,
-198.18/15, 198.51.100/24, 203.0.113/24, 224/4 and 240/4 — and `::1`, `::`,
-`::/96` (IPv4-compatible), `::ffff:0:0:0/96` (IPv4-translated), 100::/64,
-2001::/23, 2001:db8::/32, fc00::/7, fe80::/10, fec0::/10, 64:ff9b:1::/48
-and ff00::/8. An IPv4-mapped (`::ffff:0:0/96`), NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`)
-address is judged by the IPv4 it carries, so NAT64 to a public host passes.
-Through a proxy, which libcurl takes from the proxy environment variables, the
-check judges the proxy's address, not the target's. The callback needs PHP
-8.4; on an older PHP, with the setting false, every fetch answers a TM_ERROR
-rather than fetching unchecked.
-
 A fetch follows redirects, up to `MAX_REDIRECTS`. `follow_redirects( false )`
 turns that off for one node, and is a method rather than a positional because
 the optional `vault_group` has no empty placeholder. Following none, a fetch sets
@@ -1567,7 +1549,6 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 | VALUE | When |
 |---|---|
 | `HTTP <code> <url>` | The response's status is 400 or more, or, following no redirects, 300-399 with no Location. |
-| `private address refused: <ip> <url>` | The request, or a redirect it followed, connected to a private or reserved address, and `curl_allow_private_addresses` is false. |
 | `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
 | `invalid url <value>` | VALUE, or a request's `url`, is not an absolute http(s) url with a host. |
 | `redirect not followed: credential in <header> <url>` | The node follows redirects, the url's credential rides in a header other than `Authorization`, and the response is a 3xx naming a Location; the header's value is left out. |
@@ -1580,7 +1561,6 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 | `vault_require_ssl set but url is not https <url>` | The url is plaintext, an entry of the vault group sits on its origin, and `vault_require_ssl` is set. |
 | `no event loop <url>` | The process is not inside a drain loop, so no transfer could ever complete. |
 | `busy: <N> requests in flight <url>` | `MAX_IN_FLIGHT` transfers are already running; nothing is queued. |
-| `curl_allow_private_addresses is off and refusing a private address needs PHP 8.4 <url>` | PHP lacks `CURLOPT_PREREQFUNCTION`, so no address could be checked, and the setting is false. |
 | `curl_init failed <url>` | libcurl yielded no handle, so no transfer started. |
 
 The output goes to `target` like any forwarded message, never back along FROM.

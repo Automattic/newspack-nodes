@@ -12,13 +12,6 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   password, with no username, under `auth_header Authorization` and
   `auth_scheme Bearer`: `vault update <id> --password=<token>
   --header=Authorization --scheme=Bearer`.
-- **A `Curl_Node` fetch refuses a private or reserved address.** A Curl, or a
-  Crawler, reaching an internal host answers a TM_ERROR `private address
-  refused: <ip> <url>`. Set `curl_allow_private_addresses` true for an
-  internal source under test. Below PHP 8.4, with the setting false, every
-  Curl fetch answers a TM_ERROR naming the setting and the PHP 8.4
-  requirement; run PHP 8.4, or set the key where an unchecked fetch is
-  acceptable.
 - **`Vault::credential_header()` takes the decrypted entry and answers the
   whole header line; `Vault::credential_header_for()` is gone.** Replace
   `Vault::credential_header_for( $server )` and `Vault::credential_header(

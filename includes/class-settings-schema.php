@@ -416,13 +416,6 @@ class Settings_Schema {
 					default: true,
 					ui: false,
 				),
-				// Raised ONLY for an internal source under test.
-				new Field(
-					key: 'curl_allow_private_addresses',
-					type: 'bool',
-					default: false,
-					ui: false,
-				),
 			],
 			[
 				$storage => [

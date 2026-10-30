@@ -127,10 +127,6 @@ return [
     // Refuse a spoke url that is not https at all; HTTP_Out drops the batch.
     // 'vault_require_ssl'          => true,
 
-    // Let a Curl fetch connect to a private or reserved address, such as an
-    // internal source under test; off, the connected address is checked.
-    // 'curl_allow_private_addresses' => false,
-
     // Spoke geometry the settings-sync graph pushes; nothing local reads it.
     // Each lands as that spoke's own retention key, and as its own remote_*
     // copy, so the geometry propagates on to ITS spokes. A remote_lifetime
