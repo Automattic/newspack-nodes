@@ -592,7 +592,8 @@ class CurlNodeTest extends TestCase {
 		$url = 'https://api.refuse-5.example/x-2';
 		return [
 			'lowercase method' => [ [ 'url' => $url, 'method' => 'post', 'body' => '{}' ], "invalid method post {$url}" ],
-			'unknown method'   => [ [ 'url' => $url, 'method' => 'DELETE' ], "invalid method DELETE {$url}" ],
+			'unknown method'   => [ [ 'url' => $url, 'method' => 'PATCH' ], "invalid method PATCH {$url}" ],
+			'body on a DELETE' => [ [ 'url' => $url, 'method' => 'DELETE', 'body' => '' ], "body on a DELETE {$url}" ],
 			'no method'        => [ [ 'url' => $url ], "invalid method  {$url}" ],
 			'array method'     => [ [ 'url' => $url, 'method' => [ 'GET' ] ], "invalid method  {$url}" ],
 			'body on a GET'    => [ [ 'url' => $url, 'method' => 'GET', 'body' => '{"a":1}' ], "body on a GET {$url}" ],
@@ -646,6 +647,363 @@ class CurlNodeTest extends TestCase {
 		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'http://plain-7.example:8081/gql-3', 'method' => 'POST', 'body' => '{}' ] ) );
 
 		$this->assert_error( 'vault_require_ssl set but url is not https http://plain-7.example:8081/gql-3' );
+	}
+
+	public function test_a_request_sends_its_headers_after_the_json_type(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}', 'headers' => [ 'Accept: application/json, text/event-stream', 'Authorization: Bearer file-token-5512', 'Mcp-Session-Id: sess-4471' ] ] ) );
+
+		$this->assertSame( [ 'Content-Type: application/json', 'Accept: application/json, text/event-stream', 'Authorization: Bearer file-token-5512', 'Mcp-Session-Id: sess-4471' ], $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
+	public function test_a_content_type_header_replaces_the_json_type(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://token-3.example/oauth', 'method' => 'POST', 'body' => 'grant_type=refresh_token', 'headers' => [ 'content-TYPE: application/x-www-form-urlencoded' ] ] ) );
+
+		$this->assertSame( [ 'content-TYPE: application/x-www-form-urlencoded' ], $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
+	public function test_a_get_request_sends_its_headers(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'GET', 'headers' => [ 'Accept: text/plain-73' ] ] ) );
+
+		$this->assertSame( [ 'Accept: text/plain-73' ], $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
+	public function test_a_request_header_rides_before_the_vault_credential(): void {
+		$this->seed_vault( 'mcp-6', [ 'url' => 'https://mcp-6.example', 'auth_password' => 'vault-key-6604', 'auth_header' => 'X-Api-Key', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://mcp-6.example/v1', 'method' => 'POST', 'body' => '{}', 'headers' => [ 'Mcp-Session-Id: sess-9031' ] ] ) );
+
+		$this->assertSame( [ 'Content-Type: application/json', 'Mcp-Session-Id: sess-9031', 'X-Api-Key: vault-key-6604' ], $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
+	public function test_authorization_beside_a_vault_credential_is_refused(): void {
+		$this->seed_vault( 'mcp-6', [ 'url' => 'https://mcp-6.example', 'auth_password' => 'vault-key-6604', 'auth_header' => 'X-Api-Key', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://mcp-6.example/v1', 'method' => 'POST', 'body' => '{}', 'headers' => [ 'AUTHORIZATION: Bearer file-token-5512' ] ] ) );
+
+		$this->assert_error( 'refused header AUTHORIZATION beside a vault credential https://mcp-6.example/v1' );
+	}
+
+	public function test_a_proxy_beside_a_vault_credential_on_a_plain_url_is_refused(): void {
+		$this->seed_vault( 'plain-9', [ 'url' => 'http://plain-9.example:8093', 'auth_password' => 'vault-key-9937', 'auth_header' => 'X-Api-Key', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'http://plain-9.example:8093/v1', 'method' => 'GET', 'proxy' => 'http://proxy-6.example:3128' ] ) );
+
+		$this->assertSame( [], $this->captured );
+		$this->assert_error( 'refused proxy beside a credential on a plain url http://plain-9.example:8093/v1' );
+	}
+
+	/** A request carrying header lines of its own takes a proxy only over https, as one carrying a vault credential does. */
+	public function test_a_proxy_beside_request_headers_on_a_plain_url_is_refused(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'http://plain-4.example:8094/v1', 'method' => 'GET', 'headers' => [ 'X-Session-7: s-4410' ], 'proxy' => 'http://proxy-6.example:3128' ] ) );
+
+		$this->assert_error( 'refused proxy beside a credential on a plain url http://plain-4.example:8094/v1' );
+	}
+
+	public function test_a_proxy_beside_request_headers_on_an_https_url_tunnels(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'GET', 'headers' => [ 'X-Session-7: s-4410' ], 'proxy' => 'socks5h://proxy-6.example:1086' ] ) );
+
+		$this->assertSame( 'socks5h://proxy-6.example:1086', $this->captured[0][ \CURLOPT_PROXY ] );
+	}
+
+	/**
+	 * A request carrying header lines of its own follows no redirect, since
+	 * any of them may be a credential libcurl would carry along, and a 3xx
+	 * answers as the credential guard's does, naming no value.
+	 */
+	public function test_request_headers_follow_no_redirect(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://mcp-8.example/moved-5', 'method' => 'GET', 'headers' => [ 'X-Session-7: s-4410' ] ] ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 307, 'body' => '', 'redirect' => 'https://elsewhere-3.example/landed-5' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertFalse( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+		$this->assertSame( 'redirect not followed: credential in request headers https://mcp-8.example/moved-5', $this->only_emitted()[ Message::VALUE ] );
+		$this->assertStringNotContainsString( 's-4410', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** A DELETE follows no redirect, so its method is never sent to another url. */
+	public function test_a_delete_follows_no_redirect(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'DELETE' ] ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 308, 'body' => '', 'redirect' => 'https://elsewhere-3.example/v2' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertFalse( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+		$this->assertSame( 'redirect not followed: a DELETE https://mcp-8.example/v1', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** A plain GET with no credential and no header lines still follows redirects. */
+	public function test_a_plain_request_still_follows_redirects(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'GET' ] ) );
+
+		$this->assertTrue( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+	}
+
+	public function test_a_proxy_beside_a_vault_credential_on_an_https_url_tunnels(): void {
+		$this->seed_vault( 'mcp-6', [ 'url' => 'https://mcp-6.example', 'auth_password' => 'vault-key-6604', 'auth_header' => 'X-Api-Key', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://mcp-6.example/v1', 'method' => 'GET', 'proxy' => 'socks5h://proxy-6.example:1086' ] ) );
+
+		$this->assertSame( 'socks5h://proxy-6.example:1086', $this->captured[0][ \CURLOPT_PROXY ] );
+	}
+
+	public function test_authorization_on_an_origin_the_group_lends_nothing_is_sent(): void {
+		$this->seed_vault( 'mcp-6', [ 'url' => 'https://mcp-6.example', 'auth_password' => 'vault-key-6604', 'auth_header' => 'X-Api-Key', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://elsewhere-2.example/v1', 'method' => 'POST', 'body' => '{}', 'headers' => [ 'Authorization: Bearer file-token-5512' ] ] ) );
+
+		$this->assertSame( [ 'Content-Type: application/json', 'Authorization: Bearer file-token-5512' ], $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
+	/** @return array<string,array{0:mixed,1:string}> */
+	public static function refused_headers_provider(): array {
+		$url = 'https://mcp-8.example/v1';
+		return [
+			'host'              => [ [ 'Accept: x', 'hOsT: evil-1.example' ], "refused header hOsT {$url}" ],
+			'cookie'            => [ [ 'Cookie: a=1' ], "refused header Cookie {$url}" ],
+			'content-length'    => [ [ 'CONTENT-LENGTH: 9' ], "refused header CONTENT-LENGTH {$url}" ],
+			'transfer-encoding' => [ [ 'Transfer-Encoding: chunked' ], "refused header Transfer-Encoding {$url}" ],
+			'connection'        => [ [ 'connection: close' ], "refused header connection {$url}" ],
+			'expect'            => [ [ 'Expect: 100-continue' ], "refused header Expect {$url}" ],
+			'upgrade'           => [ [ 'upgrade: h2c' ], "refused header upgrade {$url}" ],
+			'te'                => [ [ 'TE: trailers' ], "refused header TE {$url}" ],
+			'keep-alive'        => [ [ 'Keep-Alive: timeout=5' ], "refused header Keep-Alive {$url}" ],
+			'proxy-connection'  => [ [ 'Proxy-Connection: keep-alive' ], "refused header Proxy-Connection {$url}" ],
+			'proxy-auth'        => [ [ 'Proxy-Authorization: Basic eDp5' ], "refused header Proxy-Authorization {$url}" ],
+			'empty value'       => [ [ 'User-Agent:' ], "empty header User-Agent {$url}" ],
+			'blank value'       => [ [ "Accept: \t " ], "empty header Accept {$url}" ],
+			'carriage return'   => [ [ "Accept: x\rHost: evil-2.example" ], "header carries CR or LF {$url}" ],
+			'line feed'         => [ [ "Mcp-Session-Id: s-1\nCookie: a=1" ], "header carries CR or LF {$url}" ],
+			'not a list'        => [ [ 'Accept' => 'x' ], "invalid headers {$url}" ],
+			'not a string'      => [ [ [ 'Accept: x' ] ], "invalid headers {$url}" ],
+			'no name'           => [ [ ': x' ], "invalid headers {$url}" ],
+			'no colon'          => [ [ 'Accept x' ], "invalid headers {$url}" ],
+			'bad name'          => [ [ 'Acc ept: x' ], "invalid headers {$url}" ],
+			'a string'          => [ 'Accept: x', "invalid headers {$url}" ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_headers_provider' )]
+	public function test_a_request_header_that_would_rewrite_the_request_is_refused( mixed $headers, string $expected ): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}', 'headers' => $headers ] ) );
+
+		$this->assert_error( $expected );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function proxy_provider(): array {
+		return [
+			'socks5h' => [ 'socks5h://host.docker.internal:8080' ],
+			'socks5'  => [ 'socks5://10.0.4.7:1081' ],
+			'http'    => [ 'http://proxy-3.example:3128' ],
+			'https'   => [ 'HTTPS://proxy-4.example:8443/' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'proxy_provider' )]
+	public function test_a_request_naming_a_proxy_fetches_through_it( string $proxy ): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}', 'proxy' => $proxy ] ) );
+
+		$this->assertCount( 1, $this->captured );
+		$this->assertSame( $proxy, $this->captured[0][ \CURLOPT_PROXY ] );
+		$this->assertSame( '', $this->captured[0][ \CURLOPT_NOPROXY ], 'no environment variable bypasses the proxy' );
+	}
+
+	/** A proxy's TLS takes the vault's posture, as the server's does. */
+	public function test_a_proxy_takes_the_vaults_tls_posture(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => false ] );
+
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'GET', 'proxy' => 'https://proxy-4.example:8443' ] ) );
+
+		$this->assertFalse( $this->captured[0][ \CURLOPT_PROXY_SSL_VERIFYPEER ] );
+		$this->assertSame( 0, $this->captured[0][ \CURLOPT_PROXY_SSL_VERIFYHOST ] );
+	}
+
+	/** A request header naming the header the vault's credential for the origin rides in is refused. */
+	public function test_a_request_header_naming_the_credentials_header_is_refused(): void {
+		$this->seed_vault( 'mcp-6', [ 'url' => 'https://mcp-6.example', 'auth_password' => 'vault-key-6604', 'auth_header' => 'X-Api-Key', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://mcp-6.example/v1', 'method' => 'POST', 'body' => '{}', 'headers' => [ 'x-API-key: forged-2210' ] ] ) );
+
+		$this->assert_error( 'refused header x-API-key beside a vault credential https://mcp-6.example/v1' );
+	}
+
+	/** A DELETE sends no body and the method by name, and is answered as any request. */
+	public function test_a_delete_request_sends_the_method_and_no_body(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'DELETE', 'headers' => [ 'Mcp-Session-Id: sess-end-4471' ] ] ) );
+
+		$opts = $this->captured[0];
+		$this->assertSame( 'DELETE', $opts[ \CURLOPT_CUSTOMREQUEST ] );
+		$this->assertArrayNotHasKey( \CURLOPT_POSTFIELDS, $opts );
+		$this->assertSame( [ 'Mcp-Session-Id: sess-end-4471' ], $opts[ \CURLOPT_HTTPHEADER ] );
+	}
+
+	public function test_a_request_naming_no_proxy_sets_none(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}' ] ) );
+		$this->fetch( $node, $this->url_message( 'https://mcp-8.example/feed' ) );
+
+		$this->assertArrayNotHasKey( \CURLOPT_PROXY, $this->captured[0] );
+		$this->assertArrayNotHasKey( \CURLOPT_PROXY, $this->captured[1] );
+	}
+
+	/** @return array<string,array{0:mixed,1:string}> */
+	public static function refused_proxy_provider(): array {
+		$url = 'https://mcp-8.example/v1';
+		return [
+			'ftp scheme'      => [ 'ftp://proxy-5.example:21', "invalid proxy {$url}" ],
+			'socks4 scheme'   => [ 'socks4://proxy-5.example:1080', "invalid proxy {$url}" ],
+			'no scheme'       => [ 'proxy-5.example:8080', "invalid proxy {$url}" ],
+			'no port'         => [ 'socks5h://proxy-5.example', "invalid proxy {$url}" ],
+			'no host'         => [ 'socks5h://:8080', "invalid proxy {$url}" ],
+			'a path'          => [ 'socks5h://proxy-5.example:8080/tunnel', "invalid proxy {$url}" ],
+			'a query'         => [ 'http://proxy-5.example:3128?x=1', "invalid proxy {$url}" ],
+			'empty'           => [ '', "invalid proxy {$url}" ],
+			'not a string'    => [ [ 'socks5h://proxy-5.example:8080' ], "invalid proxy {$url}" ],
+			'userinfo'        => [ 'socks5h://svc-77:pw-proxy-91@proxy-5.example:8080', "invalid proxy carrying userinfo {$url}" ],
+			'user alone'      => [ 'http://svc-77@proxy-5.example:3128', "invalid proxy carrying userinfo {$url}" ],
+			'carriage return' => [ "socks5h://proxy-5.example:8080\r", "proxy carries CR or LF {$url}" ],
+			'line feed'       => [ "socks5h://proxy-5.example:8080\nHost: x", "proxy carries CR or LF {$url}" ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_proxy_provider' )]
+	public function test_a_proxy_that_is_not_a_bare_socks_or_http_origin_is_refused( mixed $proxy, string $expected ): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}', 'proxy' => $proxy ] ) );
+
+		$this->assert_error( $expected );
+		$this->assertStringNotContainsString( 'pw-proxy-91', $expected );
+	}
+
+	/**
+	 * Feed header lines to dispatch $i's header callback, as libcurl does,
+	 * then complete it with $code and $body.
+	 *
+	 * @param list<string> $lines Header lines, each with its CRLF.
+	 */
+	private function answer_with_headers( int $i, array $lines, string $body, int $code = 200 ): void {
+		foreach ( $lines as $line ) {
+			$this->assertSame( \strlen( $line ), $this->captured[ $i ][ \CURLOPT_HEADERFUNCTION ]( $this->handles[ $i ], $line ) );
+		}
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => $code, 'body' => $body, 'redirect' => '' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[ $i ] ) ] );
+	}
+
+	/**
+	 * A request naming response headers answers a TM_STRUCT copy of itself,
+	 * `{ body, headers }`: each named header by its lowercased name, matched
+	 * in any case, its first value trimmed and cut to 256 bytes; one the
+	 * answer never sent is left out, and an unnamed one is never read.
+	 */
+	public function test_named_response_headers_answer_with_the_body(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}', 'response_headers' => [ 'Mcp-Session-Id', 'X-Trace-71', 'X-Absent-4' ] ] ) );
+
+		$this->answer_with_headers(
+			0,
+			[ "HTTP/1.1 200 OK\r\n", "mcp-session-ID:   sess-7731-heron  \r\n", "Mcp-Session-Id: second-ignored\r\n", "X-Unnamed-9: never\r\n", 'X-TRACE-71: ' . \str_repeat( 'r', 300 ) . "\r\n", "\r\n" ],
+			'{"jsonrpc":"2.0","id":1}'
+		);
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_STRUCT, $out[ Message::TYPE ] );
+		$this->assertSame(
+			[
+				'body'    => '{"jsonrpc":"2.0","id":1}',
+				'headers' => [
+					'mcp-session-id' => 'sess-7731-heron',
+					'x-trace-71'     => \str_repeat( 'r', 256 ),
+				],
+			],
+			$out[ Message::VALUE ]
+		);
+		$this->assertSame( [ 'asker-5519/reply', 'corr-6081', 'key-2297', 'fetched-4402' ], [ $out[ Message::FROM ], $out[ Message::ID ], $out[ Message::KEY ], $out[ Message::TO ] ] );
+	}
+
+	/** A redirect hop's headers give way to the final answer's. */
+	public function test_the_final_answers_headers_replace_a_redirect_hops(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'GET', 'response_headers' => [ 'Mcp-Session-Id' ] ] ) );
+
+		$this->answer_with_headers( 0, [ "HTTP/1.1 302 Found\r\n", "Mcp-Session-Id: hop-6610\r\n", "\r\n", "HTTP/2 200\r\n", "Mcp-Session-Id: final-8802\r\n", "\r\n" ], 'ok-5' );
+
+		$this->assertSame( [ 'body' => 'ok-5', 'headers' => [ 'mcp-session-id' => 'final-8802' ] ], $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** A header after the final head's blank line, a chunked trailer, is never read. */
+	public function test_a_trailer_is_never_read_as_a_response_header(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'GET', 'response_headers' => [ 'Mcp-Session-Id', 'X-Late-5' ] ] ) );
+
+		$this->answer_with_headers( 0, [ "HTTP/1.1 200 OK\r\n", "Mcp-Session-Id: head-3301\r\n", "\r\n", "X-Late-5: trailer-9\r\n", "\r\n" ], 'chunked' );
+
+		$this->assertSame( [ 'mcp-session-id' => 'head-3301' ], $this->only_emitted()[ Message::VALUE ]['headers'] );
+	}
+
+	/** A status of 400 or more answers its TM_ERROR as before, whatever headers were named. */
+	public function test_an_error_status_answers_its_tm_error_unchanged(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}', 'response_headers' => [ 'Mcp-Session-Id' ] ] ) );
+
+		$this->answer_with_headers( 0, [ "HTTP/1.1 404 Not Found\r\n", "Mcp-Session-Id: gone-3\r\n" ], 'missing' , 404 );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_ERROR, $out[ Message::TYPE ] );
+		$this->assertSame( 'HTTP 404 https://mcp-8.example/v1', $out[ Message::VALUE ] );
+	}
+
+	/** A request naming no response headers reads none and answers its body as a TM_BYTESTREAM. */
+	public function test_a_request_naming_no_response_headers_answers_as_before(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}' ] ) );
+		$this->fetch( $node, $this->url_message( 'https://mcp-8.example/feed-3' ) );
+
+		$this->assertArrayNotHasKey( \CURLOPT_HEADERFUNCTION, $this->captured[0] );
+		$this->assertArrayNotHasKey( \CURLOPT_HEADERFUNCTION, $this->captured[1] );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => 'plain-4410', 'redirect' => '' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+		$this->assertSame( [ Message::TM_BYTESTREAM, 'plain-4410' ], [ $this->sink->captured[0][ Message::TYPE ], $this->sink->captured[0][ Message::VALUE ] ] );
+	}
+
+	/** @return array<string,array{0:mixed,1:string}> */
+	public static function refused_response_headers_provider(): array {
+		$url = 'https://mcp-8.example/v1';
+		return [
+			'not a list'        => [ [ 'name' => 'Mcp-Session-Id' ], "invalid response headers {$url}" ],
+			'a string'          => [ 'Mcp-Session-Id', "invalid response headers {$url}" ],
+			'nine names'        => [ [ 'A-1', 'A-2', 'A-3', 'A-4', 'A-5', 'A-6', 'A-7', 'A-8', 'A-9' ], "invalid response headers {$url}" ],
+			'not a string'      => [ [ [ 'Mcp-Session-Id' ] ], "invalid response headers {$url}" ],
+			'a space'           => [ [ 'Mcp Session' ], "invalid response headers {$url}" ],
+			'a colon'           => [ [ 'Mcp-Session-Id:' ], "invalid response headers {$url}" ],
+			'empty'             => [ [ '' ], "invalid response headers {$url}" ],
+			'a line feed'       => [ [ "Mcp-Session-Id\n" ], "invalid response headers {$url}" ],
+			'host'              => [ [ 'hOsT' ], "refused response header hOsT {$url}" ],
+			'connection'        => [ [ 'Connection' ], "refused response header Connection {$url}" ],
+			'cookie'            => [ [ 'Cookie' ], "refused response header Cookie {$url}" ],
+			'set-cookie'        => [ [ 'SET-COOKIE' ], "refused response header SET-COOKIE {$url}" ],
+			'authorization'     => [ [ 'authorization' ], "refused response header authorization {$url}" ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_response_headers_provider' )]
+	public function test_a_response_header_that_could_carry_a_secret_is_refused( mixed $names, string $expected ): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}', 'response_headers' => $names ] ) );
+
+		$this->assert_error( $expected );
+	}
+
+	/** Eight names are allowed. */
+	public function test_eight_response_headers_are_read(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'GET', 'response_headers' => [ 'A-1', 'A-2', 'A-3', 'A-4', 'A-5', 'A-6', 'A-7', 'A-8' ] ] ) );
+
+		$this->answer_with_headers( 0, [ "A-8: eighth-58\r\n" ], 'b' );
+
+		$this->assertSame( [ 'a-8' => 'eighth-58' ], $this->only_emitted()[ Message::VALUE ]['headers'] );
+	}
+
+	/** The header the vault's credential for the origin rides in is refused, in any case. */
+	public function test_the_vault_credentials_own_header_is_refused(): void {
+		$this->seed_vault( 'mcp-6', [ 'url' => 'https://mcp-6.example', 'auth_password' => 'vault-key-6604', 'auth_header' => 'X-Api-Key', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://mcp-6.example/v1', 'method' => 'POST', 'body' => '{}', 'response_headers' => [ 'Mcp-Session-Id', 'x-api-KEY' ] ] ) );
+
+		$this->assert_error( 'refused response header x-api-KEY beside a vault credential https://mcp-6.example/v1' );
 	}
 
 	public function test_requests_and_urls_share_the_in_flight_cap(): void {

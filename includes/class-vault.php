@@ -63,10 +63,27 @@ class Vault {
 	public static ?\Closure $sodium_available = null;
 
 	/**
+	 * Header names that frame a request, hold or upgrade its connection, or
+	 * carry its cookies or a proxy's credential, lowercased: no credential
+	 * rides in one, and no `Curl_Node` request sends or reads one.
+	 *
+	 * @api Curl_Node
+	 */
+	public const FRAMING_HEADERS = [ 'host', 'cookie', 'content-length', 'transfer-encoding', 'connection', 'expect', 'upgrade', 'te', 'keep-alive', 'proxy-connection', 'proxy-authorization' ];
+
+	/**
+	 * The one grammar of a header name, unanchored: 1 to 64 letters, digits
+	 * and hyphens.
+	 *
+	 * @api Curl_Node
+	 */
+	public const HEADER_NAME = '[A-Za-z0-9-]{1,64}';
+
+	/**
 	 * Header names a credential may not ride in, lowercased: each would let the
 	 * stored credential rewrite the request it rides on rather than authorize it.
 	 */
-	private const REFUSED_AUTH_HEADERS = [ 'host', 'cookie', 'content-length', 'content-type', 'transfer-encoding', 'connection' ];
+	private const REFUSED_AUTH_HEADERS = [ ...self::FRAMING_HEADERS, 'content-type' ];
 
 	/**
 	 * The keys this class manages, each '' where the option holds none: every
@@ -369,15 +386,24 @@ class Vault {
 
 	/**
 	 * Whether a string may name the header a credential rides in: empty for
-	 * none, or 1-64 letters, digits and hyphens and none of
-	 * `REFUSED_AUTH_HEADERS` in any case. The `vault` CI asks first, so it can
-	 * name the refusal.
+	 * none, or a header name and none of `REFUSED_AUTH_HEADERS` in any case.
+	 * The `vault` CI asks first, so it can name the refusal.
 	 *
 	 * @param string $header Candidate header name.
 	 */
 	public static function is_valid_auth_header( string $header ): bool {
-		return 1 === \preg_match( '/^[A-Za-z0-9-]{0,64}$/D', $header )
-			&& ! \in_array( \strtolower( $header ), self::REFUSED_AUTH_HEADERS, true );
+		return '' === $header || ( self::is_header_name( $header ) && ! \in_array( \strtolower( $header ), self::REFUSED_AUTH_HEADERS, true ) );
+	}
+
+	/**
+	 * Whether a string is a header name: HEADER_NAME and nothing more, so a
+	 * trailing newline is refused.
+	 *
+	 * @api Curl_Node
+	 * @param string $name Candidate header name.
+	 */
+	public static function is_header_name( string $name ): bool {
+		return 1 === \preg_match( '/^' . self::HEADER_NAME . '\z/', $name );
 	}
 
 	/**
@@ -654,17 +680,20 @@ class Vault {
 	}
 
 	/**
-	 * The libcurl TLS opts for a transfer to a server: verify the peer and its
-	 * name, or neither, as `vault_verify_ssl` says. Applied where a transport
-	 * resolves its destination.
+	 * The libcurl TLS opts for a transfer to a server and to any https proxy it
+	 * goes through: verify each peer and its name, or neither, as
+	 * `vault_verify_ssl` says. Applied where a transport resolves its
+	 * destination.
 	 *
 	 * @return array<int,bool|int>
 	 */
 	public static function tls_opts(): array {
 		$verify = self::verify_ssl();
 		return [
-			\CURLOPT_SSL_VERIFYPEER => $verify,
-			\CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
+			\CURLOPT_SSL_VERIFYPEER       => $verify,
+			\CURLOPT_SSL_VERIFYHOST       => $verify ? 2 : 0,
+			\CURLOPT_PROXY_SSL_VERIFYPEER => $verify,
+			\CURLOPT_PROXY_SSL_VERIFYHOST => $verify ? 2 : 0,
 		];
 	}
 
