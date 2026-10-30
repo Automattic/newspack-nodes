@@ -366,9 +366,9 @@ The most production-real question — **where do the API credentials go?** — h
 
 The Vault is a real station tab (`src/vault/`, registered `host: 'station'` / `slug: 'vault'` through the `newspack_nodes/station_tab_bundles` filter as a lazy bundle) — a thin `VaultAdmin` view over the `Vault_CI_Node` credential store ([`includes/rest/class-vault-ci-node.php`](../includes/rest/class-vault-ci-node.php)). Secrets persist server-side in the `newspack_nodes_vault` option and are **never** returned to the browser: `list` and `get` both project through one `public_shape()` that hands back `{ id, url, auth_username, auth_header, auth_scheme, has_credentials, group }` and nothing else. The username, header and scheme ride along because each is half an address rather than a secret, and an edit form cannot offer to change what it cannot show — which is why leaving the password field blank means "keep the stored one". That disclosure holds only while every Vault verb is `manage`; declaring one `read` would widen it.
 
-Your topology only *references* an entry. A source node carries a `set_vault_id` verb — its argument is `'type' => 'vault_id'`, which `CtorField` renders as a Vault dropdown — and resolves that id to the raw secret at `config()` time through the `Vault_Secret` trait (`newspack-intelligence/includes/class-github-source-node.php`: `cmd_set_vault_id` → `resolve_vault_secret`). Non-secret per-source config rides sibling verbs on the same node (`add_repo <owner/name>`, `add_url <feed>`), never the Vault, and each writes a round-trippable `config_line()` so the topology dumps back exactly as it was built.
+Your topology only *references* entries. A node that fetches names a Vault group — `make_node Curl <name> <vault_group>`, or a consumer node that builds its own Curl sibling under one, as newspack-intelligence's sources do (`make_node Linear_Source linear internal linear`) — and each request carries the header line `Vault::credential_header()` builds for the one entry in that group whose url shares the request's origin. The node never holds the secret. Non-secret per-source config rides verbs on the same node (`add_repo <owner/name>`, `add_url <feed>`), never the Vault, and each writes a round-trippable `config_line()` so the topology dumps back exactly as it was built.
 
-So the split is: **the operator enters the secret in the Vault tab; the topology points at it.** When the right surface is credentials, reach for the Vault entry + a `set_vault_id` reference — not a hand-rolled settings form and not a React page. The full credentials-in-the-Vault / config-in-the-topology model is [writing-a-real-plugin.md §4](writing-a-real-plugin.md#4-credentials-in-the-vault-config-in-the-topology); here it's the reminder that the credential surface is a tab you already have.
+So the split is: **the operator enters the secret in the Vault tab; the topology names its group.** When the right surface is credentials, reach for a Vault entry and a vault group — not a hand-rolled settings form and not a React page. The full credentials-in-the-Vault / config-in-the-topology model is [writing-a-real-plugin.md §4](writing-a-real-plugin.md#4-credentials-in-the-vault-config-in-the-topology); here it's the reminder that the credential surface is a tab you already have.
 
 ---
 
@@ -539,7 +539,7 @@ How an empty bucket reads belongs to the metric, and `METRICS` in [`topicProbeSe
 
 ## 9. Recap — what you wrote vs. what the substrate gave you
 
-**You wrote:** a `category` string on your CI (`'Service'`, not `'Hidden'`), a `requests` entry or two for your runtime triggers, a `tabMeta`-plus-`tabs` pair if your tool belongs in the station, one `add_filter` putting your page on the overlay-page list if it embeds the overlay, a `set_vault_id` reference to a Vault credential entry (not a settings form), and a build/deploy sequence that rebuilds before it deploys.
+**You wrote:** a `category` string on your CI (`'Service'`, not `'Hidden'`), a `requests` entry or two for your runtime triggers, a `tabMeta`-plus-`tabs` pair if your tool belongs in the station, one `add_filter` putting your page on the overlay-page list if it embeds the overlay, a vault group naming your Vault credential entries (not a settings form), and a build/deploy sequence that rebuilds before it deploys.
 
 **The substrate gave you — and these are the contracts, not conveniences:**
 
@@ -551,7 +551,7 @@ How an empty bucket reads belongs to the metric, and `METRICS` in [`topicProbeSe
 | `WP_EXTERNALS` | externalize ONLY packages WP registers as runtime scripts (icons, d3 and `@noble/hashes` are bundled) |
 | `TabHost` + the tab registry | one host, `host`-scoped tabs, globally distinct ids, lazy-keyed mount, `fullBleed` for canvas tabs, a toolbar placed through `headerControlsSlot` |
 | `tabMeta.js` + `lazy` bundles | one descriptor spelling for the placeholder and the bundle, so a lazy tab does not rename itself on arrival |
-| the Vault station tab + `set_vault_id` | credentials live in the Vault; the topology only references an entry |
+| the Vault station tab + a vault group | credentials live in the Vault; the topology only names a group, and a request carries its origin's entry |
 | `release:archive` / setup zip / `NEWSPACK_NODES_SRC` | rebuild before deploy; a shared edit rebuilds every consumer |
 | a standalone consumer's `alias` map | pin every non-`@wordpress/*` dependency to your own `node_modules`, or a dev build bundles the substrate's copy beside yours |
 | `useBatchedPoll` / `addSliceFetcher` | one tick is one POST; the cadence floor is 1000 ms and connect order is contractual |
