@@ -218,17 +218,6 @@ class HttpOutTest extends TestCase {
 		$this->assertContains( $expected, $captured[0][ \CURLOPT_HTTPHEADER ] );
 	}
 
-	public function test_fire_falls_back_to_bearer_token(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'token' => 'tok123', 'enabled' => true ] );
-		$captured = [];
-		$this->capture_dispatch( $captured );
-		$node = $this->make_node( 'austin' );
-		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
-		$node->fill( $msg );
-		$node->fire();
-		$this->assertContains( 'Authorization: Bearer tok123', $captured[0][ \CURLOPT_HTTPHEADER ] );
-	}
-
 	public function test_fire_sends_a_named_header_whole(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_password' => 'spoke-key-9017', 'auth_header' => 'X-Spoke-Key-61', 'auth_scheme' => 'Key-4' ] );
 		$captured = [];

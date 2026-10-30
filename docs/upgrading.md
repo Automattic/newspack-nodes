@@ -6,12 +6,25 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The Vault's `token` key is gone.** An entry whose credential lived in a
+  stored `token` sends none, and its spoke refuses the request; the next
+  `vault update` of the entry erases the key. Re-enter the credential as the
+  password, with no username, under `auth_header Authorization` and
+  `auth_scheme Bearer`: `vault update <id> --password=<token>
+  --header=Authorization --scheme=Bearer`.
+- **A `Curl_Node` fetch refuses a private or reserved address.** A Curl, or a
+  Crawler, reaching an internal host answers a TM_ERROR `private address
+  refused: <ip> <url>`. Set `curl_allow_private_addresses` true for an
+  internal source under test. Below PHP 8.4, with the setting false, every
+  Curl fetch answers a TM_ERROR naming the setting and the PHP 8.4
+  requirement; run PHP 8.4, or set the key where an unchecked fetch is
+  acceptable.
 - **`Vault::credential_header()` takes the decrypted entry and answers the
   whole header line; `Vault::credential_header_for()` is gone.** Replace
   `Vault::credential_header_for( $server )` and `Vault::credential_header(
   $user, $pass, $token )` with `Vault::credential_header( $server )`, and send
-  what it returns as the header line it is (`Authorization: Basic …`,
-  `Authorization: Bearer …`, or `<auth_header>: [<auth_scheme> ]<password>`),
+  what it returns as the header line it is (`Authorization: Basic …` or
+  `<auth_header>: [<auth_scheme> ]<password>`),
   never behind an `Authorization: ` prefix of your own. A WP-HTTP caller
   splits it at the first `: ` into the header's name and value.
 - **`SSE_In_Node::configure()` takes the credential line.** `configure( $url,

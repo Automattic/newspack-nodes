@@ -273,26 +273,23 @@ final class VaultTest extends TestCase {
 		$this->assertSame( 'vault-pw-8823', $moved['auth_password'] );
 	}
 
-	// @longform An edit rebuilds the entry from validate_config()'s three-key
-	// projection, so any OTHER stored key would be dropped by the write-back.
-	// `token` is one: credential_header() documents a token-only spoke, and
-	// Remote_Source reads it. Editing a URL must not silently deauthorize a spoke.
-	public function test_update_preserves_stored_keys_it_does_not_validate(): void {
+	/** An edit rewrites the stored entry from the managed keys alone. */
+	public function test_update_drops_a_stored_key_it_does_not_manage(): void {
 		\update_option( Vault::OPTION_KEY, [
-			'vault-tok-6035' => [ 'url' => 'https://before.example', 'token' => 'bearer-tok-6035' ],
+			'vault-tok-6035' => [ 'url' => 'https://before.example', 'token' => 'bearer-tok-6035', 'stray-71' => 'x-71' ],
 		] );
 		$vault = Vault::get_instance();
 		$vault->reset_cache();
 
 		$this->assertTrue( $vault->update( 'vault-tok-6035', [ 'url' => 'https://after.example' ] ) );
 
-		$vault->reset_cache();
-		$kept = $vault->get( 'vault-tok-6035' );
-		$this->assertSame( 'https://after.example', $kept['url'] );
-		$this->assertSame( 'bearer-tok-6035', $kept['token'] );
+		$stored = \get_option( Vault::OPTION_KEY )['vault-tok-6035'];
+		$this->assertSame( 'https://after.example', $stored['url'] );
+		$this->assertArrayNotHasKey( 'token', $stored );
+		$this->assertArrayNotHasKey( 'stray-71', $stored );
 	}
 
-	public function test_update_carries_unvalidated_keys_through_a_rename(): void {
+	public function test_a_rename_drops_a_stored_key_it_does_not_manage(): void {
 		\update_option( Vault::OPTION_KEY, [
 			'vault-tok-6035' => [ 'url' => 'https://before.example', 'token' => 'bearer-tok-6035' ],
 		] );
@@ -301,8 +298,7 @@ final class VaultTest extends TestCase {
 
 		$this->assertTrue( $vault->update( 'vault-tok-6035', [], 'vault-tok-7791' ) );
 
-		$vault->reset_cache();
-		$this->assertSame( 'bearer-tok-6035', $vault->get( 'vault-tok-7791' )['token'] );
+		$this->assertArrayNotHasKey( 'token', \get_option( Vault::OPTION_KEY )['vault-tok-7791'] );
 	}
 
 	public function test_update_keeps_the_id_when_no_new_one_is_named(): void {
@@ -517,20 +513,17 @@ final class VaultTest extends TestCase {
 
 	/**
 	 * `credential_header()` is the one rule for every transport, answering the
-	 * whole header line, so no copy can drop Bearer and leave a token-only
-	 * spoke reachable by the graph but not by the operator's own test.
+	 * whole header line, so no copy can disagree with the operator's own test.
 	 */
-	public function test_credential_header_prefers_basic_over_a_bearer_token(): void {
+	public function test_credential_header_sends_basic_for_a_username_and_password(): void {
 		$this->assertSame(
 			'Authorization: Basic ' . \base64_encode( 'svc-4417:pw-8830' ),
-			Vault::credential_header(
-				[ 'auth_username' => 'svc-4417', 'auth_password' => 'pw-8830', 'token' => 'tok-2291' ]
-			)
+			Vault::credential_header( [ 'auth_username' => 'svc-4417', 'auth_password' => 'pw-8830' ] )
 		);
 	}
 
-	public function test_credential_header_falls_back_to_the_bearer_token(): void {
-		$this->assertSame( 'Authorization: Bearer tok-2291', Vault::credential_header( [ 'token' => 'tok-2291' ] ) );
+	public function test_a_stored_token_sends_no_credential(): void {
+		$this->assertSame( '', Vault::credential_header( [ 'token' => 'tok-2291' ] ) );
 	}
 
 	public function test_credential_header_needs_both_halves_of_basic(): void {
@@ -559,13 +552,6 @@ final class VaultTest extends TestCase {
 		);
 	}
 
-	public function test_a_named_header_wins_over_a_stored_token(): void {
-		$this->assertSame(
-			'X-Api-Key-71: key-5512',
-			Vault::credential_header( [ 'auth_password' => 'key-5512', 'auth_header' => 'X-Api-Key-71', 'token' => 'tok-2291' ] )
-		);
-	}
-
 	/** The named header binds a password-only entry; a username keeps Basic. */
 	public function test_a_named_header_beside_a_username_keeps_basic(): void {
 		$this->assertSame(
@@ -574,8 +560,8 @@ final class VaultTest extends TestCase {
 		);
 	}
 
-	public function test_a_named_header_with_no_password_falls_back_to_the_token(): void {
-		$this->assertSame( 'Authorization: Bearer tok-2291', Vault::credential_header( [ 'auth_header' => 'X-Api-Key-71', 'token' => 'tok-2291' ] ) );
+	public function test_a_named_header_with_no_password_sends_nothing(): void {
+		$this->assertSame( '', Vault::credential_header( [ 'auth_header' => 'X-Api-Key-71', 'token' => 'tok-2291' ] ) );
 	}
 
 	public function test_the_header_and_scheme_round_trip_through_add_and_update(): void {

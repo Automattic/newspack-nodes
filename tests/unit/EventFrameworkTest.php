@@ -148,6 +148,23 @@ class EventFrameworkTest extends TestCase {
 		$ef->release_curl( $owner );
 	}
 
+	/**
+	 * Removing a handle whose threaded resolve still runs joins that thread
+	 * unless QUICK_EXIT is set, so every handle sets it, whatever its caller.
+	 */
+	public function test_start_curl_sets_quick_exit_over_the_callers_opts(): void {
+		$ef   = Event_Framework::instance();
+		$opts = [];
+		$this->capture_curl( $opts );
+		$owner = $this->curl_owner();
+
+		$ef->start_curl( $owner, [ \CURLOPT_URL => 'https://ef-67.example/', \CURLOPT_QUICK_EXIT => false ], 'ctx-67' );
+
+		$this->assertTrue( $opts[0][ \CURLOPT_QUICK_EXIT ] );
+		$this->assertSame( 'https://ef-67.example/', $opts[0][ \CURLOPT_URL ] );
+		$ef->release_curl( $owner );
+	}
+
 	public function test_start_curl_answers_null_when_no_handle_could_be_made(): void {
 		$ef                             = Event_Framework::instance();
 		Event_Framework::$curl_dispatch = static fn ( array $o ): bool => false;

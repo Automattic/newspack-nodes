@@ -2487,9 +2487,9 @@ class RemoteSourceNodeTest extends TestCase {
 	// The channel: patrons, RELOAD, the egress and its heartbeat.
 	// ---------------------------------------------------------------------
 
-	/** The `austin` spoke with a token, as a spoke that can be sent to. */
+	/** The `austin` spoke with a credential, as a spoke that can be sent to. */
 	private function seed_austin(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] );
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 	}
 
 	public function test_the_stream_carries_the_vaults_tls_opts(): void {
@@ -2552,7 +2552,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** Re-credential the seeded spoke to a host distinct from the seed. */
 	private function recredential( string $url ): void {
-		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => $url, 'auth_username' => 'u2', 'auth_password' => 'p2', 'token' => 't2' ] ] );
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => $url, 'auth_username' => 'u2', 'auth_password' => 'p2' ] ] );
 	}
 
 	/** The RELOAD subscriber keys registered on the fleet, closures included. */
@@ -2939,7 +2939,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// Every Remote_Source in an aggregator boots in the same tick, so the
 		// session POST waits half the cadence past the lease, off the instant
 		// of its own SSE GET, and the boot burst splits in two.
-		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] ] );
 		Vault::get_instance()->reset_cache();
 		$this->stub_sse_connect();
 		$start     = \microtime( true );
@@ -3013,7 +3013,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// alone, so the first heartbeat goes out at 15s, never a cadence later
 		// at 22.5s.
 		$this->stub_sse_connect();
-		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] ] );
 		Vault::get_instance()->reset_cache();
 		$start     = \microtime( true );
 		Core::$now = $start;
@@ -3047,8 +3047,8 @@ class RemoteSourceNodeTest extends TestCase {
 		\update_option(
 			Vault::OPTION_KEY,
 			[
-				'austin'   => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ],
-				'brisbane' => [ 'url' => 'https://brisbane.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ],
+				'austin'   => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ],
+				'brisbane' => [ 'url' => 'https://brisbane.example', 'auth_username' => 'u', 'auth_password' => 'p' ],
 			]
 		);
 		Vault::get_instance()->reset_cache();
@@ -3067,7 +3067,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// then long past its retry gate, so without a per-broker phase all N
 		// POST /v1/auth on one tick.
 		$this->stub_sse_connect();
-		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] ] );
 		Vault::get_instance()->reset_cache();
 		( new Command_Interpreter_Node() )->name( '_command_interpreter' );
 

@@ -69,7 +69,7 @@ h2 { font-size:15px; margin:0 0 8px; }
   <div class="callout">
     <h4>What an operator reads off a flapping spoke</h4>
     <p>Each loss leaves exactly one rate-limited line and nothing else: <span class="mono">transport error &lt;n&gt;</span>, <span class="mono">HTTP &lt;code&gt;</span>, or the drop reason with the message count. A hub that keeps re-authenticating is one whose batches keep answering 401; look for the one envelope whose signature fails, since it takes the session down for the rest of the POST.</p>
-    <p>The session is established at the spoke's <span class="mono">/auth</span> (<span class="mono">AUTH_PATH</span>, <span class="mono" style="white-space:nowrap">/wp-json/newspack-nodes/v1/auth</span>) under the Vault credential <span class="mono">Vault::credential_header()</span> resolves, Basic over Bearer, the one place that rule lives for all three transports that reach a spoke.</p>
+    <p>The session is established at the spoke's <span class="mono">/auth</span> (<span class="mono">AUTH_PATH</span>, <span class="mono" style="white-space:nowrap">/wp-json/newspack-nodes/v1/auth</span>) under the Vault credential <span class="mono">Vault::credential_header()</span> resolves, Basic or a named header, the one place that rule lives for all three transports that reach a spoke.</p>
   </div>
 </div>
 </div>
