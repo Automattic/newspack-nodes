@@ -46,6 +46,9 @@ class Curl_Node extends Node implements Curl_Owner {
 	/** Transfer timeout for one fetch, in seconds. */
 	public const REQUEST_TIMEOUT = 30;
 
+	/** The User-Agent every fetch sends; some hosts refuse a request naming none. */
+	public const USER_AGENT = 'newspack-nodes/' . \NEWSPACK_NODES_VERSION;
+
 	/** The schemes a fetch and its redirects may use; https alone for a credential under `vault_require_ssl`. */
 	private const PROTOCOLS = \CURLPROTO_HTTP | \CURLPROTO_HTTPS;
 
@@ -206,6 +209,7 @@ class Curl_Node extends Node implements Curl_Owner {
 			\CURLOPT_UNRESTRICTED_AUTH => false,
 			\CURLOPT_MAXREDIRS       => self::MAX_REDIRECTS,
 			\CURLOPT_TIMEOUT         => self::REQUEST_TIMEOUT,
+			\CURLOPT_USERAGENT       => self::USER_AGENT,
 		] + Vault::tls_opts();
 		if ( '' !== $authorization ) {
 			$opts[ \CURLOPT_HTTPHEADER ] = [ 'Authorization: ' . $authorization ];

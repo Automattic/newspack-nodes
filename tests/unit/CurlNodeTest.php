@@ -122,6 +122,7 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( Curl_Node::MAX_REDIRECTS, $opts[ \CURLOPT_MAXREDIRS ] );
 		$this->assertSame( 5, Curl_Node::MAX_REDIRECTS );
 		$this->assertSame( Curl_Node::REQUEST_TIMEOUT, $opts[ \CURLOPT_TIMEOUT ] );
+		$this->assertSame( 'newspack-nodes/' . \NEWSPACK_NODES_VERSION, $opts[ \CURLOPT_USERAGENT ], 'a fetch names its client' );
 		$this->assertSame( 30, Curl_Node::REQUEST_TIMEOUT );
 		$this->assertFalse( $opts[ \CURLOPT_SSL_VERIFYPEER ], 'vault_verify_ssl is read' );
 		$this->assertSame( 0, $opts[ \CURLOPT_SSL_VERIFYHOST ] );

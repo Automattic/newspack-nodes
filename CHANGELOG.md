@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`Curl_Node` sends a User-Agent, `newspack-nodes/<version>` (`Curl_Node::USER_AGENT`), on every fetch,** and so does every `Crawler`, which fetches through one. libcurl sends none of its own, and some hosts answer a request naming no client with a 403: Nieman Lab's and Pugpig's feeds among them.
+
 ## [2.138.0] - 2026-10-29
 
 ### Fixed
