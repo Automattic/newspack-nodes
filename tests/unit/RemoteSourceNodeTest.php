@@ -543,7 +543,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
 		$this->assertSame( 'https://austin.example', $this->read_private( $sse, 'url' ) );
-		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
+		$this->assertSame( 'Authorization: Basic ' . \base64_encode( 'u:p' ), $this->read_private( $sse, 'credential' ) );
 		( $sse->on_connecting )();
 		$this->assertSame( [ 'firehose.p0' ], $this->read_private( $sse, 'subscribe' ) );
 		// SSE_In hands each raw `msg` payload to the broker's routing seam; the
@@ -1118,6 +1118,20 @@ class RemoteSourceNodeTest extends TestCase {
 			[ 'firehose.p0' => [ 'segment' => 14, 'offset' => 2203 ], 'sources:php' => Consumer_Node::SEEK_END ],
 			\json_decode( \end( $asked )['positions'], true )
 		);
+	}
+
+	public function test_the_stream_carries_the_credential_line_its_vault_entry_names(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_password' => 'stream-key-2804', 'auth_header' => 'X-Stream-Key-3' ] );
+		$headers = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$headers ): \CurlHandle {
+			$headers[] = $opts[ \CURLOPT_HTTPHEADER ];
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->make_remote();
+
+		$this->assertContains( 'X-Stream-Key-3: stream-key-2804', \end( $headers ) );
 	}
 
 	public function test_each_line_reaches_the_reader_its_stamp_names(): void {

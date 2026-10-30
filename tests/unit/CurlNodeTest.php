@@ -159,10 +159,84 @@ class CurlNodeTest extends TestCase {
 		$this->fetch( $node, $this->url_message( 'HTTPS://SOUTH-52.example:443/y-2' ) );
 
 		$this->assertSame( 'https://north-31.example:8443/deep/x-1', $this->captured[0][ \CURLOPT_URL ], 'the url is fetched as written, no path joined' );
-		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-n31', 'pw-n58' ) ], $this->authorization_of( 0 ) );
+		$this->assertSame( [ 'Authorization: Basic ' . \base64_encode( 'svc-n31:pw-n58' ) ], $this->authorization_of( 0 ) );
 		$this->assertSame( 'HTTPS://SOUTH-52.example:443/y-2', $this->captured[1][ \CURLOPT_URL ] );
-		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-s52', 'pw-s19' ) ], $this->authorization_of( 1 ), 'the entry in another group is not counted' );
+		$this->assertSame( [ 'Authorization: Basic ' . \base64_encode( 'svc-s52:pw-s19' ) ], $this->authorization_of( 1 ), 'the entry in another group is not counted' );
 		$this->assertSame( [], $this->sink->captured );
+	}
+
+	public function test_a_named_header_entry_sends_its_whole_line(): void {
+		$this->seed_vault( 'feed-12', [ 'url' => 'https://feed-12.example', 'auth_password' => 'feed-key-4410', 'auth_header' => 'X-Feed-Key-12', 'auth_scheme' => 'Key-5', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'https://feed-12.example/items-8' ) );
+
+		$this->assertContains( 'X-Feed-Key-12: Key-5 feed-key-4410', $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+		$this->assertSame( [], $this->authorization_of( 0 ) );
+	}
+
+	/**
+	 * libcurl drops only `Authorization` (and `Cookie`) when a redirect leaves
+	 * the origin, so a credential in any other header follows no redirect.
+	 */
+	public function test_a_credential_in_another_header_follows_no_redirect(): void {
+		$this->seed_vault( 'feed-12', [ 'url' => 'https://feed-12.example', 'auth_password' => 'feed-key-4410', 'auth_header' => 'X-Feed-Key-12', 'group' => 'crawl-g7' ] );
+		$node = $this->curl( 'crawl-g7' );
+
+		$this->fetch( $node, $this->url_message( 'https://feed-12.example/moved-9' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 302, 'body' => '', 'redirect' => 'https://elsewhere-3.example/landed-9' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertFalse( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_ERROR, $out[ Message::TYPE ] );
+		$this->assertSame( 'redirect not followed: credential in X-Feed-Key-12 https://feed-12.example/moved-9', $out[ Message::VALUE ] );
+		$this->assertStringNotContainsString( 'feed-key-4410', $out[ Message::VALUE ] );
+	}
+
+	public function test_a_guarded_credential_answers_a_redirect_location_when_following_none(): void {
+		$this->seed_vault( 'feed-12', [ 'url' => 'https://feed-12.example', 'auth_password' => 'feed-key-4410', 'auth_header' => 'X-Feed-Key-12', 'group' => 'crawl-g7' ] );
+		$node = $this->curl( 'crawl-g7' );
+		$node->follow_redirects( false );
+
+		$this->fetch( $node, $this->url_message( 'https://feed-12.example/moved-9' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 301, 'body' => '', 'redirect' => 'https://feed-12.example/landed-10' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_RESPONSE, $out[ Message::TYPE ] );
+		$this->assertSame( 'https://feed-12.example/landed-10', $out[ Message::VALUE ] );
+	}
+
+	public function test_a_guarded_3xx_without_a_location_is_a_body_while_following(): void {
+		$this->seed_vault( 'feed-12', [ 'url' => 'https://feed-12.example', 'auth_password' => 'feed-key-4410', 'auth_header' => 'X-Feed-Key-12', 'group' => 'crawl-g7' ] );
+		$node = $this->curl( 'crawl-g7' );
+
+		$this->fetch( $node, $this->url_message( 'https://feed-12.example/same-11' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 304, 'body' => 'unchanged 11', 'redirect' => '' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ] );
+		$this->assertSame( 'unchanged 11', $out[ Message::VALUE ] );
+	}
+
+	public function test_a_credential_named_authorization_in_any_case_still_follows_redirects(): void {
+		$this->seed_vault( 'linear-6', [ 'url' => 'https://linear-6.example', 'auth_password' => 'lin-key-6604', 'auth_header' => 'authorization', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'https://linear-6.example/graphql' ) );
+
+		$this->assertContains( 'authorization: lin-key-6604', $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+		$this->assertTrue( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+	}
+
+	public function test_a_fetch_without_a_credential_keeps_following(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->url_message( 'https://open-31.example/a-1' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 302, 'body' => 'moved body 31', 'redirect' => '' ];
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertTrue( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+		$this->assertSame( Message::TM_BYTESTREAM, $this->only_emitted()[ Message::TYPE ] );
 	}
 
 	public function test_an_origin_outside_the_group_fetches_without_authorization(): void {
@@ -210,7 +284,7 @@ class CurlNodeTest extends TestCase {
 
 		$this->assertSame( [], $this->sink->captured, 'the scheme matches https whatever its case' );
 		$this->assertSame( 'HTTPS://loud-6.example:9443/caps-38', $this->captured[0][ \CURLOPT_URL ] );
-		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-l6', 'pw-l6' ) ], $this->authorization_of( 0 ) );
+		$this->assertSame( [ 'Authorization: Basic ' . \base64_encode( 'svc-l6:pw-l6' ) ], $this->authorization_of( 0 ) );
 		$this->assertSame( \CURLPROTO_HTTPS, $this->captured[0][ \CURLOPT_PROTOCOLS ] );
 	}
 
@@ -310,7 +384,7 @@ class CurlNodeTest extends TestCase {
 	public function test_with_follow_on_a_3xx_that_completes_is_a_body(): void {
 		$node = $this->curl();
 		$this->fetch( $node, $this->url_message( 'http://hop.example:8090/start-31' ) );
-		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 304, 'body' => 'not modified 61', 'redirect' => 'http://hop.example:8090/ignored-33' ];
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 304, 'body' => 'not modified 61', 'redirect' => '' ];
 
 		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
 
@@ -433,19 +507,189 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( [], $lines );
 	}
 
-	public function test_a_struct_emits_nothing_and_logs_one_line(): void {
+	public function test_a_message_neither_a_url_nor_a_request_emits_nothing_and_logs_one_line(): void {
 		$lines = [];
 		Core::set_stderr_handler( static function ( $line ) use ( &$lines ): void {
 			$lines[] = $line;
 		} );
 		$node = $this->curl();
 
-		$this->fetch( $node, $this->url_message( [ 'url' => 'http://struct.example/s-5' ], Message::TM_STRUCT ) );
+		$this->fetch( $node, $this->url_message( 'http://info.example/s-5', Message::TM_INFO ) );
 
 		$this->assertSame( [], $this->sink->captured );
 		$this->assertSame( [], $this->captured );
 		$this->assertCount( 1, $lines );
-		$this->assertStringContainsString( 'TM_STRUCT', $lines[0] );
+		$this->assertStringContainsString( 'TM_INFO', $lines[0] );
+	}
+
+	/** @param array<string,mixed> $request */
+	private function request_message( array $request ): array {
+		return $this->url_message( $request, Message::TM_STRUCT );
+	}
+
+	public function test_a_post_request_sends_its_body_as_json(): void {
+		$node = $this->curl();
+		$body = '{"query":"{ issues(first: 31) { nodes { id } } }"}';
+
+		$this->fetch( $node, $this->request_message( [ 'url' => ' https://api.linear-9.example/graphql ', 'method' => 'POST', 'body' => $body ] ) );
+
+		$this->assertCount( 1, $this->captured );
+		$opts = $this->captured[0];
+		$this->assertSame( 'https://api.linear-9.example/graphql', $opts[ \CURLOPT_URL ] );
+		$this->assertTrue( $opts[ \CURLOPT_POST ] );
+		$this->assertSame( $body, $opts[ \CURLOPT_POSTFIELDS ] );
+		$this->assertArrayNotHasKey( \CURLOPT_HTTPGET, $opts );
+		$this->assertContains( 'Content-Type: application/json', $opts[ \CURLOPT_HTTPHEADER ] );
+		$this->assertSame( 'newspack-nodes/' . \NEWSPACK_NODES_VERSION, $opts[ \CURLOPT_USERAGENT ] );
+		$this->assertSame( [], $this->sink->captured );
+	}
+
+	public function test_a_post_without_a_body_sends_an_empty_one(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://api.empty-4.example/ping', 'method' => 'POST' ] ) );
+
+		$this->assertTrue( $this->captured[0][ \CURLOPT_POST ] );
+		$this->assertSame( '', $this->captured[0][ \CURLOPT_POSTFIELDS ] );
+	}
+
+	public function test_a_get_request_fetches_as_the_url_form_does(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://slack-7.example/api/conversations.history?channel=C0-61', 'method' => 'GET' ] ) );
+
+		$opts = $this->captured[0];
+		$this->assertSame( 'https://slack-7.example/api/conversations.history?channel=C0-61', $opts[ \CURLOPT_URL ] );
+		$this->assertTrue( $opts[ \CURLOPT_HTTPGET ] );
+		$this->assertArrayNotHasKey( \CURLOPT_POST, $opts );
+		$this->assertSame( [], \preg_grep( '/^Content-Type:/', $opts[ \CURLOPT_HTTPHEADER ] ?? [] ) );
+	}
+
+	public function test_a_request_answers_with_a_copy_of_itself_carrying_the_body(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://api.linear-9.example/graphql', 'method' => 'POST', 'body' => '{"q":1}' ] ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => '{"data":{"n":4471}}', 'redirect' => '' ];
+
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ] );
+		$this->assertSame( '{"data":{"n":4471}}', $out[ Message::VALUE ] );
+		$this->assertSame( 'asker-5519/reply', $out[ Message::FROM ] );
+		$this->assertSame( 'corr-6081', $out[ Message::ID ] );
+		$this->assertSame( 'key-2297', $out[ Message::KEY ] );
+		$this->assertSame( 'fetched-4402', $out[ Message::TO ] );
+	}
+
+	public function test_a_request_error_names_its_url(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://api.linear-9.example/graphql', 'method' => 'POST', 'body' => '{}' ] ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 401, 'body' => 'no', 'redirect' => '' ];
+
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( 'HTTP 401 https://api.linear-9.example/graphql', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** @return array<string,array{0:array<string,mixed>,1:string}> */
+	public static function refused_request_provider(): array {
+		$url = 'https://api.refuse-5.example/x-2';
+		return [
+			'lowercase method' => [ [ 'url' => $url, 'method' => 'post', 'body' => '{}' ], "invalid method post {$url}" ],
+			'unknown method'   => [ [ 'url' => $url, 'method' => 'DELETE' ], "invalid method DELETE {$url}" ],
+			'no method'        => [ [ 'url' => $url ], "invalid method  {$url}" ],
+			'array method'     => [ [ 'url' => $url, 'method' => [ 'GET' ] ], "invalid method  {$url}" ],
+			'body on a GET'    => [ [ 'url' => $url, 'method' => 'GET', 'body' => '{"a":1}' ], "body on a GET {$url}" ],
+			'empty body GET'   => [ [ 'url' => $url, 'method' => 'GET', 'body' => '' ], "body on a GET {$url}" ],
+			'array body'       => [ [ 'url' => $url, 'method' => 'POST', 'body' => [ 'a' => 1 ] ], "invalid body {$url}" ],
+			'oversized body'   => [ [ 'url' => $url, 'method' => 'POST', 'body' => \str_repeat( 'x', 65537 ) ], "body over 65536 bytes {$url}" ],
+			'no url'           => [ [ 'method' => 'GET' ], 'invalid url ' ],
+			'not a map'        => [ [ 'https://api.refuse-5.example/x-2' ], 'invalid url ' ],
+		];
+	}
+
+	/** @param array<string,mixed> $request */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_request_provider' )]
+	public function test_a_malformed_request_is_refused_naming_its_url( array $request, string $expected ): void {
+		$this->fetch( $this->curl(), $this->request_message( $request ) );
+		$this->assert_error( $expected );
+	}
+
+	public function test_a_body_of_exactly_the_cap_is_sent(): void {
+		$this->assertSame( 65536, Curl_Node::MAX_BODY_BYTES );
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://api.cap-6.example/x', 'method' => 'POST', 'body' => \str_repeat( 'y', 65536 ) ] ) );
+
+		$this->assertSame( 65536, \strlen( $this->captured[0][ \CURLOPT_POSTFIELDS ] ) );
+	}
+
+	public function test_a_request_on_a_group_origin_carries_its_credential(): void {
+		$this->seed_vault( 'linear-6', [ 'url' => 'https://api.linear-6.example', 'auth_password' => 'lin-key-6604', 'auth_header' => 'Authorization', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://api.linear-6.example/graphql', 'method' => 'POST', 'body' => '{}' ] ) );
+
+		$this->assertSame( [ 'Content-Type: application/json', 'Authorization: lin-key-6604' ], $this->captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
+	public function test_a_request_shares_the_origin_refusal(): void {
+		$this->seed_vault_servers(
+			[
+				'twin-b' => [ 'url' => 'https://twin-12.example/b', 'auth_username' => 'svc-b', 'auth_password' => 'pw-b', 'group' => 'crawl-g7' ],
+				'twin-a' => [ 'url' => 'https://twin-12.example/a', 'auth_username' => 'svc-a', 'auth_password' => 'pw-a', 'group' => 'crawl-g7' ],
+			]
+		);
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'https://twin-12.example/q-4', 'method' => 'POST', 'body' => '{}' ] ) );
+
+		$this->assert_error( 'vault entries twin-a, twin-b share origin https://twin-12.example:443 https://twin-12.example/q-4' );
+	}
+
+	public function test_a_request_shares_vault_require_ssl(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
+		$this->seed_vault( 'plain-7', [ 'url' => 'http://plain-7.example:8081', 'auth_username' => 'svc-p7', 'auth_password' => 'pw-p7', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->request_message( [ 'url' => 'http://plain-7.example:8081/gql-3', 'method' => 'POST', 'body' => '{}' ] ) );
+
+		$this->assert_error( 'vault_require_ssl set but url is not https http://plain-7.example:8081/gql-3' );
+	}
+
+	public function test_requests_and_urls_share_the_in_flight_cap(): void {
+		$node = $this->curl();
+		for ( $i = 1; $i <= 8; $i++ ) {
+			$this->fetch( $node, $this->url_message( "http://mixed.example:8090/u-{$i}" ) );
+			$this->fetch( $node, $this->request_message( [ 'url' => "http://mixed.example:8090/r-{$i}", 'method' => 'POST', 'body' => '{}' ] ) );
+		}
+		$this->assertCount( 16, $this->captured );
+
+		$this->fetch( $node, $this->request_message( [ 'url' => 'http://mixed.example:8090/r-17', 'method' => 'GET' ] ) );
+
+		$this->assertCount( 16, $this->captured );
+		$this->assertSame( 'busy: 16 requests in flight http://mixed.example:8090/r-17', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_fill_turned_away_as_busy_is_not_read_first(): void {
+		$node = $this->curl();
+		for ( $i = 1; $i <= 16; $i++ ) {
+			$this->fetch( $node, $this->url_message( "http://full.example:8090/n-{$i}" ) );
+		}
+
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://full.example/q-17', 'method' => 'PATCH' ] ) );
+
+		$this->assertSame( 'busy: 16 requests in flight https://full.example/q-17', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_fill_outside_an_event_loop_is_not_read_first(): void {
+		$this->seed_vault_servers(
+			[
+				'twin-b' => [ 'url' => 'https://twin-12.example/b', 'auth_username' => 'svc-b', 'auth_password' => 'pw-b', 'group' => 'crawl-g7' ],
+				'twin-a' => [ 'url' => 'https://twin-12.example/a', 'auth_username' => 'svc-a', 'auth_password' => 'pw-a', 'group' => 'crawl-g7' ],
+			]
+		);
+
+		$this->curl( 'crawl-g7' )->fill( $this->request_message( [ 'url' => 'https://twin-12.example/q-5', 'method' => 'PATCH' ] ) );
+
+		$this->assert_error( 'no event loop https://twin-12.example/q-5' );
+	}
+
+	public function test_a_request_outside_an_event_loop_starts_nothing(): void {
+		$this->curl()->fill( $this->request_message( [ 'url' => 'https://idle-loop.example/q-58', 'method' => 'POST', 'body' => '{}' ] ) );
+
+		$this->assert_error( 'no event loop https://idle-loop.example/q-58' );
 	}
 
 	public function test_a_blank_bytestream_is_an_invalid_url(): void {
@@ -479,6 +723,12 @@ class CurlNodeTest extends TestCase {
 
 	public function test_a_url_carrying_userinfo_is_refused(): void {
 		$this->fetch( $this->curl(), $this->url_message( 'https://svc-12:pw-77@plain-12.example/page-3' ) );
+
+		$this->assert_error( 'invalid url carrying userinfo' );
+	}
+
+	public function test_a_url_carrying_userinfo_outside_an_event_loop_is_refused_unechoed(): void {
+		$this->curl()->fill( $this->url_message( 'https://svc-14:pw-81@idle-14.example/page-9' ) );
 
 		$this->assert_error( 'invalid url carrying userinfo' );
 	}

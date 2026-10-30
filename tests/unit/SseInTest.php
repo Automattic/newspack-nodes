@@ -27,7 +27,7 @@ class SseInTest extends TestCase {
 		$sink->name( 'merger' );
 		$node->sink( $sink );
 		$node->target( 'merger' );
-		$node->configure( 'https://austin.example', 'u', 'p', '', [], false );
+		$node->configure( 'https://austin.example', 'Authorization: Basic ' . \base64_encode( 'u:p' ), [], false );
 		return [ $node, $sink ];
 	}
 
@@ -623,7 +623,7 @@ class SseInTest extends TestCase {
 		$node->name( 'sse-in' );
 		$sink = new Capture_Sink_Node();
 		$node->sink( $sink );
-		$node->configure( 'http://austin.example', 'u', 'p', '', [], true );
+		$node->configure( 'http://austin.example', 'Authorization: Basic ' . \base64_encode( 'u:p' ), [], true );
 		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => Consumer_Node::SEEK_END ] );
 
 		$captured = [];

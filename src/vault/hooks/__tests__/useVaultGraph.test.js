@@ -265,6 +265,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				auth_username: 'reader-2207',
 				auth_password: 'hunter-5541',
 				group: '',
+				auth_header: '',
+				auth_scheme: '',
 			} )
 		);
 
@@ -276,6 +278,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			'--group=',
 			'--user=reader-2207',
 			'--password=hunter-5541',
+			'--header=',
+			'--scheme=',
 		] );
 		expect( add[ FROM ] ).toBe( 'vault:add:in/spoke-04' );
 	}, 30000 );
@@ -292,6 +296,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				auth_username: '',
 				auth_password: '',
 				group: 'tw-edge',
+				auth_header: '',
+				auth_scheme: '',
 			} )
 		);
 
@@ -312,6 +318,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				auth_username: 'editor-4471',
 				auth_password: 'pw-8823',
 				group: '',
+				auth_header: '',
+				auth_scheme: '',
 			} )
 		);
 
@@ -324,6 +332,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			'--group=',
 			'--user=editor-4471',
 			'--password=pw-8823',
+			'--header=',
+			'--scheme=',
 		] );
 		// The reply is about the row on screen, which still wears the old id.
 		expect( update[ FROM ] ).toBe( 'vault:update:in/spoke-was-4471' );
@@ -343,6 +353,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				auth_username: 'editor-4471',
 				auth_password: '',
 				group: '',
+				auth_header: '',
+				auth_scheme: '',
 			} )
 		);
 
@@ -353,6 +365,68 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			'--url=https://after.example.test',
 			'--group=',
 			'--user=editor-4471',
+			'--header=',
+			'--scheme=',
+		] );
+	}, 30000 );
+
+	test( 'addServer sends the credential header and scheme as named args', async () => {
+		const wire = installWire( { list: {}, add: { ok: 1 } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () =>
+			result.current.addServer( {
+				id: 'unthread-31',
+				url: 'https://api.unthread-31.example',
+				auth_username: '',
+				auth_password: 'ut-key-6612',
+				group: 'intel-7',
+				auth_header: 'X-Api-Key',
+				auth_scheme: 'Key-4',
+			} )
+		);
+
+		await waitForVerb( wire, 'add' );
+		const add = findVerb( wire.batches, 'add' );
+		expect( add[ VALUE ].arguments ).toEqual( [
+			'unthread-31',
+			'--url=https://api.unthread-31.example',
+			'--group=intel-7',
+			'--user=',
+			'--password=ut-key-6612',
+			'--header=X-Api-Key',
+			'--scheme=Key-4',
+		] );
+	}, 30000 );
+
+	// Like the group, a blank header or scheme is the operator clearing it.
+	test( 'updateServer always sends the header and scheme, blank to clear them', async () => {
+		const wire = installWire( { list: {}, update: { ok: 1 } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () =>
+			result.current.updateServer( 'linear-44', {
+				id: 'linear-44',
+				url: 'https://api.linear-44.example',
+				auth_username: '',
+				auth_password: '',
+				group: '',
+				auth_header: 'Authorization',
+				auth_scheme: '',
+			} )
+		);
+
+		await waitForVerb( wire, 'update' );
+		const update = findVerb( wire.batches, 'update' );
+		expect( update[ VALUE ].arguments ).toEqual( [
+			'linear-44',
+			'--url=https://api.linear-44.example',
+			'--group=',
+			'--user=',
+			'--header=Authorization',
+			'--scheme=',
 		] );
 	}, 30000 );
 
@@ -370,6 +444,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				auth_username: '',
 				auth_password: '',
 				group: '',
+				auth_header: '',
+				auth_scheme: '',
 			} )
 		);
 

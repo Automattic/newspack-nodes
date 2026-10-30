@@ -32,7 +32,7 @@ class SseInCoverageTest extends TestCase {
 		$sink->name( 'merger' );
 		$node->sink( $sink );
 		$node->target( 'merger' );
-		$node->configure( 'https://austin.example', 'u', 'p', '', [], false );
+		$node->configure( 'https://austin.example', 'Authorization: Basic ' . \base64_encode( 'u:p' ), [], false );
 		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
 		return [ $node, $sink ];
 	}
@@ -113,7 +113,7 @@ class SseInCoverageTest extends TestCase {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->configure( 'https://austin.example', '', '', 'tok-123', [], false );
+		$node->configure( 'https://austin.example', 'Authorization: Bearer tok-123', [], false );
 		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
 
 		$captured = [];
@@ -127,13 +127,50 @@ class SseInCoverageTest extends TestCase {
 		$this->assertContains( 'Authorization: Bearer tok-123', $captured[0][ \CURLOPT_HTTPHEADER ] );
 	}
 
+	public function test_maybe_connect_sends_the_credential_line_it_was_handed_whole(): void {
+		$node = new SSE_In_Node();
+		$node->name( 'sse-in' );
+		$node->sink( new Capture_Sink_Node() );
+		$node->configure( 'https://austin.example', 'X-Pull-Key-44: Key-2 pull-key-31', [], false );
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
+
+		$captured = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
+			$captured[] = $o;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		$this->assertContains( 'X-Pull-Key-44: Key-2 pull-key-31', $captured[0][ \CURLOPT_HTTPHEADER ] );
+		$this->assertSame( [], \preg_grep( '/^Authorization:/', $captured[0][ \CURLOPT_HTTPHEADER ] ) );
+	}
+
+	public function test_maybe_connect_sends_no_credential_line_when_handed_none(): void {
+		$node = new SSE_In_Node();
+		$node->name( 'sse-in' );
+		$node->sink( new Capture_Sink_Node() );
+		$node->configure( 'https://austin.example', '', [], false );
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
+
+		$captured = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
+			$captured[] = $o;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		$this->assertSame( [ 'Accept: text/event-stream', 'Cache-Control: no-cache', 'X-Newspack-Nodes-Pull: 1' ], $captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
 	public function test_maybe_connect_identifies_itself_as_a_machine_pull(): void {
 		// Without this the spoke cannot tell an aggregation pull from a browser
 		// tab, and `sse_reserved_slots` reserves a slot nothing can claim.
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->configure( 'https://austin.example', '', '', 'tok-123', [], false );
+		$node->configure( 'https://austin.example', 'Authorization: Bearer tok-123', [], false );
 		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
 
 		$captured = [];
@@ -701,7 +738,7 @@ class SseInCoverageTest extends TestCase {
 		// silent drop — never a throw (the null-sink fail-loud lives in the owner's forward_line).
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
-		$node->configure( 'https://austin.example', '', '', '', [], false );
+		$node->configure( 'https://austin.example', '', [], false );
 
 		$this->assertTrue( $node->process_sse_chunk( self::msg_frame( '1:0', 'req', [ 'x' => 1 ] ) ) );
 	}

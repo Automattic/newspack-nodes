@@ -117,14 +117,8 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 */
 	public ?\Closure $on_reopen_due     = null;
 
-	/** Application-Password secret, paired with `$auth_username` for Basic auth. */
-	protected string $auth_password     = '';
-
-	/** Bearer token, reached only when there is no username and password. */
-	protected string $auth_token        = '';
-
-	/** Application-Password user for Basic auth against the remote. */
-	protected string $auth_username     = '';
+	/** The credential header line `Vault::credential_header()` resolved; '' for none. */
+	protected string $credential        = '';
 
 	/** Ask the remote to read this subscription with the multi-writer seal-grace. */
 	protected bool $multi_writer        = false;
@@ -292,13 +286,8 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			// Lets the far end's slot pool honour `sse_reserved_slots`.
 			'X-Newspack-Nodes-Pull: 1',
 		];
-		$authorization = Vault::credential_header(
-			$this->auth_username,
-			$this->auth_password,
-			$this->auth_token
-		);
-		if ( '' !== $authorization ) {
-			$headers[] = 'Authorization: ' . $authorization;
+		if ( '' !== $this->credential ) {
+			$headers[] = $this->credential;
 		}
 
 		$opts = [
@@ -903,27 +892,21 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * directly and touches no socket, so it takes effect at the next connect.
 	 * What to pull arrives separately, through `streams()`.
 	 *
-	 * @param string              $url           Base URL (no trailing slash).
-	 * @param string              $auth_username Application-Password user (Basic auth).
-	 * @param string              $auth_password Application-Password secret.
-	 * @param string              $auth_token    Optional Bearer token fallback.
-	 * @param array<int,bool|int> $tls_opts      The TLS opts `Vault::tls_opts()` resolved.
-	 * @param bool                $require_ssl   Refuse non-HTTPS remote URLs.
+	 * @param string              $url         Base URL (no trailing slash).
+	 * @param string              $credential  The header line `Vault::credential_header()` resolved; '' for none.
+	 * @param array<int,bool|int> $tls_opts    The TLS opts `Vault::tls_opts()` resolved.
+	 * @param bool                $require_ssl Refuse non-HTTPS remote URLs.
 	 */
 	public function configure(
 		string $url,
-		string $auth_username = '',
-		string $auth_password = '',
-		string $auth_token    = '',
-		array $tls_opts       = [],
-		bool $require_ssl     = false
+		string $credential = '',
+		array $tls_opts    = [],
+		bool $require_ssl  = false
 	): void {
-		$this->url           = \rtrim( $url, '/' );
-		$this->auth_username = $auth_username;
-		$this->auth_password = $auth_password;
-		$this->auth_token    = $auth_token;
-		$this->tls_opts      = $tls_opts;
-		$this->require_ssl   = $require_ssl;
+		$this->url         = \rtrim( $url, '/' );
+		$this->credential  = $credential;
+		$this->tls_opts    = $tls_opts;
+		$this->require_ssl = $require_ssl;
 	}
 
 	/**

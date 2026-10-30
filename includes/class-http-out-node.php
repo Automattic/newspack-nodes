@@ -12,8 +12,8 @@
  * Batching one POST per tick rather than one per fill lets settings-sync emit N
  * per-setting commands on a single timer tick and ride to the spoke together.
  *
- * Credentials resolve from the Vault by server id: Basic Auth, or a Bearer
- * token when the entry lacks a username or a password. The push side looks the
+ * Credentials resolve from the Vault by server id, as the header line
+ * `Vault::credential_header()` answers for the entry. The push side looks the
  * entry up itself; `probe_command()` is handed one, and both its callers read
  * it out of the Vault first.
  *
@@ -241,10 +241,10 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * @param string              $kind     'command' or 'auth'; steers completion handling.
 	 */
 	private function send( array $server, string $endpoint, string $body, string $kind ): void {
-		$headers       = [ 'Content-Type: text/plain; charset=UTF-8' ];
-		$authorization = Vault::credential_header_for( $server );
-		if ( '' !== $authorization ) {
-			$headers[] = 'Authorization: ' . $authorization;
+		$headers    = [ 'Content-Type: text/plain; charset=UTF-8' ];
+		$credential = Vault::credential_header( $server );
+		if ( '' !== $credential ) {
+			$headers[] = $credential;
 		}
 
 		$opts = [
@@ -590,9 +590,10 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
 			'body'                => $body,
 		];
-		$authorization = Vault::credential_header_for( $server );
-		if ( '' !== $authorization ) {
-			$args['headers']['Authorization'] = $authorization;
+		$credential = Vault::credential_header( $server );
+		if ( '' !== $credential ) {
+			[ $name, $value ]           = \explode( ': ', $credential, 2 );
+			$args['headers'][ $name ] = $value;
 		}
 		return $args;
 	}

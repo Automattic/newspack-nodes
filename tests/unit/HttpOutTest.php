@@ -229,6 +229,17 @@ class HttpOutTest extends TestCase {
 		$this->assertContains( 'Authorization: Bearer tok123', $captured[0][ \CURLOPT_HTTPHEADER ] );
 	}
 
+	public function test_fire_sends_a_named_header_whole(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_password' => 'spoke-key-9017', 'auth_header' => 'X-Spoke-Key-61', 'auth_scheme' => 'Key-4' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$node->fill( $this->command_message( 'settings', 'update', 'k=v' ) );
+		$node->fire();
+		$this->assertContains( 'X-Spoke-Key-61: Key-4 spoke-key-9017', $captured[0][ \CURLOPT_HTTPHEADER ] );
+		$this->assertSame( [], \preg_grep( '/^Authorization:/', $captured[0][ \CURLOPT_HTTPHEADER ] ) );
+	}
+
 	public function test_fire_drops_when_vault_entry_missing(): void {
 		$captured = [];
 		$this->capture_dispatch( $captured );

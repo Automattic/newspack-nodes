@@ -282,7 +282,7 @@ class VaultCINodeTest extends TestCase {
 		);
 		$this->assertIsString( $out, 'an unread option is a refusal, not a stored entry' );
 		$this->assertStringContainsString( 'unknown option --credential', $out );
-		$this->assertStringContainsString( 'this verb takes --id, --url, --group, --user, --password', $out );
+		$this->assertStringContainsString( 'this verb takes --id, --url, --group, --user, --password, --header, --scheme', $out );
 	}
 
 	public function test_update_refuses_an_option_it_does_not_read(): void {
@@ -304,7 +304,7 @@ class VaultCINodeTest extends TestCase {
 
 		$this->assertIsString( $out, 'an unread option is a refusal, not a save that changed nothing' );
 		$this->assertStringContainsString( 'unknown option --auth_password', $out );
-		$this->assertStringContainsString( 'this verb takes --id, --new_id, --url, --group, --user, --password', $out );
+		$this->assertStringContainsString( 'this verb takes --id, --new_id, --url, --group, --user, --password, --header, --scheme', $out );
 		Vault::get_instance()->reset_cache();
 		$stored = Vault::get_instance()->get( 'vault-unknown-6650' );
 		$this->assertSame( 'vault-pw-6650', $stored['auth_password'], 'a refused update leaves the stored credential alone' );
@@ -923,6 +923,81 @@ class VaultCINodeTest extends TestCase {
 		$this->assertSame( [ 'id', 'status' ], \array_keys( $out ) );
 		$this->assertSame( 'spoke1', $out['id'] );
 		$this->assertSame( 'connected', $out['status'] );
+	}
+
+	public function test_add_stores_the_header_and_scheme_options_under_the_auth_keys(): void {
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'add',
+			'unthread-31 --url=https://api.unthread-31.example --password=ut-key-6612 --header=X-Api-Key --scheme=Key-4'
+		);
+
+		$this->assertSame( [ 'id' => 'unthread-31' ], $out );
+		$stored = Vault::fresh()->get( 'unthread-31' );
+		$this->assertSame( 'X-Api-Key', $stored['auth_header'] );
+		$this->assertSame( 'Key-4', $stored['auth_scheme'] );
+		$this->assertSame( 'ut-key-6612', $stored['auth_password'] );
+	}
+
+	public function test_update_changes_the_header_and_clears_the_scheme(): void {
+		Vault::get_instance()->add( 'linear-44', [ 'url' => 'https://api.linear-44.example', 'auth_password' => 'lin-pw-44', 'auth_header' => 'X-Old-44', 'auth_scheme' => 'Old-9' ] );
+		Vault::get_instance()->reset_cache();
+
+		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'linear-44', '--header=Authorization', '--scheme=' ] );
+
+		$stored = Vault::fresh()->get( 'linear-44' );
+		$this->assertSame( 'Authorization', $stored['auth_header'] );
+		$this->assertSame( '', $stored['auth_scheme'] );
+		$this->assertSame( 'lin-pw-44', $stored['auth_password'], 'the password survives an edit that does not send one' );
+	}
+
+	public function test_update_leaves_the_header_alone_when_the_option_is_absent(): void {
+		Vault::get_instance()->add( 'linear-45', [ 'url' => 'https://api.linear-45.example', 'auth_password' => 'lin-pw-45', 'auth_header' => 'X-Keep-45', 'auth_scheme' => 'Keep-2' ] );
+		Vault::get_instance()->reset_cache();
+
+		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'linear-45 --url=https://api.linear-45b.example' );
+
+		$stored = Vault::fresh()->get( 'linear-45' );
+		$this->assertSame( 'X-Keep-45', $stored['auth_header'] );
+		$this->assertSame( 'Keep-2', $stored['auth_scheme'] );
+	}
+
+	public function test_add_refuses_a_header_that_would_rewrite_the_request_by_name(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'hdr-52 --url=https://hdr-52.example --password=pw-52 --header=Content-Length' );
+
+		$this->assertSame( "invalid header: Content-Length\n", $out );
+		$this->assertNull( Vault::fresh()->get( 'hdr-52' ) );
+	}
+
+	public function test_update_refuses_a_malformed_scheme_by_name(): void {
+		Vault::get_instance()->add( 'hdr-53', [ 'url' => 'https://hdr-53.example', 'auth_password' => 'pw-53', 'auth_header' => 'X-Key-53', 'auth_scheme' => 'Good-53' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'hdr-53', '--scheme=Bad:53' ] );
+
+		$this->assertSame( "invalid scheme: Bad:53\n", $out );
+		$this->assertSame( 'Good-53', Vault::fresh()->get( 'hdr-53' )['auth_scheme'] );
+	}
+
+	public function test_the_public_shape_carries_the_header_and_scheme_and_counts_a_named_header_credential(): void {
+		Vault::get_instance()->add( 'slack-61', [ 'url' => 'https://slack-61.example', 'auth_password' => 'xoxb-6119', 'auth_header' => 'Authorization', 'auth_scheme' => 'Bearer' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'slack-61' );
+
+		$this->assertSame( 'Authorization', $out['auth_header'] );
+		$this->assertSame( 'Bearer', $out['auth_scheme'] );
+		$this->assertTrue( $out['has_credentials'], 'a password-only entry with a header carries a credential' );
+		$this->assertArrayNotHasKey( 'auth_password', $out );
+		$this->assertStringNotContainsString( 'xoxb-6119', (string) \wp_json_encode( $out ) );
+	}
+
+	public function test_a_password_alone_is_no_credential_in_the_public_shape(): void {
+		Vault::get_instance()->add( 'bare-62', [ 'url' => 'https://bare-62.example', 'auth_password' => 'pw-62' ] );
+		Vault::get_instance()->reset_cache();
+
+		$this->assertFalse( VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'bare-62' )['has_credentials'] );
 	}
 
 	public function test_add_and_update_carry_group(): void {

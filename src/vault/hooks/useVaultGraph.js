@@ -62,6 +62,11 @@ const LIST_INTERVAL_MS = 30000;
  *                                  the stored one.
  * @property {string} group         Vault_Group membership, or '' for none;
  *                                  blank on an edit CLEARS the stored one.
+ * @property {string} auth_header   The header a password-only credential
+ *                                  rides in, or '' for Basic and Bearer;
+ *                                  blank on an edit CLEARS the stored one.
+ * @property {string} auth_scheme   The word before that credential, or ''
+ *                                  for none; blank on an edit CLEARS it.
  */
 
 /**
@@ -171,6 +176,8 @@ export function useVaultGraph( { onAnswer } = {} ) {
 					group: fields.group,
 					user: fields.auth_username,
 					password: fields.auth_password,
+					header: fields.auth_header,
+					scheme: fields.auth_scheme,
 				} )
 			),
 		[ runAdd ]
@@ -178,8 +185,9 @@ export function useVaultGraph( { onAnswer } = {} ) {
 
 	/**
 	 * Send `update`, addressed by the id the entry HAS; the one it moves TO
-	 * rides as `--new_id`. The URL, the group and the username always ride; the
-	 * password is the one field an edit may leave out.
+	 * rides as `--new_id`. The URL, the group, the username, the header and
+	 * the scheme always ride; the password is the one field an edit may leave
+	 * out.
 	 */
 	const updateServer = useCallback(
 		( id, fields ) => {
@@ -195,6 +203,8 @@ export function useVaultGraph( { onAnswer } = {} ) {
 			if ( fields.auth_password ) {
 				options.password = fields.auth_password;
 			}
+			options.header = fields.auth_header;
+			options.scheme = fields.auth_scheme;
 			return runUpdate( formatCommandArgs( [ id ], options ) );
 		},
 		[ runUpdate ]

@@ -365,6 +365,8 @@ describe( 'VaultAdmin', () => {
 			auth_username: 'admin',
 			auth_password: 'secret',
 			group: '',
+			auth_header: '',
+			auth_scheme: '',
 		} );
 	} );
 
@@ -396,6 +398,8 @@ describe( 'VaultAdmin', () => {
 			auth_username: '',
 			auth_password: '',
 			group: '',
+			auth_header: '',
+			auth_scheme: '',
 		} );
 	} );
 
@@ -451,6 +455,8 @@ describe( 'VaultAdmin', () => {
 			auth_username: '',
 			auth_password: '',
 			group: '',
+			auth_header: '',
+			auth_scheme: '',
 		} );
 	} );
 
@@ -492,6 +498,98 @@ describe( 'VaultAdmin', () => {
 		expect(
 			container.querySelector( '#vault-server-status' ).textContent
 		).toContain( 'Group' );
+	} );
+
+	it( 'submits the credential header and scheme with the add form', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		setInput(
+			container.querySelector( '#vault-server-id' ),
+			'unthread-31'
+		);
+		setInput(
+			container.querySelector( '#vault-server-url' ),
+			'https://api.unthread-31.example'
+		);
+		setInput(
+			container.querySelector( '#vault-server-password' ),
+			'ut-key-6612'
+		);
+		setInput(
+			container.querySelector( '#vault-server-header' ),
+			' X-Api-Key '
+		);
+		setInput( container.querySelector( '#vault-server-scheme' ), 'Key-4' );
+		await act( async () => {
+			container.querySelector( '#vault-server-save' ).click();
+		} );
+		expect( addServer ).toHaveBeenCalledWith( {
+			id: 'unthread-31',
+			url: 'https://api.unthread-31.example',
+			auth_username: '',
+			auth_password: 'ut-key-6612',
+			group: '',
+			auth_header: 'X-Api-Key',
+			auth_scheme: 'Key-4',
+		} );
+	} );
+
+	// The store holds the header rule; the verb's named refusal is the message.
+	it( 'sends a refused header to the server and shows its refusal', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		setInput( container.querySelector( '#vault-server-id' ), 'hdr-52' );
+		setInput(
+			container.querySelector( '#vault-server-url' ),
+			'https://hdr-52.example'
+		);
+		setInput(
+			container.querySelector( '#vault-server-header' ),
+			'Content-Length'
+		);
+		await act( async () => {
+			container.querySelector( '#vault-server-save' ).click();
+		} );
+		expect( addServer ).toHaveBeenCalledWith(
+			expect.objectContaining( { auth_header: 'Content-Length' } )
+		);
+		await act( async () =>
+			answer( 'add', {
+				subject: 'hdr-52',
+				error: 'invalid header: Content-Length',
+			} )
+		);
+		expect( document.querySelector( '[role="dialog"]' ) ).toBeTruthy();
+		expect(
+			container.querySelector( '#vault-server-status' ).textContent
+		).toBe( 'Error: invalid header: Content-Length' );
+	} );
+
+	it( 'seeds the edit form with the row’s header and scheme', () => {
+		registerViewFixture( {
+			servers: [
+				{
+					id: 'slack-61',
+					url: 'https://slack-61.example',
+					auth_username: '',
+					auth_header: 'Authorization',
+					auth_scheme: 'Bearer',
+					has_credentials: true,
+				},
+			],
+			loading: false,
+		} );
+		const { container } = mount();
+		openEditModal( container, 'slack-61' );
+		const dialog = document.querySelector( '[role="dialog"]' );
+		expect( dialog.querySelector( '#vault-server-header' ).value ).toBe(
+			'Authorization'
+		);
+		expect( dialog.querySelector( '#vault-server-scheme' ).value ).toBe(
+			'Bearer'
+		);
 	} );
 
 	// ---------------------------------------------------------------------
@@ -554,6 +652,8 @@ describe( 'VaultAdmin', () => {
 			auth_username: 'editor-6612',
 			auth_password: 'pw-8823',
 			group: '',
+			auth_header: '',
+			auth_scheme: '',
 		} );
 	} );
 
