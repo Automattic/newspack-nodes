@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.136.0\n"
+"Project-Id-Version: Newspack Nodes 2.140.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-29T07:25:29+00:00\n"
+"POT-Creation-Date: 2026-10-30T15:55:34+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -328,15 +328,15 @@ msgstr ""
 msgid "Newspack Nodes has health alerts"
 msgstr ""
 
-#: includes/class-capabilities.php:290
+#: includes/class-capabilities.php:313
 msgid "See the dashboards and the logged traffic; change nothing."
 msgstr ""
 
-#: includes/class-capabilities.php:291
+#: includes/class-capabilities.php:314
 msgid "See the dashboards and the logged traffic; change settings and application data."
 msgstr ""
 
-#: includes/class-capabilities.php:292
+#: includes/class-capabilities.php:315
 msgid "See and change everything, the fleet and the credential vault included."
 msgstr ""
 
@@ -651,7 +651,7 @@ msgstr ""
 
 #: src/event-aggregator/AggregatorStatus.js:413
 #: src/event-dashboards/Jobs.js:93
-#: src/vault/VaultAdmin.js:563
+#: src/vault/VaultAdmin.js:625
 msgid "Status"
 msgstr ""
 
@@ -926,8 +926,8 @@ msgstr ""
 #: src/event-dashboards/LogViewer.js:111
 #: src/shared/components/LogStreamViewer.js:118
 #: src/topology-console/components/Inspector.js:1783
-#: src/vault/VaultAdmin.js:320
-#: src/vault/VaultAdmin.js:554
+#: src/vault/VaultAdmin.js:332
+#: src/vault/VaultAdmin.js:616
 msgid "ID"
 msgstr ""
 
@@ -1276,7 +1276,7 @@ msgid "Edit this topology in the console"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:80
-#: src/vault/VaultAdmin.js:192
+#: src/vault/VaultAdmin.js:199
 msgid "Edit"
 msgstr ""
 
@@ -1371,7 +1371,7 @@ msgstr ""
 #: src/topology-console/TopologyConsole.js:1958
 #: src/topology-console/TopologyConsole.js:2034
 #: src/vault/VaultAdmin.js:66
-#: src/vault/VaultAdmin.js:458
+#: src/vault/VaultAdmin.js:520
 msgid "Cancel"
 msgstr ""
 
@@ -1472,7 +1472,7 @@ msgstr ""
 
 #: src/sessions/SessionsAdmin.js:582
 #: src/sessions/SessionsAdmin.js:604
-#: src/vault/VaultAdmin.js:566
+#: src/vault/VaultAdmin.js:628
 msgid "Actions"
 msgstr ""
 
@@ -2817,7 +2817,7 @@ msgstr ""
 
 #: src/topology-console/components/TriageView.js:473
 #: src/vault/VaultAdmin.js:74
-#: src/vault/VaultAdmin.js:201
+#: src/vault/VaultAdmin.js:208
 msgid "Remove"
 msgstr ""
 
@@ -3048,99 +3048,115 @@ msgstr ""
 msgid "Remove failed: %s"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:183
+#: src/vault/VaultAdmin.js:190
 msgid "Test"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:228
+#: src/vault/VaultAdmin.js:235
 msgid "ID is required"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:231
+#: src/vault/VaultAdmin.js:238
 msgid "ID may hold only letters, digits, - and _ (at most 64)"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:237
+#: src/vault/VaultAdmin.js:244
 msgid "Server URL is required"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:240
+#: src/vault/VaultAdmin.js:247
 msgid "URL must start with https://"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:243
+#: src/vault/VaultAdmin.js:250
 msgid "Group may hold only letters, digits, - and _ (at most 64)"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:273
+#: src/vault/VaultAdmin.js:281
 msgid "Add New Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:274
+#: src/vault/VaultAdmin.js:282
 msgid "Edit Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:334
+#: src/vault/VaultAdmin.js:346
 msgid "Unique identifier (alphanumeric, hyphen, underscore)."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:339
+#: src/vault/VaultAdmin.js:351
 msgid "Renaming does not update topologies that name it — those spokes stay disconnected until you edit them."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:349
+#: src/vault/VaultAdmin.js:361
 msgid "Server URL"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:362
+#: src/vault/VaultAdmin.js:374
 msgid "HTTPS URL of the WordPress site."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:372
-#: src/vault/VaultAdmin.js:560
+#: src/vault/VaultAdmin.js:384
+#: src/vault/VaultAdmin.js:622
 msgid "Group"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:385
+#: src/vault/VaultAdmin.js:397
 msgid "A Vault_Group node builds one child per server in its group."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:395
+#: src/vault/VaultAdmin.js:407
 msgid "Username"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:409
+#: src/vault/VaultAdmin.js:421
 msgid "WordPress username on the remote site."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:419
+#: src/vault/VaultAdmin.js:431
 msgid "Application Password"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:437
+#: src/vault/VaultAdmin.js:449
 msgid "WordPress Application Password (Users → Profile → Application Passwords)."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:441
+#: src/vault/VaultAdmin.js:453
 msgid "Leave blank to keep the stored password."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:467
+#: src/vault/VaultAdmin.js:463
+msgid "Credential header"
+msgstr ""
+
+#: src/vault/VaultAdmin.js:478
+msgid "With no username, the password is sent in this header. Leave blank for Basic auth."
+msgstr ""
+
+#: src/vault/VaultAdmin.js:488
+msgid "Scheme"
+msgstr ""
+
+#: src/vault/VaultAdmin.js:503
+msgid "Sent before the password in the credential header. Leave blank to send the password alone."
+msgstr ""
+
+#: src/vault/VaultAdmin.js:529
 msgid "Add Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:468
+#: src/vault/VaultAdmin.js:530
 msgid "Save Changes"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:538
+#: src/vault/VaultAdmin.js:600
 msgid "+ Add Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:557
+#: src/vault/VaultAdmin.js:619
 msgid "URL"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:586
+#: src/vault/VaultAdmin.js:648
 msgid "No servers configured."
 msgstr ""
