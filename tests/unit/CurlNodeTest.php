@@ -792,6 +792,7 @@ class CurlNodeTest extends TestCase {
 			'site-local fec0::/10'      => [ 'feff::9' ],
 			'ietf 2001::/23 high'       => [ '2001:1ff::5' ],
 			'teredo inside 2001::/23'   => [ '2001:0:4136:e378::3' ],
+			'local nat64 64:ff9b:1::/48' => [ '64:ff9b:1:a9fe:a9:fe00::7' ],
 		];
 	}
 
@@ -818,6 +819,7 @@ class CurlNodeTest extends TestCase {
 			'above 2001::/23'      => [ '2001:200::1' ],
 			'beside 2001:db8::/32' => [ '2001:db9::1' ],
 			'beside 100::/64'      => [ '100:0:0:1::1' ],
+			'beside 64:ff9b:1::/48' => [ '64:ff9b:2::5db8:d70e' ],
 		];
 	}
 

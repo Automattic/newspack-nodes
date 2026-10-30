@@ -110,6 +110,7 @@ class Curl_Node extends Node implements Curl_Owner {
 		'2001::/23',
 		'2001:db8::/32',
 		'fec0::/10',
+		'64:ff9b:1::/48',
 		'ff00::/8',
 	];
 
