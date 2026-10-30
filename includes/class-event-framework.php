@@ -314,6 +314,11 @@ class Event_Framework {
 	 * next tick services it, and its completion reaches
 	 * `$owner->on_curl_done()` with that context.
 	 *
+	 * Every handle sets `CURLOPT_QUICK_EXIT` over whatever the caller passed,
+	 * where PHP defines it (8.3 on): libcurl resolves on a thread, and
+	 * removing a handle whose resolve still runs would otherwise join it,
+	 * blocking the loop on a timeout, a release or a worker stop.
+	 *
 	 * @param Node&Curl_Owner<mixed> $owner The node the completion belongs to.
 	 * @param array<int,mixed> $opts    The transfer's libcurl options.
 	 * @param mixed            $context Handed back to `on_curl_done()`.
@@ -330,6 +335,10 @@ class Event_Framework {
 			return $ch;
 			// phpcs:enable
 		};
+		if ( \defined( 'CURLOPT_QUICK_EXIT' ) ) {
+			// Removing the handle never joins a resolver thread still running.
+			$opts[ \CURLOPT_QUICK_EXIT ] = true;
+		}
 		$easy = $dispatch( $opts );
 		if ( ! $easy instanceof \CurlHandle ) {
 			return null;

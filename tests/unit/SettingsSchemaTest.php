@@ -54,6 +54,7 @@ class SettingsSchemaTest extends TestCase {
 		'spawn_verify_ssl',
 		'vault_verify_ssl',
 		'vault_require_ssl',
+		'curl_allow_private_addresses',
 	];
 
 	private const OPTION_NAMES = [

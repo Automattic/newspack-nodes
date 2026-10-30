@@ -209,9 +209,10 @@ class Vault {
 	 *
 	 * The id is a field like any other on an edit form, so a rename rides the
 	 * same call rather than a verb of its own: both halves land in ONE option
-	 * write, and a refused move applies nothing. The entry carries every stored
-	 * key across, validated or not — the operator editing a spoke never retypes
-	 * a credential, and never silently loses one this projection cannot see.
+	 * write, and a refused move applies nothing. The partial merges over the
+	 * entry's managed keys, so the operator editing a spoke never retypes a
+	 * credential, and the entry is rewritten from those keys alone, dropping
+	 * any other key the option held.
 	 *
 	 * @api
 	 * @param string              $id      Server id.
@@ -249,8 +250,7 @@ class Vault {
 			// One write does the move; no reader sees both ids or neither.
 			unset( $wp_servers[ $id ] );
 		}
-		// `+` carries stored keys the projection can't see, `token` among them.
-		$wp_servers[ $target ] = $validated + $merged;
+		$wp_servers[ $target ] = $validated;
 
 		self::write_option( $wp_servers );
 		$this->servers = null;
@@ -727,9 +727,8 @@ class Vault {
 	/**
 	 * THE credential header line for a spoke's decrypted entry, or '' when it
 	 * needs none. A password with no username and an `auth_header` rides in
-	 * that header, after `auth_scheme` when one is set. Otherwise Basic wins
-	 * over Bearer on `Authorization`: a username and password are the more
-	 * specific statement than a stored token.
+	 * that header, after `auth_scheme` when one is set; a username and a
+	 * password ride as Basic on `Authorization`.
 	 *
 	 * Lives on the Vault because the Vault owns credentials. Every transport
 	 * reaching out — HTTP_Out (push and its blocking probe), SSE_In (pull) and
@@ -751,8 +750,7 @@ class Vault {
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
 			return 'Authorization: Basic ' . \base64_encode( $user . ':' . $pass );
 		}
-		$token = Core::as_string( $server['token'] ?? '' );
-		return '' === $token ? '' : 'Authorization: Bearer ' . $token;
+		return '';
 	}
 
 	/**
