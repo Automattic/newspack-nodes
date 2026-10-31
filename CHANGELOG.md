@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.141.1] - 2026-10-31
+
 ### Changed
 - **The Vault's server form explains each field in one short line,** so the form fits on a laptop screen. The help also covers token entries now, not only WordPress spokes: the URL is where the credential goes, the username is set for Basic auth, and the header and scheme apply when the username is blank.
 
