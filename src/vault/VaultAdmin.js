@@ -344,12 +344,12 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 							/>
 							<p className="description">
 								{ __(
-									'Unique identifier (alphanumeric, hyphen, underscore).',
+									'Letters, digits, hyphen, underscore.',
 									'newspack-nodes'
 								) }
 								{ ! isNew &&
 									` ${ __(
-										'Renaming does not update topologies that name it — those spokes stay disconnected until you edit them.',
+										'Renaming unlinks topologies that name it.',
 										'newspack-nodes'
 									) }` }
 							</p>
@@ -372,7 +372,7 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 							/>
 							<p className="description">
 								{ __(
-									'HTTPS URL of the WordPress site.',
+									'HTTPS URL the credential goes to.',
 									'newspack-nodes'
 								) }
 							</p>
@@ -395,7 +395,7 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 							/>
 							<p className="description">
 								{ __(
-									'A Vault_Group node builds one child per server in its group.',
+									'Topologies reach servers by group.',
 									'newspack-nodes'
 								) }
 							</p>
@@ -419,7 +419,7 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 							/>
 							<p className="description">
 								{ __(
-									'WordPress username on the remote site.',
+									'Set it for Basic auth.',
 									'newspack-nodes'
 								) }
 							</p>
@@ -447,11 +447,11 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 							<p className="description">
 								{ isNew
 									? __(
-											'WordPress Application Password (Users → Profile → Application Passwords).',
+											'Application Password or API token.',
 											'newspack-nodes'
 									  )
 									: __(
-											'Leave blank to keep the stored password.',
+											'Blank keeps the stored one.',
 											'newspack-nodes'
 									  ) }
 							</p>
@@ -476,7 +476,7 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 							/>
 							<p className="description">
 								{ __(
-									'With no username, the password is sent in this header. Leave blank for Basic auth.',
+									'Token header when Username is blank.',
 									'newspack-nodes'
 								) }
 							</p>
@@ -501,7 +501,7 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 							/>
 							<p className="description">
 								{ __(
-									'Sent before the password in the credential header. Leave blank to send the password alone.',
+									'Token prefix, or blank for none.',
 									'newspack-nodes'
 								) }
 							</p>
