@@ -23,6 +23,16 @@ final class Status_Fixture_Node extends Node {
 		return $this->last_status();
 	}
 
+	/** The held int at $key, or the clock. */
+	public function since( string $key ): int {
+		return $this->status_since( $key );
+	}
+
+	/** $text as a status publishes it. */
+	public static function text( string $text ): string {
+		return self::status_text( $text );
+	}
+
 	protected function status_ttl(): int {
 		return 7777;
 	}
@@ -149,6 +159,34 @@ class PublishesStatusTest extends TestCase {
 		unset( Core::$var['partition'] );
 
 		$this->assertSame( [], self::fixture()->held() );
+	}
+
+	public function test_status_since_keeps_the_held_value(): void {
+		$this->memd->set( Status_Fixture_Node::status_key( 'fx', 3 ), [ 'failing_since' => 5151 ], 60 );
+
+		$this->assertSame( 5151, self::fixture()->since( 'failing_since' ) );
+	}
+
+	public function test_status_since_is_the_clock_when_none_is_held(): void {
+		$this->memd->set( Status_Fixture_Node::status_key( 'fx', 3 ), [ 'failing_since' => null, 'other_since' => 4040 ], 60 );
+		Core::$now = 6917.4;
+
+		$node = self::fixture();
+
+		$this->assertSame( [ 6917, 6917 ], [ $node->since( 'failing_since' ), $node->since( 'stalled_since' ) ] );
+	}
+
+	public function test_status_text_is_terminal_safe_and_cut_on_a_character_boundary(): void {
+		$text = "proxy\e[2J said " . \str_repeat( 'ü', 1000 );
+
+		$cut = Status_Fixture_Node::text( $text );
+
+		$this->assertStringStartsWith( 'proxy<1B>[2J said ü', $cut );
+		$this->assertStringNotContainsString( "\e", $cut );
+		$this->assertSame( \mb_strcut( Core::terminal_safe( $text ), 0, 500, 'UTF-8' ), $cut );
+		$this->assertGreaterThanOrEqual( 499, \strlen( $cut ) );
+		$this->assertLessThanOrEqual( 500, \strlen( $cut ) );
+		$this->assertTrue( \mb_check_encoding( $cut, 'UTF-8' ) );
 	}
 
 	public function test_no_shared_cache_publishes_nothing_and_reads_null(): void {

@@ -19,6 +19,9 @@ namespace Newspack_Nodes;
  */
 trait Publishes_Status {
 
+	/** Bytes of a failure's text a snapshot keeps, cut on a character boundary. */
+	private const STATUS_TEXT_BYTES = 500;
+
 	/**
 	 * The snapshot this process last wrote or read back under `$status_key`.
 	 *
@@ -57,6 +60,19 @@ trait Publishes_Status {
 		$cache->set( $key, $status, $this->status_ttl() );
 		$this->status            = $status;
 		$this->status_written_at = $now;
+	}
+
+	/**
+	 * When the condition whose start $key holds began: the held snapshot's
+	 * value there, or now when it holds none. A publisher keeps when a
+	 * condition began by writing the key only while the condition stands,
+	 * and null otherwise.
+	 *
+	 * @param string $key The snapshot key holding the condition's start.
+	 */
+	protected function status_since( string $key ): int {
+		$since = $this->last_status()[ $key ] ?? null;
+		return null === $since ? (int) Core::$now : Core::as_int( $since );
 	}
 
 	/**
@@ -109,6 +125,16 @@ trait Publishes_Status {
 	 */
 	public static function status_key( string $name, int $partition ): string {
 		return Cache_Backend::site_key( "status:{$name}:p{$partition}" );
+	}
+
+	/**
+	 * A failure's text as a snapshot carries it: terminal-safe, then cut to
+	 * STATUS_TEXT_BYTES on a character boundary.
+	 *
+	 * @param string $text The failure's text.
+	 */
+	protected static function status_text( string $text ): string {
+		return \mb_strcut( Core::terminal_safe( $text ), 0, self::STATUS_TEXT_BYTES, 'UTF-8' );
 	}
 
 	/** Seconds the cache keeps a snapshot nothing rewrites. */
