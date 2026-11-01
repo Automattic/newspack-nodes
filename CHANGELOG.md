@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.143.0] - 2026-11-01
+
 ### Added
 - **`Publishes_Status` gives any node a status snapshot in the shared cache.** `publish_status( $data )` merges `$data` over the snapshot the process holds and writes it when the merge changed it, or once the class's `status_heartbeat()` seconds have run, under the class's `status_ttl()`. A process's first call reads the snapshot back, so a successor worker merges over its predecessor's keys rather than blanking them. Only a worker with a shared cache publishes. `status_key( $name, $partition )` builds the site-scoped `status:<name>:p<partition>` key, and `read_status( $name, $partition )` answers the snapshot, or null when the key is absent or no shared cache exists. Two helpers hold the rules every publisher shares: `status_since( $key )` answers the held int at `$key`, or now when none is held, so a publisher keeps when a condition began by writing that key only while the condition stands and null otherwise; and `status_text( $text )` makes a failure's text terminal-safe and cuts it to 500 bytes on a character boundary.
 
