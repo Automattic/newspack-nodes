@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Curl_Node::lends_credential( $url )` answers whether its vault group holds an entry on the url's origin,** so a consumer can tell before a fetch whether one would carry a credential. Two entries on one origin answer true, and the fetch itself still refuses them. It shares the origin match `credential_for()` reads, and throws as a fetch refuses a url that is not an absolute http(s) url with a host, or that carries userinfo. newspack-intelligence's `Source_Node` calls it.
+
 ## [2.141.1] - 2026-10-31
 
 ### Changed

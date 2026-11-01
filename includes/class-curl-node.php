@@ -499,6 +499,21 @@ class Curl_Node extends Node implements Curl_Owner {
 	}
 
 	/**
+	 * Whether the vault group holds an entry on the url's origin, so a fetch
+	 * of it would carry, or be refused for, a credential. Two entries on one
+	 * origin answer true; the fetch itself refuses them.
+	 *
+	 * @api Source_Node (newspack-intelligence)
+	 *
+	 * @param string $url The url to fetch.
+	 * @return bool
+	 * @throws \UnexpectedValueException When it is not an absolute http(s) url with a host, or carries userinfo.
+	 */
+	public function lends_credential( string $url ): bool {
+		return [] !== $this->entries_on( self::origin_of( \trim( $url ) ) );
+	}
+
+	/**
 	 * The credential header line to send with the url ('' for none): the line
 	 * of the one vault group entry on the url's origin, under which
 	 * `vault_require_ssl` applies to the url.
@@ -509,14 +524,7 @@ class Curl_Node extends Node implements Curl_Owner {
 	 */
 	private function credential_for( string $url ): string {
 		$origin  = self::origin_of( $url );
-		$vault   = Vault::get_instance();
-		$matched = [];
-		foreach ( $vault->in_group( $this->vault_group ) as $id ) {
-			$server = $vault->get( $id );
-			if ( null !== $server && $origin === self::origin_or_null( Vault::url_of( $server ) ) ) {
-				$matched[ $id ] = $server;
-			}
-		}
+		$matched = $this->entries_on( $origin );
 		if ( [] === $matched ) {
 			return '';
 		}
@@ -527,6 +535,24 @@ class Curl_Node extends Node implements Curl_Owner {
 			self::refuse( "vault_require_ssl set but url is not https {$url}" );
 		}
 		return Vault::credential_header( \reset( $matched ) );
+	}
+
+	/**
+	 * The vault group's entries whose stored url sits on the origin, by id.
+	 *
+	 * @param string $origin The origin, as `origin_of()` answers it.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private function entries_on( string $origin ): array {
+		$vault   = Vault::get_instance();
+		$matched = [];
+		foreach ( $vault->in_group( $this->vault_group ) as $id ) {
+			$server = $vault->get( $id );
+			if ( null !== $server && $origin === self::origin_or_null( Vault::url_of( $server ) ) ) {
+				$matched[ $id ] = $server;
+			}
+		}
+		return $matched;
 	}
 
 	/**

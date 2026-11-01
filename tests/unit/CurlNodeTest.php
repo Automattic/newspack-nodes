@@ -1104,6 +1104,46 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( [], Event_Framework::instance()->curl_handles() );
 	}
 
+	public function test_lends_credential_answers_true_for_a_group_entry_on_the_origin(): void {
+		$this->seed_group();
+		$node = $this->curl( 'crawl-g7' );
+
+		$this->assertTrue( $node->lends_credential( 'https://north-31.example:8443/deep/q-8' ) );
+		$this->assertTrue( $node->lends_credential( 'HTTPS://SOUTH-52.example/r-4' ) );
+	}
+
+	public function test_lends_credential_answers_true_for_two_entries_on_one_origin(): void {
+		$this->seed_vault_servers(
+			[
+				'twin-b' => [ 'url' => 'https://twin-12.example/b', 'auth_username' => 'svc-b', 'auth_password' => 'pw-b', 'group' => 'crawl-g7' ],
+				'twin-a' => [ 'url' => 'https://twin-12.example/a', 'auth_username' => 'svc-a', 'auth_password' => 'pw-a', 'group' => 'crawl-g7' ],
+			]
+		);
+
+		$this->assertTrue( $this->curl( 'crawl-g7' )->lends_credential( 'https://twin-12.example/page-5' ) );
+	}
+
+	public function test_lends_credential_answers_false_for_an_origin_with_no_group_entry(): void {
+		$this->seed_group();
+		$node = $this->curl( 'crawl-g7' );
+
+		$this->assertFalse( $node->lends_credential( 'https://stranger-77.example/z-3' ), 'no entry on the origin' );
+		$this->assertFalse( $node->lends_credential( 'https://north-31.example/other-port-4' ), 'another port is another origin' );
+		$this->assertFalse( $node->lends_credential( 'http://south-52.example/plain-6' ), 'another scheme is another origin' );
+	}
+
+	public function test_lends_credential_answers_false_for_an_entry_in_another_group(): void {
+		$this->seed_group();
+
+		$this->assertFalse( $this->curl( 'elsewhere-9' )->lends_credential( 'https://south-52.example/y-2' ) );
+	}
+
+	public function test_lends_credential_answers_false_with_no_group(): void {
+		$this->seed_group();
+
+		$this->assertFalse( $this->curl()->lends_credential( 'https://south-52.example/y-2' ) );
+	}
+
 	public function test_the_vault_group_round_trips(): void {
 		$node = $this->curl( 'crawl-g7' );
 
