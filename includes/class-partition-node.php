@@ -14,9 +14,7 @@
 
 namespace Newspack_Nodes;
 
-if ( ! \defined( 'ABSPATH' ) ) {
-	exit;
-}
+\defined( 'ABSPATH' ) || exit;
 
 /**
  * Append-only log of packed Messages, kept as numbered `{seg}.log` segments in

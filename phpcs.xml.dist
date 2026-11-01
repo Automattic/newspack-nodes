@@ -55,6 +55,9 @@
 	<!-- Allow short array syntax -->
 	<rule ref="Generic.Arrays.DisallowLongArraySyntax"/>
 
+	<!-- Every ABSPATH guard is the one line `\defined( 'ABSPATH' ) || exit;`. -->
+	<rule ref="./scripts/Sniffs/WP/AbspathGuardSniff.php"/>
+
 	<!-- WordPress version check -->
 	<config name="minimum_supported_wp_version" value="6.0"/>
 </ruleset>

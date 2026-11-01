@@ -15,9 +15,7 @@
 
 namespace Newspack_Nodes;
 
-if ( ! \defined( 'ABSPATH' ) ) {
-	exit;
-}
+\defined( 'ABSPATH' ) || exit;
 
 /**
  * Advisory lock over a directory, held for as long as its owner heartbeats.

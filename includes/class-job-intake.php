@@ -20,9 +20,7 @@
 
 namespace Newspack_Nodes;
 
-if ( ! \defined( 'ABSPATH' ) ) {
-	exit;
-}
+\defined( 'ABSPATH' ) || exit;
 
 /**
  * Partitioned writer for the three job-ingress logs.

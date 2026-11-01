@@ -77,3 +77,11 @@ for src in "$SUBSTRATE_DIR"/scripts/lib/*.sh "$SUBSTRATE_DIR"/scripts/lib/*.mjs;
 	refresh "$src" "$SCRIPT_DIR/lib/$f" "scripts/lib/$f"
 done
 
+# PHPCS sniffs, which every phpcs.xml.dist references by path.
+for src in "$SUBSTRATE_DIR"/scripts/Sniffs/*/*Sniff.php; do
+	[ -f "$src" ] || continue
+	f="Sniffs/$(basename "$(dirname "$src")")/$(basename "$src")"
+	mkdir -p "$SCRIPT_DIR/$(dirname "$f")"
+	refresh "$src" "$SCRIPT_DIR/$f" "scripts/$f"
+done
+

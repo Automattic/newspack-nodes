@@ -25,9 +25,7 @@
 
 namespace Newspack_Nodes;
 
-if ( ! \defined( 'ABSPATH' ) ) {
-	exit;
-}
+\defined( 'ABSPATH' ) || exit;
 
 /**
  * The registry, memoized for the life of the process.

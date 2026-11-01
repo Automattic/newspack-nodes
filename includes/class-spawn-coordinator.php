@@ -26,9 +26,7 @@
 
 namespace Newspack_Nodes;
 
-if ( ! \defined( 'ABSPATH' ) ) {
-	exit;
-}
+\defined( 'ABSPATH' ) || exit;
 
 /**
  * An instance is scoped to one `base_dir`, and its only state is the in-memory

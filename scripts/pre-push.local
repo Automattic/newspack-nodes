@@ -7,6 +7,7 @@ SELF_TESTS=(
 	"test-reorder-node-methods.sh" "the reorder twins"
 	"test-lint-comments.sh" "the comment gate"
 	"test-fix-blank-lines.sh" "the blank-line fixer"
+	"test-abspath-guard-sniff.sh" "the ABSPATH guard sniff"
 	"test-lint-contract.sh" "the contract gate"
 	"test-lint-styles.sh" "the style gate"
 	"test-lint-wp-pin.sh" "the pin gate"
