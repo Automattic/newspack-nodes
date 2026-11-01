@@ -15,6 +15,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   answers a broker's snapshot, or null for an absent key. A broker publishes
   through the trait's `publish_status( $data )`, so a subclass's own
   `publish_status()` must take another name.
+- **`Curl_Node::lends_credential()` is static and names its vault group.**
+  The instance form `$curl->lends_credential( $url )` is gone. Replace it with
+  `Curl_Node::lends_credential( $group, $url )`, passing the group the Curl
+  node runs under (its `vault_group` positional), `''` for none.
 - **The Vault's `token` key is gone.** An entry whose credential lived in a
   stored `token` sends none, and its spoke refuses the request; the next
   `vault update` of the entry erases the key. Re-enter the credential as the

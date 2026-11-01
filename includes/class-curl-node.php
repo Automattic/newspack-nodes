@@ -499,18 +499,20 @@ class Curl_Node extends Node implements Curl_Owner {
 	}
 
 	/**
-	 * Whether the vault group holds an entry on the url's origin, so a fetch
-	 * of it would carry, or be refused for, a credential. Two entries on one
-	 * origin answer true; the fetch itself refuses them.
+	 * Whether a vault group holds an entry on the url's origin, so a fetch
+	 * of it under the group would carry, or be refused for, a credential.
+	 * Two entries on one origin answer true; the fetch itself refuses them.
+	 * A fact of the group and the Vault, asked with no node built.
 	 *
-	 * @api Source_Node (newspack-intelligence)
+	 * @api Source_Node and Intelligence_Health (newspack-intelligence)
 	 *
-	 * @param string $url The url to fetch.
+	 * @param string $group The vault group; '' for none.
+	 * @param string $url   The url to fetch.
 	 * @return bool
 	 * @throws \UnexpectedValueException When it is not an absolute http(s) url with a host, or carries userinfo.
 	 */
-	public function lends_credential( string $url ): bool {
-		return [] !== $this->entries_on( self::origin_of( \trim( $url ) ) );
+	public static function lends_credential( string $group, string $url ): bool {
+		return [] !== self::entries_on( $group, self::origin_of( \trim( $url ) ) );
 	}
 
 	/**
@@ -524,7 +526,7 @@ class Curl_Node extends Node implements Curl_Owner {
 	 */
 	private function credential_for( string $url ): string {
 		$origin  = self::origin_of( $url );
-		$matched = $this->entries_on( $origin );
+		$matched = self::entries_on( $this->vault_group, $origin );
 		if ( [] === $matched ) {
 			return '';
 		}
@@ -538,15 +540,16 @@ class Curl_Node extends Node implements Curl_Owner {
 	}
 
 	/**
-	 * The vault group's entries whose stored url sits on the origin, by id.
+	 * A vault group's entries whose stored url sits on the origin, by id.
 	 *
+	 * @param string $group  The vault group.
 	 * @param string $origin The origin, as `origin_of()` answers it.
 	 * @return array<string,array<string,mixed>>
 	 */
-	private function entries_on( string $origin ): array {
+	private static function entries_on( string $group, string $origin ): array {
 		$vault   = Vault::get_instance();
 		$matched = [];
-		foreach ( $vault->in_group( $this->vault_group ) as $id ) {
+		foreach ( $vault->in_group( $group ) as $id ) {
 			$server = $vault->get( $id );
 			if ( null !== $server && $origin === self::origin_or_null( Vault::url_of( $server ) ) ) {
 				$matched[ $id ] = $server;

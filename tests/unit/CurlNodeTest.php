@@ -1106,10 +1106,9 @@ class CurlNodeTest extends TestCase {
 
 	public function test_lends_credential_answers_true_for_a_group_entry_on_the_origin(): void {
 		$this->seed_group();
-		$node = $this->curl( 'crawl-g7' );
 
-		$this->assertTrue( $node->lends_credential( 'https://north-31.example:8443/deep/q-8' ) );
-		$this->assertTrue( $node->lends_credential( 'HTTPS://SOUTH-52.example/r-4' ) );
+		$this->assertTrue( Curl_Node::lends_credential( 'crawl-g7', 'https://north-31.example:8443/deep/q-8' ) );
+		$this->assertTrue( Curl_Node::lends_credential( 'crawl-g7', 'HTTPS://SOUTH-52.example/r-4' ) );
 	}
 
 	public function test_lends_credential_answers_true_for_two_entries_on_one_origin(): void {
@@ -1120,28 +1119,27 @@ class CurlNodeTest extends TestCase {
 			]
 		);
 
-		$this->assertTrue( $this->curl( 'crawl-g7' )->lends_credential( 'https://twin-12.example/page-5' ) );
+		$this->assertTrue( Curl_Node::lends_credential( 'crawl-g7', 'https://twin-12.example/page-5' ) );
 	}
 
 	public function test_lends_credential_answers_false_for_an_origin_with_no_group_entry(): void {
 		$this->seed_group();
-		$node = $this->curl( 'crawl-g7' );
 
-		$this->assertFalse( $node->lends_credential( 'https://stranger-77.example/z-3' ), 'no entry on the origin' );
-		$this->assertFalse( $node->lends_credential( 'https://north-31.example/other-port-4' ), 'another port is another origin' );
-		$this->assertFalse( $node->lends_credential( 'http://south-52.example/plain-6' ), 'another scheme is another origin' );
+		$this->assertFalse( Curl_Node::lends_credential( 'crawl-g7', 'https://stranger-77.example/z-3' ), 'no entry on the origin' );
+		$this->assertFalse( Curl_Node::lends_credential( 'crawl-g7', 'https://north-31.example/other-port-4' ), 'another port is another origin' );
+		$this->assertFalse( Curl_Node::lends_credential( 'crawl-g7', 'http://south-52.example/plain-6' ), 'another scheme is another origin' );
 	}
 
 	public function test_lends_credential_answers_false_for_an_entry_in_another_group(): void {
 		$this->seed_group();
 
-		$this->assertFalse( $this->curl( 'elsewhere-9' )->lends_credential( 'https://south-52.example/y-2' ) );
+		$this->assertFalse( Curl_Node::lends_credential( 'elsewhere-9', 'https://south-52.example/y-2' ) );
 	}
 
 	public function test_lends_credential_answers_false_with_no_group(): void {
 		$this->seed_group();
 
-		$this->assertFalse( $this->curl()->lends_credential( 'https://south-52.example/y-2' ) );
+		$this->assertFalse( Curl_Node::lends_credential( '', 'https://south-52.example/y-2' ) );
 	}
 
 	public function test_the_vault_group_round_trips(): void {
