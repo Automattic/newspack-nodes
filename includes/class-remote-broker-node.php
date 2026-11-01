@@ -21,13 +21,14 @@ namespace Newspack_Nodes;
  * sibling `<broker>:<stamp>`: the cursor, offsetlog, dead letters and
  * debugger all belong to that reader. Each tick, riding the Router's tick, builds
  * each exact source's reader and hands a subclass its housekeeping, and
- * `write_status()` publishes the status snapshot a dashboard reads.
+ * `publish_status()` publishes the status snapshot a dashboard reads.
  *
  * Credentials and URL come from the Vault entry the `<vault-id>` argument
  * names; a missing entry leaves the broker disconnected rather than building
  * patrons that cannot reach a spoke.
  */
 abstract class Remote_Broker_Node extends Timer_Node {
+	use Publishes_Status;
 	use Schema_Reflection;
 
 	/** Session cadence and status rewrite interval (seconds). */
@@ -49,27 +50,6 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * names.
 	 */
 	public const RESERVED_KINDS = [ self::SSE_IN_KIND, self::HTTP_OUT_KIND, self::NULL_KIND, self::CONFIG_KIND ];
-
-	/** Memcache TTL for the status snapshot (seconds). */
-	public const STATUS_TTL = 300;
-
-	/**
-	 * The status snapshot's one key set, each key at its value before a
-	 * broker fills it: what `Aggregator_CI` and the Status tab read for every
-	 * broker. A broker writes only the keys it fills.
-	 */
-	protected const BLANK_STATUS = [
-		'connected'               => false,
-		'connecting'              => false,
-		'last_connection_attempt' => null,
-		'last_http_code'          => null,
-		'last_error'              => null,
-		'current_backoff'         => null,
-		'last_sse_heartbeat'      => null,
-		'scheduled_reconnect_at'  => null,
-		'last_response'           => null,
-		'last_rtt'                => null,
-	];
 
 	/**
 	 * The most stamps a broker's glob sources claim, counting the readers built
@@ -116,17 +96,6 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	protected string $vault_id = '';
 
 	/**
-	 * The status snapshot this broker last wrote: the one copy of what it
-	 * publishes, so a write needs no read of the cache first.
-	 *
-	 * @var array<string,mixed>
-	 */
-	private array $status = self::BLANK_STATUS;
-
-	/** Wall-second the snapshot was last written; 0 before the first write. */
-	private int $status_written_at = 0;
-
-	/**
 	 * Whether the spoke logs this pulls are appended by more than one process
 	 * (the firehose is, from every request). Unlike Consumer's flag of the same
 	 * name it configures the reader on the OTHER end — a pull source has no
@@ -149,7 +118,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	private array $declared = [];
 
-	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker, which publishes no status. */
+	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker. */
 	private ?int $bound_partition = null;
 
 	/** The topology this broker runs in, bound at load beside the partition; null outside a worker, whose readers report under no id. */
@@ -762,54 +731,15 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	abstract protected function housekeep(): void;
 
 	/**
-	 * Merge $data into the status snapshot and write it under the per-node key
-	 * when it changed, or once a `HEARTBEAT_INTERVAL` has run since the last
-	 * write: a broker whose state stands still writes once a heartbeat rather
-	 * than once a second, and a key the cache evicted or lost on a restart is
-	 * back within one interval instead of reading as down.
-	 *
-	 * @param array<string,mixed> $data Fields to merge over the snapshot.
-	 */
-	protected function write_status( array $data ): void {
-		$cache = Cache_Backend::shared_first();
-		if ( null === $cache || null === $this->bound_partition ) {
-			return;
-		}
-		$status = \array_merge( $this->status, $data );
-		$now    = (int) Core::$now;
-		if ( $status === $this->status && $now - $this->status_written_at < self::HEARTBEAT_INTERVAL ) {
-			return;
-		}
-		$cache->set( self::status_key_for( $this->name, $this->bound_partition ), $status, self::STATUS_TTL );
-		$this->status            = $status;
-		$this->status_written_at = $now;
-	}
-
-	/**
-	 * The cache key one broker publishes its status snapshot under: by NODE
-	 * NAME, so two spokes do not collide; by worker PARTITION, because the same
-	 * broker line runs once per partition; site-scoped, so two hubs naming a
-	 * spoke alike do not either. Public because Aggregator_CI resolves the
-	 * writer's exact key through it.
-	 *
-	 * @param string $name      The broker's name.
-	 * @param int    $partition The worker partition it runs in.
-	 */
-	public static function status_key_for( string $name, int $partition ): string {
-		return Cache_Backend::site_key( "remote:{$name}:p{$partition}" );
-	}
-
-	/**
 	 * Name the siblings through `parent::`, re-address HTTP_Out at the renamed
 	 * Null, then admit each reader's replies by its new name and hand it the
-	 * names it reports under. A new name is a new status key, which the next
-	 * tick writes. An override that drops the `parent::` call stops every
-	 * sibling being named, with no other symptom and no gate to catch it.
+	 * names it reports under. An override that drops the `parent::` call
+	 * stops every sibling being named, with no other symptom and no gate to
+	 * catch it.
 	 */
 	protected function set_sibling_names(): void {
 		parent::set_sibling_names();
 		$this->address_null_sink();
-		$this->status_written_at = 0;
 		foreach ( $this->readers() as $child ) {
 			$this->http_out?->allow_replies_to( $child->name() );
 			$child->broker( $this );
@@ -978,6 +908,19 @@ abstract class Remote_Broker_Node extends Timer_Node {
 				yield $sibling->stamp() => $sibling;
 			}
 		}
+	}
+
+	/** Seconds the cache keeps a snapshot no broker rewrites. */
+	protected function status_ttl(): int {
+		return 300;
+	}
+
+	/**
+	 * Seconds after which an unchanged snapshot is written again: the session
+	 * cadence, so a broker whose state stands still writes once a heartbeat.
+	 */
+	protected function status_heartbeat(): int {
+		return self::HEARTBEAT_INTERVAL;
 	}
 
 	/**

@@ -214,7 +214,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * snapshot for every worker partition. The spoke URL comes from
 	 * the `Vault` singleton, keyed by that Vault id.
 	 *
-	 * Reads go through `Cache_Backend::shared_first()`, and a miss yields an
+	 * Reads go through `Remote_Broker_Node::read_status()`, and a miss yields an
 	 * empty block rather than a missing entry, so the cards show a row per
 	 * configured partition whether or not the reader has published yet.
 	 *
@@ -245,7 +245,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				// The writer builds this key too; the two cannot drift.
 				$partitions = [];
 				for ( $p = 0; $p < $num_partitions; $p++ ) {
-					$partitions[ $p ] = Core::arr( Cache_Backend::shared_first()?->get( Remote_Broker_Node::status_key_for( $name, $p ) ) );
+					$partitions[ $p ] = Core::arr( Remote_Broker_Node::read_status( $name, $p ) );
 				}
 
 				$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;

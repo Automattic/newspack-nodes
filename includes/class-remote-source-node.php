@@ -102,7 +102,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	 */
 	protected function housekeep(): void {
 		if ( ! $this->should_connect() ) {
-			$this->publish_status();
+			$this->publish_connection();
 			return;
 		}
 		$sse = $this->ensure_patrons();
@@ -112,7 +112,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$sse->check_stale();
 		$sse->maybe_connect();
 		$this->maybe_send_heartbeat();
-		$this->publish_status();
+		$this->publish_connection();
 	}
 
 	/**
@@ -303,7 +303,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	 * window, and is nulled otherwise. While it IS live the two keys are left out of the
 	 * write, so what record_heartbeat_reply() merged stands.
 	 */
-	protected function publish_status(): void {
+	private function publish_connection(): void {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
 			: [ 'connected' => false, 'connecting' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null ];
@@ -327,7 +327,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			$data['last_response'] = null;
 			$data['last_rtt']      = null;
 		}
-		$this->write_status( $data );
+		$this->publish_status( $data );
 	}
 
 	/**
@@ -395,7 +395,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$connection_error              = null !== $this->sse_in
 			? $this->sse_in->connection()['last_error']
 			: null;
-		$this->write_status( [
+		$this->publish_status( [
 			'last_response'           => $now,
 			'last_rtt'                => self::round_trip_ms( Core::$now - $this->last_heartbeat_sent ),
 			'last_error'              => $connection_error,
@@ -406,7 +406,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	private function record_heartbeat_failure( string $reason ): void {
 		$this->last_heartbeat_response = 0;
 		$this->last_heartbeat_error    = 'Client heartbeat failed: ' . $reason;
-		$this->write_status( [
+		$this->publish_status( [
 			'last_response'           => null,
 			'last_rtt'                => null,
 			'last_error'              => $this->last_heartbeat_error,

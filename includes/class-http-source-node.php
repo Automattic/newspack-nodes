@@ -111,7 +111,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 			$child->fetch_when_due( [] !== $ended && ! $child->refused() ? 0.0 : $retry );
 		}
 		$this->ask_catalog( $http );
-		$this->publish_status( $http );
+		$this->publish_connection( $http );
 	}
 
 	/**
@@ -174,7 +174,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 *
 	 * @param HTTP_Out_Node $http The command channel.
 	 */
-	protected function publish_status( HTTP_Out_Node $http ): void {
+	private function publish_connection( HTTP_Out_Node $http ): void {
 		$answered = $this->catalog_answered['at'] ?? null;
 		$rtt      = $this->catalog_answered['rtt'] ?? null;
 		$sent     = 0.0 < $this->catalog_sent_at ? $this->catalog_sent_at : null;
@@ -199,7 +199,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		$outcome   = $http->last_outcome();
 		$since     = $out && null !== $sent ? $sent : Core::$now;
 		$connected = null !== $answered && $since - $answered <= 4 * $this->retry_seconds();
-		$this->write_status( [
+		$this->publish_status( [
 			'connected'               => $connected,
 			'connecting'              => ! $connected && $out,
 			'last_connection_attempt' => null === $sent ? null : (int) $sent,

@@ -930,7 +930,10 @@ the "…" on its owner's card.
 **`aggregator` — one `id` field, two meanings.** `list_servers` returns one
 row per wired [`Remote_Source`](../includes/class-remote-source-node.php), keyed by the NODE name in `id` and carrying the
 Vault credential id separately as `vault_id`, the `topology` it is wired in,
-its `partitions`, and its `readers`: one `{ stamp, partition, cursor, distance }`
+its `partitions`, each worker partition's status snapshot as the broker
+publishes it through [`Publishes_Status`](../includes/trait-publishes-status.php)
+under `status:<broker>:p<partition>` and empty where none has published yet,
+and its `readers`: one `{ stamp, partition, cursor, distance }`
 per stream reader the probe log reports, `stamp` as the spoke names the log,
 `partition` the hub worker's, `cursor` in the read-position grammar (a
 segment the reader does not know is `:<offset>`), and `distance` the bytes the

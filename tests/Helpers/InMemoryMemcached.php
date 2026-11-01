@@ -59,6 +59,14 @@ class InMemoryMemcached extends \Memcached {
 	/** Keys ASKED for across every getMulti — the fan-out width, not the trips. */
 	public int $multi_keys = 0;
 
+	/**
+	 * Every set() asked for, in order, with the key and TTL it carried, a
+	 * refused one included; setMulti() records one per item.
+	 *
+	 * @var list<array{key:string,ttl:int}>
+	 */
+	public array $sets = [];
+
 	/** @var array<string,true> */
 	private array $set_failures = [];
 
@@ -174,6 +182,7 @@ class InMemoryMemcached extends \Memcached {
 	}
 
 	public function set( string $key, mixed $value, int $expiration = 0 ): bool {
+		$this->sets[] = [ 'key' => $key, 'ttl' => $expiration ];
 		if ( isset( $this->set_failures[ $key ] ) ) {
 			$this->result_code = \Memcached::RES_E2BIG;
 			return false;

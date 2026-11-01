@@ -6,6 +6,15 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A broker's status key is `status:<broker>:p<partition>`, read through
+  `read_status()`.** `Remote_Broker_Node::status_key_for()` is gone, and with
+  it the `remote:<broker>:p<partition>` key, `write_status()`, `STATUS_TTL` and
+  `BLANK_STATUS`. `read_status( $name, $partition )` and `status_key( $name,
+  $partition )` are statics of the `Publishes_Status` trait, called through
+  the class that publishes the snapshot: `Remote_Broker_Node::read_status()`
+  answers a broker's snapshot, or null for an absent key. A broker publishes
+  through the trait's `publish_status( $data )`, so a subclass's own
+  `publish_status()` must take another name.
 - **The Vault's `token` key is gone.** An entry whose credential lived in a
   stored `token` sends none, and its spoke refuses the request; the next
   `vault update` of the entry erases the key. Re-enter the credential as the

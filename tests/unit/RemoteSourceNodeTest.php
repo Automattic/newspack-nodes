@@ -140,7 +140,7 @@ class RemoteSourceNodeTest extends TestCase {
 	/** The status snapshot the broker publishes under its own key. */
 	private function status_of( Remote_Source_Node $node ): mixed {
 		$partition = ( new \ReflectionProperty( Remote_Broker_Node::class, 'bound_partition' ) )->getValue( $node );
-		return Core::$memd->get( Remote_Source_Node::status_key_for( $node->name(), Core::int( $partition ) ) );
+		return Core::$memd->get( Remote_Source_Node::status_key( $node->name(), Core::int( $partition ) ) );
 	}
 
 	// ---------------------------------------------------------------------
@@ -2255,10 +2255,10 @@ class RemoteSourceNodeTest extends TestCase {
 			Core::$var['partition'] = '0';
 		}
 
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-aspen', 3 ) );
+		$status = Core::$memd->get( Remote_Source_Node::status_key( 'remote-aspen', 3 ) );
 		$this->assertArrayHasKey( 'connected', $status );
 		$this->assertArrayNotHasKey( 'streams', $status, 'a reader states its position on the probe log alone' );
-		$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-aspen', 0 ) ) );
+		$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key( 'remote-aspen', 0 ) ) );
 	}
 
 	/** An unchanged snapshot is rewritten once a heartbeat interval, so an evicted key is back within one. */
@@ -2268,7 +2268,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$reader->pause();
 		Core::$now = 8200.0;
 		$node->fire();
-		Core::$memd->delete( Remote_Source_Node::status_key_for( 'remote-aspen', 0 ) );
+		Core::$memd->delete( Remote_Source_Node::status_key( 'remote-aspen', 0 ) );
 
 		Core::$now = 8201.0;
 		$node->fire();
@@ -2277,6 +2277,21 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$now = 8200.0 + Remote_Source_Node::HEARTBEAT_INTERVAL;
 		$node->fire();
 		$this->assertFalse( $this->status_of( $node )['connected'], 'an evicted snapshot is back within one heartbeat interval' );
+	}
+
+	/** A renamed broker writes its unchanged snapshot under its new key on the next tick. */
+	public function test_a_renamed_broker_writes_under_its_new_key_on_the_next_tick(): void {
+		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $reader ] = $this->make_remote();
+		$reader->pause();
+		Core::$now = 8400.0;
+		$node->fire();
+
+		$node->name( 'remote-okapi-6' );
+		Core::$now = 8401.0;
+		$node->fire();
+
+		$this->assertFalse( Remote_Source_Node::read_status( 'remote-okapi-6', 0 )['connected'] );
 	}
 
 	/** A changed snapshot is written on the tick that changes it. */
@@ -2288,7 +2303,7 @@ class RemoteSourceNodeTest extends TestCase {
 		self::set_slot( Core::node( 'remote-aspen:sse-in' ), 5 );
 		Core::$now = 8200.0;
 		$node->fire();
-		Core::$memd->delete( Remote_Source_Node::status_key_for( 'remote-aspen', 0 ) );
+		Core::$memd->delete( Remote_Source_Node::status_key( 'remote-aspen', 0 ) );
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::VALUE ] = [
@@ -2402,7 +2417,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		for ( $p = 0; $p < 4; $p++ ) {
-			$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-aspen', $p ) ) );
+			$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key( 'remote-aspen', $p ) ) );
 		}
 	}
 
@@ -2410,7 +2425,7 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$memd = null;
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 
-		// Without a cache, the tick still runs cleanly — write_status short-circuits.
+		// Without a cache, the tick still runs cleanly — publish_status short-circuits.
 		$this->make_remote( 'remote-aspen' );
 
 		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'remote-aspen:sse-in' ) );

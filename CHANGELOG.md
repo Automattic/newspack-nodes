@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Publishes_Status` gives any node a status snapshot in the shared cache.** `publish_status( $data )` merges `$data` over the snapshot the process holds and writes it when the merge changed it, or once the class's `status_heartbeat()` seconds have run, under the class's `status_ttl()`. A process's first call reads the snapshot back, so a successor worker merges over its predecessor's keys rather than blanking them. Only a worker with a shared cache publishes. `status_key( $name, $partition )` builds the site-scoped `status:<name>:p<partition>` key, and `read_status( $name, $partition )` answers the snapshot, or null when the key is absent or no shared cache exists.
+
+### Changed
+- **Brokers publish their status through `Publishes_Status`, under `status:<broker>:p<partition>`.** `Remote_Broker_Node::status_key_for()`, `write_status()`, `STATUS_TTL` and `BLANK_STATUS` are gone, and the `remote:<broker>:p<partition>` key with them; `Aggregator_CI` reads each broker through `read_status()`. A broker keeps its 300-second TTL and its 15-second heartbeat. A new broker process reads back the snapshot its predecessor wrote, where it started from a blank one. `Remote_Source_Node::publish_status()` and `HTTP_Source_Node::publish_status()` are private and named `publish_connection()`.
+
 ## [2.142.0] - 2026-10-31
 
 ### Added

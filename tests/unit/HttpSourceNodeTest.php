@@ -200,7 +200,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** The status snapshot the broker last wrote. */
 	private function snapshot(): array {
-		return Core::$memd->get( HTTP_Source_Node::status_key_for( 'pull-aspen', 0 ) );
+		return Core::$memd->get( HTTP_Source_Node::status_key( 'pull-aspen', 0 ) );
 	}
 
 	/** A spoke's `list_logs` answer: one available row per key, as `Raw_Logs_CI_Node` writes it. */
@@ -284,7 +284,7 @@ class HttpSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$status = Core::$memd->get( HTTP_Source_Node::status_key_for( 'pull-aspen', 0 ) );
+		$status = Core::$memd->get( HTTP_Source_Node::status_key( 'pull-aspen', 0 ) );
 		$this->assertFalse( $status['connected'], 'nothing answered yet' );
 		$this->assertNull( $status['last_sse_heartbeat'] );
 		$this->assertNull( $status['last_response'] );
@@ -358,8 +358,8 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 8, $status['current_backoff'], 'the 7.3 s retry interval, in whole seconds as SSE_In counts' );
 	}
 
-	/** Aggregator_CI and the Status tab read both brokers' snapshots alike: the base's one key set. */
-	public function test_both_brokers_write_the_bases_status_keys(): void {
+	/** Aggregator_CI and the Status tab read both brokers' snapshots alike: one key set, every key written. */
+	public function test_both_brokers_write_one_status_key_set(): void {
 		$this->seed_aspen();
 		$sse  = new Remote_Source_Node();
 		$sse->name( 'stream-aspen' );
@@ -372,12 +372,11 @@ class HttpSourceNodeTest extends TestCase {
 		$http->fire();
 
 		$keys = static function ( string $name ): array {
-			$k = \array_keys( Core::$memd->get( Remote_Broker_Node::status_key_for( $name, 0 ) ) );
+			$k = \array_keys( Core::$memd->get( Remote_Broker_Node::status_key( $name, 0 ) ) );
 			\sort( $k );
 			return $k;
 		};
-		$base = \array_keys( ( new \ReflectionClassConstant( Remote_Broker_Node::class, 'BLANK_STATUS' ) )->getValue() );
-		\sort( $base );
+		$base = [ 'connected', 'connecting', 'current_backoff', 'last_connection_attempt', 'last_error', 'last_http_code', 'last_response', 'last_rtt', 'last_sse_heartbeat', 'scheduled_reconnect_at' ];
 		$this->assertSame( $base, $keys( 'stream-aspen' ) );
 		$this->assertSame( $base, $keys( 'pull-aspen' ) );
 	}
@@ -391,7 +390,7 @@ class HttpSourceNodeTest extends TestCase {
 		Core::$now += 1;
 		$node->fire();
 
-		$status = Core::$memd->get( HTTP_Source_Node::status_key_for( 'pull-aspen', 0 ) );
+		$status = Core::$memd->get( HTTP_Source_Node::status_key( 'pull-aspen', 0 ) );
 		$this->assertSame( 503, $status['last_http_code'] );
 		$this->assertSame( 'HTTP 503 from aspen-7741', $status['last_error'] );
 	}
@@ -403,7 +402,7 @@ class HttpSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$this->assertNull( Core::node( 'pull-aspen:http-out' ) );
-		$this->assertFalse( Core::$memd->get( HTTP_Source_Node::status_key_for( 'pull-aspen', 0 ) ) );
+		$this->assertFalse( Core::$memd->get( HTTP_Source_Node::status_key( 'pull-aspen', 0 ) ) );
 	}
 
 	/** A reply addressed to the broker settles here and never goes back out. */

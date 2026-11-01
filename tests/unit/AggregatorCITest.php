@@ -116,7 +116,7 @@ class AggregatorCITest extends TestCase {
 	 * @param array<string, mixed> $snapshot Published status.
 	 */
 	private static function seed_status( string $id, int $partition, array $snapshot ): void {
-		Core::$memd->set( Remote_Source_Node::status_key_for( "firehose:{$id}", $partition ), $snapshot, 60 );
+		Core::$memd->set( Remote_Source_Node::status_key( "firehose:{$id}", $partition ), $snapshot, 60 );
 	}
 
 	/** @return list<array<string, mixed>> The `list_servers` slice. */
@@ -150,7 +150,7 @@ class AggregatorCITest extends TestCase {
 
 	public function test_list_servers_lists_a_wired_http_source(): void {
 		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node HTTP_Source pull-x6 lone <config:offsets_dir>/x6 <config:deadletter_dir>/x6' ] );
-		Core::$memd->set( \Newspack_Nodes\HTTP_Source_Node::status_key_for( 'pull-x6', 0 ), [ 'last_response' => 41940 ], 60 );
+		Core::$memd->set( \Newspack_Nodes\HTTP_Source_Node::status_key( 'pull-x6', 0 ), [ 'last_response' => 41940 ], 60 );
 
 		$decoded = self::list_servers();
 
