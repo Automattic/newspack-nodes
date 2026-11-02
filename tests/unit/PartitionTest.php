@@ -3894,10 +3894,10 @@ class PartitionTest extends TestCase {
 
 	public function test_do_rotate_touch_failure_swallowed_with_print_less_often(): void {
 		// touch() at line 755 fails when the partition_dir is read-only.
-		// Run as bend (non-root) so 0500 perms actually deny writes. Skip if
+		// Run as the web user (non-root) so 0500 perms actually deny writes. Skip if
 		// running as root since chmod is a no-op for privileged users.
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
-			$this->markTestSkipped( 'chmod 0500 is bypassed for root; the touch-fail branch needs a non-root uid (production runs as bend).' );
+			$this->markTestSkipped( 'chmod 0500 is bypassed for root; the touch-fail branch needs a non-root uid (production runs as the web user).' );
 		}
 
 		// Hand-seed a "full" segment 0 on disk (>= segment_size) so do_rotate
@@ -3957,7 +3957,7 @@ class PartitionTest extends TestCase {
 		// file_exists succeeds, but fopen('r') fails when the file has no
 		// read permission for the running user. Non-root only.
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
-			$this->markTestSkipped( 'chmod 0000 is bypassed for root; fopen-fail branch needs a non-root uid (production runs as bend).' );
+			$this->markTestSkipped( 'chmod 0000 is bypassed for root; fopen-fail branch needs a non-root uid (production runs as the web user).' );
 		}
 
 		$p = new Partition_Node();
@@ -4135,7 +4135,7 @@ class PartitionTest extends TestCase {
 		// get_segments must catch that (it asserts `! $files`) and return empty.
 		// Root bypasses permission checks; skip in that case.
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
-			$this->markTestSkipped( 'scandir failure on 0000 dir needs a non-root uid (production runs as bend).' );
+			$this->markTestSkipped( 'scandir failure on 0000 dir needs a non-root uid (production runs as the web user).' );
 		}
 
 		$p = new Partition_Node();

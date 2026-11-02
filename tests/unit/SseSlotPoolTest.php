@@ -811,7 +811,7 @@ class SseSlotPoolTest extends TestCase {
 
 		// Saturate one site's whole budget.
 		$prev_prefix             = $GLOBALS['wpdb']->base_prefix;
-		$GLOBALS['wpdb']->base_prefix = 'pub36_';
+		$GLOBALS['wpdb']->base_prefix = 'lakeview_';
 		Cache_Backend::$site     = '';
 		SSE_Slot_Pool::wire();
 		for ( $i = 0; $i < SSE_Slot_Pool::max_streams(); $i++ ) {
@@ -821,7 +821,7 @@ class SseSlotPoolTest extends TestCase {
 
 		// A co-located site — same hostname, same user, same caller IP — has its
 		// own budget and is unaffected.
-		$GLOBALS['wpdb']->base_prefix = 'pub43_';
+		$GLOBALS['wpdb']->base_prefix = 'oakridge_';
 		Cache_Backend::$site     = '';
 		SSE_Slot_Pool::wire();
 		$this->assertIsArray(

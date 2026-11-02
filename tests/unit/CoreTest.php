@@ -11,14 +11,14 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Core::class )]
 class CoreTest extends TestCase {
 	public function test_log_midfix_identifies_the_site_not_the_pool_host(): void {
-		// Atomic's gethostname() is a shared pool box (pool195-106-36.bur…),
+		// Atomic's gethostname() is a shared pool box (pool-host-7.example),
 		// identical across every site on it and useless in an aggregated log.
-		$GLOBALS['_wp_test_home_url'] = 'https://staging-1.example';
+		$GLOBALS['_wp_test_home_url'] = 'https://pub01.staging.example';
 		Core::reset();
 
 		$midfix = Core::log_midfix();
 
-		$this->assertStringContainsString( 'staging-1.example', $midfix );
+		$this->assertStringContainsString( 'pub01.staging.example', $midfix );
 		$this->assertStringNotContainsString( (string) \gethostname(), $midfix );
 		unset( $GLOBALS['_wp_test_home_url'] );
 	}
@@ -953,7 +953,7 @@ class CoreTest extends TestCase {
 	 * `pretransfer` marks the START of the transfer, not its completion, so a
 	 * timeout that fires between the first byte and the last still reports
 	 * success — the body never fully left, nothing reaches the access log, and
-	 * nothing reaches the error log. That is staging-7: a 50ms budget, a
+	 * nothing reaches the error log. That is one staging host: a 50ms budget, a
 	 * handshake landing near it, and a fleet that stayed down for days in
 	 * silence. Bytes UPLOADED is the honest test of delivery.
 	 */

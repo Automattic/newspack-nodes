@@ -2,7 +2,7 @@
 
 Every site writes its own firehose. One site, the hub, copies every other site's firehose into its own; the others are spokes. No spoke knows about any other. The hub is the HTTPS client in both directions, firehose in and signed commands out, so a spoke opens no connection of its own.
 
-![Sequence diagram of one spoke's connection to the hub, with the Vault, the broker's hidden readers for firehose.p0 and sources:php, the Remote_Source broker spokes:pub05, its hidden HTTP_Out and SSE_In, and the spoke as lanes, and nine numbered hops from the first credential read through the one stream carrying both logs, each record routed to its reader, the command session, the reply gate and the reconnect](img/d07.png)
+![Sequence diagram of one spoke's connection to the hub, with the Vault, the broker's hidden readers for firehose.p0 and sources:php, the Remote_Source broker spokes:pub01, its hidden HTTP_Out and SSE_In, and the spoke as lanes, and nine numbered hops from the first credential read through the one stream carrying both logs, each record routed to its reader, the command session, the reply gate and the reconnect](img/d07.png)
 
 ## Pulling a firehose
 

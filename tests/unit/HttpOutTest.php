@@ -810,7 +810,7 @@ class HttpOutTest extends TestCase {
 	/** Every declaration round-trips, so a dump replays the whole allowlist. */
 	public function test_dump_config_replays_every_declaration(): void {
 		$node = new HTTP_Out_Node();
-		$node->name( 'settings:pub04' );
+		$node->name( 'settings:pub01' );
 		$node->allow_replies_to( 'settings-sync' );
 		$node->allow_replies_to( 'discovery-collector' );
 

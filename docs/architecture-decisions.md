@@ -2583,10 +2583,10 @@ a row to release. A schema must still retain a table unless every table is kept.
 disk a kept table holds grows without bound.
 
 **Amended 2026-10-25:** the readers map nothing and keep their temporary B-trees on disk,
-where they had mapped every attached file and held their B-trees in memory. Workers on eln
-died with no PHP shutdown at about 5 GB resident, most of it mapped partition pages and
-temporary B-trees, so nothing stopped a worker before the host killed it. Measured on
-staging-5.example, four partitions holding about 2.1 M request rows, warm cache,
+where they had mapped every attached file and held their B-trees in memory. Workers on a
+staging hub died with no PHP shutdown at about 5 GB resident, most of it mapped partition
+pages and temporary B-trees, so nothing stopped a worker before the host killed it.
+Measured on that hub, four partitions holding about 2.1 M request rows, warm cache,
 read-only, one PHP process per setting:
 
 | Setting | Distinct URLs | Bucket × server | Profiled | Top 50 URLs | Peak RSS |
@@ -2605,7 +2605,7 @@ A build connection gives the file it writes a 256 MiB page cache. SQLite holds e
 memory up to `main`'s page cache before it spills to a temporary file, so the cache caps a
 build's sorts as well as its pages, and its peak stays near that ceiling however many rows it
 sorts; temporary B-trees in memory, or mapped partitions, grow with the rows instead. Measured
-on staging-5.example on 2026-10-26, the URL snapshot's build steps into a scratch file,
+on the same staging hub on 2026-10-26, the URL snapshot's build steps into a scratch file,
 four partitions of about 1 GB, one PHP process per setting, beside the live job:
 
 | Setting | Build | Peak RSS | Written |
@@ -2694,7 +2694,7 @@ live command session, and `Command_Auth` clamps a session's life to 60–86400 s
 pasted into a client's config dies within a day. A Claude Desktop or claude.ai custom
 connector cannot send a pasted header at all: it takes a URL and runs the MCP authorization
 flow, which is OAuth 2.1 with dynamic client registration. The people connecting are TAMs
-and engineers, on live and staging sites, and TAMs sign in as the shared `shared-admin-3302`
+and engineers, on live and staging sites, and TAMs sign in as one shared admin
 account, so a connection must be told apart by something other than its user.
 
 **Decision:** The site is its own OAuth 2.1 authorization server, its issuer the home URL,
@@ -2783,7 +2783,7 @@ and every access token it issues is a command session.
   different questions, and restoring `manage` to one must not grant it through the other.
 
 **Consequences:** A connection works for 30 days from approval, then its person signs in
-again. Under the shared `shared-admin-3302` account the connection name is the only
+again. Under a shared admin account the connection name is the only
 attribution. No labelled session can hold `manage`. The grace row keeps a token answer,
 access token and refresh token included, for 60 seconds, the one place the store holds a
 refresh token other than as a hash. The `.well-known` documents are answered from

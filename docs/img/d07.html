@@ -34,7 +34,7 @@
 </style>
 <div class="sheet">
   <h1>One spoke and the hub: the life of one connection</h1>
-  <p class="sub">The hub is the HTTPS client in both directions. Its Remote_Source for the spoke <span class="mono">pub05</span> is a broker, <span class="mono">spokes:pub05</span>: one connection carries both streams its sources name, the spoke's <span class="mono">firehose.p0</span> and <span class="mono">sources:php</span>, and a hidden reader per stream keeps that stream's cursor. <span class="mono">:sse-in</span> holds the long stream open, and <span class="mono">:http-out</span> posts one signed batch per tick. The hops are numbered in order.</p>
+  <p class="sub">The hub is the HTTPS client in both directions. Its Remote_Source for the spoke <span class="mono">pub01</span> is a broker, <span class="mono">spokes:pub01</span>: one connection carries both streams its sources name, the spoke's <span class="mono">firehose.p0</span> and <span class="mono">sources:php</span>, and a hidden reader per stream keeps that stream's cursor. <span class="mono">:sse-in</span> holds the long stream open, and <span class="mono">:http-out</span> posts one signed batch per tick. The hops are numbered in order.</p>
 
   <svg width="0" height="0" style="position:absolute"><defs>
     <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
@@ -44,11 +44,11 @@
   <div class="seq">
     <div class="heads">
       <div class="head hub" style="left:0;width:118px"><b>Vault</b>the hub's store of spokes</div>
-      <div class="head hub" style="left:128px;width:196px"><b>Readers, hidden</b><span class="mono">spokes:pub05:firehose.p0</span><br><span class="mono">spokes:pub05:sources:php</span></div>
-      <div class="head hub" style="left:334px;width:136px"><b>Remote_Source</b><span class="mono">spokes:pub05</span></div>
-      <div class="head hub" style="left:480px;width:180px"><b>HTTP_Out, hidden</b><span class="mono">spokes:pub05:http-out</span></div>
-      <div class="head hub" style="left:670px;width:168px"><b>SSE_In, hidden</b><span class="mono">spokes:pub05:sse-in</span></div>
-      <div class="head" style="left:850px;width:202px"><b>Spoke <span class="mono" style="color:#101517;font-size:13px">pub05</span></b>WordPress + newspack-nodes + event logger, writing <span class="mono" style="color:#101517">firehose.p0</span> and PHP's error log</div>
+      <div class="head hub" style="left:128px;width:196px"><b>Readers, hidden</b><span class="mono">spokes:pub01:firehose.p0</span><br><span class="mono">spokes:pub01:sources:php</span></div>
+      <div class="head hub" style="left:334px;width:136px"><b>Remote_Source</b><span class="mono">spokes:pub01</span></div>
+      <div class="head hub" style="left:480px;width:180px"><b>HTTP_Out, hidden</b><span class="mono">spokes:pub01:http-out</span></div>
+      <div class="head hub" style="left:670px;width:168px"><b>SSE_In, hidden</b><span class="mono">spokes:pub01:sse-in</span></div>
+      <div class="head" style="left:850px;width:202px"><b>Spoke <span class="mono" style="color:#101517;font-size:13px">pub01</span></b>WordPress + newspack-nodes + event logger, writing <span class="mono" style="color:#101517">firehose.p0</span> and PHP's error log</div>
     </div>
     <div class="lf" style="left:59px"></div>
     <div class="lf" style="left:226px"></div>
@@ -60,11 +60,11 @@
     <div class="phase"><span>Connect <em>· the brokers start one every half second, so no spoke answers a burst with refusals</em></span></div>
 
     <div class="msg">
-      <div class="box" style="margin-left:150px;width:420px">First tick: builds and owns <span class="mono">:sse-in</span>, <span class="mono">:http-out</span> and <span class="mono">:null</span>, named after itself, and a reader for each exact source, each with its own offsetlog and dead-letter partition under <span class="mono">&lt;topology&gt;.pub05/&lt;stamp&gt;</span>.</div>
+      <div class="box" style="margin-left:150px;width:420px">First tick: builds and owns <span class="mono">:sse-in</span>, <span class="mono">:http-out</span> and <span class="mono">:null</span>, named after itself, and a reader for each exact source, each with its own offsetlog and dead-letter partition under <span class="mono">&lt;topology&gt;.pub01/&lt;stamp&gt;</span>.</div>
     </div>
 
     <div class="msg">
-      <div class="lab" style="margin-left:0;width:400px"><span class="n">1</span>reads the entry keyed <span class="mono">pub05</span>, the short id the broker names as its first argument: an HTTPS URL, a username and a password. The password is sealed with libsodium under the site's auth salt and opened only here, on the way out.</div>
+      <div class="lab" style="margin-left:0;width:400px"><span class="n">1</span>reads the entry keyed <span class="mono">pub01</span>, the short id the broker names as its first argument: an HTTPS URL, a username and a password. The password is sealed with libsodium under the site's auth salt and opened only here, on the way out.</div>
       <div class="arrow"><svg width="1052" height="16"><path d="M402 8 L65 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
     </div>
 

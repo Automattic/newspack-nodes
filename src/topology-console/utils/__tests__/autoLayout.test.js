@@ -1475,18 +1475,18 @@ describe( 'autoLayout — disconnected components', () => {
 	// the outsiders; the spread pass then carried `undefined` into NaN and
 	// those cards rendered at y=NaN — invisible, with no error anywhere.
 	const SPOKES = [
-		'settings:pub37',
-		'settings:pub41',
-		'settings:pub42',
-		'settings:pub43',
-		'settings:pub44',
-		'settings:pub46',
-		'settings:pub49',
-		'settings:pub53',
-		'settings:pub54',
-		'settings:pub55',
-		'settings:pub58',
-		'settings:pub59',
+		'settings:pub01',
+		'settings:pub02',
+		'settings:pub03',
+		'settings:pub04',
+		'settings:pub05',
+		'settings:pub06',
+		'settings:pub07',
+		'settings:pub08',
+		'settings:pub09',
+		'settings:pub10',
+		'settings:pub11',
+		'settings:pub12',
 	];
 	const graph = {
 		nodes: [
@@ -1559,14 +1559,14 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	};
 
 	const PUBS = [
-		'pub01',
-		'pub05',
-		'pub15',
-		'pub17',
-		'pub22',
-		'pub23',
-		'pub24',
-		'pub26',
+		'alder',
+		'birch',
+		'cedar',
+		'dogwood',
+		'elm',
+		'fir',
+		'gum',
+		'holly',
 	];
 	const JOBS = [ 'import', 'patch', 'template', 'purge' ];
 
@@ -1722,7 +1722,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( "keeps a wire from a band straight to its hub off the band's own chain", () => {
-		// pub12's router feeds a two-step chain to the hub AND the hub
+		// A publication's router feeds a two-step chain to the hub AND the hub
 		// directly; the direct wire would run along the chain's row, through
 		// both of its cards, because a wire to a hub is not a wire inside the
 		// band.
@@ -1839,7 +1839,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'continues a chain past its hub: a band the hub feeds sits to the right of it', () => {
-		// pub12's job tees and its timeout feed the set_stream hub,
+		// A publication's job tees and its timeout feed the set_stream hub,
 		// which feeds the router, whose chain runs on to the template
 		// worker. The hub is not the end of that chain, so the router's
 		// band goes right of it rather than wrapping a wire back to the left.
@@ -1877,9 +1877,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		expect( g[ 'pub:set_stream' ].col ).toBe( last + 1.5 );
 		expect( g[ 'pub:router' ].col ).toBe( g[ 'pub:set_stream' ].col + 1 );
 		expect( g[ 'pub:balancer' ].col ).toBe( g[ 'pub:router' ].col + 1 );
-		expect( g[ 'anvil:template' ].col ).toBe(
-			g[ 'pub:balancer' ].col + 1
-		);
+		expect( g[ 'anvil:template' ].col ).toBe( g[ 'pub:balancer' ].col + 1 );
 		// The chain hangs level with the hub, not off the block's top row.
 		expect(
 			Math.abs( g[ 'pub:router' ].row - g[ 'pub:set_stream' ].row )
@@ -1960,7 +1958,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	it( 'leaves a small graph in one stack', () => {
 		const g = gridOf( pubs( 2 ) );
 		// Every block starts at column 0: nothing was packed to the right.
-		const starts = [ 'pub01:import', 'pub05:import', 'lone:in' ].map(
+		const starts = [ 'alder:import', 'birch:import', 'lone:in' ].map(
 			( id ) => g[ id ].col
 		);
 		expect( starts ).toEqual( [ 0, 0, 0 ] );

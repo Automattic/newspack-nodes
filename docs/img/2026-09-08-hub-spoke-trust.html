@@ -1,20 +1,20 @@
 <!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
 <div class="sheet">
   <h1>Deployment shape, and where the trust boundary actually is</h1>
-  <p class="sub">Each spoke is a different publication. The live hub carries 24 of them as 241 named nodes in one worker process, in one flat registry.</p>
+  <p class="sub">Each spoke is a different publication. The hub carries every spoke's nodes in one worker process, in one flat registry.</p>
   <div class="row">
     <div style="flex:0 0 300px" class="stack">
       <div class="card">
-        <h3>Spoke — pub58</h3>
+        <h3>Spoke — pub01</h3>
         <p>WordPress + newspack-nodes + event logger</p>
         <p class="mono blue" style="margin:0">firehose.p0</p>
       </div>
       <div class="card">
-        <h3>Spoke — pub14</h3>
+        <h3>Spoke — pub02</h3>
         <p>WordPress + newspack-nodes + event logger</p>
         <p class="mono blue" style="margin:0">firehose.p0</p>
       </div>
-      <p class="sub" style="margin:10px 0 0;font-size:12.5px">… 24 in total: pub04, pub05, pub10, pub12, pub37, pub44, pub54, pub59 …</p>
+      <p class="sub" style="margin:10px 0 0;font-size:12.5px">… and every other spoke, each its own publication.</p>
     </div>
 
     <div class="conn" style="flex:0 0 214px;padding-top:56px">
@@ -32,17 +32,17 @@
         <p style="font-size:12.5px;color:#50575E;margin:0 0 10px">One flat registry, keyed by node name (<span class="mono">Core::$nodes_by_name</span>):</p>
         <div class="row" style="gap:14px;align-items:stretch">
           <div style="flex:0 0 210px">
-            <div class="chip mono blue" style="font-size:12px">firehose:pub58</div>
-            <div class="chip mono blue" style="font-size:12px">firehose:pub58:http-out</div>
-            <div class="chip mono danger" style="font-size:12px">firehose:pub14:<br>&nbsp;&nbsp;firehose.p0:offsetlog</div>
-            <div class="chip mono blue" style="font-size:12px">settings:pub14</div>
+            <div class="chip mono blue" style="font-size:12px">firehose:pub01</div>
+            <div class="chip mono blue" style="font-size:12px">firehose:pub01:http-out</div>
+            <div class="chip mono danger" style="font-size:12px">firehose:pub02:<br>&nbsp;&nbsp;firehose.p0:offsetlog</div>
+            <div class="chip mono blue" style="font-size:12px">settings:pub02</div>
             <div class="chip mono blue" style="font-size:12px">_router &nbsp; _fleet &nbsp; _repl</div>
-            <p class="grey" style="font-size:11.5px;margin:6px 0 0">7 nodes per spoke + 2 per settings egress + 25 shared = 241</p>
+            <p class="grey" style="font-size:11.5px;margin:6px 0 0">7 nodes per spoke + 2 per settings egress + the shared backbone</p>
           </div>
           <div class="callout" style="flex:1 1 auto">
             <h4>The cross-tenant edge</h4>
             <p>A reply accepted from one publication's egress is delivered <em>by name</em> — and another publication's offsetlog is a name.</p>
-            <p>Its last frame seeds that publication's durable consumer cursor (<span class="mono" style="font-size:11.5px">Remote_Consumer_Node</span>). There are 24 of them.</p>
+            <p>Its last frame seeds that publication's durable consumer cursor (<span class="mono" style="font-size:11.5px">Remote_Consumer_Node</span>). Every spoke has one.</p>
           </div>
         </div>
       </div>
@@ -50,6 +50,6 @@
   </div>
   <div class="note">
     <h4>Isolation between customers is naming discipline, not a boundary the runtime enforces.</h4>
-    <p>Nothing in the registry records which spoke a node belongs to. <span class="mono">firehose:pub14:firehose.p0:offsetlog</span> is reachable from anywhere in the graph that can put a name in TO.</p>
+    <p>Nothing in the registry records which spoke a node belongs to. <span class="mono">firehose:pub02:firehose.p0:offsetlog</span> is reachable from anywhere in the graph that can put a name in TO.</p>
   </div>
 </div>

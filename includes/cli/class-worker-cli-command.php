@@ -147,7 +147,7 @@ class Worker_CLI_Command {
 	 * Flag every held lock to stop, then raise every write that failed.
 	 *
 	 * Re-run each pass so a worker that acquired mid-wait is told too. A
-	 * failure is the documented ownership footgun (worker dirs owned by `bend`,
+	 * failure is the documented ownership footgun (worker dirs owned by the web user,
 	 * the command run as root); flagging nothing would spin the whole timeout
 	 * and then blame the workers for not exiting, so it ends the command.
 	 */

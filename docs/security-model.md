@@ -4,7 +4,7 @@ This document describes the trust boundaries of the newspack-nodes substrate as 
 
 ## Deployment shape
 
-The `newspack-nodes` **hub** pulls log data over HTTPS from 24 **spokes** (23 publications and a dev site) into one `aggregator-hub` worker. The event logger on each spoke writes each request's performance to the firehose, which the hub copies raw.
+The `newspack-nodes` **hub** pulls log data over HTTPS from its **spokes**, each a publication's site, into one `aggregator-hub` worker. The event logger on each spoke writes each request's performance to the firehose, which the hub copies raw.
 
 ![Deployment shape and trust boundary](img/2026-09-08-hub-spoke-trust.png)
 
@@ -43,7 +43,7 @@ A holder of `manage` is administrator power by another name and is not treated a
 
 ### What an accepted `TO` can reach
 
-An accepted `TO` reaches any node's `fill()` in the hub worker's process; the four `complete` workers have their own tables. `ls` on the staging hub lists 241 names for 24 spokes: seven per spoke (a `Remote_Source` with its `:config`, `:sse-in`, `:http-out`, `:null`, `firehose.p0:offsetlog` and `:deadletter`), two per settings egress, and 25 shared. The table sorts all 40 `fill()` methods by what an unsigned spoke-written message makes each do.
+An accepted `TO` reaches any node's `fill()` in the hub worker's process; the four `complete` workers have their own tables. `ls` on a hub lists seven names per spoke (a `Remote_Source` with its `:config`, `:sse-in`, `:http-out`, `:null`, `firehose.p0:offsetlog` and `:deadletter`), two per settings egress, and the shared backbone. The table sorts all 40 `fill()` methods by what an unsigned spoke-written message makes each do.
 
 | Effect | Classes in the hub process | What a spoke-authored message does |
 |---|---|---|
@@ -57,9 +57,9 @@ An accepted `TO` reaches any node's `fill()` in the hub worker's process; the fo
 
 `Shell`, which parses text into commands signed with the process key, would matter most; no worker's graph holds it. The `_repl` node a console talks to is a partition.
 
-**The boundary lives in topology config.** Each `allow_replies_to` declaration is a hand-written hole: 48 on the staging hub, `settings-sync` and `discovery-collector` on each of 24 settings egresses. A missed one silently drops that spoke's discovery replies, indistinguishable from a spoke with nothing to report. The alternative, `HTTP_Out` admitting only replies to the `FROM` values it mints per batch, is correlation state, which [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) refuses.
+**The boundary lives in topology config.** Each `allow_replies_to` declaration is a hand-written hole: two per settings egress, `settings-sync` and `discovery-collector`. A missed one silently drops that spoke's discovery replies, indistinguishable from a spoke with nothing to report. The alternative, `HTTP_Out` admitting only replies to the `FROM` values it mints per batch, is correlation state, which [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) refuses.
 
-**The reply leg honours a spoke-set `TO`.** Routing every reply to the link's default destination would remove the allowlist and its 48 declarations, at the cost of one `HTTP_Out` per reply destination instead of one per link.
+**The reply leg honours a spoke-set `TO`.** Routing every reply to the link's default destination would remove the allowlist and its declarations, at the cost of one `HTTP_Out` per reply destination instead of one per link.
 
 Both choices are open; see [Tradeoffs](#tradeoffs).
 
@@ -154,7 +154,7 @@ A spoke's job runs on the hub through `Job_Worker_Node` (`includes/class-job-wor
 Each choice below is made and reasoned; where the question stays open, the paragraph says so.
 
 - **Multi-tenancy is by convention.** One hub worker holds every spoke's nodes in one flat table keyed by name.
-- **The reply gate is declarative.** The allowlist fails closed and each of its 48 declarations is hand-written, because the alternative is correlation state, which [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) refuses. Which side of that trade is right is open.
+- **The reply gate is declarative.** The allowlist fails closed and each of its declarations is hand-written, because the alternative is correlation state, which [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) refuses. Which side of that trade is right is open.
 - **The reply leg honours a spoke-set `TO`.** Routing every reply to the link's default destination would remove the allowlist at the cost of one `HTTP_Out` per reply destination. Whether the reply leg should honour a spoke-set `TO` at all is open.
 - **The cache scope is a random per-install salt**, not a derivation from the site secret, because `wp_salt()` is unavailable under SHORTINIT and folding it into `site()` risks a split keyspace. Whether that is the right protection is open.
 - **The `FROM` ceiling is enforced by convention inside the process.** `stamp_message()` returns `false` and the caller must drop the message. Whether that is mechanizable, as a `#[\NoDiscard]`-style contract or a lint rule, is open.

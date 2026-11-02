@@ -453,7 +453,7 @@ class CliWorkerCommandTest extends TestCase {
 	}
 
 	/**
-	 * A flag write that fails (unwritable dir — the documented root-vs-bend
+	 * A flag write that fails (unwritable dir — the documented root-vs-web-user
 	 * ownership footgun) must stop the command naming it, and must not spare
 	 * the workers after it: silently flagging nothing spins the whole timeout
 	 * and blames the workers for not exiting.
