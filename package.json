@@ -22,7 +22,8 @@
 		"lint:shell": "shellcheck scripts/pre-push scripts/pre-push.local scripts/*.sh",
 		"make-pot": "wp i18n make-pot . languages/newspack-nodes.pot --domain=newspack-nodes --exclude=node_modules,build,vendor,tests,release",
 		"test:js": "jest --passWithNoTests",
-		"test:js:coverage": "jest --passWithNoTests --coverage --collectCoverageFrom='src/**/*.{js,jsx}' --coverageReporters=json-summary --coverageReporters=text",
+		"test:js:coverage": "jest --passWithNoTests --coverage --collectCoverageFrom='src/**/*.{js,jsx}' --collectCoverageFrom='!src/**/*.perf.test.js' --coverageReporters=json-summary --coverageReporters=text --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=/examples/ --testPathIgnorePatterns='\\.perf\\.test\\.js$' && npm run test:js:perf --silent",
+		"test:js:perf": "jest --passWithNoTests '\\.perf\\.test\\.js$'",
 		"lint:deadcode:js": "knip --no-progress",
 		"lint:types": "tsc -p tsconfig.check.json --pretty false"
 	},
