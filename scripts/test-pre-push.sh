@@ -61,6 +61,8 @@ fi
 repo="$tmp/dn/a/b/repo"
 mkdir -p "$repo/scripts" "$tmp/bin"
 cp "$here/pre-push" "$repo/scripts/pre-push"
+mkdir -p "$repo/scripts/lib"
+cp "$here/lib/private-data-gate.sh" "$repo/scripts/lib/"
 # The gates' own scripts, present so each gate is in scope; the stubs run them.
 touch "$repo/scripts/coverage-gate-js.mjs" "$repo/scripts/lint-wp-pin.mjs" "$repo/scripts/coverage-gate.py"
 # Writes the stub .local, with $1 appended when given.
@@ -177,6 +179,39 @@ push() {
 out="$( push_php_from "$repo" )"; rc=$?
 [[ "$rc" -eq 0 ]] && pass "a main-checkout PHP push passes" || bad "main-checkout push failed: $out"
 grep -q 'not available' <<<"$out" && pass "and reaches the container gates" || bad "never reached the container gates: $out"
+
+# (B2) a push holds its range to the private list, first, where the .local
+# turns the gate on, says once that it is off otherwise, and refuses any other
+# setting.
+private_call='^python3 -I .*/scripts/lint-private-data\.py --range [0-9a-f]+\.\.[0-9a-f]+ --ref refs/heads/x [0-9a-f]+ refs/heads/x$'
+write_local 'readonly PRIVATE_DATA_GATE=1'
+out="$( push notes.md )"; rc=$?
+grep -qE "$private_call" "$calls" \
+	&& pass "a docs-only push runs the private-data gate over its range" \
+	|| bad "the private-data gate never ran over the range: $( cat "$calls" )"
+out="$( STUB_FAILING='lint-private-data' push notes.md )"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q 'private data in' <<<"$out" \
+	&& pass "a private-data finding fails the push" || bad "a private-data finding did not fail the push: $out"
+grep -q 'test:js' <<<"$out" && bad "the private-data gate ran after the JS tests" || pass "before the JS tests run"
+out="$( STUB_FAILING='lint-private-data' STUB_STATUS=3 push notes.md )"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q 'private-data gate could not run (exit 3)' <<<"$out" && ! grep -q 'private data in' <<<"$out" \
+	&& pass "a gate that cannot run fails the push, saying so with its exit code" \
+	|| bad "a gate exiting 3 was not reported as unable to run: $out"
+for off in '' 'readonly PRIVATE_DATA_GATE=0'; do
+	write_local "$off"
+	out="$( STUB_FAILING='lint-private-data' push notes.md )"; rc=$?
+	[[ "$rc" -eq 0 ]] && ! grep -qE "$private_call" "$calls" \
+		&& pass "a push skips the private-data gate under: ${off:-no setting}" \
+		|| bad "the gate ran or the push failed under '${off}' ($rc): $out"
+	[[ "$( grep -c 'private-data gate off' <<<"$out" )" -eq 1 ]] \
+		&& pass "and says so once" || bad "no single skip line under '${off}': $out"
+done
+write_local 'readonly PRIVATE_DATA_GATE=on'
+out="$( push notes.md )"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q 'PRIVATE_DATA_GATE' <<<"$out" && grep -q 'pre-push.local' <<<"$out" \
+	&& pass "another setting fails the push, naming the constant and the file" \
+	|| bad "PRIVATE_DATA_GATE=on did not fail loud ($rc): $out"
+write_local
 
 refusal='mounts the main checkout'
 

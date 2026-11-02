@@ -12,6 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd || exit 1)"
 
 "$SCRIPT_DIR/sync-shared-scripts.sh"
 
+# Private values stay out of a public repo where its pre-push.local says so.
+# shellcheck source-path=SCRIPTDIR source=lib/private-data-gate.sh
+. "$SCRIPT_DIR/lib/private-data-gate.sh"
+private_gate="$(private_data_gate "$SCRIPT_DIR/pre-push.local")"
+[ "$private_gate" = 0 ] || python3 -I "$SCRIPT_DIR/lint-private-data.py" --staged
+
 # A bare tool resolves via PATH to a global composer.lock never chose.
 node -e '
 const scripts = require( process.cwd() + "/package.json" ).scripts || {};

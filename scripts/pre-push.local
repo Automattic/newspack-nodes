@@ -11,6 +11,7 @@ SELF_TESTS=(
 	"test-lint-contract.sh" "the contract gate"
 	"test-lint-styles.sh" "the style gate"
 	"test-lint-wp-pin.sh" "the pin gate"
+	"test-lint-private-data.sh" "the private-data gate"
 	"test-render-diagram.sh" "the diagram renderer"
 	"test-coverage-gate.sh" "the per-class coverage gate"
 	"test-coverage-gate-js.sh" "the per-file JS coverage gate"
@@ -39,4 +40,5 @@ container_gates() { :; }
 	readonly DEPLOY_SCRIPT="/services/pyrobase/setup/${PLUGIN_SLUG}.sh"
 	readonly TEST_DIR_IN_CONTAINER="/services/pyrobase/sources/${PLUGIN_SLUG}/tests"
 	readonly COVERAGE_DIR="${PLUGIN_SLUG}-coverage"
+	readonly PRIVATE_DATA_GATE=1
 }

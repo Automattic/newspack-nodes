@@ -25,6 +25,11 @@
 # (the @newspack-nodes/* alias resolves to the nodes source), which a
 # file-type-scoped gate misses on a PHP-only or docs-only push.
 #
+# The private-data gate (scripts/lint-private-data.py) runs on EVERY push too,
+# over each pushed range's messages, added lines and new paths and each ref's
+# names and tag message, in a plugin whose pre-push.local sets
+# PRIVATE_DATA_GATE=1.
+#
 # Everything else is smart-scoped by file type touched in the push range:
 #
 #   PHP changed  → npm run lint:php + deploy + coverage suite + container_gates
@@ -117,6 +122,10 @@ for gate in ${DEFERRED_GATES[@]+"${DEFERRED_GATES[@]}"}; do
 	listed "$gate" "${deferrable[@]}" || fail "pre-push.local defers unknown gate ${gate}"
 done
 readonly DEFERRED_GATES
+# shellcheck source-path=SCRIPTDIR source=lib/private-data-gate.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/private-data-gate.sh"
+private_gate="$(private_data_gate "$local_conf")" || fail "pre-push.local: PRIVATE_DATA_GATE must be 1 or 0"
+readonly private_gate
 
 # Runs the command after $1 (its name) into a fresh log, capture_log, and
 # shows the log's last $2 lines if the command failed or $3 if it passed. A
@@ -167,7 +176,7 @@ empty_tree="$(git hash-object -t tree /dev/null)"
 changed=""
 refs=0
 pushed_shas=()
-# shellcheck disable=SC2034 # git's stdin protocol: remote_ref unused.
+private_args=()
 while read -r local_ref local_sha remote_ref remote_sha; do
 	[[ -z "${local_sha:-}" ]] && continue
 	if [[ "$local_sha" =~ ^0+$ ]]; then
@@ -188,6 +197,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 		|| fail "git diff ${base} ${local_sha} failed — cannot scope the push"
 	changed+="${ref_changed}"$'\n'
 	pushed_shas+=( "$local_sha" )
+	private_args+=( --range "${base}..${local_sha}" --ref "$local_ref" "$local_sha" "$remote_ref" )
 	refs=$((refs + 1))
 done
 
@@ -196,6 +206,21 @@ if [[ "$refs" -eq 0 ]]; then
 	exit 0
 fi
 changed="$(printf '%s' "$changed" | sort -u)"
+
+# Every push, first, where pre-push.local turns it on: what the push carries.
+if [[ "$private_gate" == 1 ]]; then
+	step "private data (the pushed commits, paths, ref names and tag messages)"
+	command -v python3 >/dev/null || fail "no python3 on PATH — the private-data gate cannot run"
+	private_rc=0
+	python3 -I "${TOPLEVEL}/scripts/lint-private-data.py" "${private_args[@]}" || private_rc=$?
+	case "$private_rc" in
+		0) ok "no private data" ;;
+		1) fail "private data in the push — rewrite those commits, refs or tags before pushing (see above)" ;;
+		*) fail "the private-data gate could not run (exit ${private_rc}) — see above" ;;
+	esac
+else
+	step "$(dim 'private-data gate off — pre-push.local sets no PRIVATE_DATA_GATE=1')"
+fi
 
 # Classify the diff by file type. Exclude generated / vendored paths.
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"

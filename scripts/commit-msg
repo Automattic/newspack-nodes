@@ -1,12 +1,19 @@
 #!/bin/sh
 #
-# commit-msg — conventional-commit check.
+# commit-msg — the private-data gate where pre-push.local turns it on, then
+# the conventional-commit check.
 #
-# Skips cleanly where commitlint isn't installed, so a plugin without the JS
-# toolchain (or a fresh clone before `npm install`) commits normally rather than
-# failing on a missing binary.
+# The commitlint half skips cleanly where commitlint isn't installed, so a
+# plugin without the JS toolchain (or a fresh clone before `npm install`)
+# commits normally rather than failing on a missing binary.
 
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd || exit 1)"
+# shellcheck source-path=SCRIPTDIR source=lib/private-data-gate.sh
+. "$SCRIPT_DIR/lib/private-data-gate.sh"
+private_gate="$(private_data_gate "$SCRIPT_DIR/pre-push.local")"
+[ "$private_gate" = 0 ] || python3 -I "$SCRIPT_DIR/lint-private-data.py" --message "$1"
 
 [ -x ./node_modules/.bin/commitlint ] || exit 0
 
