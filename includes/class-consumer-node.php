@@ -101,6 +101,13 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	/** Send raw blocks for the far end to split instead of each record; see set_raw_blocks(). */
 	private bool $raw_blocks = false;
 
+	/**
+	 * The segment and offset no read crosses; null to read to the log's end.
+	 *
+	 * @var array{0:int,1:int}|null
+	 */
+	private ?array $read_end = null;
+
 	/** Source Partition, built by arguments() and published as the `source` sibling. Read it through source(). */
 	protected ?Partition_Node $source = null;
 
@@ -828,7 +835,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	protected function get_batch(): void {
 		// Defeat the stat cache so another process's appends become visible.
 		\clearstatcache( true, $this->source()->partition_dir() );
-		$segments = $this->source()->get_segments( true );
+		$segments = $this->readable( $this->source()->get_segments( true ) );
 		if ( empty( $segments ) ) {
 			$this->at_eof = true;
 			return;
@@ -880,6 +887,27 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$tail            = $this->cursor_offset + \strlen( $this->buffer );
 		$disk_caught_up  = ( $this->cursor_segment >= $newest_id ) && ( $tail >= $newest_size );
 		$this->at_eof    = $disk_caught_up && ! $this->buffer_has_line();
+	}
+
+	/**
+	 * The live segments a read may reach: all of them, or with `read_to()`
+	 * those up to its segment, that one cut at its offset.
+	 *
+	 * @param array<int,array{id: int,size: int}> $segments Live segment list.
+	 * @return array<int,array{id: int,size: int}>
+	 */
+	private function readable( array $segments ): array {
+		if ( null === $this->read_end ) {
+			return $segments;
+		}
+		[ $last, $size ] = $this->read_end;
+		$out             = [];
+		foreach ( $segments as $segment ) {
+			if ( $segment['id'] <= $last ) {
+				$out[] = $segment['id'] < $last ? $segment : [ 'id' => $last, 'size' => \min( $segment['size'], $size ) ];
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -1097,6 +1125,18 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$this->address( $eof );
 		$this->sink?->fill( $eof );
 		return true;
+	}
+
+	/**
+	 * Read no further than `$end`, a segment and an offset on a line
+	 * boundary: a batch stops there, so the reader reaches its end with the
+	 * cursor at `$end` and what lies past it unread.
+	 *
+	 * @api `Delay_Node::fire()` bounds each sweep to what was parked before it.
+	 * @param array{0:int,1:int} $end The segment and offset to stop at.
+	 */
+	public function read_to( array $end ): void {
+		$this->read_end = $end;
 	}
 
 	/** Turn the multi-writer seal-grace on or off. Set it true only for a shared log (the firehose). */

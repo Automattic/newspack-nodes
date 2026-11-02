@@ -113,6 +113,35 @@ abstract class CacheBackendContract extends TestCase {
 		}
 	}
 
+	/** memcached reads an expiry past thirty days as a Unix time; every write path must still mean a duration. */
+	public function test_a_ttl_past_thirty_days_keeps_the_value_that_long(): void {
+		// No tick is pinned, so the writes date from the contract's clock.
+		Core::$now = 0.0;
+		$arm       = $this->arm();
+		$year = 365 * DAY_IN_SECONDS;
+		$this->assertTrue( $arm->set( 'kea-year-set', 'v-5501', $year ) );
+		$this->assertTrue( $arm->add( 'kea-year-add', 'v-5502', $year ) );
+		$this->assertTrue( $arm->write_multi( [ 'kea-year-multi' => 'v-5503' ], $year ) );
+		$keys = [ 'kea-year-set' => 'v-5501', 'kea-year-add' => 'v-5502', 'kea-year-multi' => 'v-5503' ];
+		if ( $this->slides_expiry() ) {
+			$arm->set( 'kea-year-touch', 'v-5504', 37 );
+			$this->assertTrue( $arm->touch( 'kea-year-touch', $year ) );
+			$keys['kea-year-touch'] = 'v-5504';
+		}
+		if ( $this->moves_clock() ) {
+			$this->clock += 364 * DAY_IN_SECONDS;
+		}
+		foreach ( $keys as $key => $value ) {
+			$this->assertSame( $value, $arm->get( $key ), $key );
+		}
+		if ( $this->moves_clock() ) {
+			$this->clock += 2 * DAY_IN_SECONDS;
+			foreach ( \array_keys( $keys ) as $key ) {
+				$this->assertFalse( $arm->get( $key ), "{$key} outlived its year" );
+			}
+		}
+	}
+
 	public function test_delete_multi_answers_the_keys_it_took_effect_on(): void {
 		$arm = $this->arm();
 		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 37 );

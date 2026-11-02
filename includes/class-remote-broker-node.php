@@ -366,6 +366,23 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
+	 * A broker's row names the Vault entry it reaches and the sources its
+	 * commands leave declared; it pulls remote streams, so it claims no
+	 * `reads`.
+	 *
+	 * @param list<string>                         $args     The `make_node` arguments, quotes stripped.
+	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
+	 * @return array{vault_id:string,sources:list<array{source:string,target:string}>}
+	 * @throws \InvalidArgumentException What `sources_of()` refuses.
+	 */
+	public static function graph_facts( array $args, array $commands ): array {
+		return [
+			'vault_id' => $args[0] ?? '',
+			'sources'  => static::sources_of( $commands ),
+		];
+	}
+
+	/**
 	 * The sources a run of `add_source` and `remove_source` commands leaves
 	 * declared, as written and in order, each bound as its verb binds it and
 	 * folded by `fold_source()` at partition 0, so a line the load refuses

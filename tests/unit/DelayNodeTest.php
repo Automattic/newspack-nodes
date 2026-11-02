@@ -4,14 +4,17 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Delay_Node;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
@@ -41,6 +44,8 @@ class DelayNodeTest extends TestCase {
 
 	private Capture_Sink_Node $sink;
 
+	private InMemoryMemcached $memd;
+
 	protected function setUp(): void {
 		parent::setUp();
 		Event_Framework::reset();
@@ -54,12 +59,15 @@ class DelayNodeTest extends TestCase {
 		$this->sink = new Capture_Sink_Node();
 		$this->sink->name( self::TARGET );
 		Core::$var['partition'] = '3';
+		$this->memd             = new InMemoryMemcached();
+		Core::$memd             = $this->memd;
 		$this->at( self::T0 );
 	}
 
 	protected function tearDown(): void {
 		Partition_Node::$fwrite = null;
 		unset( Core::$var['partition'] );
+		Core::$memd = null;
 		Topology_Registry::reset();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		Config::reset();
@@ -545,5 +553,355 @@ class DelayNodeTest extends TestCase {
 			],
 			Topology_Analyzer::write_set( 'later-lab' )
 		);
+	}
+
+	/** @return array<array-key,mixed>|null The snapshot the Delay published at p3. */
+	private function published(): ?array {
+		return Delay_Node::read_status( self::NAME, 3 );
+	}
+
+	/**
+	 * A sweep that releases one entry, keeps two and drops two past
+	 * max_age_s publishes the two it keeps, the older one's park time, and
+	 * the UTC days the two it dropped were parked on.
+	 */
+	public function test_a_sweep_publishes_what_it_keeps_and_the_days_it_dropped(): void {
+		$this->capture_stderr();
+		$delay = $this->delay();
+		$this->park( $delay, [ 'item' => 's-due', 'not_before' => self::T0 + 10 ] );
+		$this->park( $delay, [ 'item' => 's-kept-1', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 1234.75 ] );
+		$this->park( $delay, [ 'item' => 's-old-1', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 3 * 86400 ] );
+		$this->park( $delay, [ 'item' => 's-kept-2', 'not_before' => self::T0 + 900 ] );
+		$this->park( $delay, [ 'item' => 's-old-2', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 86400 - 8000 ] );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame( [ 's-due' ], \array_column( $this->delivered(), 'item' ) );
+		$this->assertSame(
+			[
+				'depth'   => 2,
+				'dropped' => [
+					'first_day' => '2030-03-14',
+					'last_day'  => '2030-03-16',
+				],
+			],
+			$this->published()
+		);
+	}
+
+	/** Every sweep writes every key, so an emptied queue reads empty after a restart's merge. */
+	public function test_an_emptied_queue_publishes_zero_and_nulls_over_the_last_snapshot(): void {
+		$this->memd->set(
+			Delay_Node::status_key( self::NAME, 3 ),
+			[
+				'depth'   => 41,
+				'dropped' => null,
+			],
+			60
+		);
+		$delay = $this->delay();
+		$this->park( $delay, [ 'item' => 'z-due', 'not_before' => self::T0 + 10 ] );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame(
+			[
+				'depth'   => 0,
+				'dropped' => null,
+			],
+			$this->published()
+		);
+	}
+
+	/** A Delay that never parked has no queue dir, and still reports an empty one. */
+	public function test_a_sweep_with_no_queue_on_disk_publishes_an_empty_queue(): void {
+		$delay = $this->delay();
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame(
+			[
+				'depth'   => 0,
+				'dropped' => null,
+			],
+			$this->published()
+		);
+	}
+
+	/** Drops a day from the held range merge into it: the earliest first day, the latest last day. */
+	public function test_drops_merge_with_the_last_snapshot(): void {
+		$this->capture_stderr();
+		$this->memd->set(
+			Delay_Node::status_key( self::NAME, 3 ),
+			[
+				'depth'   => 3,
+				'dropped' => [
+					'first_day' => '2030-03-15',
+					'last_day'  => '2030-03-15',
+				],
+			],
+			60
+		);
+		$delay = $this->delay();
+		$this->park( $delay, [ 'item' => 'm-old-1', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 3 * 86400 ] );
+		$this->park( $delay, [ 'item' => 'm-old-2', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 86400 - 8000 ] );
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame( [ 'first_day' => '2030-03-14', 'last_day' => '2030-03-16' ], $this->published()['dropped'] );
+
+		$this->park( $delay, [ 'item' => 'm-old-3', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 9000 ] );
+		$this->sweep_at( $delay, self::T0 + 120 );
+
+		$this->assertSame( [ 'first_day' => '2030-03-14', 'last_day' => '2030-03-17' ], $this->published()['dropped'] );
+	}
+
+	/** Seed the last snapshot with a held drop range. */
+	private function held_drops( string $first_day, string $last_day ): void {
+		$this->memd->set(
+			Delay_Node::status_key( self::NAME, 3 ),
+			[
+				'depth'   => 0,
+				'dropped' => [
+					'first_day' => $first_day,
+					'last_day'  => $last_day,
+				],
+			],
+			60
+		);
+	}
+
+	/** A drop the day after the held range's last day is the same incident. */
+	public function test_a_drop_a_day_past_the_held_range_extends_it(): void {
+		$this->capture_stderr();
+		$this->held_drops( '2030-03-13', '2030-03-15' );
+		$delay = $this->delay();
+		$this->park( $delay, [ 'item' => 'c-old', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 86400 - 8000 ] );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame( [ 'first_day' => '2030-03-13', 'last_day' => '2030-03-16' ], $this->published()['dropped'] );
+	}
+
+	/** A drop that does not touch the held range starts a new one. */
+	public function test_a_drop_apart_from_the_held_range_replaces_it(): void {
+		$this->capture_stderr();
+		$this->held_drops( '2030-02-01', '2030-02-02' );
+		$delay = $this->delay();
+		$this->park( $delay, [ 'item' => 'r-old-1', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 3 * 86400 ] );
+		$this->park( $delay, [ 'item' => 'r-old-2', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 86400 - 8000 ] );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame( [ 'first_day' => '2030-03-14', 'last_day' => '2030-03-16' ], $this->published()['dropped'] );
+	}
+
+	/** A park the full queue refuses is a drop too, dated the day it was refused. */
+	public function test_a_park_the_full_queue_refuses_counts_as_a_drop_on_its_day(): void {
+		$this->capture_stderr();
+		$delay   = $this->delay();
+		$payload = \str_repeat( 'x', 100000 );
+		for ( $i = 0; $i < 120; $i++ ) {
+			$this->park( $delay, [ 'item' => $i, 'not_before' => self::T0 + 600, 'pad' => $payload ], "full-key-{$i}" );
+		}
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+		$this->sweep_at( $delay, self::T0 + 700 );
+
+		$this->assertLessThan( 120, \count( $this->delivered() ), 'the full queue refused some' );
+		$this->assertSame( [ 'first_day' => '2030-03-17', 'last_day' => '2030-03-17' ], $this->published()['dropped'] );
+	}
+
+	/** However many parks the full queue refuses, the Delay holds only the span of their days. */
+	public function test_a_refusal_flood_holds_one_span(): void {
+		$this->capture_stderr();
+		$delay   = $this->delay();
+		$payload = \str_repeat( 'x', 100000 );
+		for ( $i = 0; $i < 120; $i++ ) {
+			$this->park( $delay, [ 'item' => $i, 'not_before' => self::T0 + 600, 'pad' => $payload ], "flood-key-{$i}" );
+		}
+
+		$day = \intdiv( (int) self::T0, 86400 );
+		$this->assertSame( [ $day, $day ], $this->read_private( $delay, 'drop_span' ) );
+	}
+
+	/** A teardown that throws after the cursor committed keeps that sweep's drops. */
+	public function test_a_teardown_that_throws_after_the_commit_keeps_the_sweeps_drops(): void {
+		$this->capture_stderr();
+		$delay = $this->delay();
+		$this->target_does(
+			static function (): void {
+				$thrower = new class() extends Node {
+					public function remove_node(): void {
+						throw new \RuntimeException( 'teardown 8841' );
+					}
+				};
+				$reader   = Core::node( self::NAME . ':reader' );
+				$siblings = new \ReflectionProperty( Node::class, 'siblings' );
+				$siblings->setValue( $reader, [ ...$siblings->getValue( $reader ), $thrower ] );
+			}
+		);
+		$this->park( $delay, [ 'item' => 't-old', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 9000 ] );
+		$this->park( $delay, [ 'item' => 't-due', 'not_before' => self::T0 + 10 ] );
+
+		$this->at( self::T0 + 60 );
+		$e = $this->caught( static fn () => $delay->fire_cb(), 'the teardown throws' );
+		$this->assertStringContainsString( 'teardown 8841', $e->getMessage() );
+		$this->assertSame( [ 'first_day' => '2030-03-17', 'last_day' => '2030-03-17' ], $this->published()['dropped'] );
+	}
+
+	/**
+	 * A target that parks its first delivery again, padded to $pad bytes,
+	 * and records every later one.
+	 *
+	 * @param list<string> $received Items delivered after the re-park.
+	 */
+	private function target_parks_once_again( Delay_Node $delay, int $pad, array &$received ): void {
+		$again_once = true;
+		$this->target_does(
+			static function ( array $message ) use ( $delay, $pad, &$again_once, &$received ): void {
+				if ( ! $again_once ) {
+					$received[] = $message[ Message::VALUE ]['item'];
+					return;
+				}
+				$again_once              = false;
+				$again                   = Message::new_message();
+				$again[ Message::TYPE ]  = Message::TM_STRUCT;
+				$again[ Message::VALUE ] = [ ...$message[ Message::VALUE ], 'not_before' => self::T0 + 5000, 'pad' => \str_repeat( 'w', $pad ) ];
+				$delay->fill( $again );
+			}
+		);
+	}
+
+	/** An entry the target parks again during the sweep is waiting too. */
+	public function test_an_entry_the_target_parks_again_mid_sweep_is_counted(): void {
+		$delay    = $this->delay();
+		$received = [];
+		$this->target_parks_once_again( $delay, 10, $received );
+		$this->park( $delay, [ 'item' => 'p-small', 'not_before' => self::T0 + 10, 'parked_at' => self::T0 - 77 ] );
+		$this->park( $delay, [ 'item' => 'p-held', 'not_before' => self::T0 + 900 ] );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame( 2, $this->published()['depth'] );
+		$this->sweep_at( $delay, self::T0 + 6000 );
+		$this->assertSame( [ 'p-small', 'p-held' ], $received, 'the depth is what waited' );
+	}
+
+	/**
+	 * A pass reads only what was parked before it began: a re-park large
+	 * enough to flush mid-drain waits for the next sweep, counted once.
+	 */
+	public function test_a_pass_never_reads_a_re_park_that_flushed_mid_drain(): void {
+		$delay    = $this->delay();
+		$received = [];
+		$this->target_parks_once_again( $delay, 6000, $received );
+		$this->park( $delay, [ 'item' => 'q-big', 'not_before' => self::T0 + 10 ] );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertCount( 2, $this->queued(), 'the re-park was not read back and parked again' );
+		$this->assertSame( 1, $this->published()['depth'] );
+		$this->sweep_at( $delay, self::T0 + 6000 );
+		$this->assertSame( [ 'q-big' ], $received, 'the depth is what waited' );
+	}
+
+	/** A queue many read batches long is swept whole, and nothing parked during the pass is read back. */
+	public function test_a_queue_spanning_many_batches_sweeps_to_where_it_ended(): void {
+		$delay      = $this->delay();
+		$pad        = \str_repeat( 'm', 20000 );
+		$deliveries = [];
+		$this->target_does(
+			static function ( array $message ) use ( $delay, &$deliveries ): void {
+				$deliveries[]            = $message[ Message::VALUE ]['item'];
+				$again                   = Message::new_message();
+				$again[ Message::TYPE ]  = Message::TM_STRUCT;
+				$again[ Message::VALUE ] = [ ...$message[ Message::VALUE ], 'not_before' => self::T0 + 5000 ];
+				$delay->fill( $again );
+			}
+		);
+		$items = \array_map( static fn ( int $i ): string => "batch-{$i}", \range( 0, 19 ) );
+		foreach ( $items as $item ) {
+			$this->park( $delay, [ 'item' => $item, 'not_before' => self::T0 + 10, 'pad' => $pad ] );
+		}
+		$this->assertGreaterThan( 4 * Consumer_Node::READ_BLOCK_BYTES, \array_sum( \array_map( 'filesize', \glob( "{$this->tmp}/logs/later.p3/*.log" ) ?: [] ) ) );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+
+		$this->assertSame( $items, $deliveries, 'each entry once, in order, none read back' );
+		$this->assertSame( 20, $this->published()['depth'] );
+		$this->sweep_at( $delay, self::T0 + 5100 );
+		$this->assertSame( [ ...$items, ...$items ], $deliveries, 'the re-parks waited for the next sweep' );
+	}
+
+	/** A target that parks a due entry again sees it once a sweep, not once per flush. */
+	public function test_a_due_re_park_is_delivered_on_the_next_sweep(): void {
+		$delay      = $this->delay();
+		$deliveries = 0;
+		$this->target_does(
+			static function ( array $message ) use ( $delay, &$deliveries ): void {
+				if ( ++$deliveries > 3 ) {
+					return;
+				}
+				$again                   = Message::new_message();
+				$again[ Message::TYPE ]  = Message::TM_STRUCT;
+				$again[ Message::VALUE ] = [ ...$message[ Message::VALUE ], 'not_before' => self::T0, 'pad' => \str_repeat( 'd', 6000 ) ];
+				$delay->fill( $again );
+			}
+		);
+		$this->park( $delay, [ 'item' => 'due-again', 'not_before' => self::T0 + 10 ] );
+
+		$this->sweep_at( $delay, self::T0 + 60 );
+		$this->assertSame( 1, $deliveries );
+
+		$this->sweep_at( $delay, self::T0 + 120 );
+		$this->assertSame( 2, $deliveries );
+	}
+
+	/** A pass that does not finish publishes nothing; its replay publishes its drops. */
+	public function test_a_stopped_sweep_publishes_nothing_and_its_replay_publishes_the_drops(): void {
+		$this->capture_stderr();
+		$delay = $this->delay();
+		$stops = 1;
+		$this->target_does(
+			static function () use ( &$stops ): void {
+				if ( $stops-- > 0 ) {
+					throw new Worker_Should_Stop( 'stop 5150' );
+				}
+			}
+		);
+		$this->park( $delay, [ 'item' => 'x-old', 'not_before' => self::T0 + 900, 'parked_at' => self::T0 - 9000 ] );
+		$this->park( $delay, [ 'item' => 'x-due', 'not_before' => self::T0 + 10 ] );
+
+		$this->at( self::T0 + 60 );
+		$this->caught( static fn () => $delay->fire_cb(), 'a stop escapes the sweep' );
+		$this->assertNull( $this->published() );
+
+		$this->sweep_at( $delay, self::T0 + 120 );
+		$this->assertSame(
+			[
+				'depth'   => 0,
+				'dropped' => [
+					'first_day' => '2030-03-17',
+					'last_day'  => '2030-03-17',
+				],
+			],
+			$this->published()
+		);
+	}
+
+	public function test_the_status_lives_thirty_days_and_heartbeats_each_minute(): void {
+		$delay = $this->delay( '10', '7200' );
+		$this->park( $delay, [ 'item' => 'h-held', 'not_before' => self::T0 + 900 ] );
+		$key  = Delay_Node::status_key( self::NAME, 3 );
+		$sets = fn (): array => \array_values( \array_filter( $this->memd->sets, static fn ( array $set ): bool => $key === $set['key'] ) );
+
+		foreach ( [ 60, 109, 119 ] as $offset ) {
+			$this->sweep_at( $delay, self::T0 + $offset );
+		}
+		$this->assertCount( 1, $sets(), 'an unchanged snapshot waits for the heartbeat' );
+		$this->assertSame( 30 * 86400, $sets()[0]['ttl'] );
+
+		$this->sweep_at( $delay, self::T0 + 129 );
+		$this->assertCount( 2, $sets() );
 	}
 }

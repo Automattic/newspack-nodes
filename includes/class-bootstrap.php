@@ -396,7 +396,7 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return array<int,string> Partition index => directory.
-	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active one will not read.
+	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active `.tsl` will not read.
 	 */
 	public static function node_dirs( string $node ): array {
 		$dirs = [];
@@ -418,7 +418,7 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return list<int> Partition indices, ascending.
-	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active one will not read.
+	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active `.tsl` will not read.
 	 */
 	public static function node_partitions( string $node ): array {
 		$seen = [];
@@ -495,7 +495,7 @@ class Bootstrap {
 	 *
 	 * @param string ...$names Table names as their topologies declare them.
 	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>> Name => partition => the Table; `[]` for a name no active topology declares as a keyed Table.
-	 * @throws \Throwable When two active topologies declare one differently, a TTL is not a whole number of at least 1 second, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active one will not read.
+	 * @throws \Throwable When two active topologies declare one differently, a TTL is not a whole number of at least 1 second, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active `.tsl` will not read.
 	 */
 	public static function node_tables( string ...$names ): array {
 		$unresolved = \array_diff( $names, \array_keys( self::$node_tables ) );
@@ -534,19 +534,21 @@ class Bootstrap {
 	 * The one Row_Table the active topologies declare with `$schema`: its name
 	 * and its SQLite file per partition, across every ACTIVE topology
 	 * declaring it, each with `partitions_of()` its entry. A reader finds its
-	 * table by schema, never by name. Whether each file exists is for the
-	 * reader to find. One read of the active set serves the lookup, and a schema
-	 * resolves once until `forget_node_tables()`.
+	 * table by schema, never by name. An active `.tsl` that will not read
+	 * fails the lookup only when no readable topology declares one
+	 * (`may_declare()`). Whether each file exists is for the reader to find.
+	 * One read of the active set serves the lookup, and a schema resolves
+	 * once until `forget_node_tables()`.
 	 *
 	 * @api The row tables' read path, `Row_Table_Node::read()`.
 	 *
 	 * @param class-string<Row_Schema> $schema The schema the table holds.
 	 * @return array{name: string, files: array<int,string>} Files by partition.
 	 * @throws Table_Unavailable When no active topology declares one.
-	 * @throws \RuntimeException When an active topology will not read, before
-	 *                           anything resolves; when they declare several,
-	 *                           naming each; or when two declare its name
-	 *                           differently.
+	 * @throws \RuntimeException When no readable topology declares one and an
+	 *                           active `.tsl` will not read; when they declare
+	 *                           several, naming each; or when two declare its
+	 *                           name differently.
 	 * @throws \InvalidArgumentException As row_tables_of().
 	 */
 	public static function row_table( string $schema ): array {
@@ -555,11 +557,10 @@ class Bootstrap {
 		}
 		$active                    = self::active_topologies();
 		[ $readable, $unreadable ] = $active;
-		// An unreadable topology's declaration is never left out.
-		Worker_Should_Stop::raise( $unreadable );
-		$names = self::row_tables_of( $schema, ...\array_map( 'strval', \array_keys( $readable ) ) );
-		$word  = self::schema_word( $schema );
+		$names                     = self::row_tables_of( $schema, ...\array_map( 'strval', \array_keys( $readable ) ) );
+		$word                      = self::schema_word( $schema );
 		if ( [] === $names ) {
+			Worker_Should_Stop::raise( self::may_declare( $unreadable ) );
 			throw new Table_Unavailable( \esc_html( "no active topology declares a Row_Table of schema {$word}" ) );
 		}
 		if ( 1 < \count( $names ) ) {
@@ -679,7 +680,7 @@ class Bootstrap {
 			\array_combine( $names, $names ),
 			static function ( string $name ) use ( $entries ): void {
 				if ( ! isset( $entries[ $name ] ) ) {
-					throw new \RuntimeException( \esc_html( "unknown topology '$name': no .tsl resolves" ) );
+					throw new Topology_Missing( \esc_html( "unknown topology '$name': no .tsl resolves" ) );
 				}
 				Topology_Analyzer::graph_for( $name );
 				// The graph reads no owner's line; the write set reads each.
@@ -751,13 +752,14 @@ class Bootstrap {
 	/**
 	 * The readable active topologies declaring `$node`, name => entry. One
 	 * that will not read costs only its own share of the answer; when no
-	 * readable one declares the node, every unreadable one raises, because
-	 * the node may be exactly what it declares.
+	 * readable one declares the node, every `.tsl` that will not read
+	 * raises (`may_declare()`), because the node may be exactly what it
+	 * declares.
 	 *
 	 * @param string                                                                       $node   Node name as its topology declares it.
 	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies(), read once by the caller.
 	 * @return array<string,array<array-key,mixed>>
-	 * @throws \Throwable Every unreadable active topology, combined, when no readable one declares `$node`.
+	 * @throws \Throwable Every active `.tsl` that will not read, combined, when no readable one declares `$node`.
 	 */
 	private static function declaring( string $node, array $active ): array {
 		[ $readable, $unreadable ] = $active;
@@ -767,9 +769,21 @@ class Bootstrap {
 			\ARRAY_FILTER_USE_KEY
 		);
 		if ( [] === $declaring ) {
-			Worker_Should_Stop::raise( $unreadable );
+			Worker_Should_Stop::raise( self::may_declare( $unreadable ) );
 		}
 		return $declaring;
+	}
+
+	/**
+	 * The unreadable topologies a lookup answers for: each whose `.tsl` will
+	 * not read, which may declare what is asked. A name no `.tsl` resolves
+	 * (`Topology_Missing`) declares nothing, so no lookup raises it.
+	 *
+	 * @param array<string,\Throwable> $unreadable What each unreadable active name threw.
+	 * @return array<string,\Throwable>
+	 */
+	private static function may_declare( array $unreadable ): array {
+		return \array_filter( $unreadable, static fn ( \Throwable $e ): bool => ! $e instanceof Topology_Missing );
 	}
 
 	/**

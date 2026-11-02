@@ -2243,22 +2243,26 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
-	 * A node no readable topology declares may live in the one that will not
-	 * read — an unknown name included — so the reader gets that failure
-	 * rather than an empty answer reading as "nothing declares it".
+	 * A node no readable topology declares may live in a `.tsl` that will not
+	 * read, so the reader gets that failure rather than an empty answer
+	 * reading as "nothing declares it".
 	 */
 	public function test_node_readers_raise_the_unreadable_topologies_when_no_readable_one_declares_the_node(): void {
 		$stock = $this->activate_topologies(
-			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n" ],
-			[ 'combined' => 3 ]
+			[
+				'combined'    => "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n",
+				'vole-broken' => "include vole-nowhere-6604\n",
+			],
+			[
+				'combined'    => 3,
+				'vole-broken' => 1,
+			]
 		);
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined', 'vole-unregistered' ];
-		\Newspack_Nodes\Config::reset();
 
 		try {
 			foreach ( [ 'node_dirs' => 'flames:partition', 'node_partitions' => 'flame-builder' ] as $reader => $node ) {
 				$e = $this->caught( static fn () => Bootstrap::$reader( $node ), "{$reader} must not answer an unreadable declarer with nothing" );
-				$this->assertStringContainsString( 'vole-unregistered', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+				$this->assertStringContainsString( 'vole-nowhere-6604', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 			}
 		} finally {
 			\Newspack_Nodes\Topology_Registry::reset();

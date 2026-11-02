@@ -614,13 +614,57 @@ final class BootstrapNodeTablesTest extends TestCase {
 		Bootstrap::row_table( Wombat_Row_Schema::class );
 	}
 
-	/** A declaration an unreadable topology may hold is never silently left out. */
-	public function test_an_unreadable_active_topology_raises_beside_a_readable_one(): void {
+	/** A `.tsl` that will not read costs only its own share: a readable declarer answers both lookups. */
+	public function test_a_readable_declarer_answers_beside_a_tsl_that_will_not_read(): void {
 		$this->write_tsl( 'quoll-broken', "include quoll-nowhere-8810\n" );
-		$this->activate( 'quoll-a', 'quoll-broken' );
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'quoll-nowhere-8810' );
+		$this->activate( 'quoll-a', 'kea-a', 'quoll-broken' );
+
+		$this->assertSame( 'quoll-ledger-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'] );
+		$this->assertSame( [ 0, 1 ], \array_keys( Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'] ) );
+	}
+
+	/**
+	 * An active name no `.tsl` resolves declares nothing, so it fails no
+	 * lookup; `wp nodes doctor` and the spawn gate stay where it is loud.
+	 */
+	public function test_an_active_name_with_no_tsl_fails_no_row_table_lookup(): void {
+		$this->activate( 'quoll-a', 'plugin-gone-7392' );
+		$this->assertSame( 'quoll-ledger-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'] );
+		$this->assertArrayHasKey( 'plugin-gone-7392', Bootstrap::active_topologies()[1], 'the name is still unreadable to its other readers' );
+	}
+
+	public function test_an_active_name_with_no_tsl_leaves_an_undeclared_schema_unavailable(): void {
+		$this->activate( 'kea-a', 'plugin-gone-7392' );
+		$this->expectException( Table_Unavailable::class );
+		$this->expectExceptionMessage( 'no active topology declares a Row_Table of schema Wombat' );
 		Bootstrap::row_table( Wombat_Row_Schema::class );
+	}
+
+	public function test_a_declaring_topology_that_will_not_read_still_raises(): void {
+		$this->write_tsl( 'quoll-torn', "make_node Row_Table quoll-ledger-3194 Wombat\ninclude quoll-elsewhere-5521\n" );
+		$this->activate( 'kea-a', 'quoll-torn', 'plugin-gone-7392' );
+		$e = $this->caught( static fn () => Bootstrap::row_table( Wombat_Row_Schema::class ), 'the declaring topology will not read' );
+		$this->assertStringContainsString( 'quoll-elsewhere-5521', $e->getMessage() );
+		$this->assertStringNotContainsString( 'plugin-gone-7392', $e->getMessage() );
+	}
+
+	/** A table or dir lookup reads past an active name no `.tsl` resolves. */
+	public function test_an_active_name_with_no_tsl_fails_no_table_or_dir_lookup(): void {
+		$this->activate( 'kea-a', 'plugin-gone-7392' );
+
+		$this->assertSame( [ 'lab-7:owl' => [] ], Bootstrap::node_tables( 'lab-7:owl' ) );
+		$this->assertSame( [], Bootstrap::node_dirs( 'owl-dir-5150' ) );
+		$this->assertSame( [], Bootstrap::node_partitions( 'owl-dir-5150' ) );
+	}
+
+	/** A `.tsl` that will not read may declare what a lookup asks for, so it raises. */
+	public function test_a_tsl_that_will_not_read_fails_a_lookup_no_readable_topology_answers(): void {
+		$this->write_tsl( 'quoll-broken', "include quoll-nowhere-8810\n" );
+		$this->activate( 'kea-a', 'quoll-broken', 'plugin-gone-7392' );
+
+		$e = $this->caught( static fn () => Bootstrap::node_tables( 'lab-7:owl' ), 'the broken topology may declare it' );
+		$this->assertStringContainsString( 'quoll-nowhere-8810', $e->getMessage() );
+		$this->assertStringNotContainsString( 'plugin-gone-7392', $e->getMessage() );
 	}
 
 	public function test_a_class_that_names_no_row_schema_is_refused(): void {

@@ -298,8 +298,9 @@ class Topology_Analyzer {
 	 * the runtime binds them (+ the log a Partition/Topic writes or a Consumer
 	 * reads, from the path/source ARG — never a name suffix; + a broker's
 	 * `vault_id` and the `sources` its `add_source` and `remove_source` lines
-	 * leave, so another plugin names them rather than counting positionals),
-	 * and edges from `connect_node`, `command_node
+	 * leave, so another plugin names them rather than counting positionals —
+	 * whatever its class's `Node::graph_facts()` answers from its arguments
+	 * and the verbs sent to its `:config`), and edges from `connect_node`, `command_node
 	 * <node>:config set_*target <target>` and each `pair` a class declares
 	 * (`declared_targets()`, `command_targets()`), with `disconnect_node`
 	 * and each verb that undoes another applied in evaluation order. A broken
@@ -329,8 +330,8 @@ class Topology_Analyzer {
 		$nodes     = [];
 		$index     = [];
 		$types     = [];
+		$args_of   = [];
 		$sent      = [];
-		$brokers   = [];
 		$edges     = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$verb   = $statement['verb'];
@@ -341,12 +342,13 @@ class Topology_Analyzer {
 				$kind           = self::node_kind( $class );
 				$types[ $node_name ] = $class;
 				// Values 3.. = positional args, as the runtime binds them.
+				$args_of[ $node_name ] = \array_slice( $values, 3 );
 				$path   = $values[3] ?? null;
 				$node   = [
 					'name' => $node_name,
 					'kind' => $kind,
 					'type' => $class,
-					'args' => \array_slice( $values, 3 ),
+					'args' => $args_of[ $node_name ],
 				];
 				if ( ( 'partition' === $kind || 'topic' === $kind ) && null !== $path ) {
 					$node['writes'] = $basename( $path );
@@ -362,16 +364,7 @@ class Topology_Analyzer {
 					$node['path']         = $path;
 					$node['segment_size'] = self::literal_segment_size( $values ) ?? 0;
 				}
-				$fqcn = self::node_class( $class );
 				self::declare_node( $edges, $sent, $values, [ $name ] );
-				if ( self::type_is( $class, Remote_Broker_Node::class ) ) {
-					/** @var class-string<Remote_Broker_Node> $broker An unresolved name stands for the base class. */
-					$broker = \is_a( $fqcn, Remote_Broker_Node::class, true ) ? $fqcn : Remote_Broker_Node::class;
-					// It pulls REMOTE streams, so it claims no `reads`.
-					$node['vault_id']      = $values[3] ?? '';
-					$node['sources']       = [];
-					$brokers[ $node_name ] = $broker;
-				}
 				$index[ $node_name ] = \count( $nodes );
 				$nodes[]             = $node;
 				continue;
@@ -399,8 +392,11 @@ class Topology_Analyzer {
 				self::draw_command( $edges, $sent, $node_name, [ $inner_verb, $args ], [ $name ] );
 			}
 		}
-		foreach ( $brokers as $node_name => $broker ) {
-			$nodes[ $index[ $node_name ] ]['sources'] = $broker::sources_of( $sent[ $node_name ]['commands'] ?? [] );
+		foreach ( $index as $node_name => $at ) {
+			$class = self::lineage_class( $types[ $node_name ] );
+			if ( \is_a( $class, Node::class, true ) ) {
+				$nodes[ $at ] += $class::graph_facts( $args_of[ $node_name ], $sent[ $node_name ]['commands'] );
+			}
 		}
 		return self::$graph_cache[ $name ] = [
 			'nodes' => $nodes,
@@ -1566,11 +1562,18 @@ class Topology_Analyzer {
 	 * @return bool True when the token is that class or a subclass.
 	 */
 	private static function type_is( string $type, string $fqcn ): bool {
-		$resolved = Command_Interpreter_Node::resolve_class( $type );
-		if ( null !== $resolved ) {
-			return \is_a( $resolved, $fqcn, true );
-		}
-		return \is_a( __NAMESPACE__ . '\\' . $type . '_Node', $fqcn, true );
+		return \is_a( self::lineage_class( $type ), $fqcn, true );
+	}
+
+	/**
+	 * The class a `make_node` token names: what it resolves to, else the
+	 * substrate class of that name, so a stock token answers before boot
+	 * wiring completes.
+	 *
+	 * @param string $type The `make_node` class token.
+	 */
+	private static function lineage_class( string $type ): string {
+		return Command_Interpreter_Node::resolve_class( $type ) ?? __NAMESPACE__ . '\\' . $type . '_Node';
 	}
 
 	/**

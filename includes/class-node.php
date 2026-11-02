@@ -1085,6 +1085,21 @@ class Node {
 	}
 
 	/**
+	 * What `Topology_Analyzer::graph_for()` adds to a node of this class's
+	 * row, judged from its `make_node` arguments and the verbs sent to its
+	 * `:config` in evaluation order, `set_*target` lines aside, which are
+	 * edges. Nothing by default; a key the row already carries is kept. A
+	 * throw makes the topology unreadable, as a refused `make_node` line does.
+	 *
+	 * @param list<string>                         $args     The `make_node` arguments, quotes stripped.
+	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
+	 * @return array<string,int|string|list<string>|list<array{source:string,target:string}>>
+	 */
+	public static function graph_facts( array $args, array $commands ): array {
+		return [];
+	}
+
+	/**
 	 * Whether this node takes a `{name}:config` interpreter: true unless its
 	 * builder called `without_config()`. A node building siblings of its own
 	 * reads it to carry the opt-out to them.

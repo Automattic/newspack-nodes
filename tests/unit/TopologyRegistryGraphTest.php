@@ -60,6 +60,42 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertContains( [ 'request-builder', 'errors:partition' ], $g['edges'] );
 	}
 
+	/**
+	 * A class's `graph_facts()` joins its row, judged from its arguments and
+	 * the verbs sent to its `:config` in evaluation order and either
+	 * spelling, a `set_*target` line drawn as an edge instead; a class
+	 * declaring none adds nothing.
+	 */
+	public function test_graph_for_merges_each_class_graph_facts_into_its_row(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-tier-facts-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
+		$this->write_tsl(
+			'commanded',
+			"make_node Tier_Facts x lenient-4410\n"
+			. "make_node Tee quiet:tee\n"
+			. "cmd x:config set_tier restricted\n"
+			. "command_node x:config set_interval 900\n"
+			. "cmd x:config set_target quiet:tee\n"
+			. "cmd x:config set_tier \"open 7731\"\n"
+		);
+
+		$graph  = Topology_Analyzer::graph_for( 'commanded' );
+		$byName = \array_column( $graph['nodes'], null, 'name' );
+
+		$this->assertSame( 'open 7731', $byName['x']['tier'] );
+		$this->assertSame(
+			[
+				[ 'set_tier', [ 'restricted' ] ],
+				[ 'set_interval', [ '900' ] ],
+				[ 'set_tier', [ 'open 7731' ] ],
+			],
+			$byName['x']['seen']
+		);
+		$this->assertSame( [ 'lenient-4410' ], $byName['x']['args'], 'existing keys are unchanged' );
+		$this->assertSame( [ 'name', 'kind', 'type', 'args' ], \array_keys( $byName['quiet:tee'] ) );
+		$this->assertContains( [ 'x', 'quiet:tee' ], $graph['edges'] );
+	}
+
 	public function test_graph_for_resolves_a_config_token_in_a_named_target_slot(): void {
 		\Newspack_Nodes\Core::register_config_namespace(
 			'wombat_graph',

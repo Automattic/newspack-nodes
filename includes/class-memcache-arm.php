@@ -15,6 +15,9 @@ namespace Newspack_Nodes;
  */
 final class Memcache_Arm extends Cache_Backend {
 
+	/** Longest expiry memcached reads as seconds from now; longer is a Unix time. */
+	private const MAX_RELATIVE_TTL_S = 2592000;
+
 	/**
 	 * Wrap the shared handle.
 	 *
@@ -66,6 +69,36 @@ final class Memcache_Arm extends Cache_Backend {
 		];
 	}
 
+	public function set( string $key, mixed $value, int $ttl ): bool {
+		return ! self::refuses_key( $key ) && $this->memd->set( $key, $value, self::expiry( $ttl ) );
+	}
+
+	public function write_multi( array $items, int $ttl ): bool {
+		return [] === $items || ( ! self::refuses_any( $items ) && $this->memd->setMulti( $items, self::expiry( $ttl ) ) );
+	}
+
+	public function add( string $key, mixed $value, int $ttl ): bool {
+		return ! self::refuses_key( $key ) && $this->memd->add( $key, $value, self::expiry( $ttl ) );
+	}
+
+	public function touch( string $key, int $ttl ): ?bool {
+		if ( $this->memd->touch( $key, self::expiry( $ttl ) ) ) {
+			return true;
+		}
+		return \Memcached::RES_NOTFOUND === $this->memd->getResultCode() ? false : null;
+	}
+
+	/**
+	 * A TTL as memcached reads it: past thirty days, the Unix time it ends
+	 * at, since memcached takes a longer relative value as an absolute time
+	 * already past and drops the item on store.
+	 *
+	 * @param int $ttl Seconds the item lives; 0 for no expiry.
+	 */
+	private static function expiry( int $ttl ): int {
+		return $ttl > self::MAX_RELATIVE_TTL_S ? (int) ( Core::$now ?: Core::right_now() ) + $ttl : $ttl;
+	}
+
 	public function get( string $key ): mixed {
 		return $this->memd->get( $key );
 	}
@@ -79,27 +112,8 @@ final class Memcache_Arm extends Cache_Backend {
 		};
 	}
 
-	public function set( string $key, mixed $value, int $ttl ): bool {
-		return ! self::refuses_key( $key ) && $this->memd->set( $key, $value, $ttl );
-	}
-
-	public function write_multi( array $items, int $ttl ): bool {
-		return [] === $items || ( ! self::refuses_any( $items ) && $this->memd->setMulti( $items, $ttl ) );
-	}
-
-	public function add( string $key, mixed $value, int $ttl ): bool {
-		return ! self::refuses_key( $key ) && $this->memd->add( $key, $value, $ttl );
-	}
-
 	public function delete( string $key ): ?bool {
 		if ( $this->memd->delete( $key ) ) {
-			return true;
-		}
-		return \Memcached::RES_NOTFOUND === $this->memd->getResultCode() ? false : null;
-	}
-
-	public function touch( string $key, int $ttl ): ?bool {
-		if ( $this->memd->touch( $key, $ttl ) ) {
 			return true;
 		}
 		return \Memcached::RES_NOTFOUND === $this->memd->getResultCode() ? false : null;

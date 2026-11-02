@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Delay_Node` publishes its queue's status through `Publishes_Status`, under `status:<name>:p<partition>`,** once each sweep's cursor commits and ahead of the reader's teardown: `depth`, the entries the sweep parked, which are the ones waiting; and `dropped`, `{ first_day, last_day }`, the UTC days its drops cover — the day an entry dropped past `max_age_s` was parked, or the day the full queue refused one — merged into the last snapshot's range when the two touch within a day and replacing it otherwise, or null while none has dropped. The depth counts parks, not the records on disk. A sweep that throws before its cursor commits publishes nothing, and its replay counts what it drops. The snapshot lives thirty days and an unchanged one is rewritten each minute.
+- **`Node::graph_facts( array $args, array $commands ): array`** lets a class add facts to its `Topology_Analyzer::graph_for()` row, judged from its `make_node` arguments and the verbs sent to its `:config` in evaluation order, `set_*target` lines aside. `Remote_Broker_Node` answers its `vault_id` and `sources` through it, so a broker's row is unchanged.
+- **`Topology_Missing`** is what `Bootstrap::active_topologies()` records for an active name no `.tsl` resolves.
+
+### Changed
+- **A `Delay_Node` sweep reads only what was parked before it began.** Its reader stops at where the queue ended as the sweep began, through the new `Consumer_Node::read_to( [ $segment, $offset ] )`, which cuts each batch read at that point and leaves the cursor there. An entry a target parks again, due or not, waits for the next sweep, where one large enough to flush mid-drain was read back and could be delivered again in the same pass.
+- **A table or dir lookup no longer fails for an active name no `.tsl` resolves, and fails for a `.tsl` that will not read only when no readable topology answers it.** `row_table()`, `node_tables()`, `node_dirs()` and `node_partitions()` read past a `Topology_Missing`, and raise a `.tsl` that will not read only when no readable topology declares what was asked; `row_table()` raised one on every lookup. `wp nodes doctor`, the spawn gate and `dump_graph` still name both.
+- **`scripts/reorder-node-methods.php` orders a `trait` as it does a class,** under the generic policy, so the substrate's trait files are newspaper-ordered and the commit gate holds each one to it. The members moved and no body changed.
+
+### Fixed
+- **`Memcache_Arm` keeps a value whose TTL is past thirty days.** memcached reads an expiry above 2,592,000 seconds as a Unix time, so `set`, `add`, `write_multi` and `touch` dropped such a value on store; each now sends the time it ends at, dated from the tick's clock, which a write never moves. newspack-intelligence's re-resolver status, kept 365 days, is the long TTL that reached it.
+
 ## [2.143.0] - 2026-11-01
 
 ### Added

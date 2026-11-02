@@ -22,4 +22,17 @@ final class MemcacheArmContractTest extends CacheBackendContract {
 	protected function arm(): Cache_Backend {
 		return Cache_Backend::memcache_arm() ?? self::fail( 'no memcache arm' );
 	}
+
+	/** A long TTL is dated from the tick's clock, and a cache write never moves that clock. */
+	public function test_a_long_ttl_reads_the_ticks_clock_without_moving_it(): void {
+		$memd       = Core::$memd;
+		$this->assertInstanceOf( InMemoryMemcached::class, $memd );
+		Core::$now  = self::T0 + 123.0;
+		$this->clock = self::T0 + 9999;
+
+		$this->arm()->set( 'kea-pinned', 'v-7712', 365 * DAY_IN_SECONDS );
+
+		$this->assertSame( self::T0 + 123.0, Core::$now );
+		$this->assertSame( [ self::T0 + 123 + 365 * DAY_IN_SECONDS ], \array_values( $memd->expiries() ) );
+	}
 }

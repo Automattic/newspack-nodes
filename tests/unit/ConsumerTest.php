@@ -902,6 +902,94 @@ class ConsumerTest extends TestCase {
 		);
 	}
 
+	/** @return array{0:int,1:int} Where $source ends now, or `[ 0, 0 ]` before its first write. */
+	private static function end_of_or_none( Partition_Node $source ): array {
+		return [] === $source->get_segments( true ) ? [ 0, 0 ] : self::end_of( $source );
+	}
+
+	/** @return array{0:int,1:int} Where $source ends now: its newest segment and that segment's size. */
+	private static function end_of( Partition_Node $source ): array {
+		$newest = \array_slice( $source->get_segments( true ), -1 )[0];
+		return [ $newest['id'], $newest['size'] ];
+	}
+
+	/** A reader told where to stop takes the lines before it out of one batch and leaves the rest unread. */
+	public function test_read_to_stops_inside_a_batch_with_the_cursor_at_the_end(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'before-3301' );
+		$this->produce_line( $source, 'before-3302' );
+		$end = self::end_of( $source );
+		$this->produce_line( $source, 'after-3303' );
+		$this->produce_line( $source, 'after-3304' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+		$c->read_to( $end );
+
+		$this->assertTrue( $c->drain(), 'the end it was given is the end it reaches' );
+		$this->assertSame( [ 'before-3301', 'before-3302' ], \array_column( \array_slice( $capture->captured, 0, -1 ), Message::VALUE ) );
+		$this->assertSame( "{$end[0]}:{$end[1]}", $c->cursor_position() );
+	}
+
+	/** The bound holds across many batches and segments, a batch at a time. */
+	public function test_read_to_holds_across_batches_and_segments(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 100 * 1024 ), "8", "86400" ] );
+		$count = 3 * Consumer_Node::READ_BLOCK_BYTES / 1024;
+		for ( $i = 0; $i < $count; $i++ ) {
+			$this->produce_line( $source, \str_repeat( 'b', 1000 ) . "-{$i}" );
+		}
+		$end = self::end_of( $source );
+		for ( $i = 0; $i < 40; $i++ ) {
+			$this->produce_line( $source, "after-{$i}" );
+		}
+		$this->assertGreaterThan( 0, $end[0], 'the bound sits past the first segment' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+		$c->read_to( $end );
+		$c->drain();
+
+		$values = \array_column( \array_slice( $capture->captured, 0, -1 ), Message::VALUE );
+		$this->assertCount( $count, $values );
+		$this->assertSame( \str_repeat( 'b', 1000 ) . '-' . ( $count - 1 ), \end( $values ) );
+		$this->assertSame( "{$end[0]}:{$end[1]}", $c->cursor_position() );
+	}
+
+	/** An end at a segment's last byte stops there, though newer segments follow it. */
+	public function test_read_to_at_a_segments_end_never_rolls_past_it(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 16 * 1024 ), "8", "86400" ] );
+		// Fill the first segment until the next line rotates: the end is its last byte.
+		$written = 0;
+		do {
+			$end = self::end_of_or_none( $source );
+			$this->produce_line( $source, \str_repeat( 'e', 1000 ) . '-' . $written++ );
+		} while ( 0 === self::end_of( $source )[0] );
+		for ( $i = 0; $i < 40; $i++ ) {
+			$this->produce_line( $source, \str_repeat( 'n', 1000 ) . "-{$i}" );
+		}
+		$this->assertSame( 0, $end[0] );
+		$this->assertGreaterThan( 1, self::end_of( $source )[0], 'newer segments follow the end' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+		$c->read_to( $end );
+		$c->drain();
+
+		$values = \array_column( \array_slice( $capture->captured, 0, -1 ), Message::VALUE );
+		$this->assertCount( $written - 1, $values, 'every line of the full segment, and none after' );
+		$this->assertSame( \str_repeat( 'e', 1000 ) . '-' . ( $written - 2 ), \end( $values ) );
+		$this->assertSame( "{$end[0]}:{$end[1]}", $c->cursor_position() );
+	}
+
 	public function test_drain_stops_where_its_caller_says_and_claims_no_eof(): void {
 		// A bounded one-shot read ends on the caller's word, not the log's.
 		$source = new Partition_Node();

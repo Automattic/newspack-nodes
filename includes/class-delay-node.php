@@ -40,11 +40,19 @@ namespace Newspack_Nodes;
  *
  * All three dirs name `{partition}`: each worker parks on and sweeps a queue
  * of its own, which its queue's lifted write cap assumes.
+ *
+ * A sweep reads only what was parked before it began; what it or a target
+ * parks waits for the next. Once its cursor commits it publishes `depth`,
+ * the entries it parked, and `dropped`, the UTC days its drops cover: an
+ * aged-out entry's park day, a full queue's refusal day, merged into the
+ * last range when the two touch within a day (`Publishes_Status`).
  */
 final class Delay_Node extends Timer_Node {
 	use Schema_Reflection;
 
 	use Sidecar;
+
+	use Publishes_Status;
 
 	/** Seconds between two sweeps. */
 	public const DEFAULT_INTERVAL_S = 60;
@@ -99,6 +107,12 @@ final class Delay_Node extends Timer_Node {
 
 	/** Segment of the committed cursor, -1 for none; null until read. */
 	private ?int $committed = null;
+
+	/** Entries parked since the latest sweep began. */
+	private int $parked = 0;
+
+	/** @var array{0:int,1:int}|null First and last UTC day number of the unpublished drops. */
+	private ?array $drop_span = null;
 
 	/** Wire the `{name}:config` interpreter `set_read_capability` arrives on. */
 	public function __construct() {
@@ -174,30 +188,39 @@ final class Delay_Node extends Timer_Node {
 	}
 
 	/**
-	 * One sweep: flush what this tick parked, then circulate the queue with
-	 * a reader built for the pass from the dirs as written, so it resolves
-	 * `{partition}` and judges ownership as a topology line would, and
-	 * removed whatever the pass threw. A delivery failure is reported here
+	 * One sweep: flush what this tick parked, then circulate the queue up to
+	 * where it ends now with a reader built for the pass from the dirs as
+	 * written, so it resolves `{partition}` and judges ownership as a
+	 * topology line would; publish once its cursor commits, and remove the
+	 * reader whatever the pass threw. A delivery failure is reported here
 	 * and never leaves.
 	 *
 	 * @throws \Throwable A stop, or a re-append, checkpoint or teardown that failed.
 	 */
 	protected function fire(): void {
 		$this->queue()->flush();
+		$this->parked = 0;
 		if ( ! \is_dir( $this->dir ) ) {
+			$this->publish_queue();
 			return;
 		}
+		$newest = \array_slice( $this->queue()->get_segments( true ), -1 )[0] ?? null;
+		$end    = null === $newest ? [ -1, 0 ] : [ $newest['id'], $newest['size'] ];
 		$now    = Core::right_now();
 		$reader = new Consumer_Node();
 		$failed = [];
+		$unpublished = $this->drop_span;
 		try {
 			Worker_Should_Stop::raise(
 				Worker_Should_Stop::attempt(
-					function () use ( $reader, $now, &$failed ): void {
+					function () use ( $reader, $end, $now, &$failed, &$unpublished ): void {
 						$reader->name( self::sibling_name_of( $this->name, self::READER ) );
 						$reader->arguments( [ $this->written_argument( 'dir' ), $this->written_argument( 'offsets_dir' ), $this->written_argument( 'deadletter_dir' ) ] );
+						$reader->read_to( $end );
 						$this->sweeping = $reader;
 						$failed         = self::circulate( $reader, fn ( array $message ): bool => $this->route( $message, $now ), $this->requeue( ... ) );
+						$this->publish_queue();
+						$unpublished = null;
 					},
 					$reader->remove_node( ... )
 				)
@@ -205,6 +228,8 @@ final class Delay_Node extends Timer_Node {
 		} finally {
 			$this->sweeping  = null;
 			$this->committed = null;
+			// An unpublished sweep's drops replay, so keep only earlier ones.
+			$this->drop_span = $unpublished;
 		}
 		foreach ( $failed as $e ) {
 			$this->print_less_often( 'WARNING: delivery failed; its entry retries next sweep: ', $e->getMessage() );
@@ -215,7 +240,8 @@ final class Delay_Node extends Timer_Node {
 	 * Drain a queue once with `$reader` and circulate what is not done with.
 	 *
 	 * The caller builds the reader for the pass, so it starts from the
-	 * committed cursor, and removes it after. It reads to the end, handing each struct
+	 * committed cursor, and removes it after. It reads as far as the caller
+	 * bounded the reader, `read_to()` or the log's end, handing each struct
 	 * message to `$route`, which answers true when the entry is done with —
 	 * delivered or dropped — and false to hold it. A `$route` throw holds its
 	 * entry too, and the throws come back as the answer, so a failing
@@ -293,8 +319,10 @@ final class Delay_Node extends Timer_Node {
 	 * @return bool True when the entry is done with.
 	 */
 	private function route( array $message, float $now ): bool {
-		$entry = Core::arr( $message[ Message::VALUE ] );
-		if ( $now - Core::num_float( $entry['parked_at'] ?? 0, 0.0 ) > $this->max_age_s ) {
+		$entry     = Core::arr( $message[ Message::VALUE ] );
+		$parked_at = Core::num_float( $entry['parked_at'] ?? 0, 0.0 );
+		if ( $now - $parked_at > $this->max_age_s ) {
+			$this->drop_on( \intdiv( (int) $parked_at, DAY_IN_SECONDS ) );
 			$this->print_less_often( "WARNING: dropped an entry parked past max_age {$this->max_age_s}s", ' keyed ' . self::key_label( Core::as_string( $message[ Message::KEY ] ) ) );
 			return true;
 		}
@@ -336,6 +364,7 @@ final class Delay_Node extends Timer_Node {
 	 */
 	private function park( array $entry, string $key ): void {
 		if ( ! $this->has_room() ) {
+			$this->drop_on( \intdiv( (int) ( Core::$now ?: Core::right_now() ), DAY_IN_SECONDS ) );
 			$this->print_less_often( 'WARNING: queue full; dropped an entry', ' keyed ' . self::key_label( $key ) );
 			return;
 		}
@@ -344,6 +373,7 @@ final class Delay_Node extends Timer_Node {
 		$message[ Message::KEY ]   = $key;
 		$message[ Message::VALUE ] = $entry;
 		$this->queue()->fill( $message );
+		++$this->parked;
 	}
 
 	/**
@@ -377,6 +407,56 @@ final class Delay_Node extends Timer_Node {
 		return $this->committed ??= Core::num_int( Partition_Node::read_latest_value_at( $this->offsets_dir )['segment'] ?? null, -1 );
 	}
 
+	/** Publish what the sweep parked and the drops since the last publish. */
+	private function publish_queue(): void {
+		$this->publish_status(
+			[
+				'depth'   => $this->parked,
+				'dropped' => self::drop_range( $this->last_status()['dropped'] ?? null, $this->drop_span ),
+			]
+		);
+		$this->drop_span = null;
+	}
+
+	/** Widen the unpublished drops' span to `$day`, a UTC day number. */
+	private function drop_on( int $day ): void {
+		$this->drop_span = [ \min( $this->drop_span[0] ?? $day, $day ), \max( $this->drop_span[1] ?? $day, $day ) ];
+	}
+
+	/**
+	 * The UTC days the drops cover: their span, widened to the held range
+	 * when the two touch within a day, since that is one incident, and
+	 * replacing it otherwise.
+	 *
+	 * @param mixed                   $held The last snapshot's `dropped`.
+	 * @param array{0:int,1:int}|null $span First and last UTC day number of the drops since.
+	 */
+	private static function drop_range( mixed $held, ?array $span ): mixed {
+		if ( null === $span ) {
+			return $held;
+		}
+		$range = $span;
+		$from  = self::day_number( Core::arr( $held )['first_day'] ?? null );
+		$to    = self::day_number( Core::arr( $held )['last_day'] ?? null );
+		if ( null !== $from && null !== $to && $range[0] <= $to + 1 && $range[1] >= $from - 1 ) {
+			$range = [ \min( $range[0], $from ), \max( $range[1], $to ) ];
+		}
+		return [
+			'first_day' => \gmdate( 'Y-m-d', $range[0] * DAY_IN_SECONDS ),
+			'last_day'  => \gmdate( 'Y-m-d', $range[1] * DAY_IN_SECONDS ),
+		];
+	}
+
+	/**
+	 * A `Y-m-d` UTC day as its day number, or null when it reads as none.
+	 *
+	 * @param mixed $day A day as a snapshot holds it.
+	 */
+	private static function day_number( mixed $day ): ?int {
+		$at = \is_string( $day ) ? \strtotime( "{$day} UTC" ) : false;
+		return false === $at ? null : \intdiv( $at, DAY_IN_SECONDS );
+	}
+
 	/**
 	 * A KEY as a drop line shows it: cut and made safe for a terminal.
 	 *
@@ -393,6 +473,16 @@ final class Delay_Node extends Timer_Node {
 	 */
 	private function queue(): Partition_Node {
 		return $this->queue ?? throw new \LogicException( \esc_html( "Delay {$this->name} has no queue; arguments() builds it" ) );
+	}
+
+	/** Seconds the cache keeps a status no sweep rewrites. */
+	protected function status_ttl(): int {
+		return 30 * DAY_IN_SECONDS;
+	}
+
+	/** Seconds after which an unchanged status is written again. */
+	protected function status_heartbeat(): int {
+		return 60;
 	}
 
 	/**

@@ -189,7 +189,7 @@ class InMemoryMemcached extends \Memcached {
 		}
 		$this->store[ $key ] = [
 			'value'   => $value,
-			'expires' => $expiration > 0 ? $this->now() + $expiration : 0,
+			'expires' => $this->expires_at( $expiration ),
 			'cas'     => $this->next_cas++,
 		];
 		$this->result_code = \Memcached::RES_SUCCESS;
@@ -264,7 +264,7 @@ class InMemoryMemcached extends \Memcached {
 		}
 		$this->store[ $key ] = [
 			'value'   => $value,
-			'expires' => $expiration > 0 ? $this->now() + $expiration : 0,
+			'expires' => $this->expires_at( $expiration ),
 			'cas'     => $this->next_cas++,
 		];
 		$this->result_code = \Memcached::RES_SUCCESS;
@@ -332,5 +332,19 @@ class InMemoryMemcached extends \Memcached {
 	/** Epoch seconds expiry reads: the bound seam, else the wall clock. */
 	private function now(): int {
 		return null !== $this->clock ? ( $this->clock )() : \time();
+	}
+
+	/**
+	 * The epoch second an expiration ends at, as memcached reads one: 0 never
+	 * expires, up to thirty days is relative to now, and anything longer is
+	 * an absolute Unix time, so a long relative TTL is already past.
+	 *
+	 * @param int $expiration The expiration a write carried.
+	 */
+	private function expires_at( int $expiration ): int {
+		if ( $expiration > 2592000 ) {
+			return $expiration;
+		}
+		return $expiration > 0 ? $this->now() + $expiration : 0;
 	}
 }
