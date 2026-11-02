@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.144.0] - 2026-11-02
+
 ### Added
 - **`isTypingTarget( element )`** (`src/shared/utils/isTypingTarget.js`, `@newspack-nodes/shared/utils/isTypingTarget`) answers whether a key's target is a field the reader types in: an input, a textarea, a select or editable content, the element itself or any ancestor, `contenteditable="false"` excepted, and false for anything that is not an element.
 - **`Delay_Node` publishes its queue's status through `Publishes_Status`, under `status:<name>:p<partition>`,** once each sweep's cursor commits and ahead of the reader's teardown: `depth`, the entries the sweep parked, which are the ones waiting; and `dropped`, `{ first_day, last_day }`, the UTC days its drops cover — the day an entry dropped past `max_age_s` was parked, or the day the full queue refused one — merged into the last snapshot's range when the two touch within a day and replacing it otherwise, or null while none has dropped. The depth counts parks, not the records on disk. A sweep that throws before its cursor commits publishes nothing, and its replay counts what it drops. The snapshot lives thirty days and an unchanged one is rewritten each minute.
