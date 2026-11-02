@@ -180,6 +180,73 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( [ 'firehose-workers', 'only-stock' ], $names );
 	}
 
+	public function test_resolve_file_answers_the_last_registered_dirs_copy(): void {
+		$second = $this->make_temp_dir( 'tsl-stock-2-' );
+		\file_put_contents( "{$this->stock}/seed-4417.json", '{}' );
+		\file_put_contents( "{$second}/seed-4417.json", '[]' );
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_stock_dir( $second );
+
+		$this->assertSame( "{$second}/seed-4417.json", Topology_Registry::resolve_file( 'seed-4417.json' ) );
+		$this->rmdir_recursive( $second );
+	}
+
+	public function test_resolve_file_falls_back_to_an_earlier_dir_then_the_user_dir(): void {
+		$second = $this->make_temp_dir( 'tsl-stock-2-' );
+		\file_put_contents( "{$this->stock}/held-by-first.json", '{}' );
+		\file_put_contents( "{$this->user}/held-by-user.json", '{}' );
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_stock_dir( $second );
+		Topology_Registry::register_user_dir( $this->user );
+
+		$this->assertSame( "{$this->stock}/held-by-first.json", Topology_Registry::resolve_file( 'held-by-first.json' ) );
+		$this->assertSame( "{$this->user}/held-by-user.json", Topology_Registry::resolve_file( 'held-by-user.json' ) );
+		$this->rmdir_recursive( $second );
+	}
+
+	public function test_resolve_file_answers_null_for_a_name_no_dir_holds(): void {
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_user_dir( $this->user );
+		\mkdir( "{$this->stock}/a-directory.json" );
+
+		$this->assertNull( Topology_Registry::resolve_file( 'absent-8810.json' ) );
+		$this->assertNull( Topology_Registry::resolve_file( 'a-directory.json' ) );
+	}
+
+	/**
+	 * @return array<string,array{string}>
+	 */
+	public static function refused_file_names(): array {
+		return [
+			'slash'         => [ 'nested/seed.json' ],
+			'backslash'     => [ 'nested\\seed.json' ],
+			'parent inside' => [ 'seed..json' ],
+		];
+	}
+
+	/**
+	 * Each refused name names a file that exists, so only the refusal can
+	 * answer null.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_file_names' )]
+	public function test_resolve_file_refuses_a_name_that_could_leave_the_dir( string $name ): void {
+		\mkdir( "{$this->stock}/inner" );
+		\mkdir( "{$this->stock}/inner/nested" );
+		\file_put_contents( "{$this->stock}/inner/nested/seed.json", '{}' );
+		\file_put_contents( "{$this->stock}/inner/seed..json", '{}' );
+		\file_put_contents( "{$this->stock}/inner/nested\\seed.json", '{}' );
+		Topology_Registry::register_stock_dir( "{$this->stock}/inner" );
+
+		$this->assertNull( Topology_Registry::resolve_file( $name ) );
+	}
+
+	public function test_resolve_refuses_a_topology_name_that_walks_out_of_the_dir(): void {
+		\mkdir( "{$this->stock}/inner" );
+		Topology_Registry::register_stock_dir( "{$this->stock}/inner" );
+
+		$this->assertNull( Topology_Registry::resolve( '../only-stock' ) );
+	}
+
 	public function test_list_ignores_tsl_named_directories(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
 		Topology_Registry::register_user_dir( $this->user );

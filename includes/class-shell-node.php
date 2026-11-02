@@ -1136,7 +1136,8 @@ class Shell_Node extends Node {
 	 * Evaluate a file line by line, as though each had been typed.
 	 *
 	 * resolve_include() is the only gate between the argument and the disk: it
-	 * takes a registered topology NAME, never a path. Two more guard re-entry — a
+	 * takes a registered topology NAME, never a path, which
+	 * `Topology_Registry::resolve_file()` refuses when it carries a separator. Two more guard re-entry — a
 	 * path already on the ancestor chain is a cycle, and one already evaluated in
 	 * this top-level script is a `#pragma once` no-op. `secure`/`insecure` lines
 	 * are skipped (see declares_secure_level()), and flush_pending() judges a
@@ -1320,16 +1321,6 @@ class Shell_Node extends Node {
 	 * @return string|null The registered `.tsl` path, or null when refused.
 	 */
 	private function resolve_include( string $file ): ?string {
-		// @longform Registered topology dirs ONLY. Worker boot eval_script()s
-		// admin-authored TSL, so anything an include can reach, an admin who
-		// can save a topology can execute. A bare `is_file()` fallback reaches
-		// the whole disk; a name carrying separators walks out of the dir
-		// resolve() interpolates it into. Same reasoning as resolve()'s own
-		// "stock owns its names" rule. If topologies ever become a tree,
-		// replace this with canonicalize-then-contain, not a looser pattern.
-		if ( '' === $file || \preg_match( '{[/\\\\]|^\.\.$}', $file ) ) {
-			return null;
-		}
 		return Topology_Registry::resolve( $file );
 	}
 

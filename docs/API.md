@@ -1863,6 +1863,18 @@ second attempt too; a clean stop flushes it first.
 | `INFLIGHT` | `inflight` | The set of members taken and not yet settled. |
 | `MEMBER_TTL` | 31536000 (one year) | How long a member waits in either set. |
 
+## Topology dirs
+
+[`Topology_Registry`](../includes/class-topology-registry.php) resolves a name
+through the dirs registered with it: each stock dir, the last registered first,
+then the user dir. A deployment shadows what a plugin ships by registering a
+dir holding the same name.
+
+| Method | What it does |
+|---|---|
+| `resolve( string $name ): ?string` | The path of `<name>.tsl`, through `resolve_file()`. |
+| `resolve_file( string $filename ): ?string` | The path of the first file of that exact name in those dirs, or null when none holds one. A directory of that name is skipped; an unreadable file still answers, so its reader fails loud. A name carrying `/`, `\` or `..` answers null, since it could reach outside the dir. |
+
 ## Extensibility hooks
 
 Every hook the substrate fires, and the ones a consumer plugin is expected to

@@ -189,23 +189,36 @@ class Topology_Registry {
 	/**
 	 * Absolute path to `<name>.tsl`, or null when no registered dir holds one.
 	 *
-	 * `is_file`, not `file_exists`: a directory named `<name>.tsl` is not a
-	 * topology, and resolving one would hand the loader a path it cannot read.
-	 *
 	 * @param string $name Topology name, without the `.tsl` extension.
 	 */
 	public static function resolve( string $name ): ?string {
+		return self::resolve_file( $name . '.tsl' );
+	}
+
+	/**
+	 * Absolute path to the file named `$filename` in the first registered dir
+	 * holding one — each stock dir, the last registered first, then the user
+	 * dir — or null when none does, or when the name carries a separator or
+	 * `..` and so could reach outside the dir. A deployment
+	 * shadows any file a plugin ships beside its topologies by registering a
+	 * dir holding the same name.
+	 *
+	 * `is_file`, not `file_exists`: a directory of that name is not the file,
+	 * and resolving one would hand the reader a path it cannot read. An
+	 * unreadable file still resolves, so its reader fails loud rather than a
+	 * lower dir's copy silently standing in for it.
+	 *
+	 * @param string $filename A bare file name, extension included.
+	 */
+	public static function resolve_file( string $filename ): ?string {
+		if ( \preg_match( '{[/\\\\]|\.\.}', $filename ) ) {
+			return null;
+		}
 		// Order is load-bearing: a shadowing user .tsl is code execution.
-		foreach ( self::$stock_dirs as $dir ) {
-			$path = $dir . '/' . $name . '.tsl';
+		foreach ( [ ...self::$stock_dirs, ...( '' === self::$user_dir ? [] : [ self::$user_dir ] ) ] as $dir ) {
+			$path = $dir . '/' . $filename;
 			if ( \is_file( $path ) ) {
 				return $path;
-			}
-		}
-		if ( '' !== self::$user_dir ) {
-			$user_path = self::$user_dir . '/' . $name . '.tsl';
-			if ( \is_file( $user_path ) ) {
-				return $user_path;
 			}
 		}
 		return null;
