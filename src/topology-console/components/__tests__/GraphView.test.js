@@ -482,6 +482,28 @@ describe( 'GraphView', () => {
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'n1' );
 	} );
 
+	it( 'Delete typed inside editable content removes nothing', () => {
+		const onRemoveNode = jest.fn();
+		const { getByText } = renderWithCatalog(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				onRemoveNode={ onRemoveNode }
+				resetKey="k"
+			/>
+		);
+		fireEvent.click( getByText( 'select-n1' ) );
+		const editable = document.createElement( 'div' );
+		editable.setAttribute( 'contenteditable', 'true' );
+		editable.innerHTML = '<span>note</span>';
+		document.body.appendChild( editable );
+		fireEvent.keyDown( editable.querySelector( 'span' ), {
+			key: 'Delete',
+		} );
+		document.body.removeChild( editable );
+		expect( onRemoveNode ).not.toHaveBeenCalled();
+	} );
+
 	it( 'Delete key on a selected BORROWED node does not call onRemoveNode', () => {
 		const onRemoveNode = jest.fn();
 		const borrowedGraph = {

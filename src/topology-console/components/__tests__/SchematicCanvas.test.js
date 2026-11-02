@@ -618,6 +618,15 @@ describe( 'SchematicCanvas', () => {
 		fireEvent.keyDown( input, { key: 'ArrowRight' } );
 		expect( onViewportChange ).not.toHaveBeenCalled();
 		document.body.removeChild( input );
+		const editable = document.createElement( 'div' );
+		editable.setAttribute( 'contenteditable', 'true' );
+		editable.innerHTML = '<p><b>words</b></p>';
+		document.body.appendChild( editable );
+		fireEvent.keyDown( editable.querySelector( 'b' ), {
+			key: 'ArrowRight',
+		} );
+		expect( onViewportChange ).not.toHaveBeenCalled();
+		document.body.removeChild( editable );
 	} );
 
 	it( 'arrow keys do NOT pan when the canvas is not hovered (overlay host-page protection)', () => {

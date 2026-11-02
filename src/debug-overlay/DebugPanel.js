@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import TabHost from '@newspack-nodes/shared/tabs/TabHost';
 import Header from '../shared/components/Header';
+import { isTypingTarget } from '../shared/utils/isTypingTarget';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useDebugFrame } from './useDebugFrame';
 
@@ -122,13 +123,9 @@ export default function DebugPanel( {
 					onDoubleClick={ ( e ) => {
 						// Don't maximize from an interactive header control.
 						const el = /** @type {HTMLElement} */ ( e.target );
-						const tag = el?.tagName;
 						if (
-							tag === 'SELECT' ||
-							tag === 'BUTTON' ||
-							tag === 'INPUT' ||
-							tag === 'OPTION' ||
-							el?.closest?.( 'select, button, input' )
+							isTypingTarget( el ) ||
+							el?.closest?.( 'button' )
 						) {
 							return;
 						}

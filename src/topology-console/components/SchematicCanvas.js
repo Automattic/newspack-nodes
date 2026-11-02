@@ -36,6 +36,7 @@ import {
 } from '../utils/viewportCull';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
 import { nameHash } from '../../shared/hooks/useTimeChart';
+import { isTypingTarget } from '../../shared/utils/isTypingTarget';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
@@ -1256,13 +1257,7 @@ export default function SchematicCanvas( {
 			if ( ! focused && ! ( canvasHoverRef.current && ! act ) ) {
 				return;
 			}
-			const tag = e.target && e.target.tagName;
-			if (
-				tag === 'INPUT' ||
-				tag === 'TEXTAREA' ||
-				tag === 'SELECT' ||
-				( e.target && e.target.isContentEditable )
-			) {
+			if ( isTypingTarget( e.target ) ) {
 				return;
 			}
 			const keys = keyStateRef.current;

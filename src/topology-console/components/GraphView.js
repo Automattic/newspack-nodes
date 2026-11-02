@@ -15,6 +15,7 @@ import { useSidecarRows } from '../hooks/useSidecarRows';
 import { usePublishedGraph } from '../hooks/useGraphSource';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
+import { isTypingTarget } from '../../shared/utils/isTypingTarget';
 
 /** An empty list with one identity, so an absent one redraws nothing. */
 const NONE = [];
@@ -408,11 +409,7 @@ export default function GraphView( {
 			) {
 				return;
 			}
-			const tag = e.target && e.target.tagName;
-			if ( tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ) {
-				return;
-			}
-			if ( e.target && e.target.isContentEditable ) {
+			if ( isTypingTarget( e.target ) ) {
 				return;
 			}
 			// Esc closes the innermost grid, focus back on the canvas.

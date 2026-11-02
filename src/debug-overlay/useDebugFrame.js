@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { holdPageScroll, releasePageScroll } from './pageScrollLock';
 import { scrollbarWidth } from './scrollbarWidth';
+import { isTypingTarget } from '../shared/utils/isTypingTarget';
 
 /**
  * Narrowest a resize may leave the panel, in px. The floor keeps the header
@@ -295,33 +296,21 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 	/**
 	 * Start a move from the header, dragging the panel by its whole box.
 	 *
-	 * The header carries the panel's controls, so a pointerdown on a select,
-	 * button or input — or on anything inside one — starts no drag: a drag
-	 * would preventDefault its way through the click that control exists for.
-	 * The `closest` guard is what catches the icon inside a button.
+	 * The header carries the panel's controls, so a pointerdown on a field or
+	 * a button — or on anything inside one — starts no drag: a drag would
+	 * preventDefault its way through the click that control exists for.
+	 * `isTypingTarget()` and the `closest` guard catch an icon inside one.
 	 *
 	 * @param {import('react').PointerEvent} e The pointerdown.
 	 * @return {void}
 	 */
 	const onHeaderPointerDown = useCallback(
 		( e ) => {
-			const tag = e.target && e.target.tagName;
 			if (
-				tag === 'SELECT' ||
-				tag === 'BUTTON' ||
-				tag === 'INPUT' ||
-				tag === 'OPTION'
+				isTypingTarget( e.target ) ||
+				e.target?.closest?.( 'button' )
 			) {
 				return;
-			}
-			if ( e.target && e.target.closest ) {
-				if (
-					e.target.closest( 'select' ) ||
-					e.target.closest( 'button' ) ||
-					e.target.closest( 'input' )
-				) {
-					return;
-				}
 			}
 			const start = frame;
 			// Read the clamp bounds once; the read reflows. See clampFrame.
