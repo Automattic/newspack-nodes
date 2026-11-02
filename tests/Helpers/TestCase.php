@@ -273,6 +273,8 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Event_Framework::$curl_poll     = null;
 			\Newspack_Nodes\HTTP_Out_Node::$curl_result     = null;
 			\Newspack_Nodes\Curl_Node::$curl_result         = null;
+			\Newspack_Nodes\Curl_Node::$resolve             = null;
+			\Newspack_Nodes\Curl_Node::$prereq_available    = null;
 		}
 		$this->reset_health_test_state();
 		parent::tearDown();

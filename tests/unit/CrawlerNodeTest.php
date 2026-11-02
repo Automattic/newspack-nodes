@@ -20,6 +20,7 @@ use Newspack_Nodes\Crawler_Node;
 use Newspack_Nodes\Curl_Node;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Failures;
+use Newspack_Nodes\Frontier;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
@@ -398,7 +399,7 @@ final class CrawlerNodeTest extends TestCase {
 
 		Core::$clock = static fn (): float => 1790000061.0;
 		$this->assertArrayHasKey( $url, $this->members( $crawler, 'pending' ), 'the frontier keeps it past the 60 s ttl' );
-		Core::$clock = static fn (): float => 1790000000.0 + Crawler_Node::FRONTIER_TTL;
+		Core::$clock = static fn (): float => 1790000000.0 + Frontier::MEMBER_TTL;
 		$this->assertSame( [], $this->members( $crawler, 'pending' ), 'for one year' );
 	}
 
@@ -420,6 +421,23 @@ final class CrawlerNodeTest extends TestCase {
 		Core::register_node( 'crawl-4471:seen', $seen );
 		$this->in_drain( fn () => $this->seed( $crawler, $url ) );
 		$this->assertSame( [ $url ], $this->dispatched, 'a later sighting finds it new' );
+	}
+
+	public function test_seen_keys_the_table_will_not_remove_are_named(): void {
+		$lines = [];
+		Core::set_stderr_handler( static function ( $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+		$crawler = $this->crawler();
+		$seen    = $this->seen( $crawler );
+		$url     = self::SITE . '/stuck-5512';
+		$drop    = static fn ( mixed $value ): bool => ( \is_array( $value ) && isset( $value['SADD'] ) ) || \str_starts_with( (string) ( \is_string( $value ) ? $value : '' ), 'RM ' );
+		Core::register_node( 'crawl-4471:seen', new Crawler_Filtering_Table_Fixture_Node( $seen, $drop ) );
+
+		$this->seed( $crawler, $url );
+
+		$this->assertSame( '1', $seen->lookup( $url ), 'its seen key stands' );
+		$this->assertCount( 1, \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, "stay seen until their ttl lapses: {$url}" ) ) );
 	}
 
 	/** @return array<string,array{0: bool}> */
@@ -585,7 +603,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( [ self::SITE . '/a-11', self::SITE . '/b-12', self::SITE . '/c-13' ], \array_map( 'strval', \array_keys( $this->members( $crawler, 'inflight' ) ) ) );
 	}
 
-	public function test_the_window_holds_sixteen_in_flight_and_each_answer_starts_one(): void {
+	public function test_the_window_holds_sixteen_in_flight_and_refills_at_half(): void {
 		$crawler = $this->wide();
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
 		$paths = \array_map( static fn ( int $i ): string => \sprintf( '/p-%02d', $i ), \range( 1, 40 ) );
@@ -599,11 +617,14 @@ final class CrawlerNodeTest extends TestCase {
 		$this->ticks( $crawler, 1 );
 		$this->assertSame( $moves, $this->seen( $crawler )->stats()['SMOVE'], 'a tick with a full window asks the Table nothing' );
 
-		$this->complete( $this->dispatched[1] );
+		foreach ( \array_slice( $this->dispatched, 1, Curl_Node::MAX_IN_FLIGHT / 2 ) as $url ) {
+			$this->complete( $url );
+		}
 
-		$this->assertCount( 2 + Curl_Node::MAX_IN_FLIGHT, $this->dispatched, 'one answer starts exactly one more' );
+		$this->assertCount( 1 + Curl_Node::MAX_IN_FLIGHT * 3 / 2, $this->dispatched, 'half the window free starts half a window' );
+		$this->assertSame( $moves['calls'] + 1, $this->seen( $crawler )->stats()['SMOVE']['calls'], 'in one move' );
 		$this->assertCount( Curl_Node::MAX_IN_FLIGHT, $this->members( $crawler, 'inflight' ) );
-		$this->assertSame( [ Message::TM_BYTESTREAM, Message::TM_BYTESTREAM ], \array_column( $this->pages->captured, Message::TYPE ), 'no fetch is turned away busy' );
+		$this->assertSame( \array_fill( 0, 1 + Curl_Node::MAX_IN_FLIGHT / 2, Message::TM_BYTESTREAM ), \array_column( $this->pages->captured, Message::TYPE ), 'no fetch is turned away busy' );
 	}
 
 	public function test_a_forward_that_throws_keeps_the_url_in_flight_and_its_links(): void {
@@ -680,13 +701,16 @@ final class CrawlerNodeTest extends TestCase {
 			$this->assertSame( "curl_init failed {$urls[ $i ]}", $out[ Message::VALUE ] );
 			$this->assertSame( $urls[ $i ], $out[ Message::KEY ] );
 		}
-		$this->assertSame( [], $this->members( $crawler, 'inflight' ) );
+		$this->assertSame( $first, \array_map( 'strval', \array_keys( $this->members( $crawler, 'inflight' ) ) ), 'answered, and removed at the next take' );
 		$this->assertSame( \array_slice( $urls, Curl_Node::MAX_IN_FLIGHT ), \array_map( 'strval', \array_keys( $this->members( $crawler, 'pending' ) ) ) );
 
 		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( $urls, $this->dispatched, 'the next tick takes the rest' );
 		$this->assertSame( [], $this->members( $crawler, 'pending' ) );
+		$this->assertSame( \array_slice( $urls, Curl_Node::MAX_IN_FLIGHT ), \array_map( 'strval', \array_keys( $this->members( $crawler, 'inflight' ) ) ) );
+		$this->ticks( $crawler, 1 );
+		$this->assertSame( [], $this->members( $crawler, 'inflight' ) );
 	}
 
 	public function test_a_rebuilt_crawler_fetches_what_was_in_flight_on_its_first_tick(): void {
@@ -797,8 +821,10 @@ final class CrawlerNodeTest extends TestCase {
 		$this->ticks( $crawler, 2 );
 		$this->assertSame( $urls, $this->dispatched, 'two ticks drain five urls three at a time' );
 		$this->assertSame( [], $this->members( $crawler, 'pending' ) );
+		$this->ticks( $crawler, 1 );
+		$this->assertSame( [], $this->members( $crawler, 'inflight' ), 'the next tick removes the last answers' );
 		$calls = $this->table_calls( $crawler );
-		$this->ticks( $crawler, 23 );
+		$this->ticks( $crawler, 22 );
 
 		$this->assertSame( $calls, $this->table_calls( $crawler ), 'a drained frontier asks nothing' );
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/h-6' ) );
@@ -927,8 +953,39 @@ final class CrawlerNodeTest extends TestCase {
 
 		$this->complete( $this->dispatched[2] );
 
-		$this->assertCount( 5, $this->dispatched, 'one answer starts exactly one more' );
-		$this->assertSame( 3, $curl->transfers_in_flight() );
+		$this->assertCount( 4, $this->dispatched, 'one free slot of three waits for a second' );
+		$this->assertSame( 2, $curl->transfers_in_flight() );
+	}
+
+	public function test_a_clean_stop_sweeps_the_answered_out_of_inflight(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '0', '4' );
+		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
+		$this->complete( self::SITE . '/', $this->links_body( ...\array_map( static fn ( int $i ): string => "/s-{$i}", \range( 1, 9 ) ) ) );
+		$answered = $this->dispatched[1];
+		$this->complete( $answered );
+		$this->assertArrayHasKey( $answered, $this->members( $crawler, 'inflight' ), 'answered, not yet removed' );
+
+		$crawler->shutdown_sweep();
+
+		$this->assertArrayNotHasKey( $answered, $this->members( $crawler, 'inflight' ) );
+		$this->assertCount( 3, $this->members( $crawler, 'inflight' ), 'what is in flight stays for the next process' );
+	}
+
+	public function test_an_answer_refills_once_half_the_window_is_free_in_one_take(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '0', '4' );
+		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
+		$this->complete( self::SITE . '/', $this->links_body( ...\array_map( static fn ( int $i ): string => "/w-{$i}", \range( 1, 30 ) ) ) );
+		$this->assertCount( 5, $this->dispatched, 'the seed, then a window of four' );
+		$moves = $this->seen( $crawler )->stats()['SMOVE']['calls'];
+
+		$this->complete( $this->dispatched[1] );
+		$this->assertCount( 5, $this->dispatched, 'one slot of four free starts none' );
+		$this->assertSame( $moves, $this->seen( $crawler )->stats()['SMOVE']['calls'], 'and asks nothing' );
+
+		$this->complete( $this->dispatched[2] );
+		$this->assertCount( 7, $this->dispatched, 'two of four free start two' );
+		$this->assertSame( $moves + 1, $this->seen( $crawler )->stats()['SMOVE']['calls'], 'in one move' );
+		$this->assertSame( \array_slice( $this->dispatched, 3 ), \array_map( 'strval', \array_keys( $this->members( $crawler, 'inflight' ) ) ), 'the answered pair settled in that take' );
 	}
 
 	public function test_the_default_concurrency_keeps_one_transfer_in_flight(): void {

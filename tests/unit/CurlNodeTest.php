@@ -50,6 +50,8 @@ class CurlNodeTest extends TestCase {
 	protected function tearDown(): void {
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		Curl_Node::$curl_result   = null;
+		Curl_Node::$resolve       = null;
+		Curl_Node::$prereq_available = null;
 		Vault::get_instance()->reset_cache();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		\Newspack_Nodes\Config::reset();
@@ -836,6 +838,567 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( 'DELETE', $opts[ \CURLOPT_CUSTOMREQUEST ] );
 		$this->assertArrayNotHasKey( \CURLOPT_POSTFIELDS, $opts );
 		$this->assertSame( [ 'Mcp-Session-Id: sess-end-4471' ], $opts[ \CURLOPT_HTTPHEADER ] );
+	}
+
+	/** A request naming a connect timeout bounds the connection by it, under the transfer's own timeout. */
+	public function test_a_request_naming_a_connect_timeout_bounds_the_connection(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://feeds-9.example/feed/', 'method' => 'GET', 'connect_timeout' => 7 ] ) );
+
+		$this->assertSame( 7, $this->captured[0][ \CURLOPT_CONNECTTIMEOUT ] );
+		$this->assertSame( Curl_Node::REQUEST_TIMEOUT, $this->captured[0][ \CURLOPT_TIMEOUT ] );
+	}
+
+	public function test_a_request_naming_no_connect_timeout_sets_none(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://feeds-9.example/feed/', 'method' => 'GET' ] ) );
+		$this->fetch( $node, $this->url_message( 'https://feeds-9.example/rss' ) );
+
+		$this->assertArrayNotHasKey( \CURLOPT_CONNECTTIMEOUT, $this->captured[0] );
+		$this->assertArrayNotHasKey( \CURLOPT_CONNECTTIMEOUT, $this->captured[1] );
+	}
+
+	/** @return array<string,array{0:mixed}> */
+	public static function refused_connect_timeout_provider(): array {
+		return [
+			'zero'            => [ 0 ],
+			'negative'        => [ -4 ],
+			'past the total'  => [ 31 ],
+			'a numeric string' => [ '10' ],
+			'a float'         => [ 2.5 ],
+		];
+	}
+
+	/** A connect timeout that is not whole seconds from 1 to the transfer's own timeout is refused. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_connect_timeout_provider' )]
+	public function test_a_connect_timeout_outside_the_transfers_is_refused( mixed $seconds ): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://feeds-9.example/feed/', 'method' => 'GET', 'connect_timeout' => $seconds ] ) );
+
+		$this->assert_error( 'invalid connect timeout https://feeds-9.example/feed/' );
+	}
+
+	/** Complete transfers inside a running drain loop, where a redirect's next hop may start. */
+	private function deliver_in_loop( array $rows ): void {
+		$delivered = false;
+		Event_Framework::instance()->drain(
+			function () use ( $rows, &$delivered ): bool {
+				if ( ! $delivered ) {
+					$delivered = true;
+					$this->deliver_curl_rows( $rows );
+				}
+				return false;
+			}
+		);
+	}
+
+	/** A request a response chose: a public-only GET of the url, every name resolving to one public address unless a test says otherwise. */
+	private function public_only( string $url, array $more = [] ): array {
+		Curl_Node::$resolve ??= static fn ( string $host ): array => [ '93.184.215.14' ];
+		return $this->request_message( [ 'url' => $url, 'method' => 'GET', 'public_only' => true, ...$more ] );
+	}
+
+	/**
+	 * Run as on a PHP without `CURLOPT_PREREQFUNCTION`, answering each lookup
+	 * from the list in turn and recording every host asked.
+	 *
+	 * @param list<list<string>> $answers Each lookup's addresses.
+	 * @return \ArrayObject<int,string> The hosts asked, in order.
+	 */
+	private function without_prereq_resolving( array $answers ): \ArrayObject {
+		Curl_Node::$prereq_available = static fn (): bool => false;
+		$asked                       = new \ArrayObject();
+		Curl_Node::$resolve = static function ( string $host ) use ( &$answers, $asked ): array {
+			$asked[] = $host;
+			return \array_shift( $answers ) ?? [];
+		};
+		return $asked;
+	}
+
+	/** The check dispatch $i hands libcurl to run once connected, before sending. */
+	private function prereq_of( int $i ): \Closure {
+		$prereq = $this->captured[ $i ][ \CURLOPT_PREREQFUNCTION ] ?? null;
+		$this->assertInstanceOf( \Closure::class, $prereq, "dispatch {$i} checks before sending" );
+		return $prereq;
+	}
+
+	/** A pinned transfer opens a connection of its own, since libcurl reuses one by host and port, never by pinned address. */
+	public function test_a_pinned_public_only_transfer_takes_a_fresh_connection(): void {
+		$this->without_prereq_resolving( [ [ '93.184.215.53' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-53.example/feed/' ) );
+
+		$this->assertTrue( $this->captured[0][ \CURLOPT_FRESH_CONNECT ] );
+	}
+
+	public function test_an_unpinned_transfer_reuses_connections(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-54.example/feed/' ) );
+
+		$this->assertArrayNotHasKey( \CURLOPT_FRESH_CONNECT, $this->captured[0] );
+	}
+
+	/** An empty proxy turns off every proxy, the environment's included, whose address both checks would read instead. */
+	public function test_a_public_only_transfer_goes_through_no_proxy_the_environment_names(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->public_only( 'https://feed-55.example/feed/' ) );
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://feed-56.example/feed/', 'method' => 'GET' ] ) );
+
+		$this->assertSame( '', $this->captured[0][ \CURLOPT_PROXY ] );
+		$this->assertArrayNotHasKey( \CURLOPT_PROXY, $this->captured[1] );
+	}
+
+	public function test_a_busy_node_refuses_a_public_only_request_before_any_lookup(): void {
+		$node = $this->curl();
+		for ( $i = 0; $i < Curl_Node::MAX_IN_FLIGHT; $i++ ) {
+			$this->fetch( $node, $this->url_message( "https://busy-57.example/{$i}" ) );
+		}
+		$asked = $this->without_prereq_resolving( [ [ '93.184.215.57' ] ] );
+		$this->captured = [];
+
+		$this->fetch( $node, $this->public_only( 'https://feed-57.example/feed/' ) );
+
+		$this->assertSame( [], $asked->getArrayCopy() );
+		$this->assert_error( 'busy: 16 requests in flight https://feed-57.example/feed/' );
+	}
+
+	public function test_a_malformed_public_only_request_is_refused_before_any_lookup(): void {
+		$asked = $this->without_prereq_resolving( [ [ '93.184.215.58' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-58.example/feed/', [ 'method' => 'PATCH' ] ) );
+
+		$this->assertSame( [], $asked->getArrayCopy() );
+		$this->assert_error( 'invalid method PATCH https://feed-58.example/feed/' );
+	}
+
+	/** One connection the check refused keeps the transfer refused, whatever a later one reaches. */
+	public function test_a_refusal_on_connect_is_never_lifted(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://rebind-59.example/feed/' ) );
+		$prereq = $this->prereq_of( 0 );
+		$prereq( $this->handles[0], '10.0.0.59', '10.0.0.2', 443, 50059 );
+
+		$this->assertSame( \CURL_PREREQFUNC_ABORT, $prereq( $this->handles[0], '93.184.215.59', '10.0.0.2', 443, 50060 ) );
+		$this->answer_with( 200, 'body-59', '', '93.184.215.59' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( 'refused private address https://rebind-59.example/feed/', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function non_global_address_provider(): array {
+		return [
+			'nat64 of loopback'        => [ '64:ff9b::7f00:1' ],
+			'nat64 of link-local'      => [ '64:ff9b::a9fe:a9fe' ],
+			'nat64 local-use'          => [ '64:ff9b:1::a9fe:a9fe' ],
+			'site-local'               => [ 'fec0::1' ],
+			'ipv4-mapped loopback'     => [ '::ffff:127.0.0.1' ],
+			'ipv4-compatible loopback' => [ '::127.0.0.1' ],
+			'6to4 of loopback'         => [ '2002:7f00:1::' ],
+			'unspecified'              => [ '0.0.0.0' ],
+			'shared'                   => [ '100.64.0.1' ],
+			'ietf protocol'            => [ '192.0.0.1' ],
+			'benchmarking'             => [ '198.18.0.1' ],
+			'unique local'             => [ 'fc00::1' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'non_global_address_provider' )]
+	public function test_an_address_outside_the_global_ranges_is_refused( string $address ): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-60.example/feed/' ) );
+
+		$this->assertSame( \CURL_PREREQFUNC_ABORT, ( $this->prereq_of( 0 ) )( $this->handles[0], $address, '10.0.0.2', 443, 50061 ) );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function global_address_provider(): array {
+		return [
+			'ipv4'           => [ '93.184.215.62' ],
+			'ipv6'           => [ '2606:4700::1111' ],
+			'nat64 of ipv4'  => [ '64:ff9b::808:808' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'global_address_provider' )]
+	public function test_an_address_in_the_global_ranges_is_reached( string $address ): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-62.example/feed/' ) );
+
+		$this->assertSame( \CURL_PREREQFUNC_OK, ( $this->prereq_of( 0 ) )( $this->handles[0], $address, '10.0.0.2', 443, 50063 ) );
+	}
+
+	public function test_a_public_only_transfer_checks_the_connected_address_before_anything_is_sent(): void {
+		$asked = new \ArrayObject();
+		Curl_Node::$resolve = static function ( string $host ) use ( $asked ): array {
+			$asked[] = $host;
+			return [ '93.184.215.14' ];
+		};
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://rebind-44.example/feed/', 'method' => 'GET', 'public_only' => true ] ) );
+
+		$this->assertSame( [], $asked->getArrayCopy(), 'libcurl resolves; the worker looks nothing up' );
+		$this->assertArrayNotHasKey( \CURLOPT_RESOLVE, $this->captured[0] );
+		$this->assertSame( \CURL_PREREQFUNC_ABORT, ( $this->prereq_of( 0 ) )( $this->handles[0], '127.0.0.1', '10.0.0.2', 443, 50044 ) );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0], \CURLE_ABORTED_BY_CALLBACK ) ] );
+
+		$this->assertSame( 'refused private address https://rebind-44.example/feed/', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_transfer_connected_to_a_public_address_is_sent(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-45.example/feed/' ) );
+
+		$this->assertSame( \CURL_PREREQFUNC_OK, ( $this->prereq_of( 0 ) )( $this->handles[0], '2606:4700::1111', '::1', 443, 50045 ) );
+		$this->answer_with( 200, '<rss>feed-45</rss>', '', '2606:4700::1111' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( '<rss>feed-45</rss>', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** The check is on the address libcurl connected to, so a name that rebinds after any lookup is still caught. */
+	public function test_a_rebound_public_only_transfer_is_refused_on_the_address_it_reached(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://rebind-46.example/feed/' ) );
+		$prereq = $this->prereq_of( 0 );
+
+		$this->assertSame( \CURL_PREREQFUNC_OK, $prereq( $this->handles[0], '93.184.215.46', '10.0.0.2', 443, 50046 ) );
+		$this->assertSame( \CURL_PREREQFUNC_ABORT, $prereq( $this->handles[0], '169.254.169.254', '10.0.0.2', 80, 50047 ), 'a reused or new connection is checked again' );
+	}
+
+	public function test_a_public_only_hop_checks_its_own_connected_address(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-48.example/feed/' ) );
+		$this->answer_with( 302, '', 'https://moved-48.example/rss', '93.184.215.48' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( 'https://moved-48.example/rss', $this->captured[1][ \CURLOPT_URL ] );
+		$this->assertSame( \CURL_PREREQFUNC_ABORT, ( $this->prereq_of( 1 ) )( $this->handles[1], '192.168.4.48', '10.0.0.2', 443, 50048 ) );
+	}
+
+	public function test_a_request_not_marked_public_only_carries_no_prereq_check(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://feed-49.example/feed/', 'method' => 'GET' ] ) );
+
+		$this->assertArrayNotHasKey( \CURLOPT_PREREQFUNCTION, $this->captured[0] );
+	}
+
+	public function test_without_prereq_a_transfer_carries_no_prereq_check(): void {
+		$this->without_prereq_resolving( [ [ '93.184.215.50' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-50.example/feed/' ) );
+
+		$this->assertArrayNotHasKey( \CURLOPT_PREREQFUNCTION, $this->captured[0] );
+		$this->assertSame( [ '+feed-50.example:443:93.184.215.50' ], $this->captured[0][ \CURLOPT_RESOLVE ] );
+	}
+
+	public function test_without_prereq_an_ipv6_only_host_is_reached_pinned(): void {
+		$this->without_prereq_resolving( [ [ '2606:4700::1111' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://v6-51.example/feed/' ) );
+
+		$this->assertSame( [ '+v6-51.example:443:[2606:4700::1111]' ], $this->captured[0][ \CURLOPT_RESOLVE ] );
+	}
+
+	public function test_without_prereq_a_private_ipv6_address_is_refused(): void {
+		$this->without_prereq_resolving( [ [ '2606:4700::1111', 'fd12:3456::52' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://v6-52.example/feed/' ) );
+
+		$this->assert_error( 'refused private address https://v6-52.example/feed/' );
+	}
+
+	public function test_a_public_only_name_resolving_to_loopback_is_refused_with_no_request_sent(): void {
+		$asked = $this->without_prereq_resolving( [ [ '127.0.0.1' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://rebind-31.example/feed/' ) );
+
+		$this->assert_error( 'refused private address https://rebind-31.example/feed/' );
+		$this->assertSame( [ 'rebind-31.example' ], $asked->getArrayCopy() );
+	}
+
+	public function test_a_public_only_name_with_any_private_address_is_refused(): void {
+		$this->without_prereq_resolving( [ [ '93.184.215.14', '10.0.0.32' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://split-32.example/feed/' ) );
+
+		$this->assert_error( 'refused private address https://split-32.example/feed/' );
+	}
+
+	public function test_a_public_only_name_that_resolves_to_nothing_is_refused(): void {
+		$this->without_prereq_resolving( [ [] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://gone-33.example/feed/' ) );
+
+		$this->assert_error( 'unresolved host https://gone-33.example/feed/' );
+	}
+
+	public function test_a_public_only_transfer_is_pinned_to_the_address_it_checked(): void {
+		$this->without_prereq_resolving( [ [ '93.184.215.34', '93.184.215.35' ], [ '93.184.215.36' ] ] );
+		$node = $this->curl();
+
+		$this->fetch( $node, $this->public_only( 'https://Pin-34.example./feed/' ) );
+		$this->fetch( $node, $this->public_only( 'http://pin-36.example:8080/feed/' ) );
+
+		$this->assertSame( [ '+pin-34.example.:443:93.184.215.34', '+pin-34.example:443:93.184.215.34' ], $this->captured[0][ \CURLOPT_RESOLVE ], 'libcurl matches a rooted name only by its own spelling' );
+		$this->assertSame( [ '+pin-36.example:8080:93.184.215.36' ], $this->captured[1][ \CURLOPT_RESOLVE ] );
+	}
+
+	/** The name is looked up once, so an answer that changes after the check never reaches libcurl. */
+	public function test_a_rebind_after_the_check_still_connects_to_the_pinned_public_address(): void {
+		$asked = $this->without_prereq_resolving( [ [ '93.184.215.37' ], [ '127.0.0.1' ] ] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://rebind-37.example/feed/' ) );
+		$this->answer_with( 200, '<rss>pinned-37</rss>', '', '93.184.215.37' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( [ 'rebind-37.example' ], $asked->getArrayCopy(), 'one lookup, never a second' );
+		$this->assertSame( [ '+rebind-37.example:443:93.184.215.37' ], $this->captured[0][ \CURLOPT_RESOLVE ] );
+		$this->assertSame( '<rss>pinned-37</rss>', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_hop_is_resolved_and_refused_before_it_is_sent(): void {
+		$asked = $this->without_prereq_resolving( [ [ '93.184.215.38' ], [ '169.254.169.254' ] ] );
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-38.example/feed/' ) );
+		$this->answer_with( 302, '', 'https://rebind-39.example/feed', '93.184.215.38' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertCount( 1, $this->captured, 'the hop is never sent' );
+		$this->assertSame( [ 'feed-38.example', 'rebind-39.example' ], $asked->getArrayCopy() );
+		$this->assertSame( 'refused private address https://rebind-39.example/feed', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_hop_is_pinned_to_its_own_checked_address(): void {
+		$this->without_prereq_resolving( [ [ '93.184.215.40' ], [ '93.184.215.41' ] ] );
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-40.example/feed/' ) );
+		$this->answer_with( 301, '', 'https://moved-41.example/rss', '93.184.215.40' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( [ '+moved-41.example:443:93.184.215.41' ], $this->captured[1][ \CURLOPT_RESOLVE ] );
+	}
+
+	public function test_a_public_only_address_literal_is_neither_looked_up_nor_pinned(): void {
+		$asked = $this->without_prereq_resolving( [] );
+
+		$this->fetch( $this->curl(), $this->public_only( 'http://93.184.215.42/feed-42' ) );
+
+		$this->assertSame( [], $asked->getArrayCopy() );
+		$this->assertArrayNotHasKey( \CURLOPT_RESOLVE, $this->captured[0] );
+	}
+
+	public function test_a_request_not_marked_public_only_is_never_looked_up(): void {
+		$asked = $this->without_prereq_resolving( [] );
+
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://feed-43.example/feed/', 'method' => 'GET' ] ) );
+
+		$this->assertSame( [], $asked->getArrayCopy() );
+		$this->assertArrayNotHasKey( \CURLOPT_RESOLVE, $this->captured[0] );
+	}
+
+	/** The result seam answering one status, body, Location and connected address. */
+	private function answer_with( int $code, string $body, string $redirect, string $ip ): void {
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => $code, 'body' => $body, 'redirect' => $redirect, 'ip' => $ip ];
+	}
+
+	/** @return array<string,array{0:string,1:string}> */
+	public static function refused_public_only_host_provider(): array {
+		return [
+			'link-local metadata' => [ 'http://169.254.169.254/latest/meta-data/', 'refused private address http://169.254.169.254/latest/meta-data/' ],
+			'loopback'            => [ 'http://127.0.0.1:8080/feed-4', 'refused private address http://127.0.0.1:8080/feed-4' ],
+			'private ten'         => [ 'https://10.20.30.40/feed-5', 'refused private address https://10.20.30.40/feed-5' ],
+			'ipv6 loopback'       => [ 'http://[::1]/feed-6', 'refused private address http://[::1]/feed-6' ],
+			'ipv4-mapped'         => [ 'http://[::ffff:10.0.0.7]/feed-7', 'refused private address http://[::ffff:10.0.0.7]/feed-7' ],
+			'single label'        => [ 'http://intranet-8/feed-8', 'refused single-label host http://intranet-8/feed-8' ],
+			'single label rooted' => [ 'http://intranet-9./feed-9', 'refused single-label host http://intranet-9./feed-9' ],
+			'decimal address'     => [ 'http://2130706433/feed-10', 'refused single-label host http://2130706433/feed-10' ],
+			'short dotted'        => [ 'http://127.1/feed-11', 'refused numeric host http://127.1/feed-11' ],
+			'hex dotted'          => [ 'http://0x7f.0.0.1/feed-12', 'refused numeric host http://0x7f.0.0.1/feed-12' ],
+		];
+	}
+
+	/** A public-only request naming a private, loopback, link-local or reserved address, or a name no DNS root holds, starts no transfer. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_public_only_host_provider' )]
+	public function test_a_public_only_request_refuses_a_host_that_is_not_public( string $url, string $refusal ): void {
+		$this->fetch( $this->curl(), $this->public_only( $url ) );
+
+		$this->assert_error( $refusal );
+	}
+
+	public function test_a_public_only_request_to_a_public_host_answers_its_body(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->public_only( 'https://feed-3.example/feed/' ) );
+		$this->fetch( $node, $this->public_only( 'http://93.184.215.14/feed-13' ) );
+		$this->answer_with( 200, '<rss>feed-3</rss>', '', '93.184.215.14' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ), $this->done( $this->handles[1] ) ] );
+
+		$this->assertSame( [ 'https://feed-3.example/feed/', 'http://93.184.215.14/feed-13' ], \array_column( $this->captured, \CURLOPT_URL ) );
+		$this->assertSame( [ Message::TM_BYTESTREAM, Message::TM_BYTESTREAM ], \array_column( $this->sink->captured, Message::TYPE ) );
+		$this->assertSame( [ '<rss>feed-3</rss>', '<rss>feed-3</rss>' ], \array_column( $this->sink->captured, Message::VALUE ) );
+		$this->assertSame( 'key-2297', $this->sink->captured[0][ Message::KEY ] );
+	}
+
+	public function test_a_public_only_request_whose_name_resolved_to_loopback_answers_no_body(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://rebind-14.example/feed/' ) );
+		$this->answer_with( 200, 'secret-from-loopback-14', '', '127.0.0.1' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_ERROR, $out[ Message::TYPE ] );
+		$this->assertSame( 'refused private address https://rebind-14.example/feed/', $out[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_request_that_reported_no_address_answers_no_body(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://quiet-15.example/feed/' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => 'body-15', 'redirect' => '' ];
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( 'refused private address https://quiet-15.example/feed/', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_request_not_marked_public_only_is_not_guarded(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'http://127.0.0.1:8080/status-16', 'method' => 'GET' ] ) );
+		$this->answer_with( 200, 'status-16', '', '127.0.0.1' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertTrue( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+		$this->assertSame( 'status-16', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** @return array<string,array{0:mixed}> */
+	public static function refused_public_only_flag_provider(): array {
+		return [
+			'a string' => [ 'yes' ],
+			'a number' => [ 1 ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_public_only_flag_provider' )]
+	public function test_a_public_only_flag_that_is_not_a_boolean_is_refused( mixed $flag ): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://feed-3.example/feed/', 'method' => 'GET', 'public_only' => $flag ] ) );
+
+		$this->assert_error( 'invalid public_only https://feed-3.example/feed/' );
+	}
+
+	/** Through a proxy the connected address is the proxy's, so nothing could check the host's. */
+	public function test_a_public_only_request_through_a_proxy_is_refused(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-3.example/feed/', [ 'proxy' => 'socks5h://proxy-5.example:1080' ] ) );
+
+		$this->assert_error( 'refused proxy on a public-only request https://feed-3.example/feed/' );
+	}
+
+	public function test_a_public_only_request_follows_each_redirect_itself_checking_every_hop(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->public_only( 'https://feed-3.example/feed/', [ 'connect_timeout' => 9 ] ) );
+		$this->assertFalse( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ], 'libcurl follows nothing a check could miss' );
+		$this->answer_with( 301, '', 'https://moved-17.example/rss', '93.184.215.14' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( [], $this->sink->captured, 'a hop answers nothing' );
+		$this->assertCount( 2, $this->captured );
+		$this->assertSame( 'https://moved-17.example/rss', $this->captured[1][ \CURLOPT_URL ] );
+		$this->assertSame( 9, $this->captured[1][ \CURLOPT_CONNECTTIMEOUT ], 'the hop runs the same request' );
+		$this->assertFalse( $this->captured[1][ \CURLOPT_FOLLOWLOCATION ] );
+
+		$this->answer_with( 200, '<rss>moved-17</rss>', '', '93.184.215.15' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[1] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ] );
+		$this->assertSame( '<rss>moved-17</rss>', $out[ Message::VALUE ] );
+		$this->assertSame( 'key-2297', $out[ Message::KEY ], 'the answer is a copy of the first request' );
+	}
+
+	/** libcurl drops `Authorization` when a redirect leaves the origin, and so does the node's own hop. */
+	public function test_a_public_only_hop_carries_a_credential_only_on_the_origin_it_started_on(): void {
+		$this->seed_group();
+		$node = $this->curl( 'crawl-g7' );
+		$this->fetch( $node, $this->public_only( 'https://north-31.example:8443/deep/x-24' ) );
+		$this->answer_with( 302, '', 'https://north-31.example:8443/deep/x-25', '93.184.215.14' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+		$this->answer_with( 307, '', 'https://south-52.example/y-26', '93.184.215.14' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[1] ) ] );
+		$this->answer_with( 302, '', 'https://north-31.example:8443/deep/x-27', '93.184.215.14' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[2] ) ] );
+
+		$this->assertSame( 'https://south-52.example/y-26', $this->captured[2][ \CURLOPT_URL ] );
+		$this->assertSame( [ 1, 1, 0, 1 ], [ \count( $this->authorization_of( 0 ) ), \count( $this->authorization_of( 1 ) ), \count( $this->authorization_of( 2 ) ), \count( $this->authorization_of( 3 ) ) ], 'south-52 has its own entry, yet a hop off the first origin carries none' );
+		$this->assertSame( [ 'Authorization: Basic ' . \base64_encode( 'svc-n31:pw-n58' ) ], $this->authorization_of( 3 ), 'back on it, its own' );
+	}
+
+	public function test_a_public_only_redirect_to_a_private_address_is_refused_before_it_is_fetched(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-3.example/feed/' ) );
+		$this->answer_with( 302, '', 'http://169.254.169.254/latest/meta-data/', '93.184.215.14' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertCount( 1, $this->captured, 'the hop never starts' );
+		$this->assertSame( 'refused private address http://169.254.169.254/latest/meta-data/', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_hop_whose_name_resolved_to_a_private_address_answers_no_body(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://feed-3.example/feed/' ) );
+		$this->answer_with( 302, '', 'https://rebind-18.example/feed', '93.184.215.14' );
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+		$this->answer_with( 200, 'secret-from-ten-18', '', '10.0.0.18' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[1] ) ] );
+
+		$this->assertSame( 'refused private address https://rebind-18.example/feed', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_post_redirected_by_a_303_follows_as_a_get(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://api-19.example/q', [ 'method' => 'POST', 'body' => '{"q":19}' ] ) );
+		$this->answer_with( 303, '', 'https://api-19.example/answer', '93.184.215.14' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertTrue( $this->captured[1][ \CURLOPT_HTTPGET ] );
+		$this->assertArrayNotHasKey( \CURLOPT_POSTFIELDS, $this->captured[1] );
+		$this->assertArrayNotHasKey( \CURLOPT_HTTPHEADER, $this->captured[1], 'no JSON Content-Type rides a GET' );
+	}
+
+	public function test_a_public_only_post_redirected_by_a_307_keeps_its_method_and_body(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://api-19.example/q', [ 'method' => 'POST', 'body' => '{"q":20}' ] ) );
+		$this->answer_with( 307, '', 'https://api-20.example/q', '93.184.215.14' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertTrue( $this->captured[1][ \CURLOPT_POST ] );
+		$this->assertSame( '{"q":20}', $this->captured[1][ \CURLOPT_POSTFIELDS ] );
+	}
+
+	public function test_a_public_only_request_follows_at_most_max_redirects(): void {
+		$this->fetch( $this->curl(), $this->public_only( 'https://loop-21.example/0' ) );
+		for ( $hop = 0; $hop <= Curl_Node::MAX_REDIRECTS; $hop++ ) {
+			$this->answer_with( 302, '', 'https://loop-21.example/' . ( $hop + 1 ), '93.184.215.14' );
+			$this->deliver_in_loop( [ $this->done( $this->handles[ $hop ] ) ] );
+		}
+
+		$this->assertCount( Curl_Node::MAX_REDIRECTS + 1, $this->captured );
+		$this->assertSame( 'redirects past ' . Curl_Node::MAX_REDIRECTS . ' https://loop-21.example/' . Curl_Node::MAX_REDIRECTS, $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_request_following_none_answers_its_location(): void {
+		$node = $this->curl();
+		$node->follow_redirects( false );
+		$this->fetch( $node, $this->public_only( 'https://feed-3.example/feed/' ) );
+		$this->answer_with( 301, '', 'http://10.0.0.22/feed', '93.184.215.14' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_RESPONSE, $out[ Message::TYPE ], 'the sender marks the Location public-only when it fetches it' );
+		$this->assertSame( 'http://10.0.0.22/feed', $out[ Message::VALUE ] );
+	}
+
+	public function test_a_public_only_redirect_from_a_private_address_answers_no_location(): void {
+		$node = $this->curl();
+		$node->follow_redirects( false );
+		$this->fetch( $node, $this->public_only( 'https://rebind-23.example/feed/' ) );
+		$this->answer_with( 301, '', 'https://elsewhere-23.example/', '192.168.0.23' );
+
+		$this->deliver_in_loop( [ $this->done( $this->handles[0] ) ] );
+
+		$this->assertSame( 'refused private address https://rebind-23.example/feed/', $this->only_emitted()[ Message::VALUE ] );
 	}
 
 	public function test_a_request_naming_no_proxy_sets_none(): void {

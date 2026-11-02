@@ -303,8 +303,8 @@ if [[ -n "$php_changed" ]]; then
 
 		step "coverage suite in container (phpunit + clover)"
 		cov_rc=0
-		# TEST_TMP lands the clover in the dndocker volume the host gate reads.
-		capture "coverage suite" 3 3 docker exec -u bend -e TEST_TMP=/volumes/pyrobase/tmp "$CONTAINER" \
+		# TEST_TMP lands the clover where the host gate reads; WP_ABSPATH passes on.
+		capture "coverage suite" 3 3 docker exec -u bend -e TEST_TMP=/volumes/pyrobase/tmp -e WP_ABSPATH "$CONTAINER" \
 			"${TEST_DIR_IN_CONTAINER}/run-coverage.sh" || cov_rc=$?
 		[[ "$cov_rc" -ne 0 ]] && fail "coverage suite failed (exit ${cov_rc}) — full output at ${capture_log}"
 		ok "coverage suite clean"

@@ -50,20 +50,18 @@ final class Table_Client {
 	}
 
 	/**
-	 * `SMOVE`: move up to `$count` members of `$from` into `$to`. A set that
-	 * cannot be named is refused with a rate-limited line and asks nothing; a
-	 * move naming one set twice is for the Table to refuse, and fails. The move
-	 * failed on a TM_ERROR, a missing count, a count the set messages miss, or
-	 * a set that is not a TM_STRUCT list of `[ member, value ]` pairs.
+	 * `SMOVE`: move up to `$count` members of `$from` into `$to`, asking
+	 * nothing of a set that cannot be named; a refusal, or a reply read() or
+	 * the pair check finds wrong, fails.
 	 *
-	 * @api A node moving members between sets: the Crawler_Node.
+	 * @api A node moving members between sets: the Frontier.
 	 * @param string   $table  The Table's registered name.
 	 * @param string   $from   Set key taken from.
 	 * @param string   $to     Set key moved into.
 	 * @param int      $count  Most members, from 1 to `Table_Node::MAX_MEMBERS_LIMIT`.
 	 * @param ?bool    $failed Set true when the move did not answer.
 	 * @param-out bool $failed
-	 * @return list<string> The members moved, lowest first.
+	 * @return list<array{0: string, 1: mixed}> The members moved, lowest first, each with its value.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
 	 */
@@ -73,22 +71,9 @@ final class Table_Client {
 			Core::print_less_often( 'Table_Client: a move needs two nameable sets' );
 			return [];
 		}
-		$sets     = [];
-		$answered = null;
-		foreach ( $this->ask( $table, Message::TM_REQUEST, "SMOVE {$count} {$from} {$to}\n" ) as $reply ) {
-			$type = Core::num_int( $reply[ Message::TYPE ] );
-			if ( 0 !== ( $type & Message::TM_ERROR ) ) {
-				$failed = true;
-				return [];
-			}
-			if ( 0 !== ( $type & Message::TM_INFO ) ) {
-				$answered = 1 === \preg_match( '/^SMOVE (\d+)\n?$/D', Core::as_string( $reply[ Message::VALUE ], '' ), $m ) ? (int) $m[1] : null;
-				continue;
-			}
-			$sets[] = $reply;
-		}
+		$sets  = $this->read( $table, 'SMOVE', "{$count} {$from} {$to}" );
 		$value = $sets[0][ Message::VALUE ] ?? null;
-		if ( \count( $sets ) !== $answered || ( [] !== $sets && ( 0 === ( Core::num_int( $sets[0][ Message::TYPE ] ) & Message::TM_STRUCT ) || ! \is_array( $value ) || ! \array_is_list( $value ) ) ) ) {
+		if ( null === $sets || ( [] !== $sets && ( 0 === ( Core::num_int( $sets[0][ Message::TYPE ] ) & Message::TM_STRUCT ) || ! \is_array( $value ) || ! \array_is_list( $value ) ) ) ) {
 			$failed = true;
 			return [];
 		}
@@ -98,9 +83,9 @@ final class Table_Client {
 				$failed = true;
 				return [];
 			}
-			$moved[ Core::as_string( $pair[0], '' ) ] = true;
+			$moved[] = [ Core::as_string( $pair[0], '' ), $pair[1] ];
 		}
-		return \array_map( 'strval', \array_keys( $moved ) );
+		return $moved;
 	}
 
 	/**
@@ -119,6 +104,59 @@ final class Table_Client {
 			return [];
 		}
 		return $this->write_keys( $table, 'SREM', [ $set_key ], $members );
+	}
+
+	/**
+	 * `GET`: the value the Table holds for a key, or null when it holds none.
+	 * A key that cannot be named asks nothing. The read failed on a TM_ERROR,
+	 * a missing count, or a count the value messages miss, so a failure never
+	 * reads as an absent key.
+	 *
+	 * @api A node reading keyed rows: newspack-intelligence's feed.
+	 * @param string   $table  The Table's registered name.
+	 * @param string   $key    Key.
+	 * @param ?bool    $failed Set true when the read did not answer.
+	 * @param-out bool $failed
+	 * @return mixed An array for a stored array, a string otherwise; null for none.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	public function get( string $table, string $key, ?bool &$failed = null ): mixed {
+		$failed = false;
+		if ( [] === $this->nameable( [ $key ] ) ) {
+			return null;
+		}
+		$values = $this->read( $table, 'GET', $key );
+		$failed = null === $values;
+		return $values[0][ Message::VALUE ] ?? null;
+	}
+
+	/**
+	 * Ask a read and collect its data replies, the messages its `VERB <n>`
+	 * TM_INFO counts.
+	 *
+	 * @param string $table The Table's registered name.
+	 * @param string $verb  `GET` or `SMOVE`.
+	 * @param string $args  The verb's arguments.
+	 * @return list<array<int,mixed>>|null Null on a TM_ERROR, a missing count, or a count the data replies miss.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	private function read( string $table, string $verb, string $args ): ?array {
+		$data     = [];
+		$answered = null;
+		foreach ( $this->ask( $table, Message::TM_REQUEST, "{$verb} {$args}\n" ) as $reply ) {
+			$type = Core::num_int( $reply[ Message::TYPE ] );
+			if ( 0 !== ( $type & Message::TM_ERROR ) ) {
+				return null;
+			}
+			if ( 0 !== ( $type & Message::TM_INFO ) ) {
+				$answered = 1 === \preg_match( "/^{$verb} (\\d+)\\n?$/D", Core::as_string( $reply[ Message::VALUE ], '' ), $m ) ? (int) $m[1] : null;
+				continue;
+			}
+			$data[] = $reply;
+		}
+		return \count( $data ) === $answered ? $data : null;
 	}
 
 	/**

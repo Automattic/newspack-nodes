@@ -111,6 +111,37 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
 	}
 
+	public function test_get_answers_a_keys_value_through_the_graph(): void {
+		$client = $this->asker->client;
+		$client->add_multi( 'lab-7:kea', [ 'host:feed-3.example' => [ [ 'failures' => 4, 'retry_at' => 1790000600 ], 37 ], 'sku-47' => [ 'weka-5' ] ] );
+
+		$this->assertSame( [ 'failures' => 4, 'retry_at' => 1790000600 ], $client->get( 'lab-7:kea', 'host:feed-3.example', $failed ) );
+		$this->assertFalse( $failed );
+		$this->assertSame( 'weka-5', $client->get( 'lab-7:kea', 'sku-47' ), 'a string value answers as its string' );
+		$this->assertNull( $client->get( 'lab-7:kea', 'host:absent-9.example', $failed ) );
+		$this->assertFalse( $failed, 'an absent key is an answer, not a failure' );
+		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
+	}
+
+	public function test_get_fails_when_the_table_refuses_or_does_not_answer(): void {
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-7:mute.p3' );
+		$this->assertNull( $this->asker->client->get( 'lab-7:gone.p3', 'sku-41', $failed ) );
+		$this->assertTrue( $failed, 'NOT_AVAILABLE is a failure, never an absence' );
+		$this->assertNull( $this->asker->client->get( 'lab-7:mute.p3', 'sku-41', $failed ) );
+		$this->assertTrue( $failed, 'no count means no answer' );
+	}
+
+	public function test_get_of_a_key_holding_whitespace_is_never_asked(): void {
+		$asked                   = 0;
+		$this->asker->on_message = static function () use ( &$asked ): void {
+			++$asked;
+		};
+		$this->assertNull( $this->asker->client->get( 'lab-7:kea', "sku 41", $failed ) );
+		$this->assertFalse( $failed );
+		$this->assertSame( 0, $asked );
+	}
+
 	public function test_members_land_through_the_graph(): void {
 		$this->assertSame( [ 'word:kea', 'word:owl' ], $this->asker->client->add_members( 'lab-7:kea', [ 'word:kea' => [ 'u-41' => [ 'hits' => 3 ], 'u-43' => 'weka' ], 'word:owl' => [ 'u-47' => 7 ] ], 37 ) );
 		$this->assertSame(
@@ -125,11 +156,11 @@ final class TableClientTest extends TestCase {
 
 	public function test_members_move_between_sets_through_the_graph(): void {
 		$client = $this->asker->client;
-		$client->add_members( 'lab-7:kea', [ 'pend-3307' => [ 'x-2' => 1, 'x-1' => 1, 'x-3' => 1 ] ], 900 );
-		$this->assertSame( [ 'x-1', 'x-2' ], $client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 2, $failed ) );
+		$client->add_members( 'lab-7:kea', [ 'pend-3307' => [ 'x-2' => [ 'hop' => 2 ], 'x-1' => 'kea-1', 'x-3' => 1 ] ], 900 );
+		$this->assertSame( [ [ 'x-1', 'kea-1' ], [ 'x-2', [ 'hop' => 2 ] ] ], $client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 2, $failed ), 'each member moves with its value' );
 		$this->assertFalse( $failed );
 		$this->assertSame( [ 'x-2' ], $client->remove_members( 'lab-7:kea', 'fly-3307', [ 'x-2', 'x-8' ] ) );
-		$this->assertSame( [ 'pend-3307' => [ 'x-3' => 1 ], 'fly-3307' => [ 'x-1' => 1 ] ], $this->kea()->members_of( [ 'pend-3307', 'fly-3307' ], 10 ) );
+		$this->assertSame( [ 'pend-3307' => [ 'x-3' => 1 ], 'fly-3307' => [ 'x-1' => 'kea-1' ] ], $this->kea()->members_of( [ 'pend-3307', 'fly-3307' ], 10 ) );
 		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
 	}
 
@@ -200,14 +231,14 @@ final class TableClientTest extends TestCase {
 		}
 		$liar->type  = Message::TM_STRUCT;
 		$liar->value = [ [ 'u-41', [ 'hits' => 3 ] ], [ '0418', 'owl' ] ];
-		$this->assertSame( [ 'u-41', '0418' ], $this->asker->client->move_members( 'lab-7:liar.p3', 'pend-3307', 'fly-3307', 9, $failed ) );
+		$this->assertSame( [ [ 'u-41', [ 'hits' => 3 ] ], [ '0418', 'owl' ] ], $this->asker->client->move_members( 'lab-7:liar.p3', 'pend-3307', 'fly-3307', 9, $failed ) );
 		$this->assertFalse( $failed );
 	}
 
 	public function test_an_all_digit_member_comes_back_as_a_string_from_a_move(): void {
 		$client = $this->asker->client;
 		$client->add_members( 'lab-7:kea', [ '4417' => [ '0418' => 'kea', '4419' => 'owl' ] ], 777 );
-		$this->assertSame( [ '0418', '4419' ], $client->move_members( 'lab-7:kea', '4417', '4421', 9 ) );
+		$this->assertSame( [ [ '0418', 'kea' ], [ '4419', 'owl' ] ], $client->move_members( 'lab-7:kea', '4417', '4421', 9 ) );
 	}
 
 	public function test_an_add_of_no_sets_asks_nothing(): void {
@@ -269,7 +300,7 @@ final class TableClientTest extends TestCase {
 		$this->asker->client->add_members( 'lab-7:kea', [ 'pend-3307' => [ 'x-1' => 1 ] ], 900 );
 		$this->asker->client->move_members( 'lab-7:mute.p3', 'pend-3307', 'fly-3307', 9, $failed );
 		$this->assertTrue( $failed );
-		$this->assertSame( [ 'x-1' ], $this->asker->client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 9, $failed ), 'the next ask is not refused as in flight' );
+		$this->assertSame( [ [ 'x-1', 1 ] ], $this->asker->client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 9, $failed ), 'the next ask is not refused as in flight' );
 		$this->assertFalse( $failed );
 	}
 
@@ -375,7 +406,7 @@ final class TableClientTest extends TestCase {
 			$stray[ Message::VALUE ] = [ [ 'x-9', 9 ] ];
 			$this->asker->fill( $stray );
 		};
-		$this->assertSame( [ 'x-1' ], $this->asker->client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 9, $failed ) );
+		$this->assertSame( [ [ 'x-1', 1 ] ], $this->asker->client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 9, $failed ) );
 		$this->assertFalse( $failed );
 		$this->assertSame( [], $this->asker->folded );
 	}

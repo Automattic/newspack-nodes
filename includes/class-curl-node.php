@@ -11,18 +11,21 @@
  * any forwarded message; the copy is never addressed back to FROM.
  *
  * A TM_BYTESTREAM's VALUE is a url, fetched with a GET. A TM_STRUCT's VALUE
- * is `{ url, method, body, headers, proxy, response_headers }`: `method` GET,
- * POST or DELETE, a POST's `body` a string of at most `MAX_BODY_BYTES`, sent
- * as `application/json`, `headers` an optional list of `Name: value` lines
- * sent after it, a `Content-Type` among them replacing the JSON one, and
- * `proxy` an optional `<scheme>://<host>:<port>` the fetch goes through, its
- * scheme one of `PROXY_SCHEMES`, which no `no_proxy` variable bypasses. Any
- * other method, a body on a GET or a DELETE, a body over the cap, a header
- * line holding CR or LF, holding no value, naming one of
+ * is `{ url, method, body, headers, proxy, response_headers, connect_timeout }`:
+ * `method` GET, POST or DELETE, a POST's `body` a string of at most
+ * `MAX_BODY_BYTES`, sent as `application/json`, `headers` an optional list of
+ * `Name: value` lines sent after it, a `Content-Type` among them replacing
+ * the JSON one, `proxy` an optional `<scheme>://<host>:<port>` the fetch goes
+ * through, its scheme one of `PROXY_SCHEMES`, which no `no_proxy` variable
+ * bypasses, and `connect_timeout` the optional whole seconds, from 1 to
+ * `REQUEST_TIMEOUT`, the connection may take within the transfer's own
+ * timeout. Any other method, a body on a GET or a DELETE, a body over the
+ * cap, a header line holding CR or LF, holding no value, naming one of
  * `Vault::FRAMING_HEADERS`, or naming `Authorization` or the credential's own
- * header where the vault lends the origin one, and a proxy of another shape,
+ * header where the vault lends the origin one, a proxy of another shape,
  * carrying userinfo, holding CR or LF, or beside a credential on a plain url,
- * answers a TM_ERROR naming the url and never a header's value or the proxy.
+ * and a connect timeout of another kind, answers a TM_ERROR naming the url
+ * and never a header's value or the proxy.
  * Both forms share everything below and the in-flight cap.
  *
  * A TM_STRUCT may also name `response_headers`, at most
@@ -51,6 +54,12 @@
  * a Location answers a TM_RESPONSE copy whose VALUE is that absolute url, and
  * a 3xx naming none answers a TM_ERROR as a status of 400 or more does.
  *
+ * A TM_STRUCT whose url a response chose names `public_only` true and
+ * reaches public addresses alone, through no proxy: public_of() judges the
+ * host, a check before sending (PHP 8.4) or a pinned lookup judges the
+ * address it connects to, and the node follows each redirect itself under
+ * the same guard.
+ *
  * @package Newspack_Nodes
  */
 
@@ -61,12 +70,13 @@ namespace Newspack_Nodes;
 /**
  * Curl node — `make_node Curl <name> [vault_group]`.
  *
- * @implements Curl_Owner<array{context:array{message:array<int,mixed>,url:string,names:list<string>,guard:string},body:\Closure(): string,headers:\Closure(): array<string,string>}>
+ * @phpstan-type Fetch array{message:array<int,mixed>,request:array<array-key,mixed>,hops:int,home:string,public:bool,prereq:bool,pin:list<string>,url:string,names:list<string>,guard:string,refused:\Closure(): bool}
+ * @implements Curl_Owner<array{context:Fetch,body:\Closure(): string,headers:\Closure(): array<string,string>}>
  */
 class Curl_Node extends Node implements Curl_Owner {
 	use Schema_Reflection;
 
-	/** @use Curl_Transfer<array{message:array<int,mixed>,url:string,names:list<string>,guard:string}> */
+	/** @use Curl_Transfer<Fetch> */
 	use Curl_Transfer;
 
 	/** Transfers in flight at once; a fill past it is turned away as busy. */
@@ -96,8 +106,17 @@ class Curl_Node extends Node implements Curl_Owner {
 	/** The schemes a request's proxy may name, lowercased, as libcurl reads them. */
 	private const PROXY_SCHEMES = [ 'socks5h', 'socks5', 'http', 'https' ];
 
-	/** Redirects followed before libcurl fails the transfer. */
+	/** Redirects followed before libcurl, or the node for a public-only request, fails the transfer. */
 	public const MAX_REDIRECTS = 5;
+
+	/** The statuses whose redirect turns a POST into a GET, as libcurl turns it. */
+	private const REDIRECTS_TO_GET = [ 301, 302, 303 ];
+
+	/** The first 96 bits of `64:ff9b::/96`, the well-known NAT64 prefix (RFC 6052). */
+	private const NAT64_PREFIX = "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00";
+
+	/** The first 48 bits of `64:ff9b:1::/48`, the local-use NAT64 prefix (RFC 8215). */
+	private const NAT64_LOCAL_PREFIX = "\x00\x64\xff\x9b\x00\x01";
 
 	/** Transfer timeout for one fetch, in seconds. */
 	public const REQUEST_TIMEOUT = 30;
@@ -118,6 +137,30 @@ class Curl_Node extends Node implements Curl_Owner {
 		'https' => 443,
 	];
 
+	/**
+	 * Name-lookup seam for a public-only request on a PHP without
+	 * `CURLOPT_PREREQFUNCTION`: the addresses its host resolves to, every one
+	 * checked before the transfer starts and the first pinned to it. Null asks
+	 * DNS for A and AAAA records (`dns_get_record()`). Tests reassign it to
+	 * answer a host without DNS.
+	 *
+	 * Signature: `function ( string $host ): list<string>`, empty for none.
+	 *
+	 * @var (\Closure(string): list<string>)|null
+	 */
+	public static ?\Closure $resolve = null;
+
+	/**
+	 * Seam for whether libcurl can check a connection before sending: null
+	 * reads `defined( 'CURLOPT_PREREQFUNCTION' )`, true from PHP 8.4. Tests
+	 * reassign it to run the lookup-and-pin path PHP 8.2 and 8.3 take.
+	 *
+	 * Signature: `function (): bool`.
+	 *
+	 * @var (\Closure(): bool)|null
+	 */
+	public static ?\Closure $prereq_available = null;
+
 	/** Vault group whose entries lend each fetch on their origin a credential; '' for none. */
 	protected string $vault_group = '';
 
@@ -125,12 +168,9 @@ class Curl_Node extends Node implements Curl_Owner {
 	private bool $follow = true;
 
 	/**
-	 * Read the url, or the request, VALUE carries and start its transfer, or
-	 * emit a TM_ERROR naming why none starts. Anything but a TM_BYTESTREAM or
-	 * a TM_STRUCT is dropped: the output carries fetch responses and fetch
-	 * failures, nothing passed through. Outside a running event loop nothing
-	 * would ever complete a transfer, so none starts. Past MAX_IN_FLIGHT the
-	 * fill is turned away as busy rather than queued.
+	 * Start the transfer of the url or request VALUE carries inside a running
+	 * event loop and below MAX_IN_FLIGHT, else answer a TM_ERROR naming why;
+	 * anything but a TM_BYTESTREAM or a TM_STRUCT is dropped.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -146,9 +186,100 @@ class Curl_Node extends Node implements Curl_Owner {
 				'url'    => $message[ Message::VALUE ],
 				'method' => 'GET',
 			];
-		$url     = \trim( Core::as_string( $request['url'] ?? '' ) );
+		$this->start( $message, $request, 0, null );
+	}
+
+	/**
+	 * Emit the completed fetch as a copy of its input message: its body, a
+	 * redirect as the file docblock describes, or a TM_ERROR naming a refused
+	 * address, a curl error or a status of 400 or more.
+	 *
+	 * @param int                                                                 $result   The transfer's CURLE_* code.
+	 * @param array{code:int,body:string,redirect:string,ip:string,headers:array<string,string>} $response Its status, body, unfollowed Location, connected address and kept headers.
+	 * @param Fetch                                                               $request  The input message, the request, its hops, whether it is public-only, the url, the response headers it named, and why it followed no redirect.
+	 */
+	protected function on_transfer_done( int $result, array $response, mixed $request ): void {
+		$url = $request['url'];
+		if ( ( $request['refused'] )() ) {
+			$this->emit( $request['message'], Message::TM_ERROR, "refused private address {$url}" );
+			return;
+		}
+		if ( \CURLE_OK !== $result ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_strerror
+			$reason = Core::as_string( \curl_strerror( $result ) );
+			$this->emit( $request['message'], Message::TM_ERROR, "curl error {$result} ({$reason}) {$url}" );
+			return;
+		}
+		if ( $request['public'] && ! self::is_public_address( $response['ip'] ) ) {
+			$this->emit( $request['message'], Message::TM_ERROR, "refused private address {$url}" );
+			return;
+		}
+		$is_3xx = $response['code'] >= 300 && $response['code'] < 400;
+		if ( $is_3xx && '' !== $response['redirect'] ) {
+			if ( $this->follow && $request['public'] && '' === $request['guard'] ) {
+				$this->hop( $request, $response['code'], $response['redirect'] );
+				return;
+			}
+			if ( $this->follow ) {
+				$this->emit( $request['message'], Message::TM_ERROR, "redirect not followed: {$request['guard']} {$url}" );
+				return;
+			}
+			$this->emit( $request['message'], Message::TM_RESPONSE, $response['redirect'] );
+			return;
+		}
+		if ( ( $is_3xx && ! $this->follow ) || $response['code'] >= 400 ) {
+			$this->emit( $request['message'], Message::TM_ERROR, "HTTP {$response['code']} {$url}" );
+			return;
+		}
+		if ( [] !== $request['names'] ) {
+			$answer = [
+				'body'    => $response['body'],
+				'headers' => $response['headers'],
+			];
+			$this->emit( $request['message'], Message::TM_STRUCT, $answer );
+			return;
+		}
+		$this->emit( $request['message'], Message::TM_BYTESTREAM, $response['body'] );
+	}
+
+	/**
+	 * Fetch a public-only request's Location as its next hop, held to the same
+	 * guard, or answer a TM_ERROR once MAX_REDIRECTS hops are spent. A 301,
+	 * 302 or 303 sends a POST on as a GET with no body.
+	 *
+	 * @param Fetch  $request  The hop that answered the redirect.
+	 * @param int    $code     Its status.
+	 * @param string $location The absolute Location.
+	 */
+	private function hop( array $request, int $code, string $location ): void {
+		if ( $request['hops'] >= self::MAX_REDIRECTS ) {
+			$this->emit( $request['message'], Message::TM_ERROR, 'redirects past ' . self::MAX_REDIRECTS . " {$request['url']}" );
+			return;
+		}
+		$next = [ 'url' => $location ] + $request['request'];
+		if ( 'POST' === ( $next['method'] ?? null ) && \in_array( $code, self::REDIRECTS_TO_GET, true ) ) {
+			$next['method'] = 'GET';
+			unset( $next['body'] );
+		}
+		$this->start( $request['message'], $next, $request['hops'] + 1, $request['home'] );
+	}
+
+	/**
+	 * Start one request's transfer, the first or a public-only request's next
+	 * hop, or emit a TM_ERROR copy of `$message` naming why none starts.
+	 *
+	 * @param array<int,mixed>       $message The input message, which the answer copies.
+	 * @param array<array-key,mixed> $request The request: its url, method and the rest.
+	 * @param int                    $hops    Redirects followed to reach this url.
+	 * @param string|null            $home    The first url's origin, the one a credential rides to; null for the first.
+	 */
+	private function start( array $message, array $request, int $hops, ?string $home ): void {
+		$url = \trim( Core::as_string( $request['url'] ?? '' ) );
 		try {
-			self::origin_of( $url );
+			$origin = self::origin_of( $url );
+			$home ??= $origin;
+			$named  = \strtolower( Core::as_string( \wp_parse_url( $url, \PHP_URL_HOST ) ) );
+			$public = self::public_of( $request, $url, \rtrim( $named, '.' ) );
 			if ( ! Event_Framework::instance()->is_running() ) {
 				self::refuse( "no event loop {$url}" );
 			}
@@ -156,18 +287,116 @@ class Curl_Node extends Node implements Curl_Owner {
 			if ( $in_flight >= self::MAX_IN_FLIGHT ) {
 				self::refuse( "busy: {$in_flight} requests in flight {$url}" );
 			}
-			$credential = $this->credential_for( $url );
+			// Off the first origin a hop carries no credential, as in libcurl.
+			$credential = $home === $origin ? $this->credential_for( $url ) : '';
 			$held       = self::held_header( $credential );
 			$method     = self::method_of( $request, $url );
 			$body       = self::body_of( $request, $method, $url );
 			$lines      = self::headers_of( $request, $url, $held );
 			$proxy      = self::proxy_of( $request, $url, self::credential_like( $credential, $lines ) );
 			$names      = self::response_headers_of( $request, $url, $held );
+			$connect    = self::connect_timeout_of( $request, $url );
+			$prereq     = $public && ( self::$prereq_available ?? static fn (): bool => \defined( 'CURLOPT_PREREQFUNCTION' ) )();
+			$pin        = $public && ! $prereq ? self::pin_of( $url, $named ) : [];
 		} catch ( \UnexpectedValueException $refusal ) {
 			$this->emit( $message, Message::TM_ERROR, $refusal->getMessage() );
 			return;
 		}
-		$this->fetch( $message, $url, $method, $body, $credential, $lines, $proxy, $names );
+		$context = [
+			'message' => $message,
+			'request' => $request,
+			'hops'    => $hops,
+			'home'    => $home,
+			'public'  => $public,
+			'prereq'  => $prereq,
+			'pin'     => $pin,
+		];
+		$this->fetch( $context, $url, $method, $body, $credential, $lines, $proxy, $names, $connect );
+	}
+
+	/**
+	 * Whether a request names `public_only`, refusing one whose host is an
+	 * address outside the global ranges, a single label or a numeric form, or
+	 * that names a proxy: every check that needs no lookup.
+	 *
+	 * @param array<array-key,mixed> $request The request.
+	 * @param string                 $url     The trimmed url, for the refusal.
+	 * @param string                 $host    Its host, lowercased, with no trailing dot.
+	 * @throws \UnexpectedValueException Naming the refusal, as the TM_ERROR carries it.
+	 */
+	private static function public_of( array $request, string $url, string $host ): bool {
+		$public = $request['public_only'] ?? false;
+		if ( ! \is_bool( $public ) ) {
+			self::refuse( "invalid public_only {$url}" );
+		}
+		if ( ! $public ) {
+			return false;
+		}
+		if ( null !== ( $request['proxy'] ?? null ) ) {
+			self::refuse( "refused proxy on a public-only request {$url}" );
+		}
+		$address = \trim( $host, '[]' );
+		if ( false !== \filter_var( $address, \FILTER_VALIDATE_IP ) ) {
+			if ( ! self::is_public_address( $address ) ) {
+				self::refuse( "refused private address {$url}" );
+			}
+			return true;
+		}
+		if ( ! \str_contains( $host, '.' ) ) {
+			self::refuse( "refused single-label host {$url}" );
+		}
+		// A numeric last label is an address form libcurl's resolver reads.
+		if ( 1 === \preg_match( '/\.(?:0x[0-9a-f]*|[0-9]+)$/', $host ) ) {
+			self::refuse( "refused numeric host {$url}" );
+		}
+		return true;
+	}
+
+	/**
+	 * The `+host:port:address` `CURLOPT_RESOLVE` entries pinning a public-only
+	 * name, under both spellings of a rooted one, to the address it was
+	 * checked at, refusing one resolving to nothing or to any address that is
+	 * not public; none for an address literal. This path blocks the loop on
+	 * its lookup; the PREREQFUNCTION path, from PHP 8.4, does not.
+	 *
+	 * @param string $url   The trimmed url of a request public_of() passed.
+	 * @param string $named Its host, lowercased, as the url spells it.
+	 * @return list<string> `+host:port:address` lines.
+	 * @throws \UnexpectedValueException Naming the refusal, as the TM_ERROR carries it.
+	 */
+	private static function pin_of( string $url, string $named ): array {
+		$host = \rtrim( $named, '.' );
+		if ( false !== \filter_var( \trim( $host, '[]' ), \FILTER_VALIDATE_IP ) ) {
+			return [];
+		}
+		$addresses = ( self::$resolve ?? self::lookup( ... ) )( $host );
+		if ( [] === $addresses ) {
+			self::refuse( "unresolved host {$url}" );
+		}
+		foreach ( $addresses as $resolved ) {
+			if ( ! self::is_public_address( $resolved ) ) {
+				self::refuse( "refused private address {$url}" );
+			}
+		}
+		$scheme = \strtolower( Core::as_string( \wp_parse_url( $url, \PHP_URL_SCHEME ) ) );
+		$port   = \wp_parse_url( $url, \PHP_URL_PORT ) ?? self::DEFAULT_PORTS[ $scheme ];
+		$pinned = false === \filter_var( $addresses[0], \FILTER_VALIDATE_IP, \FILTER_FLAG_IPV6 ) ? $addresses[0] : "[{$addresses[0]}]";
+		return \array_map( static fn ( string $name ): string => "+{$name}:{$port}:{$pinned}", \array_values( \array_unique( [ $named, $host ] ) ) );
+	}
+
+	/**
+	 * A host's A and AAAA addresses, as DNS answers them; none when it answers
+	 * nothing.
+	 *
+	 * @param string $host The host name.
+	 * @return list<string>
+	 */
+	private static function lookup( string $host ): array {
+		$addresses = [];
+		foreach ( \dns_get_record( $host, \DNS_A | \DNS_AAAA ) ?: [] as $record ) {
+			$addresses[] = Core::as_string( $record['ip'] ?? $record['ipv6'] ?? '' );
+		}
+		return $addresses;
 	}
 
 	/**
@@ -343,13 +572,29 @@ class Curl_Node extends Node implements Curl_Owner {
 	}
 
 	/**
+	 * The seconds a request's connection may take, or null for no bound but
+	 * the transfer's own: whole seconds from 1 to REQUEST_TIMEOUT.
+	 *
+	 * @param array<array-key,mixed> $request The request.
+	 * @param string                 $url     The trimmed url, for the refusal.
+	 * @throws \UnexpectedValueException Naming the refusal, as the TM_ERROR carries it.
+	 */
+	private static function connect_timeout_of( array $request, string $url ): ?int {
+		$seconds = $request['connect_timeout'] ?? null;
+		if ( null !== $seconds && ( ! \is_int( $seconds ) || $seconds < 1 || $seconds > self::REQUEST_TIMEOUT ) ) {
+			self::refuse( "invalid connect timeout {$url}" );
+		}
+		return $seconds;
+	}
+
+	/**
 	 * Start the transfer on the shared multi, holding the input message with
 	 * the handle, because the output is a copy of it. A dispatch that yields no
 	 * handle emits its TM_ERROR at once. A fetch carrying a credential under
 	 * `vault_require_ssl` takes https alone, its redirects too, and no
 	 * redirect to another host, port or scheme carries the credential.
 	 *
-	 * @param array<int,mixed>               $message    The input message.
+	 * @param array{message:array<int,mixed>,request:array<array-key,mixed>,hops:int,home:string,public:bool,prereq:bool,pin:list<string>} $context The input message, the request, its hops so far, the first url's origin, whether it is public-only, whether libcurl checks its connection before sending, and the address its host is pinned to.
 	 * @param string                         $url        The url.
 	 * @param string                         $method     GET, POST or DELETE.
 	 * @param string|null                    $body       A POST's body, or null for a GET or a DELETE.
@@ -357,12 +602,13 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * @param list<array{0:string,1:string}> $lines      The request's own header lines, by name.
 	 * @param string|null                    $proxy      The proxy the fetch goes through, or null for none.
 	 * @param list<string>                   $names      The response headers to read, lowercased.
+	 * @param int|null                       $connect    Seconds the connection may take, or null for no bound but the transfer's.
 	 */
-	private function fetch( array $message, string $url, string $method, ?string $body, string $credential, array $lines, ?string $proxy, array $names ): void {
+	private function fetch( array $context, string $url, string $method, ?string $body, string $credential, array $lines, ?string $proxy, array $names, ?int $connect ): void {
 		$protocols = '' !== $credential && Vault::require_ssl() ? \CURLPROTO_HTTPS : self::PROTOCOLS;
-		$guard   = self::redirect_guard( $method, $credential, $lines );
-		$follow  = $this->follow && '' === $guard;
-		$verb    = match ( $method ) {
+		$guard     = self::redirect_guard( $method, $credential, $lines );
+		$follow    = $this->follow && '' === $guard && ! $context['public'];
+		$verb      = match ( $method ) {
 			'POST'   => [
 				\CURLOPT_POST       => true,
 				\CURLOPT_POSTFIELDS => (string) $body,
@@ -373,21 +619,21 @@ class Curl_Node extends Node implements Curl_Owner {
 			],
 			default  => [ \CURLOPT_HTTPGET => true ],
 		};
-		$typed   = \in_array( 'content-type', \array_column( $lines, 0 ), true );
-		$headers = null === $body || $typed ? [] : [ 'Content-Type: application/json' ];
-		$headers = [ ...$headers, ...\array_column( $lines, 1 ) ];
+		$typed     = \in_array( 'content-type', \array_column( $lines, 0 ), true );
+		$headers   = null === $body || $typed ? [] : [ 'Content-Type: application/json' ];
+		$headers   = [ ...$headers, ...\array_column( $lines, 1 ) ];
 		if ( '' !== $credential ) {
 			$headers[] = $credential;
 		}
 		$opts = [
-			\CURLOPT_URL             => $url,
-			\CURLOPT_PROTOCOLS       => $protocols,
-			\CURLOPT_REDIR_PROTOCOLS => $protocols,
-			\CURLOPT_FOLLOWLOCATION  => $follow,
+			\CURLOPT_URL               => $url,
+			\CURLOPT_PROTOCOLS         => $protocols,
+			\CURLOPT_REDIR_PROTOCOLS   => $protocols,
+			\CURLOPT_FOLLOWLOCATION    => $follow,
 			\CURLOPT_UNRESTRICTED_AUTH => false,
-			\CURLOPT_MAXREDIRS       => self::MAX_REDIRECTS,
-			\CURLOPT_TIMEOUT         => self::REQUEST_TIMEOUT,
-			\CURLOPT_USERAGENT       => self::USER_AGENT,
+			\CURLOPT_MAXREDIRS         => self::MAX_REDIRECTS,
+			\CURLOPT_TIMEOUT           => self::REQUEST_TIMEOUT,
+			\CURLOPT_USERAGENT         => self::USER_AGENT,
 		] + $verb + Vault::tls_opts();
 		if ( [] !== $headers ) {
 			$opts[ \CURLOPT_HTTPHEADER ] = $headers;
@@ -396,66 +642,62 @@ class Curl_Node extends Node implements Curl_Owner {
 			$opts[ \CURLOPT_PROXY ]   = $proxy;
 			$opts[ \CURLOPT_NOPROXY ] = '';
 		}
+		if ( null !== $connect ) {
+			$opts[ \CURLOPT_CONNECTTIMEOUT ] = $connect;
+		}
+		if ( $context['public'] ) {
+			$opts[ \CURLOPT_PROXY ] = '';
+		}
+		if ( [] !== $context['pin'] ) {
+			$opts[ \CURLOPT_RESOLVE ]       = $context['pin'];
+			$opts[ \CURLOPT_FRESH_CONNECT ] = true;
+		}
+		$refused = false;
+		if ( $context['prereq'] ) {
+			$opts[ \CURLOPT_PREREQFUNCTION ] = static function ( \CurlHandle $easy, string $connected ) use ( &$refused ): int {
+				$refused = $refused || ! self::is_public_address( $connected );
+				return $refused ? \CURL_PREREQFUNC_ABORT : \CURL_PREREQFUNC_OK;
+			};
+		}
 		$started = $this->start_transfer(
 			$opts,
-			[
-				'message' => $message,
+			$context + [
 				'url'     => $url,
 				'names'   => $names,
 				'guard'   => $guard,
+				'refused' => static function () use ( &$refused ): bool {
+					return $refused;
+				},
 			],
 			$names
 		);
 		if ( ! $started ) {
-			$this->emit( $message, Message::TM_ERROR, "curl_init failed {$url}" );
+			$this->emit( $context['message'], Message::TM_ERROR, "curl_init failed {$url}" );
 		}
 	}
 
 	/**
-	 * Emit the completed fetch as a copy of its input message: the body below
-	 * status 400, a TM_ERROR naming the status at or above it, and a TM_ERROR
-	 * naming the curl error when the transfer failed — a timeout, a refused
-	 * connection, or the body cap's short write. Following no redirects, a
-	 * 3xx answers its Location as a TM_RESPONSE, or with none, a TM_ERROR.
-	 * Following them, only the redirect guard leaves a 3xx's Location
-	 * unfollowed, and that answers a TM_ERROR naming why, never a value.
-	 * A request that named response headers answers its body as a TM_STRUCT
-	 * `{ body, headers }`.
+	 * Whether an address lies in a global range, as RFC 6890 marks them:
+	 * never private, loopback, link-local, shared or reserved, an IPv4-mapped
+	 * form included. An address in the well-known NAT64 prefix is judged by the
+	 * IPv4 address it carries; the local-use NAT64 prefix and the deprecated
+	 * site-local range, which the filter passes, are not global.
 	 *
-	 * @param int                                                                 $result   The transfer's CURLE_* code.
-	 * @param array{code:int,body:string,redirect:string,headers:array<string,string>} $response Its status, body, unfollowed Location and kept headers.
-	 * @param array{message:array<int,mixed>,url:string,names:list<string>,guard:string} $request The input message, the url, the response headers it named, and why it followed no redirect.
+	 * @param string $address An IPv4 or IPv6 address; anything else is not public.
 	 */
-	protected function on_transfer_done( int $result, array $response, mixed $request ): void {
-		$url = $request['url'];
-		if ( \CURLE_OK !== $result ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_strerror
-			$reason = Core::as_string( \curl_strerror( $result ) );
-			$this->emit( $request['message'], Message::TM_ERROR, "curl error {$result} ({$reason}) {$url}" );
-			return;
+	private static function is_public_address( string $address ): bool {
+		if ( false === \filter_var( $address, \FILTER_VALIDATE_IP, \FILTER_FLAG_GLOBAL_RANGE ) ) {
+			return false;
 		}
-		$is_3xx = $response['code'] >= 300 && $response['code'] < 400;
-		if ( $is_3xx && '' !== $response['redirect'] ) {
-			if ( $this->follow ) {
-				$this->emit( $request['message'], Message::TM_ERROR, "redirect not followed: {$request['guard']} {$url}" );
-				return;
-			}
-			$this->emit( $request['message'], Message::TM_RESPONSE, $response['redirect'] );
-			return;
+		$packed = Core::as_string( \inet_pton( $address ) );
+		if ( 16 !== \strlen( $packed ) ) {
+			return true;
 		}
-		if ( ( $is_3xx && ! $this->follow ) || $response['code'] >= 400 ) {
-			$this->emit( $request['message'], Message::TM_ERROR, "HTTP {$response['code']} {$url}" );
-			return;
+		if ( \str_starts_with( $packed, self::NAT64_PREFIX ) ) {
+			return self::is_public_address( Core::as_string( \inet_ntop( \substr( $packed, 12 ) ) ) );
 		}
-		if ( [] !== $request['names'] ) {
-			$answer = [
-				'body'    => $response['body'],
-				'headers' => $response['headers'],
-			];
-			$this->emit( $request['message'], Message::TM_STRUCT, $answer );
-			return;
-		}
-		$this->emit( $request['message'], Message::TM_BYTESTREAM, $response['body'] );
+		$site_local = "\xfe" === $packed[0] && 0xc0 === ( \ord( $packed[1] ) & 0xc0 );
+		return ! $site_local && ! \str_starts_with( $packed, self::NAT64_LOCAL_PREFIX );
 	}
 
 	/**
@@ -626,6 +868,21 @@ class Curl_Node extends Node implements Curl_Owner {
 	}
 
 	/**
+	 * A count of transfers a node keeps in flight, refused outside 1 to
+	 * MAX_IN_FLIGHT.
+	 *
+	 * @api Crawler_Node, and newspack-intelligence's feed.
+	 * @throws \InvalidArgumentException Naming the count, outside the range.
+	 */
+	public static function concurrency_of( int $count ): int {
+		if ( $count < 1 || $count > self::MAX_IN_FLIGHT ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text for a log or CLI; an int cannot carry markup.
+			throw new \InvalidArgumentException( 'concurrency wants a whole number from 1 to ' . self::MAX_IN_FLIGHT . ", got '{$count}'" );
+		}
+		return $count;
+	}
+
+	/**
 	 * Follow redirects, the default, or answer each 3xx with its Location.
 	 *
 	 * @api Crawler_Node
@@ -653,7 +910,7 @@ class Curl_Node extends Node implements Curl_Owner {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'I/O',
-			'description' => 'Fetch the URL a TM_BYTESTREAM carries (a GET), or run the TM_STRUCT request { url, method GET, POST or DELETE, body as JSON, headers as `Name: value` lines, proxy as `<scheme>://<host>:<port>`, response_headers as names to read back }, without blocking, and emit the body, the TM_STRUCT { body, headers } when response headers were named, or a TM_ERROR naming the url and why.',
+			'description' => 'Fetch the URL a TM_BYTESTREAM carries (a GET), or run the TM_STRUCT request { url, method GET, POST or DELETE, body as JSON, headers as `Name: value` lines, proxy as `<scheme>://<host>:<port>`, response_headers as names to read back, connect_timeout as whole seconds, public_only true for a url a response chose }, without blocking, and emit the body, the TM_STRUCT { body, headers } when response headers were named, or a TM_ERROR naming the url and why.',
 			'has_target'  => true,
 			'arguments'   => [
 				[ 'name' => 'vault_group', 'type' => 'vault_group', 'description' => 'Optional Vault group: a url on one entry\'s origin carries its credential header, and one on two entries\' origin is refused.' ],

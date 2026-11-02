@@ -1531,7 +1531,7 @@ fetches the url a TM_BYTESTREAM carries with a GET on the same shared multi,
 through the [`Curl_Transfer`](../includes/trait-curl-transfer.php) mechanism
 `HTTP_Out_Node` runs on. `make_node Curl <name> [vault_group]`. A TM_STRUCT
 carries a request instead, `{ url, method, body, headers, proxy,
-response_headers }`: `method` is `GET`, `POST` or `DELETE`, a POST sends its
+response_headers, connect_timeout, public_only }`: `method` is `GET`, `POST` or `DELETE`, a POST sends its
 `body`, a string of at most `MAX_BODY_BYTES` (64 KiB, '' when absent), as
 `Content-Type: application/json`, and a GET or a DELETE sends none. `headers`,
 when present, is a list of `Name: value` lines sent after that type and before
@@ -1550,7 +1550,12 @@ vault's or a header line of the request's own, the url must be https. `response_
 response headers to read; the success then answers a TM_STRUCT copy whose
 VALUE is `{ body, headers }`, each named header the final response's head
 sent, a trailer never, under its lowercased name, its first value trimmed and
-cut to 256 bytes. A header name is 1–64 letters, digits and hyphens
+cut to 256 bytes. `connect_timeout`, when present, is the whole seconds,
+from 1 to `REQUEST_TIMEOUT` (30), the connection may take, set as
+`CURLOPT_CONNECTTIMEOUT` within the transfer's `CURLOPT_TIMEOUT`.
+`public_only`, when present, is a boolean; true marks a url a response chose,
+a discovered link or a Location, and holds the request to public addresses
+(below). A header name is 1–64 letters, digits and hyphens
 (`Vault::HEADER_NAME`) wherever one is read. Both forms share
 the vault group, `vault_require_ssl`, `MAX_IN_FLIGHT` and the answer. The completion
 emits a copy of the input message, FROM, ID and KEY intact and TO stamped from
@@ -1564,6 +1569,51 @@ the optional `vault_group` has no empty placeholder. Following none, a fetch set
 `CURLOPT_FOLLOWLOCATION` off, and a 3xx naming a Location answers a
 TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 (`CURLINFO_REDIRECT_URL`).
+
+A request naming `public_only` true reaches public addresses alone. Before
+any transfer starts, its host is refused when it is an IP literal outside the
+global ranges RFC 6890 marks (`FILTER_FLAG_GLOBAL_RANGE`: private, loopback,
+link-local, shared, reserved, and an IPv4-mapped form of any; besides the
+filter, the site-local `fec0::/10` and the local-use NAT64 `64:ff9b:1::/48`,
+and a well-known NAT64 address in `64:ff9b::/96` judged by the IPv4 address
+it carries), a single label
+(`intranet`, `localhost.`, `2130706433`), or a name whose last label is
+numeric (`127.1`, `0x7f.0.0.1`), which libcurl's resolver reads as an
+address; a request naming a proxy is refused, and the transfer sets an empty
+`CURLOPT_PROXY`, which turns off a proxy the worker's environment names
+(`http_proxy`, `https_proxy`, `ALL_PROXY`), because libcurl would report the
+proxy's address rather than the host's. The lookup and the pin below run
+last, after every other refusal, the busy and event-loop checks included.
+Where PHP defines
+`CURLOPT_PREREQFUNCTION` (8.4 and later), libcurl resolves the name itself,
+without blocking the worker, and once connected hands the address it reached
+to a check that aborts the transfer, before a byte of the request is sent,
+when that address is outside the global ranges; the check runs on every
+connection libcurl makes or reuses, so a name that rebinds cannot slip past
+it. Where PHP does not (8.2 and 8.3), the name is looked up once, through the
+`Curl_Node::$resolve` seam (A and AAAA records, `dns_get_record()`, when
+null), and refused before anything is sent when it resolves to nothing or to
+any address outside the global ranges; the transfer is then pinned to the
+first address checked (`CURLOPT_RESOLVE` `+host:port:address`, an IPv6
+address in brackets, and a rooted name pinned under both its spellings, since
+libcurl matches an entry by the url's own), on a fresh connection, because
+libcurl reuses a connection by host and port rather than by pinned address;
+the `+` keeps the entry from outliving the transfer in the shared multi's DNS
+cache. So a name that rebinds between the check and the connection never
+reaches a private address. That lookup blocks the worker for as long as
+DNS takes. `Curl_Node::$prereq_available` is the seam choosing the path.
+Either way, once the transfer completes, the address it connected to
+(`CURLINFO_PRIMARY_IP`) is checked again as a second line, answering a
+TM_ERROR rather than the body, the headers or the Location.
+While the node follows redirects, libcurl follows none of a public-only
+request's: the node fetches each Location itself as the next hop, held to the
+same guard, its own lookup and pin included; as
+libcurl does, a hop off the first url's origin carries no vault credential,
+and a 301, 302 or 303 sends a POST on as a GET with no body. The answer is a copy
+of the first request's message. Past `MAX_REDIRECTS` hops it answers a
+TM_ERROR. Following none, a 3xx answers its Location as any 3xx does, and the
+sender marks the Location `public_only` when it fetches it. A request not
+naming `public_only` is not guarded, and libcurl follows its redirects.
 
 | TYPE | VALUE | When |
 |---|---|---|
@@ -1590,6 +1640,14 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 | `invalid response headers <url>` | A request's `response_headers` is not a list of at most eight names of 1–64 letters, digits and hyphens. |
 | `refused response header <name> <url>` | A request's `response_headers` names one of `Vault::FRAMING_HEADERS`, `Set-Cookie` or `Authorization`, in any case. |
 | `refused response header <name> beside a vault credential <url>` | A request's `response_headers` names the header the vault's credential for the url's origin rides in. |
+| `invalid connect timeout <url>` | A request's `connect_timeout` is not an integer from 1 to `REQUEST_TIMEOUT`. |
+| `invalid public_only <url>` | A request's `public_only` is not a boolean. |
+| `refused private address <url>` | A public-only request's host is an IP literal outside the global ranges, or its transfer connected to such an address before sending, or, on a PHP without `CURLOPT_PREREQFUNCTION`, a name any of whose addresses is: nothing is sent. Or the address the completed transfer reports is one, and nothing of the response is answered. |
+| `refused single-label host <url>` | A public-only request's host is one label, a trailing dot ignored. |
+| `unresolved host <url>` | On a PHP without `CURLOPT_PREREQFUNCTION`, a public-only request's host is a name that resolves to no address; nothing is sent. |
+| `refused numeric host <url>` | A public-only request's host is not an IP literal and its last label is digits or `0x` hex. |
+| `refused proxy on a public-only request <url>` | A public-only request names a proxy. |
+| `redirects past 5 <url>` | A public-only request on a node following redirects was redirected again after `MAX_REDIRECTS` hops; `<url>` is the last hop. |
 | `proxy carries CR or LF <url>` | A request's `proxy` holds a carriage return or a line feed; the proxy is left out. |
 | `invalid url carrying userinfo` | VALUE carries userinfo before its host, as `Vault::url_carries_credentials()` reads it; the url, which may hold a credential, is left out. PHP and libcurl split an authority holding two `@` at different ones, so the origin read here need not be the host fetched. |
 | `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so no one credential belongs to the url. |
@@ -1633,7 +1691,7 @@ sizes each refill by Curl's own count.
 | `MAX_IN_FLIGHT` | 16 | Transfers one node runs at once. |
 | `MAX_BODY_BYTES` | 65536 | Bytes a POST request's body may carry. |
 | `REQUEST_TIMEOUT` | 30 seconds | One fetch, redirects included, as `CURLOPT_TIMEOUT`. |
-| `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone for a fetch carrying a credential while `vault_require_ssl` is set. |
+| `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone for a fetch carrying a credential while `vault_require_ssl` is set; and the hops the node follows itself for a public-only request. |
 | `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One response body, buffered into the PHP heap. |
 
 ### `Crawler_Node` — each seed's site, link by link
@@ -1672,9 +1730,11 @@ with it:
 | `{name}:seen` | `Table {name}:seen <name> <ttl> sqlite` | Its sink is the crawler's own sink; it answers the crawler's `Table_Client`. The second `<name>` is the Table's namespace and its file stem. |
 
 The Table keeps a key per url seen, written with `ADD` under the `ttl`, and
-two sets: `pending`, the frontier, and `inflight`, the urls handed to Curl and
-not yet answered. A url in either set lives `FRONTIER_TTL`, one year, however
-short the `ttl`, so a frontier waiting longer than the `ttl` keeps its urls.
+the crawler's [`Frontier`](#frontier--durable-work-a-node-has-yet-to-finish):
+`pending`, the urls discovered, and `inflight`, the urls handed to Curl and
+not yet answered. A url in either set lives `Frontier::MEMBER_TTL`, one year,
+however short the `ttl`, so a frontier waiting longer than the `ttl` keeps its
+urls.
 When `pending` takes none of the urls an `ADD` reported new, their seen keys
 are removed again with `RM`, and one rate-limited line says so, so a later
 sighting finds them new.
@@ -1689,14 +1749,15 @@ anywhere else it throws `Table_Unavailable`, `Table <name>: a sqlite backend nee
 | A reply from the `{name}:seen` Table | Collected by the crawler's `Table_Client`. |
 | Anything else | Dropped with one rate-limited line. |
 
-A refill moves up to `concurrency` less Curl's `transfers_in_flight()` from
-`pending` to `inflight` in one `SMOVE`. The window fills only as fast as the
+A refill takes up to `concurrency` less Curl's `transfers_in_flight()` from
+the frontier, one `SMOVE` from `pending` to `inflight`. The window fills only as fast as the
 frontier does: a seed is the one url in `pending` until its body is parsed, so
 a crawl starts with one fetch in flight whatever its `concurrency`, and a
 redirect queues only its one Location. An answer
 Curl sends synchronously, a refusal such as `curl_init failed`, refills
-nothing, so its slot waits for the next tick; an answer that completes later
-refills on its own. Under a `delay_ms` above 0 only the timer refills: a seed
+nothing, so its slot waits for the next tick. With fetches in flight, an
+answer or a tick refills only once half of `concurrency` is free, so one
+`SMOVE` starts several fetches; an empty window refills at once. Under a `delay_ms` above 0 only the timer refills: a seed
 or an answer queues what it found and starts nothing, and each fire moves one
 url. The timer measures each interval from its last fire, so one re-armed by
 a replay cannot fire early. A delay of at least the
@@ -1754,7 +1815,53 @@ same-origin rule bound the crawl.
 |---|---|---|
 | `TICK_MS` | 1000 | The refill tick with no `delay_ms`, which also carries the first tick's recovery. |
 | `MIN_DELAY_MS` | 100 | The least positive `delay_ms`. Every fire asks the Table for a url whether or not one is pending, so a shorter delay costs an idle crawl a Table round trip that often. |
-| `FRONTIER_TTL` | 31536000 (one year) | How long a url waits in `pending` or `inflight`. |
+
+### `Frontier` — durable work a node has yet to finish
+
+[`Frontier`](../includes/class-frontier.php) keeps a node's work where neither
+a recycle nor a crash loses it, in a durable Table sibling the node owns and
+asks through its own `Table_Client`. A node builds it beside that client,
+`new Frontier( $this->tables, fn (): string => $this->sibling_name( 'seen' ) )`,
+so the Table's name is read at each ask and follows a rename. It holds no
+Table and no reply of its own: the node's `fill()` hands every message to the
+client first, as any asker does. [`Crawler_Node`](#crawler_node--each-seeds-site-link-by-link)
+is its first user.
+
+| Method | What it does |
+|---|---|
+| `add( array $members ): bool` | `SADD` member => value into `pending` for `MEMBER_TTL`; a member already there takes the new value and expiry. Answers whether `pending` took them. |
+| `take( int $count ): array` | Up to `$count` members, lowest first, moved from `pending` to `inflight` in one `SMOVE`, as `[ member, value ]` pairs. A count below 1 takes none. |
+| `settle( array $members ): void` | Take the members out of `inflight`: their work is done. The next `take()`, `restart()` or `drain()` removes every member settled since in one `SREM`. |
+| `restart(): void` | Owe a recovery, as a new process does, for an owner that dropped the work it had in flight. |
+| `drain(): array` | Empty both sets, `pending` in `take()`s of `MAX_MEMBERS_LIMIT` and `inflight` in one `SREM`, and answer every member they held. |
+| `flush(): void` | Remove what was settled since in one `SREM`, as an owner's `shutdown_sweep()` does on a clean stop. |
+
+Built with no arguments, `new Frontier()` keeps both sets in the process, in
+the order added rather than lowest first, behind the same calls, for an owner
+whose work cannot outlive it.
+
+A member is consumed only when it is settled, so a crash costs an unsettled
+member a second attempt and nothing more. The first `take()` a process makes,
+or the first after `restart()`, returns everything in `inflight` to `pending`,
+`Table_Node::MAX_MEMBERS_LIMIT` at a time; a move the Table does not answer
+leaves the recovery owed, and nothing is taken until it finishes, or it would
+return live members to `pending`. Once a `take()` moves fewer members than it
+asked for, no `take()` asks the Table again until an `add()` or a recovery
+puts members in `pending`, so an idle owner's tick costs no round trip. One
+partition has one writer, so each member is taken once; two workers sharing
+one Table would re-queue each other's `inflight`.
+
+Members share the Table's key space with whatever else the
+owner keeps there, as the crawler's seen keys do. A member added while it is
+in flight sits in both sets until it is settled. A member settled but not yet
+removed is in `inflight` still, so a crash before the next `take()` costs it a
+second attempt too; a clean stop flushes it first.
+
+| Constant | Value | Bounds |
+|---|---|---|
+| `PENDING` | `pending` | The set of members added and not yet taken. |
+| `INFLIGHT` | `inflight` | The set of members taken and not yet settled. |
+| `MEMBER_TTL` | 31536000 (one year) | How long a member waits in either set. |
 
 ## Extensibility hooks
 

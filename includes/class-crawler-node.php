@@ -13,30 +13,15 @@ namespace Newspack_Nodes;
 /**
  * Crawler node — `make_node Crawler <name> <ttl> [vault_group] [delay_ms] [concurrency]`.
  *
- * A seed is a TM_BYTESTREAM url, on any origin, from anyone but the crawler
- * itself. It, every link a fetched page carries on that page's origin and
- * every same-origin redirect Location are normalized and `ADD`ed to the
- * `{name}:seen` sqlite Table, and each one the Table reports new joins its
- * `pending` set; a seed it reports seen answers a TM_INFO to target. A
- * refill moves up to `concurrency` less the fetches in flight from `pending`
- * to `inflight` and hands each url to the `{name}:curl` sibling. Curl
- * follows no redirect, sends each url the credential of the `vault_group`
- * entry on its origin, if any, and answers back here through its target.
- * With `delay_ms` above 0 only the timer refills, one url a fire, every
- * `delay_ms` from the last fire, a retune included. An answer, the
- * body, the redirect as TM_RESPONSE or the TM_ERROR, leaves `inflight` and
- * goes on to target with KEY set to the url; an answered url is done, never
- * retried. The first tick after the node is built returns whatever
- * `inflight` holds to `pending`, so a restart refetches what the last
- * process left in flight. Once an `SMOVE` moves fewer urls than it asked
- * for, the crawler asks the Table nothing more until a discovery or a
- * recovery puts urls in `pending`, so an idle crawler costs no round trip.
- *
- * One Crawler per name per host: the Table's namespace and file are the
- * crawler's name, so two workers running one crawler share its sqlite file
- * and re-queue each other's `inflight`.
+ * A seed url, and each same-origin link and redirect Location a fetched page
+ * carries, is normalized and `ADD`ed to the `{name}:seen` sqlite Table; each
+ * new one joins the Frontier there, which the `{name}:curl` sibling fetches,
+ * `concurrency` at a time or one every `delay_ms`. Every answer goes to
+ * target with KEY set to its url, an answered url is never retried, and a
+ * restart fetches again what was in flight. One Crawler per name per host:
+ * two workers running one share its sqlite file.
  */
-final class Crawler_Node extends Timer_Node {
+final class Crawler_Node extends Timer_Node implements Shutdown_Sweeper {
 	use Schema_Reflection;
 
 	/** Refill tick, in ms; the first tick also recovers `inflight`. */
@@ -53,15 +38,6 @@ final class Crawler_Node extends Timer_Node {
 
 	/** Sibling kind of the Table that holds the seen keys and the frontier. */
 	private const SEEN = 'seen';
-
-	/** The frontier set: URLs discovered and not yet fetched. */
-	private const PENDING = 'pending';
-
-	/** URLs handed to Curl and not yet answered. */
-	private const INFLIGHT = 'inflight';
-
-	/** Seconds a url waits in `pending` or `inflight`: one year, past any ttl. */
-	public const FRONTIER_TTL = 31536000;
 
 	/** Seconds a URL counts as seen: the Table's TTL. */
 	protected int $ttl = 0;
@@ -81,32 +57,23 @@ final class Crawler_Node extends Timer_Node {
 	/** Asks the `{name}:seen` Table. */
 	private Table_Client $tables;
 
-	/** Whether `inflight` has been returned to `pending` since this process built the node. */
-	private bool $recovered = false;
+	/** The urls to fetch, in the `{name}:seen` Table: `pending`, then `inflight`. */
+	private Frontier $frontier;
 
 	/** True while refill() runs; an answer arriving inside it does not re-enter. */
 	private bool $refilling = false;
 
-	/**
-	 * Whether `pending` may hold urls. A new process cannot know what the last
-	 * left there, so it starts true; `discover()` and `recover()` set it when
-	 * they put urls there, and each refill's `SMOVE` sets it to whether it
-	 * moved all it asked for. While it is false a refill asks the Table nothing.
-	 */
-	private bool $pending_may_hold = true;
-
 	/** The Table client asks by the crawler's live name, so it outlives a rename. */
 	public function __construct() {
 		parent::__construct();
-		$this->tables = new Table_Client( $this );
+		$this->tables   = new Table_Client( $this );
+		$this->frontier = new Frontier( $this->tables, fn (): string => $this->sibling_name( self::SEEN ) );
 	}
 
 	/**
-	 * `<ttl> [vault_group] [delay_ms] [concurrency]`: build both siblings and
-	 * pace the refill timer. A replay changing `ttl` or `vault_group` tears both
-	 * siblings down and builds them again; one the siblings refuse restores
-	 * the tokens and the crawler they built. A replay changing only the
-	 * pacing keeps the siblings and their transfers.
+	 * `<ttl> [vault_group] [delay_ms] [concurrency]`: build both siblings,
+	 * again on a changed `ttl` or `vault_group`, restoring what stood when they
+	 * refuse, and pace the refill timer.
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read the current ones.
 	 * @return list<string>
@@ -124,8 +91,10 @@ final class Crawler_Node extends Timer_Node {
 		if ( 0 !== $delay_ms && $delay_ms < self::MIN_DELAY_MS ) {
 			$this->refuse_argument( 'delay_ms wants 0, or a whole number from ' . self::MIN_DELAY_MS . " up, got '{$delay_ms}'" );
 		}
-		if ( $concurrency < 1 || $concurrency > Curl_Node::MAX_IN_FLIGHT ) {
-			$this->refuse_argument( 'concurrency wants a whole number from 1 to ' . Curl_Node::MAX_IN_FLIGHT . ", got '{$concurrency}'" );
+		try {
+			Curl_Node::concurrency_of( $concurrency );
+		} catch ( \InvalidArgumentException $refused ) {
+			$this->refuse_argument( $refused->getMessage() );
 		}
 		$previous = [ $this->arguments, $this->ttl, $this->vault_group, $this->delay_ms, $this->concurrency ];
 		$this->assign_schema_args( $args, $values );
@@ -235,11 +204,8 @@ final class Crawler_Node extends Timer_Node {
 	}
 
 	/**
-	 * Take a seed: one that is not an absolute http(s) url, or that holds
-	 * whitespace, answers a TM_ERROR copy to target; a valid one is normalized
-	 * as a link is and discovered, and the crawler refills. A seen one answers
-	 * a TM_INFO copy keyed by its url, and one whose `ADD` the Table refuses
-	 * or leaves unanswered a TM_ERROR copy, since nothing shows it seen.
+	 * Discover a valid seed url and refill, answering a TM_INFO copy for one
+	 * already seen and a TM_ERROR copy for one invalid or whose `ADD` failed.
 	 *
 	 * @param array<int,mixed> $message The seed.
 	 */
@@ -291,10 +257,9 @@ final class Crawler_Node extends Timer_Node {
 	}
 
 	/**
-	 * Take Curl's answer: discover a body's links or a redirect's Location,
-	 * send the answer to target, take the url out of `inflight`, and refill.
-	 * The url leaves `inflight` last, so a forward that throws leaves it
-	 * there for the next start to fetch again.
+	 * Discover what Curl's answer links to, send it to target, then settle its
+	 * url and refill, so a forward that throws leaves the url for the next
+	 * start.
 	 *
 	 * @param array<int,mixed> $message The body as TM_BYTESTREAM, the Location as TM_RESPONSE, or the TM_ERROR.
 	 */
@@ -308,14 +273,13 @@ final class Crawler_Node extends Timer_Node {
 			$this->discover( self::location( $value, $url ) );
 		}
 		parent::fill( $message );
-		$this->tables->remove_members( $this->sibling_name( self::SEEN ), self::INFLIGHT, [ $url ] );
+		$this->frontier->settle( [ $url ] );
 		$this->refill( tick: false );
 	}
 
 	/**
-	 * `ADD` each url as seen, and put every one the Table reports new in
-	 * `pending` for `FRONTIER_TTL`. When `pending` takes none of them, their
-	 * seen keys are removed again, so a later sighting finds them new.
+	 * `ADD` each url as seen and put the new ones in `pending`, unseeing them
+	 * again when `pending` refuses.
 	 *
 	 * @param list<string> $urls   Absolute urls.
 	 * @param ?bool        $failed Set true when the Table refused or left the `ADD` unanswered.
@@ -328,28 +292,21 @@ final class Crawler_Node extends Timer_Node {
 		if ( [] === $new ) {
 			return $new;
 		}
-		if ( [] !== $this->tables->add_members( $table, [ self::PENDING => \array_fill_keys( $new, 1 ) ], self::FRONTIER_TTL ) ) {
-			$this->pending_may_hold = true;
+		if ( $this->frontier->add( \array_fill_keys( $new, 1 ) ) ) {
 			return $new;
 		}
-		$this->tables->remove( $table, $new );
+		$stuck = \array_diff( $new, $this->tables->remove( $table, $new ) );
 		$this->print_less_often( 'WARNING: pending took no new url; their seen keys are removed' );
+		if ( [] !== $stuck ) {
+			$this->print_less_often( 'WARNING: urls pending refused stay seen until their ttl lapses: ', \implode( ' ', $stuck ) );
+		}
 		return $new;
 	}
 
 	/**
-	 * Move as many urls from `pending` to `inflight` as `concurrency` leaves
-	 * free slots for, in one `SMOVE`, and hand each to Curl. Under a delay
-	 * only a tick refills, moving one url; the timer, armed at `delay_ms`,
-	 * spaces those ticks. Only inside a running event loop, where a transfer
-	 * can complete.
-	 * An answer Curl sends synchronously does not refill, so its slot waits
-	 * for the next tick or the next answer; an answer that completes later
-	 * refills on its own. A throw out of Curl's `fill()` mid-batch leaves the
-	 * rest of the batch in `inflight` until the next start returns it to
-	 * `pending`. Nothing moves while a recovery is owed, or the next one would
-	 * return live urls to `pending`, and nothing is asked while `pending` is
-	 * known empty.
+	 * Inside a running event loop, hand Curl as many urls as `concurrency`
+	 * leaves free slots for once half the window or all of it is free, or
+	 * under a delay one url a tick.
 	 *
 	 * @param bool $tick Whether the timer asks, rather than a seed or an answer.
 	 * @throws \LogicException When no Curl sibling was built.
@@ -362,44 +319,21 @@ final class Crawler_Node extends Timer_Node {
 		if ( $this->refilling || ! Event_Framework::instance()->is_running() ) {
 			return;
 		}
-		$curl            = $this->curl ?? throw new \LogicException( \esc_html( "Crawler {$this->name} has no siblings; arguments() builds them" ) );
+		$curl      = $this->curl ?? throw new \LogicException( \esc_html( "Crawler {$this->name} has no siblings; arguments() builds them" ) );
+		$in_flight = $curl->transfers_in_flight();
+		$window    = $paced ? 1 : $this->concurrency;
+		$free      = \min( $window, $this->concurrency - $in_flight );
+		if ( 0 < $in_flight && 2 * $free < $window ) {
+			return;
+		}
 		$this->refilling = true;
 		try {
-			$this->recovered = $this->recovered || $this->recover();
-			if ( ! $this->recovered ) {
-				return;
-			}
-			$free = \min( $paced ? 1 : $this->concurrency, $this->concurrency - $curl->transfers_in_flight() );
-			if ( ! $this->pending_may_hold || $free < 1 ) {
-				return;
-			}
-			$urls                   = $this->tables->move_members( $this->sibling_name( self::SEEN ), self::PENDING, self::INFLIGHT, $free, $failed );
-			$this->pending_may_hold = $failed || \count( $urls ) === $free;
-			foreach ( $urls as $url ) {
+			foreach ( $this->frontier->take( $free ) as [ $url ] ) {
 				$curl->fill( $this->fetch_message( $url ) );
 			}
 		} finally {
 			$this->refilling = false;
 		}
-	}
-
-	/**
-	 * Return every url the last process left in `inflight` to `pending`,
-	 * marking `pending` when any moved.
-	 *
-	 * @return bool Whether recovery finished; a move the Table does not answer
-	 *              leaves it for the next tick.
-	 */
-	private function recover(): bool {
-		$table = $this->sibling_name( self::SEEN );
-		do {
-			$moved = \count( $this->tables->move_members( $table, self::INFLIGHT, self::PENDING, Table_Node::MAX_MEMBERS_LIMIT, $failed ) );
-			if ( $failed ) {
-				return false;
-			}
-			$this->pending_may_hold = $this->pending_may_hold || 0 < $moved;
-		} while ( Table_Node::MAX_MEMBERS_LIMIT === $moved );
-		return true;
 	}
 
 	/**
@@ -623,8 +557,8 @@ final class Crawler_Node extends Timer_Node {
 	 * their urls from `inflight`.
 	 */
 	private function drop_curl(): void {
-		$this->curl      = null;
-		$this->recovered = false;
+		$this->curl = null;
+		$this->frontier->restart();
 		$this->retract_sibling( 'curl' );
 	}
 
@@ -644,6 +578,11 @@ final class Crawler_Node extends Timer_Node {
 		$curl->sink( $this->sink );
 		$curl->target( $this->name );
 		return $curl;
+	}
+
+	/** On a clean stop, remove the answered urls from `inflight`, so the next process fetches none again. */
+	public function shutdown_sweep(): void {
+		$this->frontier->flush();
 	}
 
 	/**

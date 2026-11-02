@@ -18,11 +18,15 @@ and never names an arm class. The Table surface a consumer reaches past the list
 is [`Table_Client`](../includes/class-table-client.php), `Bootstrap::node_tables()`
 and `Bootstrap::mount_table( array $names )`, and each moves inside a major as the
 rest do. `Table_Client`'s `@api` methods are `add_multi()`, `remove()`,
+`get( string $table, string $key, ?bool &$failed = null ): mixed`,
 `accepts()`, and the set-member three
 `add_members( string $table, array $sets, int $ttl ): array`,
 `move_members( string $table, string $from, string $to, int $count, ?bool &$failed = null ): array` and
 `remove_members( string $table, string $set_key, array $members ): array`,
-which answer through a durable Table alone.
+which answer through a durable Table alone, `move_members()` as `[ member,
+value ]` pairs. [`Frontier`](../includes/class-frontier.php), the durable work
+set a node keeps in such a Table, is the same surface one level up: `add()`,
+`take()`, `settle()`, `restart()`, `drain()` and `flush()`.
 
 That trio answers questions a consumer cannot answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds
 a node's partitions across every ACTIVE topology declaring it: `node_dirs()`

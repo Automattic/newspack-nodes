@@ -6,6 +6,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Table_Client::move_members()` answers `[ member, value ]` pairs.** It
+  answered the members alone. Read a member as `$pair[0]`, or destructure
+  `foreach ( $moved as [ $member, $value ] )`. A frontier of `pending` and
+  `inflight` sets is now `Frontier`'s, which takes and settles members and
+  recovers what a crash left in flight.
+- **`Crawler_Node::FRONTIER_TTL` is `Frontier::MEMBER_TTL`.** Same value, one
+  year.
 - **A broker's status key is `status:<broker>:p<partition>`, read through
   `read_status()`.** `Remote_Broker_Node::status_key_for()` is gone, and with
   it the `remote:<broker>:p<partition>` key, `write_status()`, `STATUS_TTL` and

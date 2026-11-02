@@ -34,16 +34,17 @@ trait Curl_Transfer {
 	public const MAX_HEADER_BYTES = 256;
 
 	/**
-	 * libcurl result-read seam. Null reads the handle's HTTP code and the
-	 * transfer's own buffer. Tests reassign it to inject a status and a body,
-	 * so the classification and the forwarding run as real production code
-	 * without a network transfer.
+	 * libcurl result-read seam. Null reads the handle's HTTP code, the
+	 * transfer's own buffer and the address it connected to. Tests reassign it
+	 * to inject a status, a body and an address, so the classification and the
+	 * forwarding run as real production code without a network transfer.
 	 *
-	 * Signature: `function ( \CurlHandle $easy ): array{code:int,body:string,redirect:string}`,
+	 * Signature: `function ( \CurlHandle $easy ): array{code:int,body:string,redirect:string,ip?:string}`,
 	 * `redirect` the absolute Location libcurl reports for a 3xx it did not
-	 * follow, '' for none.
+	 * follow, '' for none, and `ip` the address it connected to last, '' when
+	 * a replacement names none.
 	 *
-	 * @var (\Closure(\CurlHandle): array{code:int,body:string,redirect:string})|null
+	 * @var (\Closure(\CurlHandle): array{code:int,body:string,redirect:string,ip?:string})|null
 	 */
 	public static ?\Closure $curl_result = null;
 
@@ -68,6 +69,7 @@ trait Curl_Transfer {
 			'code'     => 0,
 			'body'     => '',
 			'redirect' => '',
+			'ip'       => '',
 		];
 		if ( \CURLE_OK === $result ) {
 			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
@@ -75,9 +77,10 @@ trait Curl_Transfer {
 				'code'     => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
 				'body'     => ( $transfer['body'] )(),
 				'redirect' => Core::as_string( \curl_getinfo( $easy, \CURLINFO_REDIRECT_URL ) ),
+				'ip'       => Core::as_string( \curl_getinfo( $easy, \CURLINFO_PRIMARY_IP ) ),
 			];
 			// phpcs:enable
-			$response = $read( $handle );
+			$response = $read( $handle ) + [ 'ip' => '' ];
 		}
 		$response['headers'] = ( $transfer['headers'] )();
 		$this->on_transfer_done( $result, $response, $transfer['context'] );
@@ -87,7 +90,7 @@ trait Curl_Transfer {
 	 * Act on one finished transfer.
 	 *
 	 * @param int                         $result   The transfer's CURLE_* code.
-	 * @param array{code:int,body:string,redirect:string,headers:array<string,string>} $response Its status, body, unfollowed Location and kept headers; zero and '' unless CURLE_OK.
+	 * @param array{code:int,body:string,redirect:string,ip:string,headers:array<string,string>} $response Its status, body, unfollowed Location, connected address and kept headers; zero and '' unless CURLE_OK.
 	 * @param TContext                    $context  What `start_transfer()` was handed.
 	 */
 	abstract protected function on_transfer_done( int $result, array $response, mixed $context ): void;
