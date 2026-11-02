@@ -2503,13 +2503,13 @@ class RemoteSourceNodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	/** The `aspen` spoke with a credential, as a spoke that can be sent to. */
-	private function seed_aspen(): void {
+	private function seed_kestrel_spoke(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 	}
 
 	public function test_the_stream_carries_the_vaults_tls_opts(): void {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => false ] );
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$captured = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
@@ -2525,7 +2525,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_ensure_patrons_idempotent_returns_same_sse(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$first    = Core::node( 'remote-aspen:sse-in' );
 
@@ -2583,7 +2583,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	public function test_a_reload_makes_the_broker_re_read_its_vault_credentials(): void {
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$this->assertSame( 'https://aspen.example', $this->read_private( Core::node( 'remote-aspen:sse-in' ), 'url' ) );
 
@@ -2599,7 +2599,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// A worker's WordPress caches the option under its own key on first read.
 		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 
 		// The Vault tab's save reaches the shared cache, not this worker's copy.
@@ -2617,7 +2617,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// listener whose handler returns exactly false, so only a deliberate
 		// "stop listening" ends the subscription — never a void handler.
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 
 		$this->recredential( 'https://aspen-7714.example' );
@@ -2634,7 +2634,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	public function test_a_node_that_never_subscribed_is_not_on_the_reload_list(): void {
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->broker( 'remote-aspen' );
 		$bystander = new \Newspack_Nodes\Null_Node();
 		$bystander->name( 'quiet-bystander-6612' );
@@ -2653,7 +2653,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 */
 	public function test_renaming_a_broker_moves_its_reload_subscription(): void {
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'remote-southbound-4471' );
 
 		$node->name( 'remote-northbound-9203' );
@@ -2673,7 +2673,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * with the target rather than sitting in the constructor.
 	 */
 	public function test_a_broker_declares_its_own_name_as_a_reply_destination(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'remote-southbound-4471' );
 		( new \ReflectionMethod( $node, 'ensure_patrons' ) )->invoke( $node );
 
@@ -2699,7 +2699,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	public function test_a_renamed_broker_unregisters_from_reload_on_teardown(): void {
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'remote-southbound-4471' );
 		$node->name( 'remote-northbound-9203' );
 
@@ -2712,7 +2712,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// Registrations are keyed by name, so a removed node that left one
 		// behind keeps a closure alive holding the dead node.
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'remote-shortlived-5528' );
 		$this->assertSame( [ 'remote-shortlived-5528' ], $this->reload_subscribers( $fleet ) );
 
@@ -2725,7 +2725,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// Control never touches fill(): a data message keyed RELOAD is dropped
 		// like any other non-reply, and the channel it would reload stands.
 		$fleet = $this->mount_fleet();
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$http     = Core::node( 'remote-aspen:http-out' );
@@ -2753,7 +2753,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** A Vault entry removed after the channel stood leaves the stream unbuilt and says why. */
 	public function test_an_entry_gone_after_the_channel_stays_disconnected(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node, $reader ] = $this->make_remote( 'remote-aspen' );
 		$reader->pause();
@@ -2778,7 +2778,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * addresses to it by name is dropped, said once, and never goes back out.
 	 */
 	public function test_fill_drops_a_non_reply_rather_than_relaying_it(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$http     = Core::node( 'remote-aspen:http-out' );
@@ -2799,7 +2799,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_fill_command_response_is_reply_not_relayed(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'remote-aspen' );
 
 		$reply                   = Message::new_message();
@@ -2816,7 +2816,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_fill_command_error_is_reply_not_relayed(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'remote-aspen' );
 
 		$node->fill( $this->heartbeat_error( 'remote-aspen', 'SSE slot lease not owned' ) );
@@ -2828,7 +2828,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// An idle stream ends and releases its slot; a heartbeat already in
 		// flight lands on the tombstone. That race is the design working, and
 		// with a 5s idle timeout against a 15s heartbeat it recurs forever.
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$log      = $this->capture_stderr();
 
@@ -2840,7 +2840,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_a_stolen_slot_is_still_logged_as_an_error(): void {
 		// The counterpart guard: silencing the benign race must not silence a
 		// real eviction, which means the lease TTL expired under us.
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$this->heartbeat_sent_for( $node, 6, 51515152 );
@@ -2857,7 +2857,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * the slot a new owner, and that heartbeat's reply reads the mismatch.
 	 */
 	public function test_a_mismatch_for_a_lease_the_stream_gave_up_is_quiet(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$this->heartbeat_sent_for( $node, 6, 51515152 );
@@ -2871,7 +2871,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_a_mismatch_after_the_stream_lost_its_lease_is_quiet(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$this->heartbeat_sent_for( $node, 6, 51515152 );
@@ -2886,7 +2886,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_a_released_slot_is_quiet_whether_or_not_the_lease_moved(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$log = $this->capture_stderr();
@@ -2915,7 +2915,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * would suspend it and cost the slot and then the stream.
 	 */
 	public function test_missing_heartbeat_replies_do_not_drop_the_session(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		self::set_slot( Core::node( 'remote-aspen:sse-in' ), 5 );
@@ -2937,7 +2937,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_heartbeat_skipped_when_owner_unknown_even_if_slot_is_present(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		$sse      = Core::node( 'remote-aspen:sse-in' );
@@ -3125,7 +3125,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_terminal_disconnect_retires_lease_before_blocked_reconnect_heartbeat(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		Core::$now = 1000.0;
 		[ $node ]  = $this->make_remote( 'remote-aspen' );
@@ -3147,7 +3147,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_clean_detach_retires_lease_before_failed_reconnect_heartbeat(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		Core::$now = 2000.0;
 		[ $node ]  = $this->make_remote( 'remote-aspen' );
@@ -3177,7 +3177,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * and discarded there.
 	 */
 	public function test_the_egress_targets_a_null_sibling(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		$this->make_remote( 'remote-aspen' );
 
@@ -3186,7 +3186,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_the_null_sibling_is_torn_down_with_the_broker(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 
@@ -3201,7 +3201,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * the spoke refuses an unsigned one as "verification failed: bad envelope".
 	 */
 	public function test_heartbeat_is_signed_for_its_spoke(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		self::set_slot( Core::node( 'remote-aspen:sse-in' ), 5 );
@@ -3219,7 +3219,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** No session yet: hold the beat rather than send one the spoke will refuse. */
 	public function test_heartbeat_is_held_until_the_spoke_session_exists(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		self::set_slot( Core::node( 'remote-aspen:sse-in' ), 5 );
@@ -3233,7 +3233,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** The reply leg is what keeps the session: an answered beat never expires it. */
 	public function test_an_answered_heartbeat_keeps_the_session(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-aspen' );
 		self::set_slot( Core::node( 'remote-aspen:sse-in' ), 5 );

@@ -108,7 +108,7 @@ class HttpSourceNodeTest extends TestCase {
 		return $readers;
 	}
 
-	private function seed_aspen(): void {
+	private function seed_kestrel_spoke(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 	}
 
@@ -118,7 +118,7 @@ class HttpSourceNodeTest extends TestCase {
 	 * @return array{0:HTTP_Source_Node,1:Remote_Consumer_Node,2:Capture_Sink_Node,3:HTTP_Out_Node}
 	 */
 	private function fetching_reader(): array {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
 		$node = $this->broker( 'pull-aspen' );
@@ -223,12 +223,12 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A broker over one glob source, `jobstats.p*`, its first tick not yet run. */
 	private function globbing_broker(): HTTP_Source_Node {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		return $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'jobstats.p*', 'stats' ] );
 	}
 
 	public function test_it_builds_each_exact_sources_reader_on_the_first_tick(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
 
 		$node->fire();
@@ -237,7 +237,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	public function test_it_holds_no_stream_and_sends_no_heartbeat(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen' );
 
 		$node->fire();
@@ -258,7 +258,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	public function test_the_reply_cap_counts_a_reader_built_this_tick(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ], [ 'jobstats.p0', 'stats' ] );
 
 		$node->fire();
@@ -268,7 +268,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A channel rebuilt since the tick is sized to every reader as a fetch goes out. */
 	public function test_the_reply_cap_counts_every_reader_as_a_fetch_goes_out(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
 		$node->fire();
 		$node->reload();
@@ -279,7 +279,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	public function test_its_status_goes_under_the_brokers_key(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen' );
 
 		$node->fire();
@@ -360,7 +360,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** Aggregator_CI and the Status tab read both brokers' snapshots alike: one key set, every key written. */
 	public function test_both_brokers_write_one_status_key_set(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$sse  = new Remote_Source_Node();
 		$sse->name( 'stream-aspen' );
 		$sse->sink( Core::node( '_router' ) );
@@ -382,7 +382,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	public function test_its_status_reports_the_patrons_last_transfer(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen' );
 		$node->fire();
 		( new \ReflectionProperty( HTTP_Out_Node::class, 'last_outcome' ) )->setValue( Core::node( 'pull-aspen:http-out' ), [ 'code' => 503, 'error' => 'HTTP 503 from aspen-7741' ] );
@@ -407,7 +407,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A reply addressed to the broker settles here and never goes back out. */
 	public function test_a_reply_to_the_broker_is_not_relayed_to_the_spoke(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen' );
 		$node->fire();
 		$reply                   = Message::new_message();
@@ -462,7 +462,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A source's block is lines of text, each relayed as the TM_BYTESTREAM a Tail emits. */
 	public function test_a_sources_block_arrives_as_its_lines_of_text(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$php = new Capture_Sink_Node();
 		$php->name( 'php-errors' );
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'sources:php', 'php-errors' ] );
@@ -765,7 +765,7 @@ class HttpSourceNodeTest extends TestCase {
 	 * fetch with the next in flight leaves a sibling free to make its first.
 	 */
 	public function test_one_readers_hold_leaves_another_free_to_ask(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
 		$errors = new Capture_Sink_Node();
@@ -839,7 +839,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** Readers whose waits fall due in one second ask together, in one batch. */
 	public function test_readers_at_the_end_ask_again_on_one_tick(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ], [ 'jobstats.p0', 'stats' ] );
 		$node->fire();
 		$http = Core::node( 'pull-aspen:http-out' );
@@ -866,7 +866,7 @@ class HttpSourceNodeTest extends TestCase {
 	 * waits began apart ask in one POST and stay in step after it.
 	 */
 	public function test_one_readers_wait_ending_ends_every_waiting_readers(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
 		$node->fire();
 		$http = Core::node( 'pull-aspen:http-out' );
@@ -886,7 +886,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A refused reader keeps its own retry interval when another reader's wait ends. */
 	public function test_a_refused_reader_waits_out_its_own_interval(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
 		$node->fire();
 		$http = Core::node( 'pull-aspen:http-out' );
@@ -954,7 +954,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A file the spoke cannot find yet places a reader with no place at the offset named, under no invented generation. */
 	public function test_an_absent_file_places_a_placeless_reader_at_its_offset(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$php = new Capture_Sink_Node();
 		$php->name( 'php-errors' );
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'sources:php', 'php-errors' ] );
@@ -978,7 +978,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A file briefly missing leaves a reader that knows its place there, rather than replaying from the top. */
 	public function test_an_absent_file_keeps_a_known_place(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'sources:php', 'php-errors' ] );
 		$node->fire();
 		$http   = Core::node( 'pull-aspen:http-out' );
@@ -1150,7 +1150,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** Across readers: the latest answer, the latest fetch sent and the soonest wait. */
 	public function test_the_status_reads_every_reader(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'errors' ] );
 		$node->fire();
 		$http    = Core::node( 'pull-aspen:http-out' );
@@ -1175,7 +1175,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A fresh reader's pending seek goes out as its word; the spoke resolves it. */
 	public function test_a_fresh_reader_asks_from_its_seek_word(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen' );
 		$node->fire();
 		$reader = Core::node( 'pull-aspen:firehose.p0' );
@@ -1202,7 +1202,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A removed source's reader goes, so the tick that ends the waits asks only the rest. */
 	public function test_a_removed_sources_reader_stops_fetching(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen' );
 		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
 		$node->fire();
@@ -1237,7 +1237,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	public function test_a_glob_added_live_asks_for_the_catalog(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = new HTTP_Source_Node();
 		$node->name( 'pull-aspen' );
 		$node->sink( Core::node( '_router' ) );
@@ -1316,7 +1316,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	public function test_retry_ms_overrides_the_config_for_one_broker(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', [ ...$this->remote_args( 'pull-aspen' ), '2600' ] );
 		$node->fire();
 		$http   = Core::node( 'pull-aspen:http-out' );
@@ -1511,7 +1511,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A discovery refusal and a fetch refusal standing together: discovery's shows. */
 	public function test_a_discovery_refusal_outranks_a_fetch_refusal(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'jobstats.p*', 'stats' ] );
 		$node->fire();
 		$reader = $this->readers( $node )['firehose.p0'];
@@ -1565,7 +1565,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	public function test_a_broker_of_exact_sources_never_asks_for_the_catalog(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen' );
 
 		$node->fire();
@@ -1577,7 +1577,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A reader discovered between ticks counts in the reply cap at its first fetch. */
 	public function test_a_discovered_reader_counts_in_the_cap_at_its_first_fetch(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		$node = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ], [ 'jobstats.p*', 'stats' ] );
 		$node->fire();
 		$node->fill( self::catalog_reply( [ 'jobstats.p0', 'jobstats.p3' ] ) );
@@ -1651,7 +1651,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/** A partition owning no source builds no channel. */
 	public function test_a_partition_owning_no_source_builds_no_channel(): void {
-		$this->seed_aspen();
+		$this->seed_kestrel_spoke();
 		Core::$var['partition'] = '1';
 		$node                   = $this->broker( 'pull-aspen', $this->remote_args( 'pull-aspen', 'aspen' ), [ 'firehose.p0', 'downstream' ] );
 
