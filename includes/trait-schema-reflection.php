@@ -69,21 +69,6 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Assign values `schema_values()` already checked and record the tokens
-	 * they came from — the step a node takes itself when it must read a
-	 * validated value before anything is assigned.
-	 *
-	 * @param list<string>        $args   Raw positional argument tokens.
-	 * @param array<string,mixed> $values Property => value, from `schema_values()`.
-	 */
-	protected function assign_schema_args( array $args, array $values ): void {
-		foreach ( $values as $name => $value ) {
-			$this->{$name} = $value;
-		}
-		$this->arguments = $args;
-	}
-
-	/**
 	 * Walk `node_schema()['arguments']` and answer the value each declared
 	 * positional would assign, assigning nothing — the one place defaults and
 	 * required-argument enforcement live (ADR-11). Tokens beyond the declared
@@ -134,26 +119,6 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Refuse `{partition}` in an argument whose spec carries no `partition`
-	 * mark, rather than let it name a literal path. Static, so the analyzer
-	 * refuses the line a load would refuse, and a refusal leaves a live node
-	 * as it was.
-	 *
-	 * @param string       $name The node's name, for the refusal.
-	 * @param list<string> $args Raw positional argument tokens.
-	 * @throws \InvalidArgumentException When an unmarked argument names a partition.
-	 */
-	public static function refuse_unmarked_partition( string $name, array $args ): void {
-		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
-			$token = Core::as_string( $args[ $i ] ?? '' );
-			if ( \is_array( $arg_spec ) && ! isset( $arg_spec['partition'] ) && \str_contains( $token, Core::PARTITION_TOKEN ) ) {
-				$arg = Core::as_string( $arg_spec['name'] ?? '' );
-				self::refuse_named( $name, "{$arg} takes no " . Core::PARTITION_TOKEN . ", got '{$token}'" );
-			}
-		}
-	}
-
-	/**
 	 * A token as its spec's `partition` mark says: `bound` resolves
 	 * `{partition}` at the worker's partition and `{topology}` at its fleet;
 	 * `each` and an unmarked argument are left as written, a Topic building
@@ -181,76 +146,6 @@ trait Schema_Reflection {
 		}
 		// A token naming no partition ignores the index it is handed.
 		return Core::resolve_partition( $token, $partition ?? 0, $topology );
-	}
-
-	/**
-	 * The token `$name` arrived as, before `{partition}` resolved: what the
-	 * TSL wrote, which ownership is judged against. '' when none arrived.
-	 *
-	 * @param string $name A declared positional.
-	 */
-	protected function written_argument( string $name ): string {
-		return static::written_in( $this->arguments, $name );
-	}
-
-	/**
-	 * The token `$name` takes among `$args`, as written; '' when absent. The
-	 * static half of `written_argument()`, for a judge of a line no node
-	 * holds yet. A name the schema does not declare is the caller's bug, so
-	 * it is refused rather than read as an absent token.
-	 *
-	 * @param list<string> $args Raw positional argument tokens.
-	 * @param string       $name A declared positional.
-	 * @throws \LogicException When the schema declares no argument `$name`.
-	 */
-	protected static function written_in( array $args, string $name ): string {
-		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
-			if ( \is_array( $arg_spec ) && $name === ( $arg_spec['name'] ?? null ) ) {
-				return Core::as_string( $args[ $i ] ?? '' );
-			}
-		}
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-		throw new \LogicException( Command_Interpreter_Node::shell_name_for( static::class ) . " declares no argument '{$name}'" );
-	}
-
-	/**
-	 * The tokens past the bound positionals: the tail the class's `variadic`
-	 * argument collects, which only the node reads. The static twin of
-	 * `written_in()`, so the start of the tail is declared once, in the schema.
-	 *
-	 * @param list<string> $args Raw positional argument tokens.
-	 * @return list<string>
-	 */
-	public static function variadic_in( array $args ): array {
-		return \array_slice( $args, \count( self::declared_arguments( static::class ) ) );
-	}
-
-	/**
-	 * The positional specs $class binds; empty when it declares none or
-	 * declares something other than a list. A `variadic` spec collects the
-	 * tokens past the others for the node's own reader, so it is never bound
-	 * and must be declared last.
-	 *
-	 * @param class-string<Node> $class Class whose schema declares them.
-	 * @return array<array-key,mixed>
-	 * @throws \InvalidArgumentException When a `variadic` spec is not the last.
-	 */
-	private static function declared_arguments( string $class ): array {
-		$declared = $class::node_schema()['arguments'] ?? [];
-		if ( ! \is_array( $declared ) ) {
-			return [];
-		}
-		$last = \array_key_last( $declared );
-		foreach ( $declared as $i => $spec ) {
-			if ( ! \is_array( $spec ) || true !== ( $spec['variadic'] ?? false ) ) {
-				continue;
-			}
-			if ( $i !== $last ) {
-				throw new \InvalidArgumentException( \esc_html( 'Invalid argument specification: variadic argument ' . Core::as_string( $spec['name'] ?? '' ) . ' must be the last' ) );
-			}
-			unset( $declared[ $i ] );
-		}
-		return $declared;
 	}
 
 	/**
@@ -290,6 +185,26 @@ trait Schema_Reflection {
 	}
 
 	/**
+	 * Refuse `{partition}` in an argument whose spec carries no `partition`
+	 * mark, rather than let it name a literal path. Static, so the analyzer
+	 * refuses the line a load would refuse, and a refusal leaves a live node
+	 * as it was.
+	 *
+	 * @param string       $name The node's name, for the refusal.
+	 * @param list<string> $args Raw positional argument tokens.
+	 * @throws \InvalidArgumentException When an unmarked argument names a partition.
+	 */
+	public static function refuse_unmarked_partition( string $name, array $args ): void {
+		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
+			$token = Core::as_string( $args[ $i ] ?? '' );
+			if ( \is_array( $arg_spec ) && ! isset( $arg_spec['partition'] ) && \str_contains( $token, Core::PARTITION_TOKEN ) ) {
+				$arg = Core::as_string( $arg_spec['name'] ?? '' );
+				self::refuse_named( $name, "{$arg} takes no " . Core::PARTITION_TOKEN . ", got '{$token}'" );
+			}
+		}
+	}
+
+	/**
 	 * `refuse_argument()` for a node known by its class and name alone.
 	 *
 	 * @param string $name   The node's name; '' names the class alone.
@@ -302,6 +217,104 @@ trait Schema_Reflection {
 			$who .= " '{$name}'";
 		}
 		throw new \InvalidArgumentException( \esc_html( "Bad arguments for {$who}: {$detail}" ) );
+	}
+
+	/**
+	 * Assign values `schema_values()` already checked and record the tokens
+	 * they came from — the step a node takes itself when it must read a
+	 * validated value before anything is assigned.
+	 *
+	 * @param list<string>        $args   Raw positional argument tokens.
+	 * @param array<string,mixed> $values Property => value, from `schema_values()`.
+	 */
+	protected function assign_schema_args( array $args, array $values ): void {
+		foreach ( $values as $name => $value ) {
+			$this->{$name} = $value;
+		}
+		$this->arguments = $args;
+	}
+
+	/**
+	 * The tokens past the bound positionals: the tail the class's `variadic`
+	 * argument collects, which only the node reads. The static twin of
+	 * `written_in()`, so the start of the tail is declared once, in the schema.
+	 *
+	 * @param list<string> $args Raw positional argument tokens.
+	 * @return list<string>
+	 */
+	public static function variadic_in( array $args ): array {
+		return \array_slice( $args, \count( self::declared_arguments( static::class ) ) );
+	}
+
+	/**
+	 * The two verb declarations a list of one value stands for, for a
+	 * `node_schema()['commands']`: `add_{$noun}` appends its one arg, trimmed,
+	 * to `$property`, an identical repeat a no-op, and `remove_{$noun}`,
+	 * taking the same arg and carrying the `noun` its refusal names, drops
+	 * the entry equal to it. A repeat changes nothing, as `add_source` treats
+	 * one, so a `Vault_Group`, which records a repeat once, rebuilds a child
+	 * holding what its live children hold. `auto_wire_interpreter()` synthesizes both
+	 * handlers from their `list` / `unlist` keys, each refusing a blank, the
+	 * remove also a value no entry holds, and `dump_lists()` writes one
+	 * `add_{$noun}` line per entry. A variadic arg's tokens join with a space
+	 * into one entry.
+	 *
+	 * @param string                 $noun        The verbs' shared suffix.
+	 * @param string                 $property    The list property, a `list<string>`.
+	 * @param array<array-key,mixed> $arg         The one arg both verbs take.
+	 * @param string                 $description The add verb's description.
+	 * @return list<array<string,mixed>>
+	 */
+	public static function list_verbs( string $noun, string $property, array $arg, string $description ): array {
+		$add = "add_{$noun}";
+		$val = Core::as_string( $arg['name'] ?? '' );
+		return [
+			[
+				'name'        => $add,
+				'description' => $description,
+				'args'        => [ $arg ],
+				'list'        => $property,
+				'multiple'    => true,
+			],
+			[
+				'name'        => "remove_{$noun}",
+				'description' => "Undo {$add}: drop the entry equal to <{$val}>. Refused when none is.",
+				'args'        => [ $arg ],
+				'unlist'      => $property,
+				'noun'        => $noun,
+				'action'      => true,
+			],
+		];
+	}
+
+	/**
+	 * The token `$name` arrived as, before `{partition}` resolved: what the
+	 * TSL wrote, which ownership is judged against. '' when none arrived.
+	 *
+	 * @param string $name A declared positional.
+	 */
+	protected function written_argument( string $name ): string {
+		return static::written_in( $this->arguments, $name );
+	}
+
+	/**
+	 * The token `$name` takes among `$args`, as written; '' when absent. The
+	 * static half of `written_argument()`, for a judge of a line no node
+	 * holds yet. A name the schema does not declare is the caller's bug, so
+	 * it is refused rather than read as an absent token.
+	 *
+	 * @param list<string> $args Raw positional argument tokens.
+	 * @param string       $name A declared positional.
+	 * @throws \LogicException When the schema declares no argument `$name`.
+	 */
+	protected static function written_in( array $args, string $name ): string {
+		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
+			if ( \is_array( $arg_spec ) && $name === ( $arg_spec['name'] ?? null ) ) {
+				return Core::as_string( $args[ $i ] ?? '' );
+			}
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		throw new \LogicException( Command_Interpreter_Node::shell_name_for( static::class ) . " declares no argument '{$name}'" );
 	}
 
 	/**
@@ -393,6 +406,210 @@ trait Schema_Reflection {
 	}
 
 	/**
+	 * Build the `{node}:config` dispatch table from $class's declared verbs.
+	 * A verb takes its handler from the first declaration it carries: a
+	 * `toggle` or a `setter`, each naming a property `declared_setter()`
+	 * synthesizes a handler for, a `list` or an `unlist`, each naming a list
+	 * `declared_list()` synthesizes one for, then an explicit callable
+	 * `handler`.
+	 *
+	 * A verb carrying none is catalog-only and is skipped silently, not
+	 * flagged, because a plain node legitimately declares description-only
+	 * verbs for the palette. (Service_CI_Node, where every verb MUST dispatch,
+	 * keeps its own warn-on-missing-handler builder.)
+	 *
+	 * @param class-string<Node> $class Class whose schema declares the verbs.
+	 * @return array<string,callable> Verb name => handler.
+	 */
+	private static function verbs_with_handlers( string $class ): array {
+		$table = [];
+		foreach ( Command_Interpreter_Node::declared_verbs( $class ) as $name => $verb ) {
+			$prop = Core::as_string( $verb['toggle'] ?? '' );
+			if ( '' !== $prop ) {
+				$table[ $name ] = self::declared_setter( $class, $verb, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
+				continue;
+			}
+			$prop = Core::as_string( $verb['setter'] ?? '' );
+			if ( '' !== $prop ) {
+				// The string twin: trim and assign. An empty arg clears it.
+				$table[ $name ] = self::declared_setter( $class, $verb, $prop, \trim( ... ) );
+				continue;
+			}
+			$prop = Core::as_string( $verb['list'] ?? $verb['unlist'] ?? '' );
+			if ( '' !== $prop ) {
+				$table[ $name ] = self::declared_list( $class, $name, $verb, $prop );
+				continue;
+			}
+			$handler = $verb['handler'] ?? null;
+			if ( \is_callable( $handler ) ) {
+				$table[ $name ] = $handler;
+			}
+		}
+		return $table;
+	}
+
+	/**
+	 * Synthesize the handler a `list` or `unlist` declaration stands for: join
+	 * the verb's one arg, bound by name, into one trimmed entry, then append it
+	 * to the patron's `$prop` list unless an entry equals it, or drop the
+	 * entry equal to it. A blank entry is refused, and so is a removal no
+	 * entry matches, naming the `noun` its declaration carries.
+	 *
+	 * @param class-string<Node>     $class Class whose schema declares the verb.
+	 * @param string                 $name  The verb.
+	 * @param array<array-key,mixed> $verb  The verb's schema entry.
+	 * @param string                 $prop  The list property.
+	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
+	 * @throws \LogicException When an `unlist` declaration's `noun` is missing or empty.
+	 */
+	private static function declared_list( string $class, string $name, array $verb, string $prop ): callable {
+		$arg  = self::carrying_arg( $verb, $name );
+		$adds = isset( $verb['list'] );
+		$noun = Core::as_string( $verb['noun'] ?? '' );
+		if ( ! $adds && '' === $noun ) {
+			throw new \LogicException( \esc_html( "{$name}: an unlist verb declares no noun" ) );
+		}
+		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $name, $prop, $arg, $adds, $noun ): string {
+			$patron = self::patron_of( $interpreter, $class, $name );
+			$tokens = $args[ $arg ] ?? '';
+			$entry  = \trim( \implode( ' ', \array_map( Core::as_string( ... ), \is_array( $tokens ) ? $tokens : [ $tokens ] ) ) );
+			if ( '' === $entry ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \InvalidArgumentException( "usage: {$name} <{$arg}>" );
+			}
+			$entries = \array_values( Core::arr( $patron->{$prop} ) );
+			$held    = \in_array( $entry, $entries, true );
+			if ( $adds ) {
+				$patron->{$prop} = $held ? $entries : [ ...$entries, $entry ];
+				return "ok\n";
+			}
+			if ( ! $held ) {
+				throw Command_Args::undeclared( $name, [ $entry ], $noun, 'node' );
+			}
+			$patron->{$prop} = Core::without( $entries, $entry );
+			return "ok\n";
+		};
+	}
+
+	/**
+	 * Synthesize the handler a `toggle` or `setter` declaration stands for:
+	 * read the verb's one declared arg, bound by name, coerce it, then hand it
+	 * to the patron's `set_{$prop}()` — the class's own typed entry point, so
+	 * the coerced value lands under the property's declared type rather than
+	 * beside it. A `$prop` naming one of $class's positionals replays the
+	 * patron's `arguments()` with that token replaced instead, so the node's
+	 * own parse validates the value and `dump_config()`'s `make_node` line
+	 * carries it.
+	 *
+	 * @param class-string<Node>      $class  Class whose schema declares the verb.
+	 * @param array<array-key,mixed>  $verb   The verb's schema entry.
+	 * @param string                  $prop   Property the verb writes, minus the `set_` prefix.
+	 * @param callable(string):mixed  $coerce The bound value, as a string, to the setter's type.
+	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
+	 */
+	private static function declared_setter( string $class, array $verb, string $prop, callable $coerce ): callable {
+		$what       = "set_{$prop}";
+		$arg        = self::carrying_arg( $verb, $what );
+		$positional = \in_array( $prop, \array_column( \array_filter( self::declared_arguments( $class ), \is_array( ... ) ), 'name' ), true );
+		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $prop, $arg, $coerce, $positional, $what ): string {
+			$patron = self::patron_of( $interpreter, $class, $what );
+			$value  = $args[ $arg ] ?? '';
+			if ( $positional ) {
+				$token = \is_bool( $value ) ? ( $value ? 'true' : 'false' ) : \trim( Core::as_string( $value ) );
+				$patron->arguments( self::replayed( $class, $patron->arguments(), $prop, $token ) );
+			} else {
+				$patron->{"set_{$prop}"}( $coerce( Core::as_string( $value ) ) );
+			}
+			return "ok\n";
+		};
+	}
+
+	/**
+	 * The tokens in force with `$name`'s replaced, each unset slot before it
+	 * written as its default, so `dump_config()` carries the value.
+	 *
+	 * @param class-string<Node> $class  Class declaring the positionals.
+	 * @param list<string>       $tokens The tokens in force.
+	 * @param string             $name   One of $class's positionals.
+	 * @param string             $token  Its new token.
+	 * @return list<string>
+	 */
+	private static function replayed( string $class, array $tokens, string $name, string $token ): array {
+		foreach ( \array_map( Core::arr( ... ), self::declared_arguments( $class ) ) as $slot => $spec ) {
+			if ( $name === $spec['name'] ) {
+				$tokens[ $slot ] = $token;
+				break;
+			}
+			$tokens[ $slot ] ??= Core::as_string( $spec['default'] ?? '' );
+		}
+		return \array_values( $tokens );
+	}
+
+	/**
+	 * The positional specs $class binds; empty when it declares none or
+	 * declares something other than a list. A `variadic` spec collects the
+	 * tokens past the others for the node's own reader, so it is never bound
+	 * and must be declared last.
+	 *
+	 * @param class-string<Node> $class Class whose schema declares them.
+	 * @return array<array-key,mixed>
+	 * @throws \InvalidArgumentException When a `variadic` spec is not the last.
+	 */
+	private static function declared_arguments( string $class ): array {
+		$declared = $class::node_schema()['arguments'] ?? [];
+		if ( ! \is_array( $declared ) ) {
+			return [];
+		}
+		$last = \array_key_last( $declared );
+		foreach ( $declared as $i => $spec ) {
+			if ( ! \is_array( $spec ) || true !== ( $spec['variadic'] ?? false ) ) {
+				continue;
+			}
+			if ( $i !== $last ) {
+				throw new \InvalidArgumentException( \esc_html( 'Invalid argument specification: variadic argument ' . Core::as_string( $spec['name'] ?? '' ) . ' must be the last' ) );
+			}
+			unset( $declared[ $i ] );
+		}
+		return $declared;
+	}
+
+	/**
+	 * The interpreter's patron, refused when it is no $class. An interpreter
+	 * re-pointed at a foreign node would otherwise write a property or call a
+	 * `set_` method that class never declared, and the fatal would name the
+	 * member rather than the mis-wiring.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The verb's interpreter.
+	 * @param class-string<Node>       $class       Class whose schema declares the verb.
+	 * @param string                   $what        What the verb writes, for the refusal.
+	 * @return Node
+	 * @throws \RuntimeException When the patron is no $class.
+	 */
+	private static function patron_of( Command_Interpreter_Node $interpreter, string $class, string $what ): Node {
+		$patron = $interpreter->patron();
+		if ( ! $patron instanceof $class ) {
+			throw new \RuntimeException( \esc_html( "{$what}: not a {$class}" ) );
+		}
+		return $patron;
+	}
+
+	/**
+	 * The name of the one arg a declarative verb reads.
+	 *
+	 * @param array<array-key,mixed> $verb The verb's schema entry.
+	 * @param string                 $what The verb, for the refusal.
+	 * @return string
+	 * @throws \LogicException When the verb declares no arg.
+	 */
+	private static function carrying_arg( array $verb, string $what ): string {
+		$arg = Core::as_string( Core::arr( Core::arr( $verb['args'] ?? [] )[0] ?? [] )['name'] ?? '' );
+		if ( '' === $arg ) {
+			throw new \LogicException( \esc_html( "{$what}: the verb declares no arg to carry its value" ) );
+		}
+		return $arg;
+	}
+
+	/**
 	 * Build a `{name}:config` interpreter from an already-resolved verb table,
 	 * patron it and publish it — the half `auto_wire_interpreter()` shares with a
 	 * builder that assembles its own verb table rather than reading it straight
@@ -455,222 +672,5 @@ trait Schema_Reflection {
 		$reply[ Message::KEY ]  = $message[ Message::KEY ];
 		$sink->fill( $reply );
 		return true;
-	}
-
-	/**
-	 * The two verb declarations a list of one value stands for, for a
-	 * `node_schema()['commands']`: `add_{$noun}` appends its one arg, trimmed,
-	 * to `$property`, an identical repeat a no-op, and `remove_{$noun}`,
-	 * taking the same arg and carrying the `noun` its refusal names, drops
-	 * the entry equal to it. A repeat changes nothing, as `add_source` treats
-	 * one, so a `Vault_Group`, which records a repeat once, rebuilds a child
-	 * holding what its live children hold. `auto_wire_interpreter()` synthesizes both
-	 * handlers from their `list` / `unlist` keys, each refusing a blank, the
-	 * remove also a value no entry holds, and `dump_lists()` writes one
-	 * `add_{$noun}` line per entry. A variadic arg's tokens join with a space
-	 * into one entry.
-	 *
-	 * @param string                 $noun        The verbs' shared suffix.
-	 * @param string                 $property    The list property, a `list<string>`.
-	 * @param array<array-key,mixed> $arg         The one arg both verbs take.
-	 * @param string                 $description The add verb's description.
-	 * @return list<array<string,mixed>>
-	 */
-	public static function list_verbs( string $noun, string $property, array $arg, string $description ): array {
-		$add = "add_{$noun}";
-		$val = Core::as_string( $arg['name'] ?? '' );
-		return [
-			[
-				'name'        => $add,
-				'description' => $description,
-				'args'        => [ $arg ],
-				'list'        => $property,
-				'multiple'    => true,
-			],
-			[
-				'name'        => "remove_{$noun}",
-				'description' => "Undo {$add}: drop the entry equal to <{$val}>. Refused when none is.",
-				'args'        => [ $arg ],
-				'unlist'      => $property,
-				'noun'        => $noun,
-				'action'      => true,
-			],
-		];
-	}
-
-	/**
-	 * Build the `{node}:config` dispatch table from $class's declared verbs.
-	 * A verb takes its handler from the first declaration it carries: a
-	 * `toggle` or a `setter`, each naming a property `declared_setter()`
-	 * synthesizes a handler for, a `list` or an `unlist`, each naming a list
-	 * `declared_list()` synthesizes one for, then an explicit callable
-	 * `handler`.
-	 *
-	 * A verb carrying none is catalog-only and is skipped silently, not
-	 * flagged, because a plain node legitimately declares description-only
-	 * verbs for the palette. (Service_CI_Node, where every verb MUST dispatch,
-	 * keeps its own warn-on-missing-handler builder.)
-	 *
-	 * @param class-string<Node> $class Class whose schema declares the verbs.
-	 * @return array<string,callable> Verb name => handler.
-	 */
-	private static function verbs_with_handlers( string $class ): array {
-		$table = [];
-		foreach ( Command_Interpreter_Node::declared_verbs( $class ) as $name => $verb ) {
-			$prop = Core::as_string( $verb['toggle'] ?? '' );
-			if ( '' !== $prop ) {
-				$table[ $name ] = self::declared_setter( $class, $verb, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
-				continue;
-			}
-			$prop = Core::as_string( $verb['setter'] ?? '' );
-			if ( '' !== $prop ) {
-				// The string twin: trim and assign. An empty arg clears it.
-				$table[ $name ] = self::declared_setter( $class, $verb, $prop, \trim( ... ) );
-				continue;
-			}
-			$prop = Core::as_string( $verb['list'] ?? $verb['unlist'] ?? '' );
-			if ( '' !== $prop ) {
-				$table[ $name ] = self::declared_list( $class, $name, $verb, $prop );
-				continue;
-			}
-			$handler = $verb['handler'] ?? null;
-			if ( \is_callable( $handler ) ) {
-				$table[ $name ] = $handler;
-			}
-		}
-		return $table;
-	}
-
-	/**
-	 * Synthesize the handler a `toggle` or `setter` declaration stands for:
-	 * read the verb's one declared arg, bound by name, coerce it, then hand it
-	 * to the patron's `set_{$prop}()` — the class's own typed entry point, so
-	 * the coerced value lands under the property's declared type rather than
-	 * beside it. A `$prop` naming one of $class's positionals replays the
-	 * patron's `arguments()` with that token replaced instead, so the node's
-	 * own parse validates the value and `dump_config()`'s `make_node` line
-	 * carries it.
-	 *
-	 * @param class-string<Node>      $class  Class whose schema declares the verb.
-	 * @param array<array-key,mixed>  $verb   The verb's schema entry.
-	 * @param string                  $prop   Property the verb writes, minus the `set_` prefix.
-	 * @param callable(string):mixed  $coerce The bound value, as a string, to the setter's type.
-	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
-	 */
-	private static function declared_setter( string $class, array $verb, string $prop, callable $coerce ): callable {
-		$what       = "set_{$prop}";
-		$arg        = self::carrying_arg( $verb, $what );
-		$positional = \in_array( $prop, \array_column( \array_filter( self::declared_arguments( $class ), \is_array( ... ) ), 'name' ), true );
-		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $prop, $arg, $coerce, $positional, $what ): string {
-			$patron = self::patron_of( $interpreter, $class, $what );
-			$value  = $args[ $arg ] ?? '';
-			if ( $positional ) {
-				$token = \is_bool( $value ) ? ( $value ? 'true' : 'false' ) : \trim( Core::as_string( $value ) );
-				$patron->arguments( self::replayed( $class, $patron->arguments(), $prop, $token ) );
-			} else {
-				$patron->{"set_{$prop}"}( $coerce( Core::as_string( $value ) ) );
-			}
-			return "ok\n";
-		};
-	}
-
-	/**
-	 * Synthesize the handler a `list` or `unlist` declaration stands for: join
-	 * the verb's one arg, bound by name, into one trimmed entry, then append it
-	 * to the patron's `$prop` list unless an entry equals it, or drop the
-	 * entry equal to it. A blank entry is refused, and so is a removal no
-	 * entry matches, naming the `noun` its declaration carries.
-	 *
-	 * @param class-string<Node>     $class Class whose schema declares the verb.
-	 * @param string                 $name  The verb.
-	 * @param array<array-key,mixed> $verb  The verb's schema entry.
-	 * @param string                 $prop  The list property.
-	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
-	 * @throws \LogicException When an `unlist` declaration's `noun` is missing or empty.
-	 */
-	private static function declared_list( string $class, string $name, array $verb, string $prop ): callable {
-		$arg  = self::carrying_arg( $verb, $name );
-		$adds = isset( $verb['list'] );
-		$noun = Core::as_string( $verb['noun'] ?? '' );
-		if ( ! $adds && '' === $noun ) {
-			throw new \LogicException( \esc_html( "{$name}: an unlist verb declares no noun" ) );
-		}
-		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $name, $prop, $arg, $adds, $noun ): string {
-			$patron = self::patron_of( $interpreter, $class, $name );
-			$tokens = $args[ $arg ] ?? '';
-			$entry  = \trim( \implode( ' ', \array_map( Core::as_string( ... ), \is_array( $tokens ) ? $tokens : [ $tokens ] ) ) );
-			if ( '' === $entry ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \InvalidArgumentException( "usage: {$name} <{$arg}>" );
-			}
-			$entries = \array_values( Core::arr( $patron->{$prop} ) );
-			$held    = \in_array( $entry, $entries, true );
-			if ( $adds ) {
-				$patron->{$prop} = $held ? $entries : [ ...$entries, $entry ];
-				return "ok\n";
-			}
-			if ( ! $held ) {
-				throw Command_Args::undeclared( $name, [ $entry ], $noun, 'node' );
-			}
-			$patron->{$prop} = Core::without( $entries, $entry );
-			return "ok\n";
-		};
-	}
-
-	/**
-	 * The name of the one arg a declarative verb reads.
-	 *
-	 * @param array<array-key,mixed> $verb The verb's schema entry.
-	 * @param string                 $what The verb, for the refusal.
-	 * @return string
-	 * @throws \LogicException When the verb declares no arg.
-	 */
-	private static function carrying_arg( array $verb, string $what ): string {
-		$arg = Core::as_string( Core::arr( Core::arr( $verb['args'] ?? [] )[0] ?? [] )['name'] ?? '' );
-		if ( '' === $arg ) {
-			throw new \LogicException( \esc_html( "{$what}: the verb declares no arg to carry its value" ) );
-		}
-		return $arg;
-	}
-
-	/**
-	 * The interpreter's patron, refused when it is no $class. An interpreter
-	 * re-pointed at a foreign node would otherwise write a property or call a
-	 * `set_` method that class never declared, and the fatal would name the
-	 * member rather than the mis-wiring.
-	 *
-	 * @param Command_Interpreter_Node $interpreter The verb's interpreter.
-	 * @param class-string<Node>       $class       Class whose schema declares the verb.
-	 * @param string                   $what        What the verb writes, for the refusal.
-	 * @return Node
-	 * @throws \RuntimeException When the patron is no $class.
-	 */
-	private static function patron_of( Command_Interpreter_Node $interpreter, string $class, string $what ): Node {
-		$patron = $interpreter->patron();
-		if ( ! $patron instanceof $class ) {
-			throw new \RuntimeException( \esc_html( "{$what}: not a {$class}" ) );
-		}
-		return $patron;
-	}
-
-	/**
-	 * The tokens in force with `$name`'s replaced, each unset slot before it
-	 * written as its default, so `dump_config()` carries the value.
-	 *
-	 * @param class-string<Node> $class  Class declaring the positionals.
-	 * @param list<string>       $tokens The tokens in force.
-	 * @param string             $name   One of $class's positionals.
-	 * @param string             $token  Its new token.
-	 * @return list<string>
-	 */
-	private static function replayed( string $class, array $tokens, string $name, string $token ): array {
-		foreach ( \array_map( Core::arr( ... ), self::declared_arguments( $class ) ) as $slot => $spec ) {
-			if ( $name === $spec['name'] ) {
-				$tokens[ $slot ] = $token;
-				break;
-			}
-			$tokens[ $slot ] ??= Core::as_string( $spec['default'] ?? '' );
-		}
-		return \array_values( $tokens );
 	}
 }

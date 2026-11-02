@@ -111,36 +111,6 @@ trait Cooperative_Stop {
 	protected string $stop_reason = '';
 
 	/**
-	 * The `.lock.d` directory THIS process holds. Named apart from
-	 * `Spawn_Coordinator::lock_path( $base_dir, $type, $partition )`, which
-	 * answers a different question — where some OTHER worker's lock lives.
-	 */
-	abstract protected function held_lock_path(): string;
-
-	/** How this process names itself in a stop message. */
-	abstract protected function stop_label(): string;
-
-	/**
-	 * The monotonic clock, in seconds.
-	 *
-	 * @return float Seconds since an arbitrary origin; never steps.
-	 */
-	protected static function monotonic_now(): float {
-		$read = self::$monotonic ?? static fn (): float => \hrtime( true ) / 1e9;
-		return $read();
-	}
-
-	/**
-	 * Touch the lock and stamp the beat.
-	 *
-	 * @param float $now The instant to stamp; the caller owns which clock.
-	 */
-	private function beat( float $now ): void {
-		$this->lock?->heartbeat();
-		$this->last_heartbeat = $now;
-	}
-
-	/**
 	 * Whether to keep running. Every cooperative-stop trigger lives here, and so
 	 * does the heartbeat — this is the only thing that beats the lock.
 	 *
@@ -259,6 +229,55 @@ trait Cooperative_Stop {
 		return null !== $newest && ( $now - $newest ) >= $this->on_demand_idle;
 	}
 
+	/** DB liveness probe (via the $db_probe seam); N consecutive failures trigger shutdown. */
+	protected function db_check_passes(): bool {
+		$probe = self::$db_probe ?? static function (): bool {
+			global $wpdb;
+			if ( ! \is_object( $wpdb ) || ! \method_exists( $wpdb, 'check_connection' ) ) {
+				return true;
+			}
+			// allow_bail=false: report, don't wp_die inside the drain.
+			return (bool) $wpdb->check_connection( false );
+		};
+		return (bool) $probe();
+	}
+
+	/**
+	 * Touch the lock and stamp the beat.
+	 *
+	 * @param float $now The instant to stamp; the caller owns which clock.
+	 */
+	private function beat( float $now ): void {
+		$this->lock?->heartbeat();
+		$this->last_heartbeat = $now;
+	}
+
+	/**
+	 * The `memory_limit` ini setting in bytes, expanding a `K`, `M` or `G` suffix.
+	 * Unlimited passes through as -1, which is why every caller guards on a
+	 * non-positive limit rather than comparing against it.
+	 */
+	protected function memory_limit_bytes(): int {
+		$ini = \ini_get( 'memory_limit' );
+		if ( '-1' === $ini ) {
+			return -1;
+		}
+		$num = (int) $ini;
+		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
+			case 'g': $num *= 1024 * 1024 * 1024; break;
+			case 'm': $num *= 1024 * 1024;        break;
+			case 'k': $num *= 1024;               break;
+		}
+		return $num;
+	}
+
+	/**
+	 * The `.lock.d` directory THIS process holds. Named apart from
+	 * `Spawn_Coordinator::lock_path( $base_dir, $type, $partition )`, which
+	 * answers a different question — where some OTHER worker's lock lives.
+	 */
+	abstract protected function held_lock_path(): string;
+
 	/**
 	 * Record why we are stopping and say so in one line, `<label>: stopping —
 	 * <reason> (age <N>s)`. A routine stop goes to the `newspack_nodes/stderr`
@@ -281,35 +300,16 @@ trait Cooperative_Stop {
 		return false;
 	}
 
-	/**
-	 * The `memory_limit` ini setting in bytes, expanding a `K`, `M` or `G` suffix.
-	 * Unlimited passes through as -1, which is why every caller guards on a
-	 * non-positive limit rather than comparing against it.
-	 */
-	protected function memory_limit_bytes(): int {
-		$ini = \ini_get( 'memory_limit' );
-		if ( '-1' === $ini ) {
-			return -1;
-		}
-		$num = (int) $ini;
-		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
-			case 'g': $num *= 1024 * 1024 * 1024; break;
-			case 'm': $num *= 1024 * 1024;        break;
-			case 'k': $num *= 1024;               break;
-		}
-		return $num;
-	}
+	/** How this process names itself in a stop message. */
+	abstract protected function stop_label(): string;
 
-	/** DB liveness probe (via the $db_probe seam); N consecutive failures trigger shutdown. */
-	protected function db_check_passes(): bool {
-		$probe = self::$db_probe ?? static function (): bool {
-			global $wpdb;
-			if ( ! \is_object( $wpdb ) || ! \method_exists( $wpdb, 'check_connection' ) ) {
-				return true;
-			}
-			// allow_bail=false: report, don't wp_die inside the drain.
-			return (bool) $wpdb->check_connection( false );
-		};
-		return (bool) $probe();
+	/**
+	 * The monotonic clock, in seconds.
+	 *
+	 * @return float Seconds since an arbitrary origin; never steps.
+	 */
+	protected static function monotonic_now(): float {
+		$read = self::$monotonic ?? static fn (): float => \hrtime( true ) / 1e9;
+		return $read();
 	}
 }

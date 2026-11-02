@@ -30,8 +30,8 @@
  *     topological order, then the methods no self-dispatch edge touches in
  *     source order, then `node_schema` last.
  *
- *   GENERIC (every other class) — `__construct`, then every remaining method
- *     in topological order.
+ *   GENERIC (every other class, and every trait) — `__construct`, then every
+ *     remaining method in topological order.
  *
  * Topological order means a method is emitted only once EVERY caller of it
  * already is, so no caller ever prints below something it calls. A cycle stalls
@@ -218,10 +218,11 @@ function is_name_token( ?int $id ): bool {
 }
 
 /**
- * Every class in the file, with its depth-1 members and their offsets.
+ * Every class and trait in the file, with its depth-1 members and their
+ * offsets.
  *
  * Nothing is filtered out: each record is tagged `is_node` so `reorder()` picks
- * the policy per class.
+ * the policy per class; a trait takes the generic one.
  *
  * @param string $src PHP source.
  * @return list<ClassRec>
@@ -231,7 +232,7 @@ function find_classes( string $src ): array {
 	$n       = count( $toks );
 	$classes = [];
 	for ( $i = 0; $i < $n; $i++ ) {
-		if ( $toks[ $i ][0] !== T_CLASS ) continue;
+		if ( $toks[ $i ][0] !== T_CLASS && $toks[ $i ][0] !== T_TRAIT ) continue;
 		// `Foo::class` tokenizes as T_CLASS but declares nothing — skip it.
 		$p = $i - 1;
 		while ( $p >= 0 && ( $toks[ $p ][0] === T_WHITESPACE || $toks[ $p ][0] === T_COMMENT ) ) $p--;

@@ -51,6 +51,58 @@ trait Curl_Transfer {
 	private int $in_flight = 0;
 
 	/**
+	 * Read a finished transfer — its status and body when it completed, zero
+	 * and '' when libcurl failed it — and hand that to `on_transfer_done()`,
+	 * with the response headers it kept, which the header callback, not the
+	 * result seam, fills.
+	 *
+	 * @api Called by the Event_Framework.
+	 *
+	 * @param \CurlHandle                                                                             $handle   The completed easy handle.
+	 * @param int                                                                                     $result   The transfer's CURLE_* code.
+	 * @param array{context:TContext,body:\Closure(): string,headers:\Closure(): array<string,string>} $transfer What `start_transfer()` started it under.
+	 */
+	public function on_curl_done( \CurlHandle $handle, int $result, mixed $transfer ): void {
+		--$this->in_flight;
+		$response = [
+			'code'     => 0,
+			'body'     => '',
+			'redirect' => '',
+		];
+		if ( \CURLE_OK === $result ) {
+			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
+			$read = self::$curl_result ?? static fn ( \CurlHandle $easy ): array => [
+				'code'     => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
+				'body'     => ( $transfer['body'] )(),
+				'redirect' => Core::as_string( \curl_getinfo( $easy, \CURLINFO_REDIRECT_URL ) ),
+			];
+			// phpcs:enable
+			$response = $read( $handle );
+		}
+		$response['headers'] = ( $transfer['headers'] )();
+		$this->on_transfer_done( $result, $response, $transfer['context'] );
+	}
+
+	/**
+	 * Act on one finished transfer.
+	 *
+	 * @param int                         $result   The transfer's CURLE_* code.
+	 * @param array{code:int,body:string,redirect:string,headers:array<string,string>} $response Its status, body, unfollowed Location and kept headers; zero and '' unless CURLE_OK.
+	 * @param TContext                    $context  What `start_transfer()` was handed.
+	 */
+	abstract protected function on_transfer_done( int $result, array $response, mixed $context ): void;
+
+	/**
+	 * How many transfers this node has in flight, kept as a count so a check
+	 * per fill costs nothing.
+	 *
+	 * @api Crawler_Node
+	 */
+	public function transfers_in_flight(): int {
+		return $this->in_flight;
+	}
+
+	/**
 	 * Add the body cap to a node's opts and start the transfer under
 	 * `$context`. Each transfer buffers into its own string, appended in place,
 	 * and, when `$names` names any, keeps the first value of each of those
@@ -117,58 +169,6 @@ trait Curl_Transfer {
 	/** The cap on one response body this node buffers; a node may raise it. */
 	protected function reply_cap(): int {
 		return self::MAX_REPLY_BYTES;
-	}
-
-	/**
-	 * Read a finished transfer — its status and body when it completed, zero
-	 * and '' when libcurl failed it — and hand that to `on_transfer_done()`,
-	 * with the response headers it kept, which the header callback, not the
-	 * result seam, fills.
-	 *
-	 * @api Called by the Event_Framework.
-	 *
-	 * @param \CurlHandle                                                                             $handle   The completed easy handle.
-	 * @param int                                                                                     $result   The transfer's CURLE_* code.
-	 * @param array{context:TContext,body:\Closure(): string,headers:\Closure(): array<string,string>} $transfer What `start_transfer()` started it under.
-	 */
-	public function on_curl_done( \CurlHandle $handle, int $result, mixed $transfer ): void {
-		--$this->in_flight;
-		$response = [
-			'code'     => 0,
-			'body'     => '',
-			'redirect' => '',
-		];
-		if ( \CURLE_OK === $result ) {
-			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
-			$read = self::$curl_result ?? static fn ( \CurlHandle $easy ): array => [
-				'code'     => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
-				'body'     => ( $transfer['body'] )(),
-				'redirect' => Core::as_string( \curl_getinfo( $easy, \CURLINFO_REDIRECT_URL ) ),
-			];
-			// phpcs:enable
-			$response = $read( $handle );
-		}
-		$response['headers'] = ( $transfer['headers'] )();
-		$this->on_transfer_done( $result, $response, $transfer['context'] );
-	}
-
-	/**
-	 * Act on one finished transfer.
-	 *
-	 * @param int                         $result   The transfer's CURLE_* code.
-	 * @param array{code:int,body:string,redirect:string,headers:array<string,string>} $response Its status, body, unfollowed Location and kept headers; zero and '' unless CURLE_OK.
-	 * @param TContext                    $context  What `start_transfer()` was handed.
-	 */
-	abstract protected function on_transfer_done( int $result, array $response, mixed $context ): void;
-
-	/**
-	 * How many transfers this node has in flight, kept as a count so a check
-	 * per fill costs nothing.
-	 *
-	 * @api Crawler_Node
-	 */
-	public function transfers_in_flight(): int {
-		return $this->in_flight;
 	}
 
 	/**

@@ -725,4 +725,23 @@ assert_valid_php "php trailing-comment" "$tmp/class-cmt-node.php"
 assert_line "php trailing-comment: ABE keeps its own comment" "$tmp/class-cmt-node.php" 'const ABE = 2; // abe comment'
 assert_line "php trailing-comment: ZED keeps its own comment" "$tmp/class-cmt-node.php" 'const ZED = 1; // zed comment'
 
+# ---- (I) a trait is ordered as a class is, under the generic policy ----
+cat > "$tmp/trait-sorted.php" <<'PHP'
+<?php
+trait Sorted_Trait {
+	private function helper_7731(): void {
+	}
+
+	public function entry_7731(): void {
+		$this->helper_7731();
+	}
+
+	private int $tally = 0;
+}
+PHP
+php reorder-node-methods.php --write "$tmp/trait-sorted.php" >/dev/null 2>&1
+assert_valid_php "php trait" "$tmp/trait-sorted.php"
+assert_before "php trait: caller above its helper" "$( cat "$tmp/trait-sorted.php" )" "function entry_7731" "function helper_7731"
+assert_before "php trait: field above the methods" "$( cat "$tmp/trait-sorted.php" )" "int \$tally" "function helper_7731"
+
 exit "$fail"

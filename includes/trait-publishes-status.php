@@ -62,6 +62,12 @@ trait Publishes_Status {
 		$this->status_written_at = $now;
 	}
 
+	/** Seconds the cache keeps a snapshot nothing rewrites. */
+	abstract protected function status_ttl(): int;
+
+	/** Seconds after which an unchanged snapshot is written again. */
+	abstract protected function status_heartbeat(): int;
+
 	/**
 	 * When the condition whose start $key holds began: the held snapshot's
 	 * value there, or now when it holds none. A publisher keeps when a
@@ -136,10 +142,4 @@ trait Publishes_Status {
 	protected static function status_text( string $text ): string {
 		return \mb_strcut( Core::terminal_safe( $text ), 0, self::STATUS_TEXT_BYTES, 'UTF-8' );
 	}
-
-	/** Seconds the cache keeps a snapshot nothing rewrites. */
-	abstract protected function status_ttl(): int;
-
-	/** Seconds after which an unchanged snapshot is written again. */
-	abstract protected function status_heartbeat(): int;
 }

@@ -76,6 +76,16 @@ trait Deferred_Clean_Stop {
 	}
 
 	/**
+	 * What a held stop means once its message is finished: a bare plain stop
+	 * becomes clean; anything else stays as it was raised.
+	 *
+	 * @param Worker_Should_Stop $stop A stop `guarded()` held.
+	 */
+	private static function finished( Worker_Should_Stop $stop ): Worker_Should_Stop {
+		return Worker_Should_Stop::is_bare( $stop ) ? new Worker_Should_Stop_Clean() : $stop;
+	}
+
+	/**
 	 * Run a downstream forward. Inside a bracket a Worker_Should_Stop waits for
 	 * the message to finish; outside one it propagates at once. A non-stop
 	 * throwable always propagates at once, and the bracket combines it with any
@@ -93,15 +103,5 @@ trait Deferred_Clean_Stop {
 			}
 			$this->deferred_stops[] = $e;
 		}
-	}
-
-	/**
-	 * What a held stop means once its message is finished: a bare plain stop
-	 * becomes clean; anything else stays as it was raised.
-	 *
-	 * @param Worker_Should_Stop $stop A stop `guarded()` held.
-	 */
-	private static function finished( Worker_Should_Stop $stop ): Worker_Should_Stop {
-		return Worker_Should_Stop::is_bare( $stop ) ? new Worker_Should_Stop_Clean() : $stop;
 	}
 }
