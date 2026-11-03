@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.144.1] - 2026-11-03
+
 ### Added
 
 - `scripts/lint-private-data.py`, a private-data gate in the shared hooks, read from `$NEWSPACK_PRIVATE_PATTERNS`, else `${XDG_CONFIG_HOME:-~/.config}/newspack/private-patterns.tsv`: `pre-commit` holds the staged diff's added lines and new paths, `commit-msg` the message, and `pre-push` each pushed commit's message, added lines and new paths (a merge against its first parent), each ref's local and remote names and each annotated tag's message to that private pattern list. A finding names the kind of place and the pattern's class, never the value. A missing list fails the hook; an empty file passes; a dangling symlink fails naming its target. The sync vendors it into every sibling, and it runs only where the plugin's `scripts/pre-push.local` sets `readonly PRIVATE_DATA_GATE=1`, which all three hooks read through `scripts/lib/private-data-gate.sh`; unset or `0` skips it, any other value fails the hook. newspack-nodes sets it.
