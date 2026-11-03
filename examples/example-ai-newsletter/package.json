@@ -31,6 +31,11 @@
 		"sass": "^1.99.0"
 	},
 	"overrides": {
-		"js-yaml": "^4.2.0"
+		"js-yaml": "^4.2.0",
+		"glob@>=9.0.0 <14.0.2": "^14.0.2",
+		"minimatch@>=9.0.0 <11.0.1": "^11.0.1",
+		"babel-plugin-istanbul": {
+			"test-exclude": "^8.0.0"
+		}
 	}
 }
