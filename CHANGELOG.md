@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.146.0] - 2026-11-04
+
 ### Added
 
 - **A `Curl_Node` request may name `timeout`,** whole seconds from 1 to `Curl_Node::MAX_REQUEST_TIMEOUT` (120), so a slow endpoint such as a model call gets the time it needs; a request naming none keeps `REQUEST_TIMEOUT` (30). It is a deadline for the whole request, set when the request starts: each transfer gets the milliseconds the live clock leaves, as `CURLOPT_TIMEOUT_MS`, so a public-only request's hops, and the name lookup before each on a PHP without `CURLOPT_PREREQFUNCTION`, spend one budget. The deadline passing between transfers answers the TM_ERROR `timed out <url>` and fetches nothing; passing inside a transfer answers libcurl's `curl error 28 (Timeout was reached) <url>`, as before. A timeout of another kind answers `invalid timeout <url>`.
