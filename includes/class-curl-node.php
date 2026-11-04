@@ -11,20 +11,22 @@
  * any forwarded message; the copy is never addressed back to FROM.
  *
  * A TM_BYTESTREAM's VALUE is a url, fetched with a GET. A TM_STRUCT's VALUE
- * is `{ url, method, body, headers, proxy, response_headers, connect_timeout }`:
- * `method` GET, POST or DELETE, a POST's `body` a string of at most
- * `MAX_BODY_BYTES`, sent as `application/json`, `headers` an optional list of
+ * is `{ url, method, body, headers, proxy, response_headers, connect_timeout,
+ * timeout }`: `method` GET, POST or DELETE, a POST's `body` a string of at
+ * most the node's body cap, `DEFAULT_BODY_CAP` until `set_body_cap()` raises
+ * it, sent as `application/json`, `headers` an optional list of
  * `Name: value` lines sent after it, a `Content-Type` among them replacing
  * the JSON one, `proxy` an optional `<scheme>://<host>:<port>` the fetch goes
  * through, its scheme one of `PROXY_SCHEMES`, which a `no_proxy` variable
- * never bypasses, and `connect_timeout` the optional whole seconds, from 1 to
- * `REQUEST_TIMEOUT`, the connection may take within the transfer's own
- * timeout. Any other method, a body on a GET or a DELETE, a body over the
+ * never bypasses, `timeout` the optional whole seconds, from 1 to
+ * `MAX_REQUEST_TIMEOUT`, the whole request may take, its hops included,
+ * `REQUEST_TIMEOUT` when absent, and `connect_timeout` the optional whole
+ * seconds, from 1 to that timeout, the connection may take. Any other method, a body on a GET or a DELETE, a body over the
  * cap, a header line holding CR or LF, holding no value, naming one of
  * `Vault::FRAMING_HEADERS`, or naming `Authorization` or the credential's own
  * header where the vault lends the origin one, a proxy of another shape,
  * carrying userinfo, holding CR or LF, or beside a credential on a plain url,
- * and a connect timeout of another kind, answers a TM_ERROR naming the url
+ * and a connect timeout or a timeout of another kind, answers a TM_ERROR naming the url
  * and never a header's value or the proxy.
  * Both forms share everything below and the in-flight cap.
  *
@@ -71,7 +73,7 @@ namespace Newspack_Nodes;
 /**
  * Curl node — `make_node Curl <name> [vault_group]`.
  *
- * @phpstan-type Fetch array{message:array<int,mixed>,request:array<array-key,mixed>,hops:int,home:string,public:bool,prereq:bool,pin:list<string>,url:string,names:list<string>,guard:string,refused:\Closure(): bool}
+ * @phpstan-type Fetch array{message:array<int,mixed>,request:array<array-key,mixed>,hops:int,home:string,public:bool,prereq:bool,pin:list<string>,deadline:int,connect:int|null,left:int,url:string,names:list<string>,guard:string,refused:\Closure(): bool}
  * @implements Curl_Owner<array{context:Fetch,body:\Closure(): string,headers:\Closure(): array<string,string>}>
  */
 class Curl_Node extends Node implements Curl_Owner {
@@ -84,10 +86,19 @@ class Curl_Node extends Node implements Curl_Owner {
 	public const MAX_IN_FLIGHT = 16;
 
 	/**
-	 * Largest body a request may carry, 64 KiB. An API query or a GraphQL
-	 * page request is a few KB; the cap bounds a runaway, not a real request.
+	 * Largest body a request may carry until `set_body_cap()` raises it,
+	 * 64 KiB. An API query or a GraphQL page request is a few KB; the cap
+	 * bounds a runaway, not a real request.
 	 */
-	public const MAX_BODY_BYTES = 65536;
+	public const DEFAULT_BODY_CAP = 65536;
+
+	/**
+	 * The highest cap `set_body_cap()` takes, 1 MiB. The largest real body is
+	 * a model request carrying a 65,536-byte item body JSON-encoded twice,
+	 * about 460 KB. A node at the cap holds MAX_IN_FLIGHT bodies, each in PHP
+	 * and again in libcurl's copy, 32 MiB, beside its reply buffers.
+	 */
+	private const MAX_BODY_CAP = 1048576;
 
 	/** The one credential header libcurl drops on a redirect leaving its origin. */
 	private const AUTHORIZATION = 'Authorization:';
@@ -119,8 +130,11 @@ class Curl_Node extends Node implements Curl_Owner {
 	/** The first 48 bits of `64:ff9b:1::/48`, the local-use NAT64 prefix (RFC 8215). */
 	private const NAT64_LOCAL_PREFIX = "\x00\x64\xff\x9b\x00\x01";
 
-	/** Transfer timeout for one fetch, in seconds. */
+	/** Transfer timeout for one fetch whose request names no `timeout`, in seconds. */
 	public const REQUEST_TIMEOUT = 30;
+
+	/** The longest `timeout` a request may name, in seconds. */
+	public const MAX_REQUEST_TIMEOUT = 120;
 
 	/** The User-Agent every fetch sends; some hosts refuse a request naming none. */
 	public const USER_AGENT = 'newspack-nodes/' . \NEWSPACK_NODES_VERSION;
@@ -168,6 +182,9 @@ class Curl_Node extends Node implements Curl_Owner {
 	/** Whether a fetch follows redirects; `follow_redirects()` sets it. */
 	private bool $follow = true;
 
+	/** Bytes a POST request's body may carry; `set_body_cap()` raises it. */
+	private int $body_cap = self::DEFAULT_BODY_CAP;
+
 	/**
 	 * Start the transfer of the url or request VALUE carries inside a running
 	 * event loop and below MAX_IN_FLIGHT, else answer a TM_ERROR naming why;
@@ -187,7 +204,7 @@ class Curl_Node extends Node implements Curl_Owner {
 				'url'    => $message[ Message::VALUE ],
 				'method' => 'GET',
 			];
-		$this->start( $message, $request, 0, null );
+		$this->start( $message, $request, null );
 	}
 
 	/**
@@ -262,23 +279,25 @@ class Curl_Node extends Node implements Curl_Owner {
 			$next['method'] = 'GET';
 			unset( $next['body'] );
 		}
-		$this->start( $request['message'], $next, $request['hops'] + 1, $request['home'] );
+		$this->start( $request['message'], $next, $request );
 	}
 
 	/**
 	 * Start one request's transfer, the first or a public-only request's next
-	 * hop, or emit a TM_ERROR copy of `$message` naming why none starts.
+	 * hop, or emit a TM_ERROR copy of `$message` naming why none starts. The
+	 * first validates the timeouts and sets the deadline, which each hop takes
+	 * from the one before it; every transfer gets the milliseconds left by a
+	 * fresh clock read, taken again after a blocking lookup, which is charged.
 	 *
 	 * @param array<int,mixed>       $message The input message, which the answer copies.
 	 * @param array<array-key,mixed> $request The request: its url, method and the rest.
-	 * @param int                    $hops    Redirects followed to reach this url.
-	 * @param string|null            $home    The first url's origin, the one a credential rides to; null for the first.
+	 * @param Fetch|null             $prior   The hop that answered this one's redirect; null for the first.
 	 */
-	private function start( array $message, array $request, int $hops, ?string $home ): void {
+	private function start( array $message, array $request, ?array $prior ): void {
 		$url = \trim( Core::as_string( $request['url'] ?? '' ) );
 		try {
 			$origin = self::origin_of( $url );
-			$home ??= $origin;
+			$home   = $prior['home'] ?? $origin;
 			$named  = \strtolower( Core::as_string( \wp_parse_url( $url, \PHP_URL_HOST ) ) );
 			$public = self::public_of( $request, $url, \rtrim( $named, '.' ) );
 			if ( ! Event_Framework::instance()->is_running() ) {
@@ -292,27 +311,45 @@ class Curl_Node extends Node implements Curl_Owner {
 			$credential = $home === $origin ? $this->credential_for( $url ) : '';
 			$held       = self::held_header( $credential );
 			$method     = self::method_of( $request, $url );
-			$body       = self::body_of( $request, $method, $url );
+			$body       = self::body_of( $request, $method, $url, $this->body_cap );
 			$lines      = self::headers_of( $request, $url, $held );
 			$proxy      = self::proxy_of( $request, $url, self::credential_like( $credential, $lines ) );
 			$names      = self::response_headers_of( $request, $url, $held );
-			$connect    = self::connect_timeout_of( $request, $url );
-			$prereq     = $public && ( self::$prereq_available ?? static fn (): bool => \defined( 'CURLOPT_PREREQFUNCTION' ) )();
-			$pin        = $public && ! $prereq ? self::pin_of( $url, $named ) : [];
+			$now        = self::now_ms();
+			if ( null === $prior ) {
+				$timeout  = self::seconds_of( $request, 'timeout', 'invalid timeout', self::MAX_REQUEST_TIMEOUT, $url ) ?? self::REQUEST_TIMEOUT;
+				$connect  = self::seconds_of( $request, 'connect_timeout', 'invalid connect timeout', $timeout, $url );
+				$deadline = $now + $timeout * 1000;
+			} else {
+				$connect  = $prior['connect'];
+				$deadline = $prior['deadline'];
+			}
+			$prereq = $public && ( self::$prereq_available ?? static fn (): bool => \defined( 'CURLOPT_PREREQFUNCTION' ) )();
+			$pin    = $public && ! $prereq ? self::pin_of( $url, $named ) : [];
+			if ( [] !== $pin ) {
+				$now = self::now_ms();
+			}
+			$left = $deadline - $now;
+			if ( $left < 1 ) {
+				self::refuse( "timed out {$url}" );
+			}
 		} catch ( \UnexpectedValueException $refusal ) {
 			$this->emit( $message, Message::TM_ERROR, $refusal->getMessage() );
 			return;
 		}
 		$context = [
-			'message' => $message,
-			'request' => $request,
-			'hops'    => $hops,
-			'home'    => $home,
-			'public'  => $public,
-			'prereq'  => $prereq,
-			'pin'     => $pin,
+			'message'  => $message,
+			'request'  => $request,
+			'hops'     => null === $prior ? 0 : $prior['hops'] + 1,
+			'home'     => $home,
+			'public'   => $public,
+			'prereq'   => $prereq,
+			'pin'      => $pin,
+			'deadline' => $deadline,
+			'connect'  => $connect,
+			'left'     => $left,
 		];
-		$this->fetch( $context, $url, $method, $body, $credential, $lines, $proxy, $names, $connect );
+		$this->fetch( $context, $url, $method, $body, $credential, $lines, $proxy, $names );
 	}
 
 	/**
@@ -432,10 +469,11 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * @param array<array-key,mixed> $request The request: its url, method and body.
 	 * @param string                 $method  Its method, as method_of() read it.
 	 * @param string                 $url     The trimmed url, for the refusal.
+	 * @param int                    $cap     The node's body cap, in bytes.
 	 * @return string|null
 	 * @throws \UnexpectedValueException Naming the refusal, as the TM_ERROR carries it.
 	 */
-	private static function body_of( array $request, string $method, string $url ): ?string {
+	private static function body_of( array $request, string $method, string $url, int $cap ): ?string {
 		$body = $request['body'] ?? null;
 		if ( 'POST' !== $method ) {
 			if ( null !== $body ) {
@@ -449,8 +487,8 @@ class Curl_Node extends Node implements Curl_Owner {
 		if ( ! \is_string( $body ) ) {
 			self::refuse( "invalid body {$url}" );
 		}
-		if ( \strlen( $body ) > self::MAX_BODY_BYTES ) {
-			self::refuse( 'body over ' . self::MAX_BODY_BYTES . " bytes {$url}" );
+		if ( \strlen( $body ) > $cap ) {
+			self::refuse( "body over {$cap} bytes {$url}" );
 		}
 		return $body;
 	}
@@ -573,17 +611,20 @@ class Curl_Node extends Node implements Curl_Owner {
 	}
 
 	/**
-	 * The seconds a request's connection may take, or null for no bound but
-	 * the transfer's own: whole seconds from 1 to REQUEST_TIMEOUT.
+	 * The whole seconds a request names under `$key`, from 1 to `$max`, or
+	 * null when it names none.
 	 *
 	 * @param array<array-key,mixed> $request The request.
+	 * @param string                 $key     `timeout` or `connect_timeout`.
+	 * @param string                 $refusal The refusal's text, before the url.
+	 * @param int                    $max     The most it may name.
 	 * @param string                 $url     The trimmed url, for the refusal.
 	 * @throws \UnexpectedValueException Naming the refusal, as the TM_ERROR carries it.
 	 */
-	private static function connect_timeout_of( array $request, string $url ): ?int {
-		$seconds = $request['connect_timeout'] ?? null;
-		if ( null !== $seconds && ( ! \is_int( $seconds ) || $seconds < 1 || $seconds > self::REQUEST_TIMEOUT ) ) {
-			self::refuse( "invalid connect timeout {$url}" );
+	private static function seconds_of( array $request, string $key, string $refusal, int $max, string $url ): ?int {
+		$seconds = $request[ $key ] ?? null;
+		if ( null !== $seconds && ( ! \is_int( $seconds ) || $seconds < 1 || $seconds > $max ) ) {
+			self::refuse( "{$refusal} {$url}" );
 		}
 		return $seconds;
 	}
@@ -595,7 +636,7 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * `vault_require_ssl` takes https alone, its redirects too, and a
 	 * redirect to another host, port or scheme never carries the credential.
 	 *
-	 * @param array{message:array<int,mixed>,request:array<array-key,mixed>,hops:int,home:string,public:bool,prereq:bool,pin:list<string>} $context The input message, the request, its hops so far, the first url's origin, whether it is public-only, whether libcurl checks its connection before sending, and the address its host is pinned to.
+	 * @param array{message:array<int,mixed>,request:array<array-key,mixed>,hops:int,home:string,public:bool,prereq:bool,pin:list<string>,deadline:int,connect:int|null,left:int} $context The input message, the request, its hops so far, the first url's origin, whether it is public-only, whether libcurl checks its connection before sending, the address its host is pinned to, when the whole request times out in epoch ms, the seconds its connection may take, null for no bound but that, and the milliseconds this transfer may take.
 	 * @param string                         $url        The url.
 	 * @param string                         $method     GET, POST or DELETE.
 	 * @param string|null                    $body       A POST's body, or null for a GET or a DELETE.
@@ -603,9 +644,8 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * @param list<array{0:string,1:string}> $lines      The request's own header lines, by name.
 	 * @param string|null                    $proxy      The proxy the fetch goes through, or null for none.
 	 * @param list<string>                   $names      The response headers to read, lowercased.
-	 * @param int|null                       $connect    Seconds the connection may take, or null for no bound but the transfer's.
 	 */
-	private function fetch( array $context, string $url, string $method, ?string $body, string $credential, array $lines, ?string $proxy, array $names, ?int $connect ): void {
+	private function fetch( array $context, string $url, string $method, ?string $body, string $credential, array $lines, ?string $proxy, array $names ): void {
 		$protocols = '' !== $credential && Vault::require_ssl() ? \CURLPROTO_HTTPS : self::PROTOCOLS;
 		$guard     = self::redirect_guard( $method, $credential, $lines );
 		$follow    = $this->follow && '' === $guard && ! $context['public'];
@@ -633,7 +673,7 @@ class Curl_Node extends Node implements Curl_Owner {
 			\CURLOPT_FOLLOWLOCATION    => $follow,
 			\CURLOPT_UNRESTRICTED_AUTH => false,
 			\CURLOPT_MAXREDIRS         => self::MAX_REDIRECTS,
-			\CURLOPT_TIMEOUT           => self::REQUEST_TIMEOUT,
+			\CURLOPT_TIMEOUT_MS        => $context['left'],
 			\CURLOPT_USERAGENT         => self::USER_AGENT,
 		] + $verb + Vault::tls_opts();
 		if ( [] !== $headers ) {
@@ -643,8 +683,8 @@ class Curl_Node extends Node implements Curl_Owner {
 			$opts[ \CURLOPT_PROXY ]   = $proxy;
 			$opts[ \CURLOPT_NOPROXY ] = '';
 		}
-		if ( null !== $connect ) {
-			$opts[ \CURLOPT_CONNECTTIMEOUT ] = $connect;
+		if ( null !== $context['connect'] ) {
+			$opts[ \CURLOPT_CONNECTTIMEOUT ] = $context['connect'];
 		}
 		if ( $context['public'] ) {
 			$opts[ \CURLOPT_PROXY ] = '';
@@ -675,6 +715,15 @@ class Curl_Node extends Node implements Curl_Owner {
 		if ( ! $started ) {
 			$this->emit( $context['message'], Message::TM_ERROR, "curl_init failed {$url}" );
 		}
+	}
+
+	/**
+	 * The live clock in whole milliseconds, the unit a request's deadline is
+	 * kept in. A hop starts from a completion, before the tick re-pins
+	 * `Core::$now`, and a lookup blocks, so the cached tick would be stale.
+	 */
+	private static function now_ms(): int {
+		return (int) \round( Core::live_now() * 1000 );
 	}
 
 	/**
@@ -894,6 +943,21 @@ class Curl_Node extends Node implements Curl_Owner {
 	}
 
 	/**
+	 * Raise the largest body a POST request to this node may carry.
+	 *
+	 * @api newspack-intelligence's LLM_Call, on the Curl it builds.
+	 * @param int $bytes From DEFAULT_BODY_CAP to MAX_BODY_CAP.
+	 * @throws \InvalidArgumentException Naming the count, outside the range.
+	 */
+	public function set_body_cap( int $bytes ): void {
+		if ( $bytes < self::DEFAULT_BODY_CAP || $bytes > self::MAX_BODY_CAP ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text for a log or CLI; an int cannot carry markup.
+			throw new \InvalidArgumentException( 'body cap wants a whole number from ' . self::DEFAULT_BODY_CAP . ' to ' . self::MAX_BODY_CAP . ", got '{$bytes}'" );
+		}
+		$this->body_cap = $bytes;
+	}
+
+	/**
 	 * Teardown: release every in-flight easy handle.
 	 *
 	 * @api Used by substrate.
@@ -911,7 +975,7 @@ class Curl_Node extends Node implements Curl_Owner {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'I/O',
-			'description' => 'Fetch the URL a TM_BYTESTREAM carries (a GET), or run the TM_STRUCT request { url, method GET, POST or DELETE, body as JSON, headers as `Name: value` lines, proxy as `<scheme>://<host>:<port>`, response_headers as names to read back, connect_timeout as whole seconds, public_only true for a url a response chose }, without blocking, and emit the body, the TM_STRUCT { body, headers } when response headers were named, or a TM_ERROR naming the url and why.',
+			'description' => 'Fetch the URL a TM_BYTESTREAM carries (a GET), or run the TM_STRUCT request { url, method GET, POST or DELETE, body as JSON, headers as `Name: value` lines, proxy as `<scheme>://<host>:<port>`, response_headers as names to read back, timeout and connect_timeout as whole seconds, public_only true for a url a response chose }, without blocking, and emit the body, the TM_STRUCT { body, headers } when response headers were named, or a TM_ERROR naming the url and why.',
 			'has_target'  => true,
 			'arguments'   => [
 				[ 'name' => 'vault_group', 'type' => 'vault_group', 'description' => 'Optional Vault group: a url on one entry\'s origin carries its credential header, and one on two entries\' origin is refused.' ],

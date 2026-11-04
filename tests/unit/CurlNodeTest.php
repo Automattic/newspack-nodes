@@ -123,7 +123,8 @@ class CurlNodeTest extends TestCase {
 		$this->assertTrue( $opts[ \CURLOPT_FOLLOWLOCATION ] );
 		$this->assertSame( Curl_Node::MAX_REDIRECTS, $opts[ \CURLOPT_MAXREDIRS ] );
 		$this->assertSame( 5, Curl_Node::MAX_REDIRECTS );
-		$this->assertSame( Curl_Node::REQUEST_TIMEOUT, $opts[ \CURLOPT_TIMEOUT ] );
+		$this->assertSame( 30000, $opts[ \CURLOPT_TIMEOUT_MS ], 'the whole transfer gets REQUEST_TIMEOUT' );
+		$this->assertArrayNotHasKey( \CURLOPT_TIMEOUT, $opts );
 		$this->assertSame( 'newspack-nodes/' . \NEWSPACK_NODES_VERSION, $opts[ \CURLOPT_USERAGENT ], 'a fetch names its client' );
 		$this->assertSame( 30, Curl_Node::REQUEST_TIMEOUT );
 		$this->assertFalse( $opts[ \CURLOPT_SSL_VERIFYPEER ], 'vault_verify_ssl is read' );
@@ -616,10 +617,78 @@ class CurlNodeTest extends TestCase {
 	}
 
 	public function test_a_body_of_exactly_the_cap_is_sent(): void {
-		$this->assertSame( 65536, Curl_Node::MAX_BODY_BYTES );
+		$this->assertSame( 65536, Curl_Node::DEFAULT_BODY_CAP );
 		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://api.cap-6.example/x', 'method' => 'POST', 'body' => \str_repeat( 'y', 65536 ) ] ) );
 
 		$this->assertSame( 65536, \strlen( $this->captured[0][ \CURLOPT_POSTFIELDS ] ) );
+	}
+
+	/** `set_body_cap()` raises the body this node sends, and a body past it is refused naming the cap. */
+	public function test_set_body_cap_raises_the_body_a_request_may_carry(): void {
+		$node = $this->curl();
+		$url  = 'https://proxy-4.example/chat';
+
+		$node->set_body_cap( 471223 );
+		$this->fetch( $node, $this->request_message( [ 'url' => $url, 'method' => 'POST', 'body' => \str_repeat( 'z', 471223 ) ] ) );
+		$this->fetch( $node, $this->request_message( [ 'url' => $url, 'method' => 'POST', 'body' => \str_repeat( 'z', 471224 ) ] ) );
+
+		$this->assertCount( 1, $this->captured );
+		$this->assertSame( 471223, \strlen( $this->captured[0][ \CURLOPT_POSTFIELDS ] ) );
+		$this->assertSame( "body over 471223 bytes {$url}", $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_the_body_cap_is_per_node(): void {
+		$this->curl()->set_body_cap( 524288 );
+		$other = new Curl_Node();
+		$other->name( 'fetch-8840' );
+		$other->sink( $this->sink );
+
+		$this->fetch( $other, $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'POST', 'body' => \str_repeat( 'z', 65537 ) ] ) );
+
+		$this->assertSame( 'body over 65536 bytes https://proxy-4.example/chat', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_body_cap_of_one_mib_is_taken(): void {
+		$node = $this->curl();
+		$node->set_body_cap( 1048576 );
+
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'POST', 'body' => \str_repeat( 'z', 1048576 ) ] ) );
+
+		$this->assertSame( 1048576, \strlen( $this->captured[0][ \CURLOPT_POSTFIELDS ] ) );
+	}
+
+	/** @return array<string,array{0:int}> */
+	public static function refused_body_cap_provider(): array {
+		return [
+			'below the default' => [ 65535 ],
+			'zero'              => [ 0 ],
+			'past one MiB'      => [ 1048577 ],
+		];
+	}
+
+	/** A body cap outside DEFAULT_BODY_CAP to 1 MiB is refused, and the cap in force stays. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_body_cap_provider' )]
+	public function test_a_body_cap_outside_its_range_is_refused( int $bytes ): void {
+		$node = $this->curl();
+		$node->set_body_cap( 300007 );
+		try {
+			$node->set_body_cap( $bytes );
+			$this->fail( 'set_body_cap refuses' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( "body cap wants a whole number from 65536 to 1048576, got '{$bytes}'", $e->getMessage() );
+		}
+
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'POST', 'body' => \str_repeat( 'z', 300008 ) ] ) );
+		$this->assertSame( 'body over 300007 bytes https://proxy-4.example/chat', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	public function test_a_curl_carries_no_config_interpreter(): void {
+		$node = $this->curl();
+		$node->set_body_cap( 200003 );
+
+		$this->assertNull( Core::node( 'fetch-7731:config' ) );
+		$this->assertStringNotContainsString( 'body_cap', $node->dump_config() );
+		$this->assertSame( [], Curl_Node::node_schema()['commands'] );
 	}
 
 	public function test_a_request_on_a_group_origin_carries_its_credential(): void {
@@ -846,7 +915,7 @@ class CurlNodeTest extends TestCase {
 		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://feeds-9.example/feed/', 'method' => 'GET', 'connect_timeout' => 7 ] ) );
 
 		$this->assertSame( 7, $this->captured[0][ \CURLOPT_CONNECTTIMEOUT ] );
-		$this->assertSame( Curl_Node::REQUEST_TIMEOUT, $this->captured[0][ \CURLOPT_TIMEOUT ] );
+		$this->assertSame( 30000, $this->captured[0][ \CURLOPT_TIMEOUT_MS ] );
 	}
 
 	public function test_a_request_naming_no_connect_timeout_sets_none(): void {
@@ -875,6 +944,157 @@ class CurlNodeTest extends TestCase {
 		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://feeds-9.example/feed/', 'method' => 'GET', 'connect_timeout' => $seconds ] ) );
 
 		$this->assert_error( 'invalid connect timeout https://feeds-9.example/feed/' );
+	}
+
+	/** A request naming a timeout bounds its whole transfer by it, in place of REQUEST_TIMEOUT. */
+	public function test_a_request_naming_a_timeout_bounds_the_transfer(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'POST', 'body' => '{}', 'timeout' => 97 ] ) );
+		$this->fetch( $node, $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'POST', 'body' => '{}', 'timeout' => 120 ] ) );
+
+		$this->assertSame( 97000, $this->captured[0][ \CURLOPT_TIMEOUT_MS ] );
+		$this->assertSame( 120000, $this->captured[1][ \CURLOPT_TIMEOUT_MS ], 'the ceiling itself is taken' );
+	}
+
+	public function test_a_request_naming_no_timeout_takes_request_timeout(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'GET', 'connect_timeout' => 11 ] ) );
+
+		$this->assertSame( 30000, $this->captured[0][ \CURLOPT_TIMEOUT_MS ] );
+	}
+
+	/** @return array<string,array{0:mixed}> */
+	public static function refused_timeout_provider(): array {
+		return [
+			'zero'             => [ 0 ],
+			'negative'         => [ -6 ],
+			'past the ceiling' => [ 121 ],
+			'a numeric string' => [ '45' ],
+			'a float'          => [ 4.5 ],
+			'a boolean'        => [ true ],
+		];
+	}
+
+	/** A timeout that is not whole seconds from 1 to 120 is refused before any transfer starts. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_timeout_provider' )]
+	public function test_a_timeout_outside_one_to_120_seconds_is_refused( mixed $seconds ): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'GET', 'timeout' => $seconds ] ) );
+
+		$this->assert_error( 'invalid timeout https://proxy-4.example/chat' );
+	}
+
+	/** A connect timeout may run to the request's own timeout, past REQUEST_TIMEOUT. */
+	public function test_a_connect_timeout_is_bounded_by_the_requests_timeout(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'GET', 'timeout' => 64, 'connect_timeout' => 64 ] ) );
+
+		$this->assertSame( 64, $this->captured[0][ \CURLOPT_CONNECTTIMEOUT ] );
+		$this->assertSame( 64000, $this->captured[0][ \CURLOPT_TIMEOUT_MS ] );
+	}
+
+	public function test_a_connect_timeout_past_the_requests_timeout_is_refused(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'GET', 'timeout' => 12, 'connect_timeout' => 13 ] ) );
+
+		$this->assert_error( 'invalid connect timeout https://proxy-4.example/chat' );
+	}
+
+	/** The timeout is read first, so a bad one is what the refusal names, whatever the connect timeout. */
+	public function test_an_invalid_timeout_is_refused_before_the_connect_timeout_is_read(): void {
+		$this->fetch( $this->curl(), $this->request_message( [ 'url' => 'https://proxy-4.example/chat', 'method' => 'GET', 'timeout' => 0, 'connect_timeout' => 'x' ] ) );
+
+		$this->assert_error( 'invalid timeout https://proxy-4.example/chat' );
+	}
+
+	/** Pin the fake clock at $at, which a test moves on by reference. */
+	private function pin_clock( float &$at ): void {
+		Core::$clock = static function () use ( &$at ): float {
+			return $at;
+		};
+	}
+
+	/**
+	 * A public-only request's hops share one deadline: each gets what remains,
+	 * read when the hop starts, after the drain pinned its tick, and one due
+	 * past the deadline never starts.
+	 */
+	public function test_a_chain_of_slow_redirects_shares_the_requests_deadline(): void {
+		$at = 1900000000.0;
+		$this->pin_clock( $at );
+		$node = $this->curl();
+		$this->fetch( $node, $this->public_only( 'https://slow-1.example/a', [ 'timeout' => 50 ] ) );
+		$this->assertSame( 50000, $this->captured[0][ \CURLOPT_TIMEOUT_MS ] );
+
+		$this->answer_with( 302, '', 'https://slow-2.example/b', '93.184.215.14' );
+		$this->deliver_late( [ $this->done( $this->handles[0] ) ], static function () use ( &$at ): void {
+			$at += 20.25;
+		} );
+		$this->assertSame( 29750, $this->captured[1][ \CURLOPT_TIMEOUT_MS ], 'the hop gets what remains' );
+
+		$this->answer_with( 302, '', 'https://slow-3.example/c', '93.184.215.15' );
+		$this->deliver_late( [ $this->done( $this->handles[1] ) ], static function () use ( &$at ): void {
+			$at += 29.749;
+		} );
+		$this->assertSame( 1, $this->captured[2][ \CURLOPT_TIMEOUT_MS ], 'the last millisecond is still given' );
+
+		$this->answer_with( 302, '', 'https://slow-4.example/d', '93.184.215.16' );
+		$this->deliver_late( [ $this->done( $this->handles[2] ) ], static function () use ( &$at ): void {
+			$at += 0.001;
+		} );
+		$this->assertCount( 3, $this->captured, 'no hop starts once the deadline has passed' );
+		$this->assertSame( 'timed out https://slow-4.example/d', $this->only_emitted()[ Message::VALUE ] );
+	}
+
+	/** On a PHP without PREREQFUNCTION the blocking lookup is charged to the request's timeout. */
+	public function test_a_lookup_before_the_transfer_is_charged_to_its_timeout(): void {
+		$at = 1900000000.0;
+		$this->pin_clock( $at );
+		$this->resolve_slowly( $at, 2.5 );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://slow-dns-1.example/a', [ 'timeout' => 9 ] ) );
+
+		$this->assertSame( 6500, $this->captured[0][ \CURLOPT_TIMEOUT_MS ] );
+	}
+
+	public function test_a_lookup_outlasting_the_timeout_starts_no_transfer(): void {
+		$at = 1900000000.0;
+		$this->pin_clock( $at );
+		$this->resolve_slowly( $at, 9.0 );
+
+		$this->fetch( $this->curl(), $this->public_only( 'https://slow-dns-1.example/a', [ 'timeout' => 9 ] ) );
+
+		$this->assert_error( 'timed out https://slow-dns-1.example/a' );
+	}
+
+	/** Run without PREREQFUNCTION, each lookup answering one public address $seconds after it was asked. */
+	private function resolve_slowly( float &$at, float $seconds ): void {
+		Curl_Node::$prereq_available = static fn (): bool => false;
+		Curl_Node::$resolve          = static function ( string $host ) use ( &$at, $seconds ): array {
+			$at += $seconds;
+			return [ '93.184.215.14' ];
+		};
+	}
+
+	/**
+	 * Complete transfers inside a running drain loop, running $late inside the
+	 * poll, after the drain pinned `Core::$now`, as a select wait would.
+	 */
+	private function deliver_late( array $rows, \Closure $late ): void {
+		$delivered = false;
+		Event_Framework::instance()->drain(
+			static function () use ( $rows, $late, &$delivered ): bool {
+				if ( ! $delivered ) {
+					$delivered                  = true;
+					Event_Framework::$curl_poll = static function () use ( $rows, $late ): array {
+						$late();
+						return $rows;
+					};
+					try {
+						( new \ReflectionMethod( Event_Framework::class, 'drain_curl_multi' ) )->invoke( Event_Framework::instance() );
+					} finally {
+						Event_Framework::$curl_poll = null;
+					}
+				}
+				return false;
+			}
+		);
 	}
 
 	/** Complete transfers inside a running drain loop, where a redirect's next hop may start. */

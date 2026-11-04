@@ -6,6 +6,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Curl_Node::MAX_BODY_BYTES` is `Curl_Node::DEFAULT_BODY_CAP`.** Rename every
+  reader. A node's cap in force can now be raised with `set_body_cap()`, so a
+  test matching the over-cap refusal reads `body over <cap> bytes <url>`.
+- **`Curl_Node` bounds a transfer with `CURLOPT_TIMEOUT_MS`.** A test reading
+  `CURLOPT_TIMEOUT` from the opts it captured reads `CURLOPT_TIMEOUT_MS`, in
+  milliseconds: `Curl_Node::REQUEST_TIMEOUT * 1000` for a request naming no
+  `timeout`.
+
 - **The timer grid aligns to :00, and `GRID_PHASE_MS` is gone.** Every
   boundary sat 360 ms past its second; it now sits on it, so a 5s timer fires
   at :00, :05, :10. `GRID_PHASE_MS` (JS, re-exported by

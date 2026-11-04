@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A `Curl_Node` request may name `timeout`,** whole seconds from 1 to `Curl_Node::MAX_REQUEST_TIMEOUT` (120), so a slow endpoint such as a model call gets the time it needs; a request naming none keeps `REQUEST_TIMEOUT` (30). It is a deadline for the whole request, set when the request starts: each transfer gets the milliseconds the live clock leaves, as `CURLOPT_TIMEOUT_MS`, so a public-only request's hops, and the name lookup before each on a PHP without `CURLOPT_PREREQFUNCTION`, spend one budget. The deadline passing between transfers answers the TM_ERROR `timed out <url>` and fetches nothing; passing inside a transfer answers libcurl's `curl error 28 (Timeout was reached) <url>`, as before. A timeout of another kind answers `invalid timeout <url>`.
+- **`Curl_Node::set_body_cap( int $bytes )` raises the largest POST body that node sends,** from `DEFAULT_BODY_CAP` (65,536) to at most 1 MiB, and throws `\InvalidArgumentException` outside that range. A node never raised keeps 65,536, and the over-cap TM_ERROR names the cap in force, `body over <cap> bytes <url>`.
+
+### Changed
+
+- **A `Curl_Node` request's `connect_timeout` may run to the request's own `timeout`,** `REQUEST_TIMEOUT` (30) when it names none, where it stopped at 30; `timeout` is checked first.
+- **`Curl_Node` sets `CURLOPT_TIMEOUT_MS`, never `CURLOPT_TIMEOUT`.**
+- **`Curl_Node::MAX_BODY_BYTES` is renamed `Curl_Node::DEFAULT_BODY_CAP`.**
+
 ## [2.145.0] - 2026-11-03
 
 ### Changed

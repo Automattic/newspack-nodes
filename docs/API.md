@@ -1531,9 +1531,12 @@ fetches the url a TM_BYTESTREAM carries with a GET on the same shared multi,
 through the [`Curl_Transfer`](../includes/trait-curl-transfer.php) mechanism
 `HTTP_Out_Node` runs on. `make_node Curl <name> [vault_group]`. A TM_STRUCT
 carries a request instead, `{ url, method, body, headers, proxy,
-response_headers, connect_timeout, public_only }`: `method` is `GET`, `POST` or `DELETE`, a POST sends its
-`body`, a string of at most `MAX_BODY_BYTES` (64 KiB, '' when absent), as
-`Content-Type: application/json`, and a GET or a DELETE sends none. `headers`,
+response_headers, connect_timeout, timeout, public_only }`: `method` is `GET`, `POST` or `DELETE`, a POST sends its
+`body`, a string of at most the node's body cap ('' when absent), as
+`Content-Type: application/json`, and a GET or a DELETE sends none. The cap is
+`DEFAULT_BODY_CAP` (64 KiB) until `set_body_cap( $bytes )`, called in code on
+the node, raises it for that node to at most 1 MiB; a value outside that range
+throws `\InvalidArgumentException`. `headers`,
 when present, is a list of `Name: value` lines sent after that type and before
 the vault credential, a `Content-Type` among them replacing the JSON one. A
 line must carry a value, since libcurl reads an empty one as removing the
@@ -1550,9 +1553,16 @@ vault's or a header line of the request's own, the url must be https. `response_
 response headers to read; the success then answers a TM_STRUCT copy whose
 VALUE is `{ body, headers }`, each named header the final response's head
 sent, a trailer never, under its lowercased name, its first value trimmed and
-cut to 256 bytes. `connect_timeout`, when present, is the whole seconds,
-from 1 to `REQUEST_TIMEOUT` (30), the connection may take, set as
-`CURLOPT_CONNECTTIMEOUT` within the transfer's `CURLOPT_TIMEOUT`.
+cut to 256 bytes. `timeout`, when present, is the whole seconds, from 1 to
+`MAX_REQUEST_TIMEOUT` (120), the whole request may take, `REQUEST_TIMEOUT` (30)
+when absent. It is a deadline set when the request starts: each transfer gets
+the milliseconds that remain, read from the live clock as it starts, as
+`CURLOPT_TIMEOUT_MS`, so a public-only request's hops, and the lookup before
+each on a PHP without `CURLOPT_PREREQFUNCTION`, spend one budget. The deadline
+passing between transfers answers `timed out <url>`, and passing inside one
+answers libcurl's `curl error 28 (Timeout was reached) <url>`. `connect_timeout`, when present, is the whole seconds, from 1 to that
+timeout, the connection may take, set as `CURLOPT_CONNECTTIMEOUT`; `timeout`
+is checked first.
 `public_only`, when present, is a boolean; true marks a url a response chose,
 a discovered link or a Location, and holds the request to public addresses
 (below). A header name is 1–64 letters, digits and hyphens
@@ -1622,13 +1632,13 @@ naming `public_only` is not guarded, and libcurl follows its redirects.
 | VALUE | When |
 |---|---|
 | `HTTP <code> <url>` | The response's status is 400 or more, or, with redirects off, 300-399 with no Location. |
-| `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
+| `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. A request's deadline passing while a transfer runs answers `curl error 28 (Timeout was reached) <url>`, the libcurl text, unchanged; one passing between transfers answers `timed out <url>`. |
 | `invalid url <value>` | VALUE, or a request's `url`, is not an absolute http(s) url with a host. |
 | `redirect not followed: credential in <header> <url>`, `redirect not followed: credential in request headers <url>`, `redirect not followed: a DELETE <url>` | The node follows redirects, the response is a 3xx naming a Location, and the fetch followed none: the url's credential rides in a header other than `Authorization`, the request carries header lines of its own, or it is a DELETE. The value is never shown. |
 | `invalid method <method> <url>` | A request's `method` is not `GET`, `POST` or `DELETE`, or is absent. |
 | `body on a GET <url>`, `body on a DELETE <url>` | A GET or DELETE request carries a `body`, even an empty one. |
 | `invalid body <url>` | A POST request's `body` is not a string. |
-| `body over 65536 bytes <url>` | A POST request's `body` is longer than `MAX_BODY_BYTES`. |
+| `body over <cap> bytes <url>` | A POST request's `body` is longer than the node's body cap, `DEFAULT_BODY_CAP` (65536) until `set_body_cap()` raises it. |
 | `invalid headers <url>` | A request's `headers` is not a list, or one of its lines is not a string opening with a name of 1–64 letters, digits and hyphens and a colon. |
 | `header carries CR or LF <url>` | A request's header line holds a carriage return or a line feed; the line is left out. |
 | `refused header <name> <url>` | A request's header line names one of `Vault::FRAMING_HEADERS`; the value is left out. |
@@ -1640,7 +1650,9 @@ naming `public_only` is not guarded, and libcurl follows its redirects.
 | `invalid response headers <url>` | A request's `response_headers` is not a list of at most eight names of 1–64 letters, digits and hyphens. |
 | `refused response header <name> <url>` | A request's `response_headers` names one of `Vault::FRAMING_HEADERS`, `Set-Cookie` or `Authorization`, in any case. |
 | `refused response header <name> beside a vault credential <url>` | A request's `response_headers` names the header the vault's credential for the url's origin rides in. |
-| `invalid connect timeout <url>` | A request's `connect_timeout` is not an integer from 1 to `REQUEST_TIMEOUT`. |
+| `invalid timeout <url>` | A request's `timeout` is not an integer from 1 to `MAX_REQUEST_TIMEOUT`. |
+| `invalid connect timeout <url>` | A request's `connect_timeout` is not an integer from 1 to its `timeout`, `REQUEST_TIMEOUT` when it names none. |
+| `timed out <url>` | The request's deadline passed between transfers, so the transfer about to start never starts: a public-only request's next hop due after it, or, on a PHP without `CURLOPT_PREREQFUNCTION`, the lookup before a public-only transfer outlasting it. `<url>` is the url that would have been fetched. The deadline passing inside a transfer answers `curl error 28` instead. |
 | `invalid public_only <url>` | A request's `public_only` is not a boolean. |
 | `refused private address <url>` | A public-only request's host is an IP literal outside the global ranges, or its transfer connected to such an address before sending, or, on a PHP without `CURLOPT_PREREQFUNCTION`, a name any of whose addresses is: nothing is sent. Or the address the completed transfer reports is one, and nothing of the response is answered. |
 | `refused single-label host <url>` | A public-only request's host is one label, a trailing dot ignored. |
@@ -1690,8 +1702,9 @@ sizes each refill by Curl's own count.
 | Constant | Value | Bounds |
 |---|---|---|
 | `MAX_IN_FLIGHT` | 16 | Transfers one node runs at once. |
-| `MAX_BODY_BYTES` | 65536 | Bytes a POST request's body may carry. |
-| `REQUEST_TIMEOUT` | 30 seconds | One fetch, redirects included, as `CURLOPT_TIMEOUT`. |
+| `DEFAULT_BODY_CAP` | 65536 | Bytes a POST request's body may carry until `set_body_cap()` raises the node's cap, to at most 1 MiB: room for the largest real body, a 65,536-byte item body JSON-encoded twice (about 460 KB). A node at that cap holds up to 16 bodies, each in PHP and in libcurl's copy, 32 MiB, beside its reply buffers. |
+| `REQUEST_TIMEOUT` | 30 seconds | One request that names no `timeout`, redirects and hops included, as `CURLOPT_TIMEOUT_MS`. |
+| `MAX_REQUEST_TIMEOUT` | 120 seconds | The longest `timeout` a request may name. |
 | `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone for a fetch carrying a credential while `vault_require_ssl` is set; and the hops the node follows itself for a public-only request. |
 | `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One response body, buffered into the PHP heap. |
 
