@@ -34,7 +34,7 @@ import fs from 'node:fs';
  * Classify the command line into the summary path, threshold and filter.
  *
  * The first bare argument is the summary path and later ones are ignored, so a
- * stray token cannot retarget the gate at a file nobody meant to measure. A
+ * stray token cannot retarget the gate at a file it was never meant to measure. A
  * --threshold that is not a number exits here rather than falling back to the
  * default, because a gate that quietly substitutes its own threshold stops
  * reporting what the caller asked for.

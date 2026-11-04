@@ -14,7 +14,7 @@
  *
  * A class field interleaved among the methods is hoisted to the top of the
  * region and keeps source order: declared field order is observable, so
- * nothing sorts it. The PHP twin's --sort-fields has no counterpart here.
+ * it is never sorted. The PHP twin's --sort-fields has no counterpart here.
  *
  * Two ordering policies:
  *

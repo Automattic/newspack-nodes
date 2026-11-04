@@ -6,7 +6,7 @@ the clover-parsing approach is borrowed from dndocker's tools/coverage-summary.p
 Reads a PHP clover.xml and exits:
   1  if any class whose file path contains --filter is below --threshold percent
      statement coverage (prints the offenders),
-  2  if the clover is missing or no class matched (never a vacuous pass),
+  2  if the clover is missing or matched no class (never a vacuous pass),
   0  otherwise.
 
 Statement coverage is line-based (stmt lines with count > 0), matching

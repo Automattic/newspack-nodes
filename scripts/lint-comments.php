@@ -47,7 +47,7 @@ const TAB_WIDTH = 4;
  * Directories never walked and never linted.
  *
  * Unit tests are exempt from the comment rules by the project's own standard;
- * the rest hold vendored or generated files nobody hand-edits.
+ * the rest hold vendored or generated files that are never edited by hand.
  */
 const SKIP_DIRS = [ 'tests', 'vendor', 'node_modules', 'build', 'coverage', 'release', '.phpstan', '.git', '.superpowers' ];
 
@@ -612,7 +612,8 @@ function check_file( string $file ): array {
  * directory argument matches neither branch and is skipped: `lint-comments.php
  * .` — the form `npm run lint:php` uses — exits 0 having checked nothing. The
  * gate then runs green by hand for everyone while lint-staged, which passes
- * explicit paths, fails at commit time on violations nobody can reproduce.
+ * explicit paths, fails at commit time on violations a by-hand run never
+ * reproduces.
  *
  * @param string $path File or directory.
  * @return list<string> The `.php` files under `$path`, SKIP_DIRS pruned and

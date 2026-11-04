@@ -39,9 +39,9 @@ const TAB_WIDTH = 4;
  * Is this path exempt from the comment rules?
  *
  * Unit tests are exempt by the project's own standard; the rest hold vendored
- * or generated files nobody hand-edits. `walkFiles` prunes four of these
- * directories on its own, but lint-staged names files directly, and those
- * never go through the walk.
+ * or generated files that are never edited by hand. `walkFiles` prunes four
+ * of these directories on its own, but lint-staged names files directly,
+ * and those never go through the walk.
  *
  * @param {string} p Path to check.
  * @return {boolean} True when the file is not linted.
