@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { TimerNode, GRID_PHASE_MS, nextBoundary } from '../timer-node';
+import { TimerNode, nextBoundary } from '../timer-node';
 import { RouterNode } from '../router-node';
 import { Node } from '../node';
 import { Core } from '../core';
@@ -62,6 +62,37 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 			Core.now = realNow;
 			t.stopTimer();
 		}
+	} );
+
+	test( 'a recurring own slot of a second or more fires on its grid', () => {
+		// 2.3s past a 5s boundary, so a self-paced slot would fire at :x7.3.
+		jest.setSystemTime( 1_790_000_002_300 );
+		const t = new TimerNode();
+		const fired = [];
+		t.sink = { fill: () => {} };
+		t.fire = () => fired.push( Math.floor( Date.now() / 1000 ) );
+		t.setTimer( 5000 );
+		jest.advanceTimersByTime( 13_000 );
+		expect( fired ).toEqual( [
+			1_790_000_005, 1_790_000_010, 1_790_000_015,
+		] );
+		t.stopTimer();
+		jest.advanceTimersByTime( 10_000 );
+		expect( fired ).toHaveLength( 3 );
+	} );
+
+	test( 'a clock stepped back re-anchors a gridded slot at the present', () => {
+		jest.setSystemTime( 1_790_000_002_300 );
+		const t = new TimerNode();
+		const fired = [];
+		t.sink = { fill: () => {} };
+		t.fire = () => fired.push( Date.now() );
+		t.setTimer( 5000 );
+		// Ten minutes back: the armed boundary now lies ten minutes ahead.
+		jest.setSystemTime( 1_790_000_002_300 - 600_000 );
+		jest.advanceTimersByTime( 13_000 );
+		expect( fired.length ).toBeGreaterThanOrEqual( 3 );
+		t.stopTimer();
 	} );
 
 	test( 'a spent oneshot stops fully: one fire, interval cleared, flag reset', () => {
@@ -336,11 +367,7 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 	test( 'markFired holds off a full interval, and stays on the grid', () => {
 		const epoch = 1_700_000_000_000;
 		// Arm 10ms before a boundary: the next one is not an interval at all.
-		jest.setSystemTime(
-			( Math.floor( ( epoch - GRID_PHASE_MS ) / 5000 ) + 2 ) * 5000 +
-				GRID_PHASE_MS -
-				10
-		);
+		jest.setSystemTime( ( Math.floor( epoch / 5000 ) + 2 ) * 5000 - 10 );
 		const r = makeRouter();
 		const t = new TimerNode();
 		t.name = 'held';
@@ -361,10 +388,7 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		// Still the shared grid: every fire sits on a boundary.
 		fired.forEach( ( when ) =>
 			expect(
-				Math.abs(
-					( ( when - GRID_PHASE_MS / 1000 ) % 5 ) -
-						Math.round( ( when - GRID_PHASE_MS / 1000 ) % 5 )
-				)
+				Math.abs( ( when % 5 ) - Math.round( when % 5 ) )
 			).toBeLessThan( 1.01 )
 		);
 		t.stopTimer();
@@ -445,7 +469,7 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		'a hitchhiker retuned from %s to 10s waits out the grid from its last fire',
 		( _, firstMs ) => {
 			// 1790000000 is a multiple of 10, so this is a 10s grid boundary.
-			const boundary = 1_790_000_000_000 + GRID_PHASE_MS;
+			const boundary = 1_790_000_000_000;
 			const r = makeRouter();
 			const t = new TimerNode();
 			t.name = 'retuned-heron';
@@ -508,7 +532,7 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 	// an extra tick early skips, and one a hair early fires, and so does the
 	// on-grid tick after it.
 	describe( 'a timer at the tick cadence', () => {
-		const kereru = 1_790_000_100_000 + GRID_PHASE_MS;
+		const kereru = 1_790_000_100_000;
 		// A cadence tick lands 10ms past its boundary, never on the float edge.
 		const onTick = kereru + 10;
 
@@ -626,6 +650,52 @@ describe( 'due', () => {
 	} );
 } );
 
+describe( 'the hitchhike throttle, as the PHP twin reads it', () => {
+	function rider( ms ) {
+		const r = makeRouter();
+		const t = new TimerNode();
+		t.name = `rider-${ ms }`;
+		const fired = [];
+		t.sink = { fill: () => fired.push( Date.now() ) };
+		t.target = '_output';
+		t.setTimer( ms );
+		return { r, t, fired };
+	}
+
+	test( 'an extra tick short of a long boundary does not double-fire it', () => {
+		const { r, t, fired } = rider( 30000 );
+		jest.setSystemTime( 1_790_000_010_000 );
+		r.notifyTimer();
+		jest.setSystemTime( 1_790_000_039_950 );
+		r.notifyTimer();
+		jest.setSystemTime( 1_790_000_040_001 );
+		r.notifyTimer();
+		expect( fired ).toHaveLength( 2 );
+		t.stopTimer();
+	} );
+
+	test( 'a last fire more than an interval ahead is forgotten', () => {
+		const { r, t, fired } = rider( 5000 );
+		jest.setSystemTime( 1_790_000_000_000 );
+		r.notifyTimer();
+		jest.setSystemTime( 1_790_000_000_000 - 600_000 );
+		r.notifyTimer();
+		expect( fired ).toHaveLength( 2 );
+		t.stopTimer();
+	} );
+
+	test( 'a Router ticking below a second still ticks on its grid', () => {
+		jest.setSystemTime( 1_790_000_000_200 );
+		const r = makeRouter();
+		const at = [];
+		r.fireCb = () => at.push( Date.now() % 1000 );
+		r.setTimer( 500 );
+		jest.advanceTimersByTime( 1000 );
+		expect( at ).toEqual( [ 500, 0 ] );
+		r.stopTimer();
+	} );
+} );
+
 // `Timer_Node::next_boundary()` is the PHP twin; both read this fixture.
 describe( 'nextBoundary parity with PHP', () => {
 	const fixture = JSON.parse(
@@ -634,10 +704,6 @@ describe( 'nextBoundary parity with PHP', () => {
 			'utf8'
 		)
 	);
-
-	test( 'shares the grid phase', () => {
-		expect( GRID_PHASE_MS ).toBe( fixture.grid_phase_ms );
-	} );
 
 	test.each( fixture.next_boundary )(
 		'%s',

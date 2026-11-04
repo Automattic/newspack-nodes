@@ -31,7 +31,6 @@ import {
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
-import { GRID_PHASE_MS } from '../../runtime/timer-node';
 import {
 	answerBatch,
 	installFakeCommandWire,
@@ -942,10 +941,7 @@ describe( 'TopologyConsole boot', () => {
 		// Forward to 10ms past the next boundary — never backwards, which
 		// would read to every watchdog as a stream gone silent.
 		jest.setSystemTime(
-			( Math.floor( ( Date.now() - GRID_PHASE_MS ) / 10000 ) + 1 ) *
-				10000 +
-				GRID_PHASE_MS +
-				10
+			( Math.floor( Date.now() / 10000 ) + 1 ) * 10000 + 10
 		);
 		try {
 			globalThis.__httpPosts = [];

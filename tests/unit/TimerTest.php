@@ -304,10 +304,10 @@ class TimerTest extends TestCase {
 	}
 
 	/**
-	 * A retune keeps the last fire: the new interval runs from it, so a timer
-	 * re-armed between ticks never fires before that interval has passed.
+	 * A retune keeps the last fire: the timer waits for the new cadence's grid
+	 * boundary after it, so a re-arm between ticks never fires early.
 	 */
-	public function test_a_retuned_hitchhike_waits_out_its_new_interval_from_the_last_fire(): void {
+	public function test_a_retuned_hitchhike_waits_out_the_grid_from_the_last_fire(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$router->interval_ms = 1000;
@@ -321,15 +321,15 @@ class TimerTest extends TestCase {
 		$timer->fire_cb();
 		$this->assertCount( 1, $capture->captured, 'a fresh timer fires on its first tick' );
 
-		Core::$now = 101.0;
+		Core::$now = 100.5;
 		$timer->set_timer( 3000 );
+		Core::$now = 101.0;
+		$timer->fire_cb();
+		$this->assertCount( 1, $capture->captured, 'short of the 102 boundary' );
+
 		Core::$now = 102.0;
 		$timer->fire_cb();
-		$this->assertCount( 1, $capture->captured, '2s after the last fire, short of the new 3s' );
-
-		Core::$now = 103.0;
-		$timer->fire_cb();
-		$this->assertCount( 2, $capture->captured, '3s after the last fire' );
+		$this->assertCount( 2, $capture->captured, 'on the 102 boundary' );
 		$timer->stop_timer();
 	}
 
@@ -384,14 +384,14 @@ class TimerTest extends TestCase {
 	/**
 	 * A timer at the tick's own cadence reads the grid with a tenth of a
 	 * tick's slack: a late fire leaves the next on-time tick its fire. Ticks
-	 * land 10ms past their x.36 boundaries, clear of the float edge.
+	 * land 10ms past their whole-second boundaries, clear of the float edge.
 	 */
 	public function test_a_tick_cadence_hitchhike_fires_the_on_time_tick_after_a_late_fire(): void {
 		$timer = $this->hitchhiker( 'kea-late', 1000, null );
 
-		Core::$now = 1700.52;
+		Core::$now = 1700.16;
 		$timer->fire_cb();
-		Core::$now = 1701.37;
+		Core::$now = 1701.01;
 		$timer->fire_cb();
 
 		$this->assertSame( 2, $timer->get_fire_count() );
@@ -402,9 +402,9 @@ class TimerTest extends TestCase {
 	public function test_a_tick_cadence_hitchhike_skips_an_extra_tick_before_the_boundary(): void {
 		$timer = $this->hitchhiker( 'tui-extra', 1000, null );
 
-		Core::$now = 1700.37;
+		Core::$now = 1700.01;
 		$timer->fire_cb();
-		Core::$now = 1700.77;
+		Core::$now = 1700.41;
 		$timer->fire_cb();
 
 		$this->assertSame( 1, $timer->get_fire_count() );
@@ -418,13 +418,13 @@ class TimerTest extends TestCase {
 	public function test_a_tick_cadence_hitchhike_fires_a_tick_a_hair_early_and_the_tick_after(): void {
 		$timer = $this->hitchhiker( 'kaka-double', 1000, null );
 
-		Core::$now = 1700.37;
+		Core::$now = 1700.01;
 		$timer->fire_cb();
-		Core::$now = 1701.32;
+		Core::$now = 1700.96;
 		$timer->fire_cb();
 		$this->assertSame( 2, $timer->get_fire_count(), '0.95s after its fire' );
 
-		Core::$now = 1701.37;
+		Core::$now = 1701.01;
 		$timer->fire_cb();
 		$this->assertSame( 3, $timer->get_fire_count(), 'the on-grid tick after it' );
 		$timer->stop_timer();
@@ -437,9 +437,9 @@ class TimerTest extends TestCase {
 	public function test_a_tick_cadence_hitchhike_stamped_mid_tick_keeps_the_next_tick(): void {
 		$timer = $this->hitchhiker( 'hihi-mid-tick', 1000, null );
 
-		Core::$now = 1700.67;
+		Core::$now = 1700.31;
 		$timer->fire_cb();
-		Core::$now = 1701.37;
+		Core::$now = 1701.01;
 		$timer->fire_cb();
 
 		$this->assertSame( 2, $timer->get_fire_count() );
@@ -447,21 +447,83 @@ class TimerTest extends TestCase {
 	}
 
 	/**
-	 * The tolerance is a tenth of the TICK, not of the interval, so a slower
-	 * timer keeps its rate: a 10s timer fires a tick early, never a second.
+	 * A hitchhiker slower than the tick reads the grid, not its last fire: one
+	 * stamped off-grid fires on the next boundary of its own cadence, and only
+	 * on it.
 	 */
-	public function test_a_slow_hitchhike_fires_at_its_interval_and_not_a_second_early(): void {
+	public function test_a_slow_hitchhike_fires_on_its_grid_boundary(): void {
 		$timer = $this->hitchhiker( 'moa-slow', 1000, 10000 );
+
+		Core::$now = 1803.4;
+		$timer->fire_cb();
+		Core::$now = 1809.95;
+		$timer->fire_cb();
+		$this->assertSame( 1, $timer->get_fire_count(), 'short of the 1810 boundary' );
+
+		Core::$now = 1810.0;
+		$timer->fire_cb();
+		$this->assertSame( 2, $timer->get_fire_count(), 'on the 1810 boundary' );
+		$timer->stop_timer();
+	}
+
+	/** An own slot recurring at a second or more arms for its next boundary. */
+	public function test_a_recurring_own_slot_of_a_second_or_more_arms_on_the_grid(): void {
+		Core::$now = 1802.3;
+		$timer     = new Timer_Node();
+		$timer->set_timer( 5000 );
+		$this->assertSame( 1805.0, $timer->next_fire );
+		$this->assertSame( 1810.0, $timer->next_fire_after( 1805.0 ) );
+		$timer->stop_timer();
+	}
+
+	/** A sub-second or oneshot own slot keeps pacing from the clock. */
+	public function test_a_sub_second_or_oneshot_own_slot_paces_from_now(): void {
+		Core::$now = 1802.3;
+		$fast      = new Timer_Node();
+		$fast->set_timer( 250 );
+		$this->assertEqualsWithDelta( 1802.55, $fast->next_fire, 1e-9 );
+		$fast->stop_timer();
+
+		$once = new Timer_Node();
+		$once->set_timer( 5000, true );
+		$this->assertEqualsWithDelta( 1807.3, $once->next_fire, 1e-9 );
+		$once->stop_timer();
+	}
+
+	/** A hitchhiker whose last fire lies more than an interval ahead fires. */
+	public function test_a_clock_stepped_back_frees_a_throttled_hitchhike(): void {
+		$timer = $this->hitchhiker( 'kotare-stepped', 1000, 5000 );
 
 		Core::$now = 1800.0;
 		$timer->fire_cb();
-		Core::$now = 1809.0;
+		Core::$now = 1200.0;
 		$timer->fire_cb();
-		$this->assertSame( 1, $timer->get_fire_count(), '9s after its fire' );
+		$this->assertSame( 2, $timer->get_fire_count() );
+		$timer->stop_timer();
+	}
 
-		Core::$now = 1809.95;
+	/** An extra tick just short of a long cadence's boundary does not double-fire it. */
+	public function test_a_slow_hitchhike_fires_once_for_its_boundary(): void {
+		$timer = $this->hitchhiker( 'tieke-once', 1000, 30000 );
+
+		Core::$now = 1800.0;
 		$timer->fire_cb();
-		$this->assertSame( 2, $timer->get_fire_count(), 'within a tenth of a tick of 10s' );
+		Core::$now = 1829.95;
+		$timer->fire_cb();
+		Core::$now = 1830.001;
+		$timer->fire_cb();
+		$this->assertSame( 2, $timer->get_fire_count() );
+		$timer->stop_timer();
+	}
+
+	/** A re-arm forgets the boundary the last arm was due at, so it is not skipped. */
+	public function test_a_re_armed_own_slot_keeps_its_pending_boundary(): void {
+		Core::$now = 1802.3;
+		$timer     = new Timer_Node();
+		$timer->set_timer( 5000 );
+		Core::$now = 1803.0;
+		$timer->set_timer( 5000 );
+		$this->assertSame( 1805.0, $timer->next_fire );
 		$timer->stop_timer();
 	}
 
@@ -472,9 +534,9 @@ class TimerTest extends TestCase {
 	public function test_a_tick_cadence_hitchhike_late_past_a_boundary_fires_on_the_next_tick(): void {
 		$timer = $this->hitchhiker( 'ruru-crossed', 1000, null );
 
-		Core::$now = 1701.41;
+		Core::$now = 1701.05;
 		$timer->fire_cb();
-		Core::$now = 1702.37;
+		Core::$now = 1702.01;
 		$timer->fire_cb();
 
 		$this->assertSame( 2, $timer->get_fire_count() );
@@ -486,22 +548,21 @@ class TimerTest extends TestCase {
 		$timer = $this->hitchhiker( 'weka-slow-router', 2000, null );
 		$this->assertSame( 2000, $timer->interval_ms );
 
-		Core::$now = 1900.37;
+		Core::$now = 1900.01;
 		$timer->fire_cb();
-		Core::$now = 1902.1;
+		Core::$now = 1901.74;
 		$timer->fire_cb();
-		$this->assertSame( 1, $timer->get_fire_count(), 'more than 0.2s short of 1902.36' );
+		$this->assertSame( 1, $timer->get_fire_count(), 'more than 0.2s short of 1902' );
 
-		Core::$now = 1902.2;
+		Core::$now = 1901.84;
 		$timer->fire_cb();
-		$this->assertSame( 2, $timer->get_fire_count(), 'within 0.2s of 1902.36' );
+		$this->assertSame( 2, $timer->get_fire_count(), 'within 0.2s of 1902' );
 		$timer->stop_timer();
 	}
 
-	/** `next_boundary()` and its phase are the JS `nextBoundary()`'s twins. */
+	/** `next_boundary()` is the JS `nextBoundary()`'s twin. */
 	public function test_next_boundary_matches_the_js_grid(): void {
 		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/grid-boundaries.json' ), true, 512, \JSON_THROW_ON_ERROR );
-		$this->assertSame( $fixture['grid_phase_ms'], Timer_Node::GRID_PHASE_MS );
 		foreach ( $fixture['next_boundary'] as [ $label, $after, $interval_ms, $next ] ) {
 			$this->assertSame( (float) $next, Timer_Node::next_boundary( (float) $after, $interval_ms ), $label );
 		}

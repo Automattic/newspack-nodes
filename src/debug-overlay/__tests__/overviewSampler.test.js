@@ -3,7 +3,7 @@ import { IoTelemetry, SAMPLE_INTERVAL_MS } from '../../runtime/io-telemetry';
 
 beforeEach( () => {
 	jest.useFakeTimers();
-	delete window.__newspackNodesOverviewSampler;
+	delete window.__newspackNodesOverviewSamplerTimer;
 	IoTelemetry.reset();
 } );
 
@@ -17,6 +17,19 @@ test( 'the sampler ticks IoTelemetry.sample on the 5s cadence', () => {
 	startOverviewSampler();
 	jest.advanceTimersByTime( SAMPLE_INTERVAL_MS * 3 );
 	expect( spy ).toHaveBeenCalledTimes( 3 );
+	stopOverviewSampler();
+	spy.mockRestore();
+} );
+
+test( 'the sampler samples on the 5s grid, whenever it starts', () => {
+	jest.setSystemTime( 1_790_000_002_300 );
+	const at = [];
+	const spy = jest
+		.spyOn( IoTelemetry, 'sample' )
+		.mockImplementation( () => at.push( Math.floor( Date.now() / 1000 ) ) );
+	startOverviewSampler();
+	jest.advanceTimersByTime( 8_000 );
+	expect( at ).toEqual( [ 1_790_000_005, 1_790_000_010 ] );
 	stopOverviewSampler();
 	spy.mockRestore();
 } );
@@ -43,6 +56,21 @@ test( 'the interval keeps running until the LAST balanced stop (ref-counted)', (
 	stopOverviewSampler(); // last ref — stops
 	jest.advanceTimersByTime( SAMPLE_INTERVAL_MS * 5 );
 	expect( spy ).toHaveBeenCalledTimes( 1 );
+	spy.mockRestore();
+} );
+
+test( "an older bundle's interval record does not stop this sampler", () => {
+	window.__newspackNodesOverviewSampler = { id: 77, refs: 1 };
+	const spy = jest.spyOn( IoTelemetry, 'sample' );
+	startOverviewSampler();
+	jest.advanceTimersByTime( SAMPLE_INTERVAL_MS );
+	expect( spy ).toHaveBeenCalledTimes( 1 );
+	stopOverviewSampler();
+	expect( window.__newspackNodesOverviewSampler ).toEqual( {
+		id: 77,
+		refs: 1,
+	} );
+	delete window.__newspackNodesOverviewSampler;
 	spy.mockRestore();
 } );
 

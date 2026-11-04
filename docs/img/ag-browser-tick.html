@@ -38,7 +38,7 @@
     <text x="0" y="219">odd ticks send nothing</text>
     <text x="582" y="206">3 verbs</text><text x="982" y="206">3</text>
   </svg>
-  <p style="font-size:12.5px"><span class="mono">computePollIntervalMs()</span> polls a graph of up to 200 nodes every two seconds and rounds a larger one's <span class="mono">nodes × 10 ms</span> to the nearest five seconds, floored at five, so every metadata cadence meets the two-second uptime poll on the ten-second grid. Polling a small graph every two seconds also keeps the viewed worker's SSE stream from idling out between replies. Every poller rides the Router's TIMER channel on the one shared wall-clock grid (ADR-17), which is why harmonic cadences meet on the same tick and leave in the same request. The <span class="mono">_dmesg</span> poll is aimed at <span class="mono">_cwd</span>, so it tallies the stderr tail of the process being VIEWED.</p>
+  <p style="font-size:12.5px"><span class="mono">computePollIntervalMs()</span> counts the graph's nodes and takes the first of 2, 5, 10 and 30 seconds that is at least <span class="mono">nodes × 10 ms</span>, past that the cost rounded up to whole minutes, so a graph of up to 200 nodes polls every two seconds, which also keeps the viewed worker's SSE stream from idling out between replies. The Router ticks every second, and <span class="mono">fireCb()</span> lets each timer fire only on a boundary of its own cadence, on one wall-clock grid aligned to :00 (ADR-17), so timers whose boundaries coincide fire on the same tick and their commands leave in the same request. The <span class="mono">_dmesg</span> poll is aimed at <span class="mono">_cwd</span>, so it tallies the stderr tail of the process being VIEWED.</p>
 </div>
 
 <div class="two">

@@ -169,7 +169,7 @@ const RULES = [
 	},
 	{
 		id: 'grid-math',
-		test: /\b(?:nextBoundary|GRID_PHASE_MS)\b/,
+		test: /\bnextBoundary\b/,
 		why: 'the wall-clock grid lives in TimerNode; a subclass picks a harmonic interval and never computes a boundary (ADR-17)',
 	},
 	{

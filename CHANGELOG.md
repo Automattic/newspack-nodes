@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Every timer at a second or more fires on the grid, in both ports.** A PHP hitchhiker slower than the tick waits for its own cadence's boundary after its last fire, where it paced from the last fire, and a PHP slot of its own recurring at a second or more re-arms on the grid as the Router does. A clock stepped back past a whole interval re-anchors every PHP slot before the loop's next wait and a JS gridded slot, the Router's tick included, at the present, and a hitchhiker forgets a last fire left that far ahead, where each waited out the step. `Timer_Node::mark_due()` makes the next tick due, the PHP twin of `markDue()`. A PHP re-arm forgets the boundary its last arm was due at, as JS does. `Crawler_Node` holds its own `delay_ms` floor: on the grid no start comes within the delay, less a tenth of a tick for jitter, of the last, and a fire short of it is held for the first tick that clears it.
+- **Every timer grid aligns to :00.** `nextBoundary()` and `Timer_Node::next_boundary()` are `( floor( after / interval ) + 1 ) * interval`, so a 5s timer fires at :00, :05, :10 and a 15s one at :00, :15, :30, :45. `GRID_PHASE_MS` and `Timer_Node::GRID_PHASE_MS`, the 360 ms offset, are removed.
+- **A browser timer recurring at a second or more in a slot of its own fires on the grid.** An unnamed `TimerNode` re-arms a timeout for just after each boundary, as the Router's tick does, where it ran a `setInterval` from its arming moment; a sub-second or oneshot slot keeps `setInterval`. The debug overlay's I/O sampler is such a timer, so its chart rows land on :00, :05, :10; its shared page global moves to `__newspackNodesOverviewSamplerTimer`, a frozen surface, so every consumer inlining the overlay rebuilds against this release.
+- **`_metadata` polls on a rung chosen by node count:** the first of 2, 5, 10 and 30 seconds at least `nodes × 10 ms`, past that the cost rounded up to whole minutes — 2s up to 200 nodes, 5s up to 500, 10s up to 1,000, 30s up to 3,000, 60s up to 6,000, 120s up to 12,000. It rounded the same cost to the nearest 5 seconds, which put a graph on 15s, 20s or 25s cadences.
+
 ## [2.144.2] - 2026-11-03
 
 ### Changed

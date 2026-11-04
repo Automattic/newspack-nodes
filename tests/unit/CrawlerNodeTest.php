@@ -1046,7 +1046,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( [ self::SITE . '/', self::SITE . '/u-1' ], $this->dispatched, 'one start a tick' );
 	}
 
-	public function test_a_retuned_delay_still_spaces_the_next_start_from_the_last(): void {
+	public function test_a_retuned_delay_waits_for_its_grid_boundary_after_the_last_start(): void {
 		$crawler = $this->crawler( 'crawl-4471', '7203', '', '2000', '3' );
 		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/g-{$i}", \range( 1, 3 ) );
 		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
@@ -1055,17 +1055,55 @@ final class CrawlerNodeTest extends TestCase {
 			Core::$clock = static fn (): float => $now;
 		};
 
-		$at( 1790000000.0 );
+		// 1790000001 is a multiple of 3, so this start sits on a 3s boundary.
+		$at( 1790000001.0 );
 		$this->in_drain( static fn () => $crawler->fire_cb() );
 		$crawler->arguments( [ '7203', '', '3000', '3' ] );
-		// Past the old 2s, short of the retuned 3s.
-		$at( 1790000002.5 );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
-
-		$this->assertCount( 1, $this->dispatched, 'the retuned timer waits 3s from its last fire' );
+		// Past the old 2s, short of the next 3s boundary.
 		$at( 1790000003.5 );
 		$this->in_drain( static fn () => $crawler->fire_cb() );
+
+		$this->assertCount( 1, $this->dispatched, 'the retuned timer waits for its 3s boundary' );
+		$at( 1790000004.0 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
 		$this->assertCount( 2, $this->dispatched );
+	}
+
+	public function test_a_late_start_never_shortens_the_gap_below_the_delay(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '2000', '3' );
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/l-{$i}", \range( 1, 3 ) );
+		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+		$at = static function ( float $now ): void {
+			Core::$clock = static fn (): float => $now;
+		};
+
+		// The 1790000000 boundary's tick, 0.9s late.
+		$at( 1790000000.9 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 1, $this->dispatched );
+
+		$at( 1790000002.0 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 1, $this->dispatched, '1.1s after the last start, short of the 2s delay' );
+
+		$at( 1790000003.0 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 2, $this->dispatched, 'the first tick 2s after the last start' );
+	}
+
+	public function test_tick_jitter_does_not_hold_a_start(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '2000', '3' );
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/j-{$i}", \range( 1, 3 ) );
+		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+		$at = static function ( float $now ): void {
+			Core::$clock = static fn (): float => $now;
+		};
+
+		$at( 1790000000.0007 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$at( 1790000002.0003 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 2, $this->dispatched, 'a start 0.4ms short of the delay still goes' );
 	}
 
 	public function test_a_zero_delay_starts_back_to_back_on_the_refill_tick(): void {

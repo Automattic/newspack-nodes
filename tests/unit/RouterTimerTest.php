@@ -276,14 +276,51 @@ class RouterTimerTest extends TestCase {
 	public function test_the_router_ticks_on_grid_boundaries_from_any_start_phase(): void {
 		$ticks = $this->router_ticks( 1700.73, 3 );
 
-		$this->assertSame( [ 1701.36, 1702.36, 1703.36 ], $this->to_the_microsecond( $ticks ) );
+		$this->assertSame( [ 1701.0, 1702.0, 1703.0 ], $this->to_the_microsecond( $ticks ) );
 	}
 
 	/** A late tick does not shift the ones after it. */
 	public function test_a_late_router_tick_does_not_shift_the_next(): void {
-		$ticks = $this->router_ticks( 1700.73, 3, 0.3 );
+		$ticks = $this->router_ticks( 1700.73, 3, 0.25 );
 
-		$this->assertSame( [ 1701.36, 1702.66, 1703.36 ], $this->to_the_microsecond( $ticks ), 'only the second tick is late' );
+		$this->assertSame( [ 1701.0, 1702.25, 1703.0 ], $this->to_the_microsecond( $ticks ), 'only the second tick is late' );
+	}
+
+	/** A drain entered after the clock stepped back waits one tick at most. */
+	public function test_a_drain_entered_after_a_clock_step_back_sleeps_one_tick_at_most(): void {
+		$t                      = 1700.73;
+		$slept                  = [];
+		Core::$clock            = static function () use ( &$t ): float {
+			return $t;
+		};
+		Event_Framework::$sleep = static function ( int $us ) use ( &$t, &$slept ): void {
+			$slept[] = $us;
+			$t      += $us / 1_000_000;
+		};
+		Core::right_now();
+		Core::$secure_level = 1;
+		$router             = new Router_Node();
+		$router->name( '_router' );
+		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
+		// Armed before the clock stepped back ten minutes.
+		$router->next_fire = 2300.0;
+
+		$loops = 0;
+		Event_Framework::instance()->drain(
+			static function () use ( &$loops ): bool {
+				return ++$loops < 3;
+			}
+		);
+		$router->stop_timer();
+
+		$this->assertLessThanOrEqual( 1_000_000, \max( $slept ) );
+	}
+
+	/** A clock stepped back re-anchors the tick at the present, not the old boundary. */
+	public function test_a_clock_stepped_back_re_anchors_the_router_tick(): void {
+		$ticks = $this->router_ticks( 1700.73, 3, -600.0 );
+
+		$this->assertSame( [ 1701.0, 1103.0, 1104.0 ], $this->to_the_microsecond( $ticks ) );
 	}
 
 	/**
@@ -295,7 +332,7 @@ class RouterTimerTest extends TestCase {
 		$probe = null;
 		$ticks = $this->router_ticks( 1700.73, 2, 0.0, $probe, 0.7 );
 
-		$this->assertSame( [ 1701.36, 1702.36 ], $this->to_the_microsecond( $ticks ) );
+		$this->assertSame( [ 1701.0, 1702.0 ], $this->to_the_microsecond( $ticks ) );
 		$this->assertSame( 2, $probe->get_fire_count(), 'it fires on both ticks' );
 	}
 

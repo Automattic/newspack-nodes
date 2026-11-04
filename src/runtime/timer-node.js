@@ -2,9 +2,9 @@
  * Timer — the time-driven node base, and the wall-clock grid every periodic
  * poll on the page fires on.
  *
- * A timer riding the `_router` TIMER — what a cadence of 1000ms or more asks
- * for — fires on a boundary of a grid derived from the clock alone (ADR-17),
- * never on elapsed time since its own last fire. Two surfaces polling on one
+ * A timer recurring at 1000ms or more — riding the `_router` TIMER or in a
+ * slot of its own — fires on a boundary of a grid derived from the clock alone
+ * (ADR-17), never on elapsed time since its own last fire. Two surfaces polling on one
  * cadence therefore converge however far apart they were opened, harmonic
  * cadences meet on the same tick, and everything minted during that tick leaves
  * in `HttpOut`'s one batched POST. The grid lives here and nowhere else: a
@@ -26,22 +26,6 @@ import {
 } from './message';
 
 /**
- * Where the whole grid sits on the wall clock — ONE offset for every cadence,
- * never one per interval.
- *
- * Harmonics are the point: a 10s boundary is every second 5s boundary and a 30s
- * boundary every sixth, so with a shared origin all four cadences on a page meet
- * every 30s and ride ONE POST. A per-interval phase destroys exactly that,
- * sliding each cadence a few hundred milliseconds off the others so they never
- * share a tick again. The offset itself only keeps the grid off :00, where every
- * other cron already is.
- *
- * @testonly Exported for tests that pin a clock to a boundary; the grid
- * belongs to TimerNode alone, and `lint-contract`'s `grid-math` rule keeps it that way.
- */
-export const GRID_PHASE_MS = 360;
-
-/**
  * How early, in seconds, a Router tick may land before the grid boundary and
  * still fire a timer at the tick's own cadence: a tenth of the 1s tick, as
  * PHP's `Timer_Node` takes.
@@ -51,9 +35,10 @@ const EARLY_TICK_S = 0.1;
 /**
  * The first grid boundary strictly after `after`.
  *
- * The grid is a pure function of the wall clock, so two surfaces
- * polling on the same cadence land on the same boundary however far apart they
- * were opened — which is what puts their commands in ONE batched POST instead
+ * The grid is a pure function of the wall clock, aligned to the epoch, so
+ * every cadence dividing a minute lands on its :00, and two surfaces polling
+ * on the same cadence land on the same boundary however far apart they were
+ * opened — which is what puts their commands in ONE batched POST instead
  * of one each. Paced from its own arming time, a 5s poll opened at :02 and
  * another opened at :04 never share a tick again. Borrowed from `LRU_Cache`'s
  * bucket rotation, where the same property makes a restarted process keep its
@@ -71,10 +56,7 @@ export function nextBoundary( after, intervalMs ) {
 	if ( ! ( interval > 0 ) ) {
 		return after;
 	}
-	const phase = GRID_PHASE_MS / 1000;
-	return (
-		( Math.floor( ( after - phase ) / interval ) + 1 ) * interval + phase
-	);
+	return ( Math.floor( after / interval ) + 1 ) * interval;
 }
 
 /**
@@ -85,8 +67,8 @@ export function nextBoundary( after, intervalMs ) {
  * graph already pays for, `fireCb()` throttling that ride down to the cadence
  * the node asked for. Everything else — a sub-second cadence, an unnamed node,
  * the Router itself — takes a slot of its own and needs a concrete interval:
- * a `setInterval`, or for the Router a timeout re-armed for just after each
- * grid boundary.
+ * a timeout re-armed for just after each grid boundary when it recurs at a
+ * second or more, which the Router always does, and a `setInterval` otherwise.
  *
  * The hitchhike is a DIRECT call: `RouterNode.notifyTimer()` resolves each
  * registered name to its node and calls `fireCb()` on it. No message is routed,
@@ -106,8 +88,10 @@ export class TimerNode extends Node {
 		super();
 		// The own slot's timer handle; null whenever the slot is not armed.
 		this._handle = null;
-		// The grid boundary the Router's armed tick is due at; 0 before one.
+		// The grid boundary a gridded slot's next fire is due at; 0 before one.
 		this._tickAt = 0;
+		// The slot re-arms on the grid (setTimeout) rather than setInterval.
+		this._gridded = false;
 		// An own property, so SchemaReflection can assign the declared arg.
 		this.interval_ms = 0;
 		// 'inactive' | 'event_framework' (own slot) | 'router' (hitchhike).
@@ -180,10 +164,12 @@ export class TimerNode extends Node {
 	 * boundary, so a fire stamped late costs the next tick nothing unless it
 	 * was stamped after the boundary that tick is due at. A tick within that
 	 * tenth fires, so an extra tick just short of the boundary and the cadence
-	 * tick after it both fire.
-	 * An own slot already fires at `interval_ms` and skips both tests. Every
-	 * dispatch records `lastFireTime`, which `setTimer()` keeps, so a retuned
-	 * hitchhiker waits from its last fire rather than firing on the next tick.
+	 * tick after it both fire. A `lastFireTime` more than an interval ahead,
+	 * left by a clock stepped back, is forgotten, so the next tick fires.
+	 * An own slot skips both tests: it re-arms on the grid itself at a second
+	 * or more, and runs a `setInterval` below that. Every dispatch records
+	 * `lastFireTime`, which `setTimer()` keeps, so a retuned hitchhiker waits
+	 * for its new cadence's boundary after its last fire.
 	 */
 	fireCb() {
 		if ( this.oneshot ) {
@@ -193,12 +179,15 @@ export class TimerNode extends Node {
 			return;
 		}
 		const now = Core.now();
+		// A last fire over an interval ahead means the clock stepped back.
+		const stepped = this.lastFireTime - now > this.interval_ms / 1000;
+		const last = stepped ? 0 : this.lastFireTime;
 		// Paces the 1s router tick; an own slot already fires at interval_ms.
 		const slack = this.interval_ms > 1000 ? 0 : EARLY_TICK_S;
 		if (
 			'router' === this.mode &&
 			this.interval_ms >= 1000 &&
-			now < nextBoundary( this.lastFireTime, this.interval_ms ) - slack
+			now < nextBoundary( last, this.interval_ms ) - slack
 		) {
 			return;
 		}
@@ -303,7 +292,8 @@ export class TimerNode extends Node {
 		this.mode = 'event_framework';
 		// After the re-arm stopTimer above, which resets the flag.
 		this.oneshot = oneshot;
-		if ( this.isRouter ) {
+		this._gridded = this.isRouter || ( ! oneshot && ms >= 1000 );
+		if ( this._gridded ) {
 			this._tickAt = 0;
 			this._armGridTick();
 		} else {
@@ -312,15 +302,17 @@ export class TimerNode extends Node {
 	}
 
 	/**
-	 * Arm the Router's next tick for just after the next grid boundary, past
-	 * both now and the boundary the last tick was due at: a late tick does not
-	 * shift the next, and a boundary never ticks twice. The next tick is armed
-	 * before this one fires, so a tick that throws still leaves the next.
+	 * Arm the slot's next fire for just after the next grid boundary, past
+	 * both now and the boundary the last fire was due at: a late fire does not
+	 * shift the next, and a boundary never fires twice. A clock stepped back
+	 * past a whole interval re-anchors at now. The next fire is armed before
+	 * this one runs, so a fire that throws still leaves the next.
 	 */
 	_armGridTick() {
 		const now = Core.now();
+		const stepped = this._tickAt - now > this.interval_ms / 1000;
 		this._tickAt = nextBoundary(
-			Math.max( now, this._tickAt ),
+			stepped ? now : Math.max( now, this._tickAt ),
 			this.interval_ms
 		);
 		this._handle = setTimeout(
@@ -360,7 +352,7 @@ export class TimerNode extends Node {
 			return;
 		}
 		if ( null !== this._handle ) {
-			( this.isRouter ? clearTimeout : clearInterval )( this._handle );
+			( this._gridded ? clearTimeout : clearInterval )( this._handle );
 			this._handle = null;
 		}
 	}

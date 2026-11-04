@@ -1,5 +1,5 @@
 import { RouterNode } from '../router-node';
-import { TimerNode, GRID_PHASE_MS } from '../timer-node';
+import { TimerNode } from '../timer-node';
 import { Node } from '../node';
 import { Core } from '../core';
 import {
@@ -237,7 +237,7 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 
 	describe( 'on the wall-clock grid', () => {
 		// A boundary of the 1s grid, and a start 0.73s past it.
-		const takahe = 1_790_000_300_000 + GRID_PHASE_MS;
+		const takahe = 1_790_000_300_000;
 
 		function ticking() {
 			jest.useFakeTimers();

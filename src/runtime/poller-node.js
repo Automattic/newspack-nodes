@@ -31,8 +31,8 @@ const POLL_INTERVAL_MS = 10000;
  * The cadence of a readout someone is WATCHING — a console modal, the uptime
  * clock, a small graph's metadata. A viewed worker's SSE stream idles out
  * after `sse_idle_timeout` (5s), so anything slower lets it close between
- * replies. A harmonic of the shared 10s grid (ADR-17), so these polls still
- * meet the slower ones on a tick and leave in their POST.
+ * replies. On the shared grid (ADR-17) it meets every even-second cadence, so
+ * those polls share its tick and leave in its POST.
  */
 export const LIVE_POLL_INTERVAL_MS = 2000;
 

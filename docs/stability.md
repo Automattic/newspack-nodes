@@ -281,7 +281,7 @@ checkout, so that surface changes when the consumer bumps its pin, never when
 the substrate ships. Two exceptions, for that same reason. Item 2's reserved
 names: a value compiled into an old bundle still has to answer a new substrate.
 And the page globals `__newspackNodesCore`, `__newspackNodesTabs`,
-`__newspackNodesIoTelemetry` and `__newspackNodesOverviewSampler`: the first
+`__newspackNodesIoTelemetry` and `__newspackNodesOverviewSamplerTimer`: the first
 bundle on a page creates each and every other bundle shares it, so a consumer
 bundle and the substrate's bundles on one page must be built against releases
 that agree on their shape. A release that changes one says so in

@@ -213,21 +213,27 @@ describe( 'Metadata node', () => {
 		} );
 	} );
 
-	describe( 'computePollIntervalMs (nodeCount * 10ms, rounded)', () => {
+	describe( 'computePollIntervalMs (a rung per node count)', () => {
 		it( 'polls a graph of 200 nodes or fewer every 2s', () => {
 			expect( computePollIntervalMs( 0 ) ).toBe( 2000 );
-			expect( computePollIntervalMs( 30 ) ).toBe( 2000 ); // 0.3s
-			expect( computePollIntervalMs( 100 ) ).toBe( 2000 ); // 1.0s
-			expect( computePollIntervalMs( 200 ) ).toBe( 2000 ); // 2.0s
+			expect( computePollIntervalMs( 137 ) ).toBe( 2000 );
+			expect( computePollIntervalMs( 200 ) ).toBe( 2000 );
 		} );
 
-		it( 'rounds to the nearest 5 seconds past 2s, floored at 5s', () => {
-			expect( computePollIntervalMs( 250 ) ).toBe( 5000 ); // 2.5s -> 5s
-			expect( computePollIntervalMs( 500 ) ).toBe( 5000 ); // 5.0s
-			expect( computePollIntervalMs( 600 ) ).toBe( 5000 ); // 6s -> 5s
-			expect( computePollIntervalMs( 800 ) ).toBe( 10000 ); // 8s -> 10s
-			expect( computePollIntervalMs( 3000 ) ).toBe( 30000 ); // 30s
-			expect( computePollIntervalMs( 3145 ) ).toBe( 30000 ); // 31.45s -> 30s
+		it( 'climbs 5s, 10s, 30s and 60s as the graph grows', () => {
+			expect( computePollIntervalMs( 201 ) ).toBe( 5000 );
+			expect( computePollIntervalMs( 500 ) ).toBe( 5000 );
+			expect( computePollIntervalMs( 501 ) ).toBe( 10000 );
+			expect( computePollIntervalMs( 1000 ) ).toBe( 10000 );
+			expect( computePollIntervalMs( 1001 ) ).toBe( 30000 );
+			expect( computePollIntervalMs( 3000 ) ).toBe( 30000 );
+			expect( computePollIntervalMs( 3001 ) ).toBe( 60000 );
+			expect( computePollIntervalMs( 6000 ) ).toBe( 60000 );
+		} );
+
+		it( 'past a minute, rounds the cost up to whole minutes', () => {
+			expect( computePollIntervalMs( 6001 ) ).toBe( 120000 );
+			expect( computePollIntervalMs( 19437 ) ).toBe( 240000 );
 		} );
 	} );
 
@@ -235,12 +241,12 @@ describe( 'Metadata node', () => {
 		it( 'sets pollIntervalMs from the parsed node count on each response', () => {
 			const node = new MetadataNode();
 			const payload = {};
-			for ( let i = 0; i < 600; i++ ) {
+			for ( let i = 0; i < 1700; i++ ) {
 				payload[ `n${ i }` ] = { class: 'Echo', target: '' };
 			}
 			node.fill( msg( TM_STRUCT, payload ) );
-			// 600 nodes -> 6000ms -> 6s -> nearest 5s -> 5000.
-			expect( node.pollIntervalMs ).toBe( 5000 );
+			// 1700 nodes -> the 30s rung.
+			expect( node.pollIntervalMs ).toBe( 30000 );
 		} );
 	} );
 

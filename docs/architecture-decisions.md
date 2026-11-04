@@ -1135,36 +1135,42 @@ minted during one tick into a single POST. A hitchhiking timer whose interval ex
 tick throws that benefit away the moment it paces itself from its OWN last fire.
 
 **Decision:** [`TimerNode.fireCb()`](../src/runtime/timer-node.js) fires on a boundary of a wall-clock GRID, not on elapsed
-time since its own last fire, with ONE phase (`GRID_PHASE_MS`, 360) serving every cadence:
-`nextBoundary( after, intervalMs )` is
-`( floor( ( after - phase ) / interval ) + 1 ) * interval + phase`. The grid lives in
+time since its own last fire, and every grid aligns to the epoch, so each cadence that divides
+a minute lands on its :00: `nextBoundary( after, intervalMs )` is
+`( floor( after / interval ) + 1 ) * interval`. A timer recurring at a second or more fires on
+it whether it rides the `_router` TIMER or holds a slot of its own. The grid lives in
 `TimerNode` alone; a subclass picks a harmonic interval and never computes a boundary.
 
-![A 32-second chart. Self-paced, two 5-second polls armed at :02 and :04 fire on alternating seconds forever, two POSTs per period. On the grid, the same two converge on the same boundaries after one short first period, and 10, 15 and 30-second cadences armed at arbitrary moments all meet at 30.36 seconds. Cards give the rejected self-pacing, per-interval phase, shared scheduler and snap-to-first-tick; the nextBoundary formula and its grid-math lint rule; markDue and markFired; and the one cost, a possible double fire at mount.](img/adr-timer-grid.png)
+![A 32-second chart. Self-paced, two 5-second polls armed at :02 and :04 fire on alternating seconds forever, two POSTs per period. On the grid, the same two converge on the same boundaries after one short first period, and 10, 15 and 30-second cadences armed at arbitrary moments all meet at 30 seconds. Cards give the rejected self-pacing, per-interval phase, shared scheduler and snap-to-first-tick; the nextBoundary formula and its grid-math lint rule; markDue and markFired; and the one cost, a possible double fire at mount.](img/adr-timer-grid.png)
 
 The grid is a pure function of the clock, so two timers on one cadence converge with nothing
 shared, nothing persisted and no coordination — the same property that lets [`LRU_Cache`](../includes/class-lru-cache.php)'s
 bucket rotation survive a process restart with its predecessor's phase intact. The
-[`grid-math`](../scripts/lint-contract.mjs) rule reads JavaScript alone, matching the camelCase `nextBoundary` and
-`GRID_PHASE_MS` under `src/` and `examples/`, and the invariant is scoped to match:
+[`grid-math`](../scripts/lint-contract.mjs) rule reads JavaScript alone, matching the camelCase `nextBoundary` under
+`src/` and `examples/`, and the invariant is scoped to match:
 `LRU_Cache::next_boundary()` is a second grid on the PHP side, on purpose.
-`Timer_Node::next_boundary()` and `Timer_Node::GRID_PHASE_MS` are the PHP twins of this grid,
-held to it by `tests/fixtures/grid-boundaries.json`. In both ports a timer whose interval
-equals the Router's tick reads the grid less a tenth of a tick: it skips a tick landing more
-than that short of the boundary after its last fire, so an extra tick asked for early in the
-second skips. The Router's own tick lands just after each boundary of the same grid in both
+`Timer_Node::next_boundary()` is the PHP twin of this grid, held to it by
+`tests/fixtures/grid-boundaries.json`. In both ports a hitchhiker skips every tick short of
+the boundary of its own cadence after its last fire, and one whose interval equals the
+Router's tick takes a tenth of a tick of slack, so an extra tick asked for more than that
+early in the second skips; a last fire more than an interval ahead, left by a clock stepped
+back, is forgotten. The Router's own tick lands just after each boundary of the same grid in both
 ports — a `setTimeout` re-armed for the next boundary in JS, `Timer_Node::next_fire_after()` in
-`Event_Framework` — never twice for one boundary, and a late tick does not shift the next. A
-fire stamped late in its tick therefore leaves the next tick its fire, unless it was stamped
-after the boundary that tick is due at. A PHP timer slower than the tick paces from its last
-fire, less a tenth of a tick.
+`Event_Framework` — never twice for one boundary, and a late tick does not shift the next; a
+clock stepped back past a whole interval re-anchors at the present. A fire stamped late in its
+tick therefore leaves the next tick its fire, unless it was stamped after the boundary that tick
+is due at. A slot of its own recurring at a second or more re-arms on the grid as the
+Router's does, in both ports. A grid keeps fires an interval apart only in steady state, so a
+node promising a minimum gap, such as `Crawler_Node`'s `delay_ms`, holds the gap itself, less
+a tenth of a tick for jitter, and marks itself due so the next tick fires it once the gap has
+passed.
 
 **Alternatives considered:** Pacing each timer from its own last fire — rejected: when a
 surface opens then decides which second it polls in, so a 5s catalog opened at :02 and another
 at :04 never share a tick and each pays its own POST forever, which a test never sees because every
 poll works. A per-interval phase — rejected: it slides each cadence a few hundred milliseconds
-off the others and destroys the harmonics, where one phase makes every second 5s boundary a
-10s one and every sixth a 30s one. A shared scheduler node every timer registers with —
+off the others and destroys the harmonics, where one origin makes every 10s boundary a 5s one
+and every 30s boundary a 10s one. A shared scheduler node every timer registers with —
 rejected: the Router already is the one heartbeat, and a second coordinator is state where
 arithmetic suffices. Snapping each timer to the first tick after arming — rejected: it makes the
 phase depend on when a surface opened, the failure the grid removes.
@@ -1176,8 +1182,8 @@ fire pins the clock FORWARD to just past a boundary. `PollerNode`, `MetadataNode
 through `markDue()` / `markFired()`
 rather than pacing themselves.
 
-**Revisit if:** the runtime gains sub-second cadences, where a 360ms phase is a large fraction
-of a period and the grid would need its own scale.
+**Revisit if:** a sub-second cadence needs the grid: an own slot below 1000ms runs on
+`setInterval`, off it.
 
 ---
 

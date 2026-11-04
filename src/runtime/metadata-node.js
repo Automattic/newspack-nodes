@@ -410,21 +410,27 @@ export function parseMetadata( payload ) {
 	return { nodes, edges, pwd, profiling };
 }
 
+/** The `_metadata` cadences under a minute, fastest first. */
+const METADATA_RUNGS_MS = [ LIVE_POLL_INTERVAL_MS, 5000, 10000, 30000 ];
+
+/** A minute: past the rungs, a cadence is a whole number of these. */
+const MINUTE_MS = 60000;
+
 /**
  * Self-managed poll cadence for `_metadata`, scaled to graph size: a big graph
- * is expensive to dump + re-render, so back off. `nodeCount * 10`ms: the live
- * cadence (`LIVE_POLL_INTERVAL_MS`) until that passes it, then the nearest 5
- * seconds, floored at 5s. Both are harmonics of the shared 10s grid (ADR-17).
+ * is expensive to dump + re-render, so back off. The first rung of
+ * `METADATA_RUNGS_MS` at least `nodeCount * 10`ms, else that cost rounded up
+ * to whole minutes.
  *
  * @param {number} nodeCount Node count of the last parsed graph.
- * @return {number} Poll interval in milliseconds (>= 2000).
+ * @return {number} Poll interval in milliseconds.
  */
 export function computePollIntervalMs( nodeCount ) {
-	const ms = nodeCount * 10;
-	if ( ms <= LIVE_POLL_INTERVAL_MS ) {
-		return LIVE_POLL_INTERVAL_MS;
-	}
-	return Math.max( 5000, Math.round( ms / 5000 ) * 5000 );
+	const cost = nodeCount * 10;
+	return (
+		METADATA_RUNGS_MS.find( ( rung ) => rung >= cost ) ??
+		Math.ceil( cost / MINUTE_MS ) * MINUTE_MS
+	);
 }
 
 /**

@@ -1760,10 +1760,11 @@ nothing, so its slot waits for the next tick. With fetches in flight, an
 answer or a tick refills only once half of `concurrency` is free, so one
 `SMOVE` starts several fetches; an empty window refills at once. Under a `delay_ms` above 0 only the timer refills: a seed
 or an answer queues what it found and starts nothing, and each fire moves one
-url. The timer measures each interval from its last fire, so one re-armed by
-a replay cannot fire early. A delay of at least the
-Router's tick rides that tick, so a start lands up to one tick after the
-delay ends. It hands
+url. A delay below the Router's tick holds a slot of its own and measures
+each interval from its last fire. A delay of at least the tick rides that
+tick on the grid, and no start comes within the delay, less a tenth of a
+tick for jitter, of the last: a fire short of it is held, and the first tick
+that clears it starts the url. It hands
 each url moved to Curl as a TM_BYTESTREAM whose VALUE and KEY are the url and
 whose FROM is the crawler's name, which Curl copies into its answer. It runs
 only inside a drain loop, and moves nothing while a recovery is owed. The

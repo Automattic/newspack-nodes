@@ -301,6 +301,11 @@ class Event_Framework {
 		}
 		$soonest = PHP_INT_MAX;
 		foreach ( $this->timers as $t ) {
+			// A clock stepped back past a whole interval re-anchors at now.
+			if ( $t->next_fire - Core::$now > $t->interval_ms / 1000.0 ) {
+				$t->next_fire = 0.0;
+				$t->next_fire = $t->next_fire_after( Core::$now );
+			}
 			$delta_us = (int) \ceil( ( $t->next_fire - Core::$now ) * 1_000_000 );
 			if ( $delta_us < $soonest ) {
 				$soonest = $delta_us;

@@ -46,12 +46,6 @@ class Timer_Node extends Node {
 	protected const MIN_INTERVAL_S = 1;
 
 	/**
-	 * Where the wall-clock grid sits, in milliseconds past each whole second:
-	 * the JS `GRID_PHASE_MS` twin, held to it by `grid-boundaries.json`.
-	 */
-	public const GRID_PHASE_MS = 360;
-
-	/**
 	 * Cadence in milliseconds, 0 while disarmed. Public because
 	 * `next_fire_after()` re-seeds `next_fire` from it on every recurring fire
 	 * and `list_timers` tabulates it.
@@ -91,9 +85,10 @@ class Timer_Node extends Node {
 	/**
 	 * Wall-clock second (`Core::$now` scale) of the last dispatch in either
 	 * mode, throttling a hitchhiker whose interval exceeds the Router's tick:
-	 * `fire_cb()` returns until `interval_ms` has elapsed since this. A re-arm
-	 * keeps it, so a retuned hitchhiker waits its new interval out from the
-	 * last fire rather than firing on the next tick. 0.0 until the first fire.
+	 * `fire_cb()` returns until the grid boundary of `interval_ms` after this.
+	 * A re-arm keeps it, so a retuned hitchhiker waits for its new cadence's
+	 * boundary after the last fire rather than firing on the next tick. 0.0
+	 * until the first fire, which makes the next tick due.
 	 */
 	protected float $last_fire_time = 0.0;
 
@@ -166,14 +161,13 @@ class Timer_Node extends Node {
 	 *
 	 * The throttle is the price of the hitchhike. The tick arrives at the
 	 * Router's cadence, so a registrant that asked for a longer one drops the
-	 * ticks in between: it skips while less than its interval, less a tenth
-	 * of the Router's tick, has passed since `last_fire_time`, which every
-	 * dispatch records. A tick arriving a hair early still fires, and a slower
-	 * timer keeps its rate, the slack being a tenth of the tick rather than of
-	 * its interval. A timer at the tick's own cadence reads the wall-clock
-	 * grid instead, as the JS twin does: it skips a tick landing more than a
-	 * tenth of a tick short of the grid boundary after its last fire, so a
-	 * tick at least nine tenths of a tick after that fire always fires. The
+	 * ticks in between: it skips until the wall-clock grid boundary of its own
+	 * cadence after `last_fire_time`, which every dispatch records, as the JS
+	 * twin does. A timer at the tick's own cadence takes a tenth of a tick of
+	 * slack: it skips a tick landing more than that short of the boundary, so
+	 * a tick at least nine tenths of a tick after its last fire always fires.
+	 * A last fire more than an interval ahead, left by a clock stepped back,
+	 * is forgotten, so the next tick fires. The
 	 * Router ticks just after each boundary (`next_fire_after()`), so a fire
 	 * stamped late in its tick, by a dispatch ahead of it moving `Core::$now`
 	 * on, costs the next tick nothing unless it was stamped after the boundary
@@ -189,10 +183,9 @@ class Timer_Node extends Node {
 		}
 		if ( 'router' === $this->mode ) {
 			$tick_ms = self::router_interval_ms();
-			$slack   = 0.1 * $tick_ms / 1000.0;
-			$due     = $tick_ms === $this->interval_ms
-				? self::next_boundary( $this->last_fire_time, $this->interval_ms ) - $slack
-				: $this->last_fire_time + $this->interval_ms / 1000.0 - $slack;
+			$stepped = $this->last_fire_time - Core::$now > $this->interval_ms / 1000.0;
+			$slack   = $tick_ms === $this->interval_ms ? 0.1 * $tick_ms / 1000.0 : 0.0;
+			$due     = self::next_boundary( $stepped ? 0.0 : $this->last_fire_time, $this->interval_ms ) - $slack;
 			if ( $this->interval_ms >= $tick_ms && Core::$now < $due ) {
 				return;
 			}
@@ -236,25 +229,28 @@ class Timer_Node extends Node {
 	}
 
 	/**
-	 * When this own slot fires next, armed or last scanned at `$now`: one
-	 * interval on, or for the Router the first grid boundary after both `$now`
-	 * and the boundary it was due at, so every tick lands just after a
-	 * boundary, a late tick does not shift the next, and none fires twice for
-	 * one boundary.
+	 * When this own slot fires next, armed or last scanned at `$now`. The
+	 * Router, and any slot recurring at a second or more, fires on the first
+	 * grid boundary after both `$now` and the boundary it was due at, so every
+	 * fire lands just after a boundary, a late fire does not shift the next,
+	 * and none fires twice for one boundary. A sub-second or oneshot slot
+	 * fires one interval on.
 	 *
 	 * @param float $now The loop's clock at the arm or the scan.
 	 * @return float The next fire, in seconds.
 	 */
 	public function next_fire_after( float $now ): float {
-		if ( $this instanceof Router_Node ) {
-			return self::next_boundary( \max( $now, $this->next_fire ), $this->interval_ms );
+		$interval = $this->interval_ms / 1000.0;
+		if ( ! $this instanceof Router_Node && ( $this->oneshot || $this->interval_ms < 1000 ) ) {
+			return $now + $interval;
 		}
-		return $now + $this->interval_ms / 1000.0;
+		return self::next_boundary( \max( $now, $this->next_fire ), $this->interval_ms );
 	}
 
 	/**
 	 * The first grid boundary strictly after `$after`: the twin of the JS
-	 * `nextBoundary()`. The grid is a function of the wall clock alone, so two
+	 * `nextBoundary()`. The grid is a function of the wall clock alone, aligned
+	 * to the epoch, so every cadence dividing a minute lands on its :00 and two
 	 * timers on one cadence share its boundaries however they were armed.
 	 *
 	 * @param float $after       Seconds; the last fire.
@@ -266,8 +262,7 @@ class Timer_Node extends Node {
 		if ( ! ( $interval > 0 ) ) {
 			return $after;
 		}
-		$phase = self::GRID_PHASE_MS / 1000;
-		return ( \floor( ( $after - $phase ) / $interval ) + 1 ) * $interval + $phase;
+		return ( \floor( $after / $interval ) + 1 ) * $interval;
 	}
 
 	/**
@@ -333,6 +328,8 @@ class Timer_Node extends Node {
 		$this->mode        = 'event_framework';
 		$this->interval_ms = $ms;
 		$this->oneshot     = $oneshot;
+		// Forget the last arm's boundary, as the JS twin resets `_tickAt`.
+		$this->next_fire = 0.0;
 		Event_Framework::instance()->set_timer( $this );
 	}
 
@@ -400,6 +397,15 @@ class Timer_Node extends Node {
 		if ( 'event_framework' === $this->mode ) {
 			Event_Framework::instance()->stop_timer( $this );
 		}
+	}
+
+	/**
+	 * Due on the next tick, whatever the cadence says: the JS `markDue()`
+	 * twin. Only a hitchhiker reads `last_fire_time`, so an own slot is
+	 * unchanged.
+	 */
+	public function mark_due(): void {
+		$this->last_fire_time = 0.0;
 	}
 
 	/**

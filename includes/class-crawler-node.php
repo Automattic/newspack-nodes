@@ -63,6 +63,9 @@ final class Crawler_Node extends Timer_Node implements Shutdown_Sweeper {
 	/** True while refill() runs; an answer arriving inside it does not re-enter. */
 	private bool $refilling = false;
 
+	/** When refill() last started a fetch, in `Core::$now` seconds; 0.0 before one. */
+	private float $last_start = 0.0;
+
 	/** The Table client asks by the crawler's live name, so it outlives a rename. */
 	public function __construct() {
 		parent::__construct();
@@ -316,6 +319,11 @@ final class Crawler_Node extends Timer_Node implements Shutdown_Sweeper {
 		if ( $paced && ! $tick ) {
 			return;
 		}
+		// Tick jitter takes a tenth of a tick, as Timer_Node's slack does.
+		if ( $paced && 'router' === $this->mode && Core::$now - $this->last_start < ( $this->delay_ms - self::TICK_MS / 10 ) / 1000 ) {
+			$this->mark_due();
+			return;
+		}
 		if ( $this->refilling || ! Event_Framework::instance()->is_running() ) {
 			return;
 		}
@@ -329,6 +337,7 @@ final class Crawler_Node extends Timer_Node implements Shutdown_Sweeper {
 		$this->refilling = true;
 		try {
 			foreach ( $this->frontier->take( $free ) as [ $url ] ) {
+				$this->last_start = Core::$now;
 				$curl->fill( $this->fetch_message( $url ) );
 			}
 		} finally {

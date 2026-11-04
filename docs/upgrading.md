@@ -6,6 +6,23 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The timer grid aligns to :00, and `GRID_PHASE_MS` is gone.** Every
+  boundary sat 360 ms past its second; it now sits on it, so a 5s timer fires
+  at :00, :05, :10. `GRID_PHASE_MS` (JS, re-exported by
+  `@newspack-nodes/runtime`) and `Timer_Node::GRID_PHASE_MS` (PHP) are removed.
+  A test that pinned its clock to `<boundary> + GRID_PHASE_MS` pins it to the
+  boundary itself.
+- **The overlay sampler's page global is `__newspackNodesOverviewSamplerTimer`.**
+  It was `__newspackNodesOverviewSampler`, holding an interval id; it now
+  holds a `TimerNode`. A consumer that inlines the debug overlay rebuilds
+  against this release, raises its floor to it and deploys with it, or a page
+  mixing old and new bundles runs two samplers.
+- **A PHP timer slower than the Router's tick fires on the grid.** It waited
+  its interval from its last fire; it now waits for the first boundary of its
+  cadence after that fire, so a test asserting "nothing until N seconds after
+  the last fire" pins its clock to a boundary first, or asserts the boundary.
+  A node that set `last_fire_time` to the start of its interval to stay on a
+  grid of its own sets it to `Core::$now` on arming instead, or leaves it.
 - **Three refusals say their negative outright.** A removal naming nothing
   refuses `<verb> '<arg>'… names a <noun> this <holder> does not declare`,
   where it said `names no <noun> this <holder> declares`; an unresolved

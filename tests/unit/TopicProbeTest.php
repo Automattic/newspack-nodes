@@ -574,9 +574,9 @@ class TopicProbeTest extends TestCase {
 		);
 	}
 
-	public function test_fire_gates_to_the_interval_against_last_fire_time(): void {
-		// Hitchhikes the Router TIMER (fires every tick); only does real work once
-		// per interval_s, gated against last_fire_time — like Consumer's publish.
+	public function test_fire_gates_to_the_grid_boundary_after_last_fire_time(): void {
+		// Hitchhikes the Router TIMER (fires every tick); real work waits for the
+		// interval_s grid boundary after last_fire_time.
 		$this->stub_consumer( 'firehose' );
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
@@ -595,11 +595,15 @@ class TopicProbeTest extends TestCase {
 		$probe->fire_cb(); // same instant → gated
 		$this->assertCount( 1, $capture->captured );
 
-		Core::$now = 1015; // interval (15s) elapsed → emit
+		Core::$now = 1004; // short of the 1005 boundary → gated
+		$probe->fire_cb();
+		$this->assertCount( 1, $capture->captured );
+
+		Core::$now = 1005; // on the boundary → emit
 		$probe->fire_cb();
 		$this->assertCount( 2, $capture->captured );
 
-		Core::$now = 1029; // < 15s since last fire → gated
+		Core::$now = 1019; // short of the 1020 boundary → gated
 		$probe->fire_cb();
 		$this->assertCount( 2, $capture->captured );
 	}
