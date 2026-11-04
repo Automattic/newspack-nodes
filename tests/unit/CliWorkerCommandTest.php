@@ -572,7 +572,7 @@ class CliWorkerCommandTest extends TestCase {
 
 	/**
 	 * Activate a readable `aggregator`, a `marmot-hub` whose include resolves
-	 * nowhere, and a name no `.tsl` answers to.
+	 * nowhere, and a name that does not resolve to any `.tsl`.
 	 */
 	private function activate_beside_unreadable(): void {
 		$this->register_topology( 'aggregator', 2 );
@@ -806,7 +806,7 @@ class CliWorkerCommandTest extends TestCase {
 	}
 
 	public function test_run_errors_when_topology_name_not_in_registry(): void {
-		// Descriptor names a topology no plugin has registered with
+		// Descriptor names a topology that is not registered with
 		// Topology_Registry — the registry returns null on resolve()
 		// and WorkerCliCommand bails with a clear message.
 		$this->register_topology( 'bogus-topology', 1, 'bogus-topology' );

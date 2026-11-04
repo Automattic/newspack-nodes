@@ -52,7 +52,7 @@
     <div class="st fl"><span class="k">step: spawn, then backlog-wake</span><span class="h">topologies</span><span class="a"><span class="mono">expand_workers()</span> asks it what to spawn; an empty result on a pass after one that saw workers retires the WHOLE fleet</span></div><div class="gap">›</div>
     <div class="st"><span class="k">step: lock-dirs</span><span class="h" style="color:#101517">reconcile_lock_dirs()</span></div><div class="gap">›</div>
     <div class="br"></div>
-    <div class="st fl"><span class="k">step: retention</span><span class="h">registered_log_producers</span><span class="a">a template resolving to no dir anywhere in the range skips the whole sweep, <span class="mono">offsets/</span> included</span></div><div class="gap">›</div>
+    <div class="st fl"><span class="k">step: retention</span><span class="h">registered_log_producers</span><span class="a">a template that does not resolve to any dir in the range skips the whole sweep, <span class="mono">offsets/</span> included</span></div><div class="gap">›</div>
     <div class="st"><span class="k">step: orphan-ipc</span><span class="h" style="color:#101517">cleanup_orphan_ipc()</span></div><div class="gap">›</div>
     <div class="st hk"><span class="k">step: periodic</span><span class="h">periodic</span><span class="a">ONE step for every subscriber: a throwing one takes every later subscriber's window. <span class="mono">Alerts::emit()</span> and <span class="mono">Job_Delay::<wbr>sweep()</span> run as steps ahead of it</span></div><div class="gap">›</div>
     <div class="st hk"><span class="k">after every step</span><span class="h">after_reconcile</span></div><div class="gap"></div>

@@ -51,7 +51,7 @@
 <div class="three">
   <div class="callout">
     <h4>Rejected: holding the connection for the worker's life</h4>
-    <p>No caller waits, but the platform does: nginx counts a site's connections to itself, five at most (<span class="mono">selfdos</span>), and holds a spawn's until the worker returns or 120 s pass. A respawn wave then refuses every other self-request. The finish runs in <span class="mono">rest_pre_serve_request</span>, once WordPress has set the headers, never ahead of the <span class="mono">WP_REST_Response</span>.</p>
+    <p>The caller does not wait, but the platform does: nginx counts a site's connections to itself, five at most (<span class="mono">selfdos</span>), and holds a spawn's until the worker returns or 120 s pass. A respawn wave then refuses every other self-request. The finish runs in <span class="mono">rest_pre_serve_request</span>, once WordPress has set the headers, never ahead of the <span class="mono">WP_REST_Response</span>.</p>
   </div>
   <div class="callout">
     <h4>Rejected: a resident daemon, or rescue-only restart</h4>

@@ -164,9 +164,9 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_the_backlog_sweep_wakes_a_reader_an_external_producer_fed(): void {
-		// Gyrobase appends straight to the segment file, so no Partition_Node::fill()
-		// ran and nothing marked a pending wake. Reading the partition is the only
-		// way the fleet ever learns this happened.
+		// Gyrobase appends straight to the segment file, so
+		// Partition_Node::fill() never ran to mark a pending wake. Reading the
+		// partition is the only way the fleet ever learns this happened.
 		$this->activate( 'marmot-ondemand', 23 );
 		$this->seed_partition( 'jobintake.p1', 512 );
 		// Read 200 of the 512: a genuine cursor, so the wake decision has to
@@ -332,9 +332,10 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	/**
-	 * A parked job is not due, and no special case says so: nothing CONSUMES
-	 * jobdelay — Job_Delay circulates it on the cron pass — so the reads map
-	 * answers it. "Is it due" collapses into "does anything read that log".
+	 * A parked job is not due, and it takes no special case to say so: nothing
+	 * CONSUMES jobdelay — Job_Delay circulates it on the cron pass — so the
+	 * reads map answers it. "Is it due" collapses into "does anything read that
+	 * log".
 	 */
 	public function test_a_delayed_job_wakes_nothing_yet(): void {
 		$this->activate( 'marmot-ondemand', 23 );

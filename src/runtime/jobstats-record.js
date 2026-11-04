@@ -67,7 +67,7 @@ export const ITEMS_ERR_DELTA = 7;
 
 /**
  * Wall-clock epoch (seconds) of the last run. It survives the drain, so an
- * identity that ran in no recent window still reports when it last ran.
+ * identity absent from every recent window still reports when it last ran.
  */
 export const LAST_TS = 8;
 

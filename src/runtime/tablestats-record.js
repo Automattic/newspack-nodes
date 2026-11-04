@@ -11,7 +11,7 @@
  * Message TIMESTAMP is the sweep instant.
  *
  * Indices mirror `includes/class-tablestats-record.php`, every slot but the
- * row's bytes, which no browser view reads, and
+ * row's bytes, which the browser views never read, and
  * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves.
  */
 

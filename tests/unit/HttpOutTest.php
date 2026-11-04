@@ -627,8 +627,9 @@ class HttpOutTest extends TestCase {
 	/**
 	 * Through `stamp_message`, like every other transport that stamps. Its two
 	 * guards are the point: a reply looping hub → spoke → hub grows its path without
-	 * bound, and the Router would drop it a layer later naming no transport,
-	 * where the guard names this one at the boundary that overflowed it.
+	 * bound, and the Router would drop it a layer later without naming a
+	 * transport, where the guard names this one at the boundary that overflowed
+	 * it.
 	 */
 	public function test_on_curl_done_drops_a_reply_whose_stamped_path_is_too_long(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();

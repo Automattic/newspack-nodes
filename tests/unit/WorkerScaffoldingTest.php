@@ -407,7 +407,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$page = Core::node( \Newspack_Nodes\Node_Names::REPL_INPUT . ':config' )->dispatch( 'dl_list', [] );
 
 		$this->assertSame( 0, $page['total'] );
-		$this->assertContains( \Newspack_Nodes\Node_Names::REPL_INPUT, \Newspack_Nodes\Node_Names::SESSION_SCAFFOLDING, 'no replay rebuilds it and no remove_node takes it' );
+		$this->assertContains( \Newspack_Nodes\Node_Names::REPL_INPUT, \Newspack_Nodes\Node_Names::SESSION_SCAFFOLDING, 'a replay never rebuilds it and remove_node never takes it' );
 	}
 
 	/**

@@ -152,7 +152,7 @@ export function TopicsPanels( { panels } ) {
  */
 
 /**
- * A probe tab's per-identity table, or its empty state when no row is in.
+ * A probe tab's per-identity table, or its empty state while it has no rows.
  *
  * @param {Object}               props           Component props.
  * @param {Array<ProbeColumn>}   props.columns   The columns, in order.

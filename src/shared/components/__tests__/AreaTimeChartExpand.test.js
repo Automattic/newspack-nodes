@@ -170,7 +170,7 @@ describe( 'AreaTimeChart expand', () => {
 		expect( onSlotClick ).toHaveBeenCalledWith( 2, { additive: false } );
 	} );
 
-	it( 'does nothing on a plain click when no onSlotClick is given', () => {
+	it( 'does nothing on a plain click without an onSlotClick', () => {
 		const { container } = mount();
 		expect( () =>
 			fireEvent.click( overlay( container ), { clientX: LAST_SLOT_X } )

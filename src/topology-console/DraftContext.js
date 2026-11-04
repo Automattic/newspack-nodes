@@ -130,7 +130,7 @@ export function useDraftInterpreter() {
 		) => {
 			ref.current.load( tsl, expansion, configEdges );
 			const next = commit();
-			// null matches no serialization: an unstored document is dirty.
+			// A serialization is never null: an unstored document is dirty.
 			setBaseline( stored ? JSON.stringify( next ) : null );
 			return next;
 		},

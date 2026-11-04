@@ -337,7 +337,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl->open_subscription( 'secrets:x.p0', null );
 	}
 
-	/** @return array<string,array{string}> Label => a group prefix naming no dir under it. */
+	/** @return array<string,array{string}> Label => a group prefix that does not name a dir under it. */
 	public static function bare_group_prefixes(): array {
 		return [
 			'offsets'    => [ 'offsets:' ],

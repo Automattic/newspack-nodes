@@ -3,7 +3,7 @@
 # Tests for scripts/lint-private-data.py, the gate that keeps an
 # organization's private values out of its public repos. Every case runs in a
 # throwaway repository against a fixture pattern list of invented values, so
-# no case reads the real list; each also checks that a finding never echoes
+# a case never reads the real list; each also checks that a finding never echoes
 # the value it found or the pattern that found it.
 
 # shellcheck disable=SC2015 # pass()/bad() both return 0, so every `cond && pass || bad` below is a safe two-way branch, not if-then-else.
@@ -110,7 +110,7 @@ run_gate "$repo" --range "$base..HEAD"
 	&& pass "the range names the commit message" || bad "range message finding missing: $out"
 leaks "$out" && bad "the range output leaks: $out" || pass "the range values stay unprinted"
 
-# (G) A base that is no commit, as the empty tree is, scans all of head.
+# (G) A base that is not a commit, such as the empty tree, scans all of head.
 empty_tree="$( git -C "$repo" hash-object -t tree /dev/null )"
 run_gate "$repo" --range "$empty_tree..$clean"
 [[ "$rc" -eq 1 && "$out" == *"old.txt:1:"* ]] \

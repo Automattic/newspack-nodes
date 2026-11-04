@@ -815,7 +815,7 @@ describe( 'worker-status:transform — segment tracking from the live logs', () 
 		expect( prev.has( 2 ) ).toBe( false );
 	} );
 
-	test( 'a log no worker reads is tracked like one a worker does, two departures at once included', () => {
+	test( 'an unread log is tracked like one a worker reads, two departures at once included', () => {
 		const sink = capture();
 		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;

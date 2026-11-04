@@ -7,10 +7,11 @@
  * what happens the moment an operator turns one on or off.
  *
  * Plugins register stock dirs, which OWN their names; the writable user dir
- * serves only names no stock dir provides, because a writable directory that
- * can shadow a stock topology is code execution. Stock dirs resolve newest
- * registration first, with the substrate's own bundled dir appended last, so
- * a consumer overrides a builtin topology by shipping a same-named `.tsl`.
+ * serves only names that are not provided by any stock dir, because a writable
+ * directory that can shadow a stock topology is code execution. Stock dirs
+ * resolve newest registration first, with the substrate's own bundled dir
+ * appended last, so a consumer overrides a builtin topology by shipping a
+ * same-named `.tsl`.
  *
  * @package Newspack_Nodes
  */
@@ -86,7 +87,8 @@ class Topology_Registry {
 
 	/**
 	 * Build the `[topology, num_partitions, stale_timeout, on_demand_idle]`
-	 * catalog entry from a topology's frontmatter; null when no `.tsl` resolves.
+	 * catalog entry from a topology's frontmatter; null when the name does not
+	 * resolve to a `.tsl`.
 	 *
 	 * Every field is read with the VALIDATED `Core::num_int`, matching what
 	 * `Bootstrap` does with the same values: a lenient `(int)` cast turns
@@ -136,7 +138,7 @@ class Topology_Registry {
 	 * BEFORE writing, so such a set is never persisted or spawned. The conflict
 	 * check reads the readable active names plus `$name`: an active topology
 	 * whose graph will not read stays configured and blocks no activation, but
-	 * no conflict with it can be seen, so the answer's `warning` names it,
+	 * a conflict with it can never be seen, so the answer's `warning` names it,
 	 * which both surfaces show; `$name` itself must read.
 	 * Idempotent:
 	 * an already-active name re-spawns without duplicating.
@@ -147,8 +149,8 @@ class Topology_Registry {
 	 * @param string $name Topology name (already validated by the caller).
 	 * @return array{name: string, active: true, spawned: int, warning: string|null}
 	 *         `spawned` counts spawn POSTs REQUESTED — a fire-and-forget POST
-	 *         reports no outcome; `warning` names the active topologies no
-	 *         conflict check could read, null when none.
+	 *         reports no outcome; `warning` names the active topologies the
+	 *         conflict check could not read, null when none.
 	 * @throws \RuntimeException When the name is unknown or activating it would
 	 *                           put two fleets on one log or offsetlog.
 	 * @throws \InvalidArgumentException When a line of the set's topologies is one its class refuses.
@@ -187,7 +189,8 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Absolute path to `<name>.tsl`, or null when no registered dir holds one.
+	 * Absolute path to `<name>.tsl`, or null when the registered dirs do not
+	 * hold one.
 	 *
 	 * @param string $name Topology name, without the `.tsl` extension.
 	 */
@@ -349,8 +352,8 @@ class Topology_Registry {
 	/**
 	 * Write every live worker's reload watermark, so each drops its snapshot of
 	 * the active set within one `_fleet` scan. A worker freezes the set at boot,
-	 * its on-demand wake map with it, so a writer left unsignalled wakes no
-	 * reader a write of the set added for the rest of its lifetime.
+	 * its on-demand wake map with it, so a writer left unsignalled never wakes,
+	 * for the rest of its lifetime, a reader that a write of the set added.
 	 *
 	 * The writers of the set call it last — `activate()`, `deactivate()` and the
 	 * `Topologies_CI` delete verb — so a failed flag costs no spawn, kill or
@@ -454,13 +457,13 @@ class Topology_Registry {
 	/**
 	 * Register the substrate's OWN topologies and node namespaces, as
 	 * `register_plugin()` registers a consumer's. This class ships beside them,
-	 * so nothing needs to tell it where they are.
+	 * so it finds them without being told where they are.
 	 *
 	 * The plugin file calls this at LOAD, where consumers register theirs,
 	 * rather than from `Bootstrap::ensure_runtime_wired()`: a frontend page view
 	 * never reaches the runtime tier, so a consumer topology registered at load
 	 * would resolve there while its `include topic-probe` did not, and a
-	 * wp-admin save would classify its restart against no substrate node type.
+	 * wp-admin save would classify its restart without any substrate node type.
 	 */
 	public static function register_builtin(): void {
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );

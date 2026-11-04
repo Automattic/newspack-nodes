@@ -173,7 +173,7 @@ describe( 'the declared graph', () => {
 		expect( Core.node( VIEW ).maxLines ).toBe( 137 );
 	} );
 
-	test( 'the view keeps its own cap when none is declared', () => {
+	test( 'the view keeps its own cap unless one is declared', () => {
 		mount();
 		expect( Core.node( VIEW ).maxLines ).toBe( 0 );
 	} );
@@ -220,7 +220,7 @@ describe( 'the declared graph', () => {
 		expect( opened() ).toContain( 'other.p3' );
 	} );
 
-	test( 'no declared subscription opens nothing until one is named', async () => {
+	test( 'without a declared subscription it opens nothing until one is named', async () => {
 		const { result } = mount( { subscribe: null } );
 		await flush();
 		expect( FakeEventSource.instances ).toHaveLength( 0 );
@@ -437,7 +437,7 @@ describe( 'the gate', () => {
 		expect( clears() ).toBe( 2 );
 	} );
 
-	test( 'no clearOnOpen leaves the view alone', () => {
+	test( 'without clearOnOpen it leaves the view alone', () => {
 		mount();
 		expect( Core.node( VIEW ).taken ).toEqual( [] );
 	} );
@@ -1164,7 +1164,7 @@ describe( 'useSteppedRead', () => {
 		expect( Core.node( VIEW ).taken ).toHaveLength( before );
 	} );
 
-	test( 'no record at the position adds no row and keeps the target', async () => {
+	test( 'a position without a record adds no row and keeps the target', async () => {
 		replyFor = jest.fn( ( m ) =>
 			'read_message' === m[ VALUE ]?.name
 				? {

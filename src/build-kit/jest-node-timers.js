@@ -8,8 +8,8 @@
  * against the jump, and an SseInNode reads the jump as stream silence,
  * reconnects, and prints — which fails the running test wherever unexpected
  * console output is a failure. Disarming suite by suite covers only the leaks
- * somebody has already chased down, so the teardown lives here and no suite
- * can leak one.
+ * somebody has already chased down, so the teardown lives here and a suite
+ * can never leak one.
  *
  * The second invariant belongs to `timer-hazard.js`: a node armed while
  * `setInterval` was real cannot fire from `advanceTimersByTime`, so the graph

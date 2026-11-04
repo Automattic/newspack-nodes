@@ -12,7 +12,7 @@ describe( 'UnreadableNotice', () => {
 		const { container } = render(
 			<UnreadableNotice
 				failures={ {
-					'marmot-6610': 'include orphaned-6611 resolves no .tsl',
+					'marmot-6610': 'unknown topology in include: orphaned-6611',
 					'vole-6612': "unknown topology 'vole-6612'",
 				} }
 				describe={ ( name, message ) =>
@@ -24,7 +24,7 @@ describe( 'UnreadableNotice', () => {
 			...container.querySelectorAll( '.newspack-nodes-error-banner' ),
 		];
 		expect( banners.map( ( b ) => b.textContent ) ).toEqual( [
-			'Topology marmot-6610 is out: include orphaned-6611 resolves no .tsl',
+			'Topology marmot-6610 is out: unknown topology in include: orphaned-6611',
 			"Topology vole-6612 is out: unknown topology 'vole-6612'",
 		] );
 		banners.forEach( ( b ) =>

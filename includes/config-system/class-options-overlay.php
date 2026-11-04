@@ -30,7 +30,8 @@ namespace Newspack_Nodes\Config_System;
 class Options_Overlay {
 
 	/**
-	 * The absent-option sentinel `stored_value()` returns when no row exists.
+	 * The absent-option sentinel `stored_value()` returns when the option has
+	 * no row.
 	 *
 	 * Handing it to `get_option()` as the default is what makes absence
 	 * detectable. WordPress returns the CALLER's default when one is passed and
@@ -81,7 +82,8 @@ class Options_Overlay {
 	 *
 	 * @param string $prefix WP-option name prefix (e.g. 'newspack_nodes_').
 	 * @param string $key    Schema key (without the prefix).
-	 * @return mixed The stored value, or {@see self::ABSENT} when no row exists.
+	 * @return mixed The stored value, or {@see self::ABSENT} when the option
+	 *               has no row.
 	 */
 	public static function stored_value( string $prefix, string $key ): mixed {
 		if ( ! \function_exists( 'get_option' ) ) {

@@ -30,8 +30,8 @@ import { workerId } from '@newspack-nodes/shared/utils/workerId';
 /**
  * The login the title block's "Drawn" row shows, read once at module load:
  * PHP writes the payload before any bundle runs, and the viewing user cannot
- * change while the page lives. The em dash holds the row's shape when no login
- * was localized.
+ * change while the page lives. The em dash holds the row's shape when the login
+ * was not localized.
  */
 const DRAWN_BY =
 	/** @type {CanvasWindow} */ ( window ).NewspackNodesData?.userLogin || '—';

@@ -80,7 +80,7 @@ export function nextBoundary( after, intervalMs ) {
 /**
  * Fires on a cadence, in one of two scheduling modes (Tachikoma parity).
  *
- * `setTimer()` picks between them. A named node asking for no interval, or for
+ * `setTimer()` picks between them. A named node without an interval, or with
  * one of 1000ms or more, registers 'TIMER' on `_router` and rides the tick the
  * graph already pays for, `fireCb()` throttling that ride down to the cadence
  * the node asked for. Everything else — a sub-second cadence, an unnamed node,
@@ -90,7 +90,7 @@ export function nextBoundary( after, intervalMs ) {
  *
  * The hitchhike is a DIRECT call: `RouterNode.notifyTimer()` resolves each
  * registered name to its node and calls `fireCb()` on it. No message is routed,
- * and Timer overrides no `fill()`.
+ * and Timer does not override `fill()`.
  *
  * `fireCb()` is the framework-side hook and `fire()` the subclass override
  * point. The default `fire()` emits a TM_BYTESTREAM carrying the current
@@ -104,7 +104,7 @@ export class TimerNode extends Node {
 	 */
 	constructor() {
 		super();
-		// The own slot's timer handle; null whenever none is armed.
+		// The own slot's timer handle; null whenever the slot is not armed.
 		this._handle = null;
 		// The grid boundary the Router's armed tick is due at; 0 before one.
 		this._tickAt = 0;
@@ -141,7 +141,7 @@ export class TimerNode extends Node {
 	}
 
 	/**
-	 * Arm the BASE Timer from its one optional token: no token takes the
+	 * Arm the BASE Timer from its one optional token: an absent token takes the
 	 * Router's own cadence, an integer arms that cadence in milliseconds, and
 	 * anything else throws. A subclass sets its own interval from `setTimer()`,
 	 * so this auto-arm deliberately stops at `TimerNode` itself.
@@ -236,8 +236,8 @@ export class TimerNode extends Node {
 	}
 
 	/**
-	 * Arm the timer in one of the two modes. A named non-Router node asking
-	 * for no interval, or for one of at least 1000ms, registers 'TIMER' on
+	 * Arm the timer in one of the two modes. A named non-Router node without
+	 * an interval, or with one of at least 1000ms, registers 'TIMER' on
 	 * `_router` and rides its tick; everything else takes a slot of its own,
 	 * which requires a concrete interval. Any live slot is cleared
 	 * first, so re-arming never leaks one.
@@ -314,7 +314,7 @@ export class TimerNode extends Node {
 	/**
 	 * Arm the Router's next tick for just after the next grid boundary, past
 	 * both now and the boundary the last tick was due at: a late tick does not
-	 * shift the next, and no boundary ticks twice. The next tick is armed
+	 * shift the next, and a boundary never ticks twice. The next tick is armed
 	 * before this one fires, so a tick that throws still leaves the next.
 	 */
 	_armGridTick() {

@@ -592,7 +592,7 @@ describe( 'a redeclaration that fails leaves the node it replaced', () => {
 } );
 
 describe( 'a statement the document rejects is not silent', () => {
-	it( 'reports a connect_node naming a node nothing supplies', () => {
+	it( 'reports a connect_node naming an unsupplied node', () => {
 		// A draft has no sink, so a routed reply goes nowhere: the edge would
 		// vanish from the canvas AND the next save with nothing said.
 		const d = draft( 'make_node Echo aardvark' );
@@ -648,7 +648,7 @@ describe( 'round-trip defects the fourth review found', () => {
 		} );
 	} );
 
-	it( 'keeps a config line aimed at a node no expansion supplied', () => {
+	it( 'keeps a config line aimed at a node missing from every expansion', () => {
 		// A load with a missing or partial expansion must not strip the
 		// file's own `set_*target` lines on the next save.
 		const tsl =
@@ -755,7 +755,7 @@ describe( 'what an include’s edges carry', () => {
 } );
 
 describe( 'a broker’s pair edges', () => {
-	it( 'are seeded verbatim and wired as no connection', () => {
+	it( 'are seeded verbatim and not wired as a connection', () => {
 		const baseline = {
 			nodes: [
 				{ name: 'pull:okapi', class: 'Remote_Source', origin: [ 's' ] },

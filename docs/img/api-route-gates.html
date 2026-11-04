@@ -34,7 +34,7 @@
   <div class="hd"><span class="mono">/oauth/token</span><span class="m">POST</span></div>
 
   <div class="rh"><span class="n">1</span>Declared args<span class="d">WordPress, before any callback. A missing required argument answers <span class="mono">400 rest_<wbr>missing_<wbr>callback_<wbr>param</span>.</span></div>
-  <div class="cell"><span class="mono">type</span>, <span class="mono">partition</span>, <span class="mono">nonce</span>, all required. <span class="mono">type</span> also runs a <span class="mono">validate_<wbr>callback</span>: a type no ACTIVE topology declares is refused here.</div>
+  <div class="cell"><span class="mono">type</span>, <span class="mono">partition</span>, <span class="mono">nonce</span>, all required. <span class="mono">type</span> also runs a <span class="mono">validate_<wbr>callback</span>: a type absent from every ACTIVE topology is refused here.</div>
   <div class="cell none">No args declared. <span class="mono">scope</span>, <span class="mono">label</span> and <span class="mono">ttl</span> are all optional and bounded by the handler.</div>
   <div class="cell none">No args declared. The body is JSONL the handler parses itself.</div>
   <div class="cell"><span class="mono">subscribe</span> required; <span class="mono">positions</span> and <span class="mono">multi_writer</span> optional.</div>
@@ -56,7 +56,7 @@
 
   <div class="rh"><span class="n">4</span>Handler<span class="d">What the route refuses on its own, then does.</span></div>
   <div class="cell run"><b>400 invalid_partition</b>, <b>409 fleet_held</b>, <b>429 spawn_throttled</b>, then the worker runs INLINE for its whole 595 s life and <i>200</i> is written when it ends.</div>
-  <div class="cell run"><b>400 invalid_scope</b> for an unknown scope; else <i>200</i> with the handle and the key. A <b>403 invalid_scope</b> for no role only backs up the gate.</div>
+  <div class="cell run"><b>400 invalid_scope</b> for an unknown scope; else <i>200</i> with the handle and the key. A <b>403 invalid_scope</b> for a roleless caller only backs up the gate.</div>
   <div class="cell run">Per command, the signature and the capability decide. <i>200</i> a reply is on the wire, <i>202</i> the batch routed on, <b>401</b> a signature failed, <b>500</b> the graph is missing.</div>
   <div class="cell run">A slot is acquired before any header, so <b>429 too_many_connections</b> is still sayable; then the stream runs until it ends.</div>
   <div class="cell run">Always <i>200</i>: the probe's <span class="mono">good</span> or <span class="mono">critical</span> is payload state, never a transport failure.</div>

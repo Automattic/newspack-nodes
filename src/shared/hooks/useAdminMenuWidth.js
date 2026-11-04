@@ -2,7 +2,7 @@
  * useAdminMenuWidth — measure the WordPress admin menu so a fixed-position
  * admin UI can sit flush against it.
  *
- * A `position: fixed` element leaves the document flow, so no CSS rule can
+ * A `position: fixed` element leaves the document flow, so a CSS rule cannot
  * hold it beside a menu that folds from 160px to 36px. The width has to reach
  * the consumer as a number it can put in `left`.
  */

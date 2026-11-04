@@ -35,7 +35,7 @@ describe( 'reply subjects', () => {
 		);
 	} );
 
-	it( 'reads no subject off an escape no reply address of ours carries', () => {
+	it( 'reads no subject off an escape that our reply addresses never carry', () => {
 		expect( replySubject( replyTo( 'kea%zz7731' ) ) ).toBeNull();
 	} );
 

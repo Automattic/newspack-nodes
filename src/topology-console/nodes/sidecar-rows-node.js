@@ -6,8 +6,8 @@ export const OWNED_FLAG = '-o';
 /**
  * The console's one sidecar poller: `dump_metadata -o`, asking for each owner
  * the console shows and the sidecars it lists by the owner's name alone, so
- * no ask grows with an owner's sidecars. It keeps its rows by name across a
- * change of owners.
+ * an ask never grows with an owner's sidecars. It keeps its rows by name
+ * across a change of owners.
  *
  * The canvas's `_metadata` asks for the whole graph, so it holds nothing per
  * name; this node does, because a grid opening over a shown sidecar asks for
@@ -15,7 +15,7 @@ export const OWNED_FLAG = '-o';
  */
 export class SidecarRowsNode extends MetadataNode {
 	/**
-	 * Start answering nothing: no name is answered before a reply about it.
+	 * Start answering nothing: a name is answered only after a reply about it.
 	 */
 	constructor() {
 		super();
@@ -30,7 +30,7 @@ export class SidecarRowsNode extends MetadataNode {
 
 	/**
 	 * Take a reply, which answers every owner asked and each sidecar its row
-	 * lists: the rows that came back, and for the rest, that none did.
+	 * lists: the rows that came back, and for the rest, that nothing came back.
 	 *
 	 * @param {*} meta The unwrapped payload.
 	 */
@@ -46,7 +46,7 @@ export class SidecarRowsNode extends MetadataNode {
 	 * Ask about other owners, keeping every row the last answer holds for an
 	 * owner still asked or a sidecar its row lists, until the next answer
 	 * replaces it, and dropping the rest; `snapshot` stands, so the rates
-	 * sample no rebuilt graph.
+	 * never sample a rebuilt graph.
 	 *
 	 * @param {string[]} args    `-o` and the owners to ask about.
 	 * @param {?string}  subject What it asks about, ridden on FROM.

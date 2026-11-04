@@ -165,7 +165,7 @@ function persist( key, s ) {
  *
  * `placeBelow` anchors on the left-most-then-bottom-most entry it is handed, so
  * an entry left behind by a deleted node would tuck new cards underneath a card
- * nobody can see.
+ * that is not on the canvas.
  *
  * @param {Object<string,Position>} positions Every position the scope knows.
  * @param {Array<{id: string}>}     nodes     The nodes on the canvas.
@@ -312,7 +312,7 @@ function laidOut( graph ) {
 /**
  * Has the graph outgrown this scope's untouched autoLayout map?
  *
- * A node the map does not place, or an edge no autoLayout of it covered,
+ * A node the map does not place, or an edge its autoLayout never covered,
  * leaves the map's columns blind to where that node belongs: tucking it
  * below the left-most column strands an owned Table under unrelated cards,
  * its wire crossing them. A map a person changed is theirs to keep.
@@ -399,7 +399,10 @@ const LAYOUT_SETTLE_MS = 250;
  * @param {?string}        opts.storageKey     localStorage key, one per scope. Null for an untitled draft, which never persists.
  * @param {Graph}          opts.graph          The COMPLETE graph for the scope.
  * @param {boolean}        opts.ready          Graph fully built, and the server fetch resolved for a worker scope.
- * @param {?Object|string} [opts.serverLayout] The worker topology's saved layout: an id-to-`{x, y}` map, LAYOUT_AUTO, or null when none is stored.
+ * @param {?Object|string} [opts.serverLayout] The worker topology's saved
+ *                                             layout: an id-to-`{x, y}` map,
+ *                                             LAYOUT_AUTO, or null when the
+ *                                             topology has no saved layout.
  * @return {CanvasLayout} This scope's layout and its mutators.
  */
 export function useCanvasLayout( {

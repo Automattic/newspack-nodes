@@ -37,8 +37,8 @@ const settle = () =>
 	} );
 
 /**
- * Mount the hook, then stop the Router's own 1s slot so no wall-clock tick
- * fires the catalog behind the test's back.
+ * Mount the hook, then stop the Router's own 1s slot so a wall-clock tick
+ * never fires the catalog behind the test's back.
  *
  * @return {Object} The renderHook handle.
  */

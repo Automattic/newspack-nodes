@@ -501,9 +501,9 @@ class Admin {
 	 * The value is the stored option and the placeholder is the effective default
 	 * — the schema's code default as the config files override it — so a blank box
 	 * shows what the field falls back to instead of hiding it: `Config::blank_value()`,
-	 * which for a field following another no file sets is the followed key's
-	 * effective value, stored option included, and the description then says
-	 * it follows.
+	 * which for a field that follows another and is not set in any file is the
+	 * followed key's effective value, stored option included, and the
+	 * description then says it follows.
 	 *
 	 * Refuses to render a field the schema does not declare, or declares without a
 	 * min and max. An unbounded number box accepts a partition count of 900 or a
@@ -667,7 +667,8 @@ class Admin {
 	 * @param array<string,mixed> $localize Optional localize payload.
 	 * @param bool                $lazy     Ship the bundle on first activation of
 	 *                                      its tab rather than with the station, so a
-	 *                                      tab nobody opens costs no download.
+	 *                                      tab that is never opened costs no
+	 *                                      download.
 	 * @return array<int,mixed> Bundles with this one appended.
 	 */
 	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [], bool $lazy = false ): array {
@@ -1165,10 +1166,10 @@ class Admin {
 	 * to restart.
 	 *
 	 * One rotation orphans every Newspack plugin's cached values at once and
-	 * touches no co-tenant install sharing the server. No plugin keeps a salt of
-	 * its own, deliberately: with three independent rotations, flushing one leaves
-	 * the other two serving stale values. A restart that fails propagates after
-	 * the rotation, in place of the success redirect.
+	 * touches no co-tenant install sharing the server. None of the plugins
+	 * keeps a salt of its own, deliberately: with three independent rotations,
+	 * flushing one leaves the other two serving stale values. A restart that
+	 * fails propagates after the rotation, in place of the success redirect.
 	 *
 	 * @throws \Throwable What resolving or flagging the fleet threw.
 	 */
@@ -1363,8 +1364,8 @@ class Admin {
 	/**
 	 * Sanitize log sources from the newline-separated `name=/absolute/path`
 	 * textarea, validating each line through `Log_Sources::parse_entry()` — the
-	 * same rule the registry reads them back with, so nothing this accepts can
-	 * fail to resolve later.
+	 * same rule the registry reads them back with, so every line this accepts
+	 * resolves later.
 	 *
 	 * Stores the typed array shape, so the raw option overlay in
 	 * `Config::load_config()` yields an array directly, as memcache_servers does.

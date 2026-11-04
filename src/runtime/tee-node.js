@@ -48,7 +48,8 @@ export class TeeNode extends Node {
 	 * messages filled, not copies emitted — what `dump_metadata` reports.
 	 *
 	 * @param {Array} message The 7-field positional message, read but not rewritten.
-	 * @throws {Error} When a live target exists and no sink is wired, or what the targets threw.
+	 * @throws {Error} When a live target exists and the node has no sink, or
+	 *                 what the targets threw.
 	 */
 	fill( message ) {
 		this.counter++;

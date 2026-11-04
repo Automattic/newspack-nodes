@@ -50,7 +50,7 @@ export const views = registerSliceViews( {
  * Whether the `list` verb's `scopes` is the scope-to-label map it serves.
  *
  * @param {*} scopes The reply's `scopes`.
- * @return {boolean} True for a plain object; a list names no labels.
+ * @return {boolean} True for a plain object; a list does not name any labels.
  */
 function isScopeMap( scopes ) {
 	return !! scopes && 'object' === typeof scopes && ! Array.isArray( scopes );

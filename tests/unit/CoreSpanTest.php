@@ -34,7 +34,7 @@ final class CoreSpanTest extends TestCase {
 				}
 			)
 		);
-		$this->assertSame( 0, $described, 'nothing describes a span no seam times' );
+		$this->assertSame( 0, $described, 'a span without a timing seam is never described' );
 	}
 
 	public function test_the_seam_gets_the_label_the_work_and_the_description(): void {

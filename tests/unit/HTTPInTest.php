@@ -475,9 +475,9 @@ class HTTPInTest extends TestCase {
 	/**
 	 * An OAuth access token is a session for the resource its grant names,
 	 * and `/command` is not that resource: its key answers the 401 and the
-	 * reply a wrong key gets, and the whole body a handle naming no session
-	 * gets, so the door never confirms a grant key. A hand-issued session
-	 * still signs.
+	 * reply a wrong key gets, and the whole body that a handle gets when it
+	 * does not name a session, so the door never confirms a grant key. A
+	 * hand-issued session still signs.
 	 */
 	public function test_a_grant_session_answers_401_as_a_wrong_key_does(): void {
 		$this->use_wpdb_sessions();
@@ -535,8 +535,9 @@ class HTTPInTest extends TestCase {
 
 	/**
 	 * Seed user 7746's live session, a grant session, and the four ways to
-	 * sign for them — a handle naming no session, a wrong key, the right key,
-	 * the grant's key — on a clock pinned so two bodies compare byte for byte.
+	 * sign for them — a handle that does not name a session, a wrong key, the
+	 * right key, the grant's key — on a clock pinned so two bodies compare byte
+	 * for byte.
 	 *
 	 * @return \Closure(string,int|string):array<int,mixed> One `uptime`, signed
 	 *         for the destination at the timestamp given.
@@ -576,10 +577,10 @@ class HTTPInTest extends TestCase {
 	}
 
 	/**
-	 * Every refusal at `/command` answers the bytes a handle naming no
-	 * session gets: the 401, and the one `unauthorized` reply. A caller
-	 * holding a handle without its key cannot tell whether the session is
-	 * live, and no body names the process that refused it.
+	 * Every refusal at `/command` answers the bytes that a handle gets when
+	 * it does not name a session: the 401, and the one `unauthorized` reply. A
+	 * caller holding a handle without its key cannot tell whether the session
+	 * is live, and a body never names the process that refused it.
 	 */
 	public function test_every_refusal_answers_the_bytes_a_dead_handle_gets(): void {
 		$command = $this->seed_refusal_sessions();
@@ -605,7 +606,7 @@ class HTTPInTest extends TestCase {
 	}
 
 	/**
-	 * A refusal's reason still reaches the error log, which no caller reads,
+	 * A refusal's reason still reaches the error log, which callers never read,
 	 * naming the live session's handle there and never its key.
 	 */
 	public function test_a_refusal_reason_reaches_the_error_log(): void {

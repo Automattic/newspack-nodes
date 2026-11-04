@@ -377,7 +377,7 @@ describe( 'Topics panel grid', () => {
 		).toContain( "import './styles/topics-chart.scss';" );
 	} );
 
-	it( 'lays the panels in columns no drawn chart can widen', () => {
+	it( 'lays the panels in columns that a drawn chart cannot widen', () => {
 		// A chart SVG carries the width it measured, and a `1fr` track can
 		// never be narrower than its content: the wider panel of a row would
 		// pin its column, the other redraw to fit what was left, and every

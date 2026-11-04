@@ -22,7 +22,7 @@ const PARTITION_TOKEN = '{partition}';
 /** A `<ns:key>` config token, which PHP resolves before it judges a source. */
 const CONFIG_TOKEN = /<[^<>:\s]+:[^<>\s]+>/g;
 
-/** `Remote_Broker_Node::RESERVED_KINDS`: the slots no reader may take. */
+/** `Remote_Broker_Node::RESERVED_KINDS`: the slots a reader may not take. */
 const RESERVED_KINDS = [ 'sse-in', 'http-out', 'null', 'config' ];
 
 /** The two args `add_source` and `remove_source` bind, as PHP declares them. */
@@ -50,30 +50,31 @@ export const SOURCE_ARGS = [
 /**
  * The one source rule: the declared sources once one `add_source` or
  * `remove_source` applies, as PHP `Remote_Broker_Node::fold_source()` folds
- * them. A source goes to one target, compared as written; an identical
- * repeat answers `declared` itself; a removal must name a declared source;
- * a spoke must be able to stream an added source, and its reader must take
- * no slot a broker keeps, judged with `{partition}` resolved at `partition`.
- * A `<ns:key>` config token, which PHP resolves and the browser cannot,
- * stands for one name character, as a glob's `*` does in `isSubscription()`.
+ * them. A source goes to one target, compared as written; an identical repeat
+ * answers `declared` itself; a removal must name a declared source; a spoke
+ * must be able to stream an added source, and its reader must not take a slot a
+ * broker keeps, judged with `{partition}` resolved at `partition`. A `<ns:key>`
+ * config token, which PHP resolves and the browser cannot, stands for one name
+ * character, as a glob's `*` does in `isSubscription()`.
  *
  * @param {Array<DeclaredSource>} declared  The sources so far, as written.
  * @param {string}                verb      `add_source` or `remove_source`.
  * @param {string}                remoteLog The source, as written.
  * @param {string}                localNode Its target, as written.
  * @param {?number}               partition Where `{partition}` resolves;
- *                                          null where none is bound.
+ *                                          null while the partition is
+ *                                          unbound.
  * @return {Array<DeclaredSource>} The sources it leaves.
- * @throws {Error} In PHP's words: a second target, a removal naming no
- *   declared source, a source no spoke can stream, a kept slot, or
- *   `{partition}` where none is bound.
+ * @throws {Error} In PHP's words: a second target, a removal that names an
+ *   undeclared source, a source a spoke cannot stream, a kept slot, or
+ *   `{partition}` while the partition is unbound.
  */
 export function foldSource( declared, verb, remoteLog, localNode, partition ) {
 	const same = ( s ) => s.source === remoteLog && s.target === localNode;
 	if ( REMOVE_SOURCE === verb ) {
 		if ( ! declared.some( same ) ) {
 			throw new Error(
-				`${ verb } '${ remoteLog }' '${ localNode }' names no source this node declares`
+				`${ verb } '${ remoteLog }' '${ localNode }' names a source this node does not declare`
 			);
 		}
 		return declared.filter( ( s ) => ! same( s ) );
@@ -102,7 +103,7 @@ export function foldSource( declared, verb, remoteLog, localNode, partition ) {
 		.replace( CONFIG_TOKEN, 'a' );
 	const glob = isGlob( source );
 	if ( ! ( glob ? isSubscription( source ) : fitsADirName( source ) ) ) {
-		refuse( 'names a source no spoke can stream' );
+		refuse( 'names a source that spokes cannot stream' );
 	}
 	if ( ! glob && RESERVED_KINDS.includes( source ) ) {
 		refuse( 'names a slot the node keeps for its own' );

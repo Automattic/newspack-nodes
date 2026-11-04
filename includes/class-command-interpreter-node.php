@@ -14,10 +14,10 @@ namespace Newspack_Nodes;
  * Interprets TM_COMMAND messages and constructs the nodes they ask for.
  *
  * A process runs several of these — the main `_command_interpreter`, plus the
- * `{name}:config` interpreter every config-bearing node auto-wires — so nothing
- * may assume it is the only one. `make_node` sinks each node it builds into the
- * interpreter that built it, which is what makes a bare `list_nodes` mean "the
- * nodes I made".
+ * `{name}:config` interpreter every config-bearing node auto-wires — so code
+ * must never assume it is the only one. `make_node` sinks each node it builds
+ * into the interpreter that built it, which is what makes a bare `list_nodes`
+ * mean "the nodes I made".
  *
  * Two policies stand in front of the verb table and answer different questions.
  * `Core::$secure_level` is a per-process ratchet over what may still be DEFINED;
@@ -45,8 +45,8 @@ class Command_Interpreter_Node extends Node {
 	public static ?\Closure $default_authorize = null;
 
 	/**
-	 * Wraps each verb handler once the verb is known to exist, so no caller can
-	 * coin a verb name the wrapper sees; see docs/architecture-guide.md.
+	 * Wraps each verb handler once the verb is known to exist, so a caller can
+	 * never coin a verb name the wrapper sees; see docs/architecture-guide.md.
 	 *
 	 * The declared-role refusal (ADR-26), the secure-level refusal, the
 	 * unknown-verb throw and the argument binding all run first, so a wrapper
@@ -81,8 +81,8 @@ class Command_Interpreter_Node extends Node {
 	 * is the union Tachikoma's `CommandInterpreter::disabled()` setter
 	 * materializes by folding 1 into 2 and 2 into 3 when the map is assigned.
 	 * Enforcing the levels one at a time instead would let a climb re-enable
-	 * what a lower level disabled, and `secure` refuses to descend, so nothing
-	 * could put the refusal back.
+	 * what a lower level disabled, and `secure` refuses to descend, so the
+	 * refusal could never be put back.
 	 *
 	 * The ladder freezes definitions and never disables the machine: reads
 	 * still read, wired flow still flows, defined verbs still run.
@@ -172,10 +172,10 @@ class Command_Interpreter_Node extends Node {
 	public ?\Closure $authorize = null;
 
 	/**
-	 * Base verbs that only READ, and so answer READ where every other verb no
-	 * schema declares demands MANAGE (ADR-26). Every dashboard on the site
-	 * drives some of these — the debug overlay polls `dump_metadata` every
-	 * tick — so the read surface stays open to a read-only caller the
+	 * Base verbs that only READ, and so answer READ where every other verb that
+	 * is not declared by any schema demands MANAGE (ADR-26). Every dashboard on
+	 * the site drives some of these — the debug overlay polls `dump_metadata`
+	 * every tick — so the read surface stays open to a read-only caller the
 	 * `/command` door admits.
 	 *
 	 * @var list<string>
@@ -246,13 +246,14 @@ class Command_Interpreter_Node extends Node {
 	 * Authorize one command, dispatch it, and route the reply.
 	 *
 	 * A handler refuses by throwing, and the catch here is that contract — which
-	 * is why no verb carries its own try/catch. `Worker_Should_Stop` is control
-	 * flow rather than a verb error, so it re-throws (ADR-14). The reply goes
-	 * TO=FROM carrying the inbound ID and KEY, because the address the caller
-	 * minted IS the correlation (ADR-7); an empty string result sends nothing.
+	 * is why a verb never carries its own try/catch. `Worker_Should_Stop` is
+	 * control flow rather than a verb error, so it re-throws (ADR-14). The
+	 * reply goes TO=FROM carrying the inbound ID and KEY, because the address
+	 * the caller minted IS the correlation (ADR-7); an empty string result
+	 * sends nothing.
 	 *
 	 * A TM_NOREPLY command — every line a topology load sends — asked for no
-	 * reply, so no TM_ERROR can carry its failure: the refusal, or the
+	 * reply, so a TM_ERROR can never carry its failure: the refusal, or the
 	 * throwable the verb raised, propagates to whatever filled the command,
 	 * and a broken line fails the load instead of booting half a graph.
 	 *
@@ -304,7 +305,7 @@ class Command_Interpreter_Node extends Node {
 					);
 					$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
 				} catch ( \Throwable $e ) {
-					// A stop (ADR-14), or a failure no reply can carry.
+					// A stop (ADR-14), or a failure that a reply cannot carry.
 					if ( $noreply || $e instanceof Worker_Should_Stop ) {
 						throw $e;
 					}
@@ -363,18 +364,19 @@ class Command_Interpreter_Node extends Node {
 	 * JSON here).
 	 *
 	 * The role the verb's schema declares is checked first, through
-	 * `Capabilities::require_verb()`, so no caller lacking it learns anything
+	 * `Capabilities::require_verb()`, so a caller lacking it learns nothing
 	 * the verb would say — not whether it exists, not the args it binds — and
-	 * no handler checks a role of its own (ADR-26). The secure-level refusal
-	 * follows, then the unknown-verb throw; all three sit BEFORE the verb
-	 * table, so they cover a subclass's own table as well as the shared one.
+	 * a handler never checks a role of its own (ADR-26). The secure-level
+	 * refusal follows, then the unknown-verb throw; all three sit BEFORE the
+	 * verb table, so they cover a subclass's own table as well as the shared
+	 * one.
 	 *
 	 * A verb whose schema declares `args` — a service CI's own schema, or for a
 	 * `:config` interpreter its patron's schema — has its tokens bound by `Command_Args::bind()`
 	 * before `$around_dispatch`, as an unknown verb is refused before it, so the
 	 * handler receives the values by NAME, a binding refusal is the verb's own
-	 * TM_ERROR, and no wrapper renders a command that does not fit — a secret
-	 * given by position among them (ADR-25). A verb declaring no `args`
+	 * TM_ERROR, and a wrapper never renders a command that does not fit — a
+	 * secret given by position among them (ADR-25). A verb declaring no `args`
 	 * receives its tokens as they came.
 	 *
 	 * @param string           $name     Verb name.
@@ -451,8 +453,9 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * The role $verb demands here: the `capability` its schema entry declares,
-	 * MANAGE when the entry declares none; for a verb no schema names, READ
-	 * when it is a read-only builtin and MANAGE otherwise (ADR-26).
+	 * MANAGE when the entry declares none; for a verb that is not named in any
+	 * schema, READ when it is a read-only builtin and MANAGE otherwise
+	 * (ADR-26).
 	 *
 	 * @param string $verb Verb name.
 	 * @return string One of Capabilities::READ|TUNE|MANAGE, or whatever a schema declares.
@@ -522,7 +525,8 @@ class Command_Interpreter_Node extends Node {
 	 * @param string $type    Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
 	 * @param string $name    Unique name for the new node (registered with Core).
 	 * @param mixed  ...$args Positional argument tokens, stringified into `arguments()`.
-	 * @return Node|null Null when no registered namespace yields a concrete Node.
+	 * @return Node|null Null when the registered namespaces do not yield a
+	 *                   concrete Node.
 	 */
 	public function make_node( string $type, string $name, ...$args ): ?Node {
 		$fqcn = self::resolve_class( $type );
@@ -1342,7 +1346,8 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * `help` — no args tabulates every help TOPIC; a topic returns its own text,
-	 * and a topic naming no verb falls through to that node type's schema help.
+	 * and a topic that does not name a verb falls through to that node type's
+	 * schema help.
 	 *
 	 * @param list<string>            $args     Verb arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
@@ -1418,8 +1423,8 @@ class Command_Interpreter_Node extends Node {
 	 * `{$prefix}{$name}{$suffix}` that exists, is a `$base`, and is NOT
 	 * abstract. Abstract matches are skipped so a concrete `{$name}_Node`
 	 * under a later-scanned prefix still resolves — otherwise `make_node`
-	 * would see the abstract first and return null. Null when no namespace
-	 * yields a concrete match.
+	 * would see the abstract first and return null. Null when the namespaces
+	 * do not yield a concrete match.
 	 *
 	 * @api The Row_Table's schema word resolves through it.
 	 * @template T of object
@@ -1640,7 +1645,7 @@ class Command_Interpreter_Node extends Node {
 		if ( null === $src ) {
 			throw new \RuntimeException( \esc_html( "unknown node: $name" ) );
 		}
-		// No target defaults to the issuing FROM; tees the node's flow back.
+		// An empty target defaults to the issuing FROM, teeing the flow back.
 		if ( '' === $target ) {
 			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
@@ -1673,7 +1678,7 @@ class Command_Interpreter_Node extends Node {
 		if ( null === $src ) {
 			throw new \RuntimeException( \esc_html( "unknown node: $name" ) );
 		}
-		// A fan-out list: no target removes the issuing FROM from it.
+		// A fan-out list: an empty target removes the issuing FROM from it.
 		if ( '' === $target && \is_array( $src->target() ) ) {
 			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
@@ -1983,12 +1988,12 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `trace [ <node name> | * [ <level> ] ]` — toggle or set a node's debug level.
 	 *
-	 * No argument toggles this interpreter, a bare number sets it, a name targets
-	 * that node, and `*` writes one level across every registered node — toggling
-	 * from this interpreter's own state when no level follows. The replies name
-	 * `debug_state` because that is the property the verb writes, and the two
-	 * self-targeting forms name `_command_interpreter` literally, whichever
-	 * interpreter handled the command.
+	 * With no argument it toggles this interpreter, a bare number sets it, a
+	 * name targets that node, and `*` writes one level across every registered
+	 * node — toggling from this interpreter's own state when the command gives
+	 * no level. The replies name `debug_state` because that is the property the
+	 * verb writes, and the two self-targeting forms name `_command_interpreter`
+	 * literally, whichever interpreter handled the command.
 	 *
 	 * @param list<string> $args Verb arguments.
 	 */
@@ -2095,7 +2100,7 @@ class Command_Interpreter_Node extends Node {
 	 * `Hidden` keeps the interpreter out of the palette, since `make_node` and
 	 * `auto_wire_interpreter()` place it beside its patron rather than an operator
 	 * dragging one out; the two false flags tell the canvas to draw neither an
-	 * input port nor an output port on a node nobody rewires by hand.
+	 * input port nor an output port on a node that is never rewired by hand.
 	 *
 	 * @return array<string,mixed>
 	 */

@@ -5,10 +5,10 @@
  * A driver echoes the values a statement failed on. MySQL quotes a duplicate
  * key whole, and quotes up to 80 characters of the fragment a syntax error
  * stopped at, a fragment that pairs its quotes wrongly when it opens at a
- * literal, so no parse of the quotes can be trusted to find the values. The
- * one safe rule is the cut: `[<code>] ` and the message up to its first quote
- * (`'`, `"` or a backtick), at most `MAX_BYTES`. A SIGNAL (errno 1644, the
- * SQLSTATE 45000 a PDO reports it under) keeps its code alone, because its
+ * literal, so a parse of the quotes can never be trusted to find the values.
+ * The one safe rule is the cut: `[<code>] ` and the message up to its first
+ * quote (`'`, `"` or a backtick), at most `MAX_BYTES`. A SIGNAL (errno 1644,
+ * the SQLSTATE 45000 a PDO reports it under) keeps its code alone, because its
  * text is the author's own MESSAGE_TEXT, values and no quotes at all.
  *
  * SQLite takes the same rule and needs nothing of its own. It quotes tokens,
@@ -17,8 +17,8 @@
  * (`UNIQUE constraint failed: t.c`) and passes whole. A token can still be a
  * literal the statement embedded, which the cut removes with the rest. Its
  * one unquoted value is a trigger's `RAISE()` text, which reports as an
- * ordinary constraint (code 23000, errno 19) and so cannot be told apart; no
- * schema the substrate declares raises one.
+ * ordinary constraint (code 23000, errno 19) and so cannot be told apart; none
+ * of the schemas the substrate declares raises one.
  *
  * Every substrate path that carries driver text toward stderr, a log, a
  * command reply or a thrown message shapes it here, because ELN replicates

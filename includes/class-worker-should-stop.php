@@ -36,9 +36,9 @@ namespace Newspack_Nodes;
  * A stop is raised AFTER the in-flight record is written into the batch, and
  * `Partition_Node::maybe_stop()` then flushes that batch before re-raising. A plain
  * stop carrying a previous says that flush threw: the batch was cleared before the
- * failure, so the record is not durable. No reader may convert such a stop to clean,
- * and `Worker_Base::execute()` raises the previous once it has handed off, so the
- * failure outlives the stop instead of dying with it.
+ * failure, so the record is not durable. A reader may never convert such a stop
+ * to clean, and `Worker_Base::execute()` raises the previous once it has handed
+ * off, so the failure outlives the stop instead of dying with it.
  *
  * A stop `combine()` builds to carry a failure reports that failure's
  * `getFile()` and `getLine()`, so a fatal attributed by file names the code
@@ -67,9 +67,10 @@ class Worker_Should_Stop extends \RuntimeException {
 	 * and for each stop the failure at the end of its chain, walked through
 	 * any stops it carries. With no stop, the failures propagate as they are —
 	 * the one, or all of them as `Failures`, which flattens any `Failures`
-	 * among them. No failure is ever dropped, and a clean stop beside a failure
+	 * among them. A failure is never dropped, and a clean stop beside a failure
 	 * is a plain stop, so the reader replays (ADR-14). A chain of stops ending
-	 * in no failure still combines to a plain stop carrying one, never bare.
+	 * without a failure still combines to a plain stop carrying one, never
+	 * bare.
 	 *
 	 * One instance counts once, however many ways it arrived: a memoized
 	 * failure two collectors caught, or a failure beside the stop carrying it.
@@ -143,7 +144,7 @@ class Worker_Should_Stop extends \RuntimeException {
 	 * Every chain ended in a stop rather than a failure, and none is clean
 	 * with nothing beneath it: the first plain stop carrying one, as it came,
 	 * else a fresh plain stop carrying what the first clean one carried. It
-	 * is never bare, so no reader commits past the record it stopped on.
+	 * is never bare, so a reader never commits past the record it stopped on.
 	 *
 	 * @param non-empty-list<self> $stops Every stop caught, in order.
 	 */

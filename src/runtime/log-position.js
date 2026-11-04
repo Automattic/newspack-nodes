@@ -32,7 +32,7 @@ export function formatPosition( segment, offset, length ) {
 
 /**
  * Read a position, or a breadcrumb with its length, through one anchored
- * match. A number past `Number.MAX_SAFE_INTEGER` names no position.
+ * match. A number past `Number.MAX_SAFE_INTEGER` does not name a position.
  *
  * @param {*} position A position or breadcrumb.
  * @return {?{segment?:number,offset:number,length?:number}} The place, or

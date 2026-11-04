@@ -58,8 +58,8 @@ import { formatPosition, parseCrumb, parsePosition } from './log-position';
 /**
  * A PHP lease owner as it travels: a canonical positive decimal string.
  * Never parsed into a Number — an owner id can exceed
- * `Number.MAX_SAFE_INTEGER`, so rounding one hands the heartbeat a lease
- * nobody holds. `HeartbeatNode` carries the same pattern for the same reason.
+ * `Number.MAX_SAFE_INTEGER`, so rounding one hands the heartbeat an unheld
+ * lease. `HeartbeatNode` carries the same pattern for the same reason.
  */
 const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 
@@ -74,7 +74,7 @@ const RETRY_MS_RE = /^(?:0|[1-9][0-9]*)$/;
 
 /**
  * Split a comma-separated `key=value` token, the shape of `CURSORS` and
- * `COUNTS`, into its pairs; a pair naming no key is skipped.
+ * `COUNTS`, into its pairs; a pair without a key is skipped.
  *
  * @param {*} token The token; absent yields no pairs.
  * @return {Array<[string,string]>} Each key with the value after its `=`.
@@ -127,8 +127,8 @@ const STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
  *
  * `recent` (-2) has no JS spelling. It is live on the PHP side — `wp nodes
  * reqgrep --recent` and the `grep_requests` verb's `scope=recent` both seek it —
- * but both build a local Consumer rather than crossing this wire, so no browser
- * caller asks for it. Add it when one does, not before.
+ * but both build a local Consumer rather than crossing this wire, so a browser
+ * caller never asks for it. Add it when one does, not before.
  */
 export const SEEK_START = 0;
 
@@ -309,7 +309,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this._carries = {};
 		/**
 		 * The OFFSET of the header each dir's next batch must carry as its ID:
-		 * a batch no header placed is dropped, as PHP drops it.
+		 * a batch without a header to place it is dropped, as PHP drops it.
 		 *
 		 * @type {Object<string,string>}
 		 */
@@ -845,7 +845,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				return;
 			}
 			const { dir } = splitStamp( message[ FROM ] );
-			// A block no subscription carries is a reply, e.g. `read_block`'s.
+			// An unsubscribed block is a reply, e.g. `read_block`'s.
 			const block =
 				0 !== ( message[ TYPE ] & TM_BATCH ) &&
 				anyCarries( this.subscribe, dir );
@@ -868,7 +868,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 
 	/**
 	 * Split a raw block into records, as PHP `Remote_Consumer_Node` does, the
-	 * two held to `tests/fixtures/raw-blocks.json`. A batch no header placed
+	 * two held to `tests/fixtures/raw-blocks.json`. An unplaced batch
 	 * is dropped. A line the last block cut short is joined when this one
 	 * continues it, and torn when it does not. Each whole line is unpacked, or
 	 * wrapped as a TM_BYTESTREAM when its stamp names a `sources:` entry,
@@ -892,7 +892,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		delete this._heads[ dir ];
 		if ( undefined === head || head !== block[ ID ] ) {
 			Core.printLessOften(
-				'ERROR: SseInNode: dropped a raw block no header placed'
+				'ERROR: SseInNode: dropped a raw block without a matching header'
 			);
 			IoTelemetry.recordIn( size, 0 );
 			return;
@@ -900,7 +900,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		const at = parsePosition( block[ ID ] );
 		if ( '' === dir || undefined === at?.segment ) {
 			Core.printLessOften(
-				'ERROR: SseInNode: dropped a raw block naming no place'
+				'ERROR: SseInNode: dropped a raw block that does not name a place'
 			);
 			IoTelemetry.recordIn( size, 0 );
 			return;
@@ -919,7 +919,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		} else if ( carry ) {
 			torn++;
 		}
-		// An ASCII block's bytes are its characters: no line needs measuring.
+		// In an ASCII block, a line's length is its byte count.
 		const ascii = byteLength( text ) === text.length;
 		const isText = null !== sourceName( dir );
 		let delivered = 0;
@@ -1016,11 +1016,12 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 *
 	 * A GLOB is the one seek a client cannot state: the server expands it into
 	 * concrete dirs and keys positions by those, so an entry filed under
-	 * `firehose.*` is one nothing reads. Its dirs take the server's default,
-	 * which is this same tail, and a dir it has read resumes like any other.
-	 * A non-glob subscription IS its dir's stamp (`Log_Discovery::dir_of()`
-	 * resolves it by direct path), so stating it is exact. A seed or a read
-	 * position no subscription `carries()` is not stated.
+	 * `firehose.*` is one that is never read. Its dirs take the server's
+	 * default, which is this same tail, and a dir it has read resumes like any
+	 * other. A non-glob subscription IS its dir's stamp
+	 * (`Log_Discovery::dir_of()` resolves it by direct path), so stating it is
+	 * exact. Only a seed or a read position that some subscription `carries()`
+	 * is stated.
 	 *
 	 * @return {Object<string,{segment?:number,offset:number}|number|string>} Per-subscription seek.
 	 */
@@ -1086,7 +1087,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * A delivered record overwrites the seed, since its breadcrumb is newer.
 	 * A file source that has not seen its generation states `dir=:offset`,
 	 * and its seed carries no `segment`: 0 would name a foreign inode. Each
-	 * position is read by `parsePosition()`, and one naming no place is
+	 * position is read by `parsePosition()`, and one without a place is
 	 * skipped, as PHP `SSE_In_Node::stamp_values_of()` skips it.
 	 *
 	 * @param {*} token `dir=<position>` pairs, comma-separated.

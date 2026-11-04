@@ -110,10 +110,11 @@ class Stdin_Node extends Timer_Node {
 	/**
 	 * Read one line and emit it, or send the EOF marker once the stream is spent.
 	 *
-	 * A non-blocking `fgets()` returns false both when no line is ready yet and
-	 * when the stream has closed, which is why `feof()` decides between them:
-	 * treating every false as the end would cut a live terminal off on its first
-	 * idle tick. `TTY_In_Node` overrides this to read through readline instead.
+	 * A non-blocking `fgets()` returns false both when a line is not ready yet
+	 * and when the stream has closed, which is why `feof()` decides between
+	 * them: treating every false as the end would cut a live terminal off on
+	 * its first idle tick. `TTY_In_Node` overrides this to read through
+	 * readline instead.
 	 *
 	 * @return bool True when a line was delivered.
 	 */

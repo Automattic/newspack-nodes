@@ -17,7 +17,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * leaves this process-lifetime registry (the bootstrap-registered `<config:>`
 	 * token namespace lives here), so a test that wipes it to `[]` (instead of
 	 * restoring) destroys `<config:...>` resolution for every later test. tearDown
-	 * restores this snapshot so no test can leak the registry.
+	 * restores this snapshot so a test can never leak the registry.
 	 */
 	private array $saved_config_resolvers = [];
 
@@ -412,9 +412,10 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * Store `$items` in `$table` at its own TTL in one call to its arm, one
 	 * transaction on SQLite, so a test seeds thousands of rows in time.
 	 *
-	 * Reflection, because no public path writes a batch: `store()`, `ADD` and
-	 * a keyed INSERT each commit one key, and the purge tests seed 10,001 to
-	 * 60,003 rows, which per-key commits cannot write inside a test's budget.
+	 * Reflection, because the public paths cannot write a batch: `store()`,
+	 * `ADD` and a keyed INSERT each commit one key, and the purge tests seed
+	 * 10,001 to 60,003 rows, which per-key commits cannot write inside a
+	 * test's budget.
 	 * It reaches the Table's own `arm()`, `key()` and `ttl`, so the rows land
 	 * exactly as the Table would store them.
 	 *

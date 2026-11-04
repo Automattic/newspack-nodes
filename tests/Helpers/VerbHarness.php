@@ -31,8 +31,8 @@ use Newspack_Nodes\Router_Node;
 
 class VerbHarness {
 	/**
-	 * The user a REST request carries: `HTTP_In_Node` admits no caller who is
-	 * not logged in, so a verb reached through it always has one current, and
+	 * The user a REST request carries: `HTTP_In_Node` admits only a caller who
+	 * is logged in, so a verb reached through it always has one current, and
 	 * `Capabilities::require_verb()` asks that user's capabilities (ADR-26).
 	 */
 	public const REQUEST_USER = 4127;

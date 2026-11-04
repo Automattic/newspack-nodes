@@ -99,7 +99,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * The header of the block in flight, between it and its TM_BATCH: where
 	 * the block begins, what the spoke's log holds from there, whether a
 	 * deleted segment rewound it, and the position a fetch asked, null for a
-	 * block the stream pushed. A file the spoke cannot find names no segment.
+	 * block the stream pushed. A file the spoke cannot find does not name a
+	 * segment.
 	 *
 	 * @var array{segment:?int,offset:int,distance:int,reset:bool,asked:?string}|null
 	 */
@@ -140,7 +141,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * A seek the spoke resolves, sent instead of the cursor until the cursor
 	 * stands somewhere: a handshake, a step reply or the first record answers
 	 * it. A fresh reader asks for the end, and while one is pending the
-	 * cursor's 0:0 names no place.
+	 * cursor's 0:0 does not name a place.
 	 */
 	private ?int $pending_seek = Consumer_Node::SEEK_END;
 
@@ -207,20 +208,20 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * What reaches this reader: a raw block and its header, pushed by the
 	 * stream or answering a fetch; the spoke's refusal of a block fetch,
 	 * matched by the arguments it echoes; the answer to a step; and the
-	 * Router's bounce of a line whose target names no node, which is not a command
-	 * and settles nothing. An answer echoing the arguments a step would send
-	 * now settles the request; any other is stale, a seek having moved the
-	 * position since, and leaves the step in flight, so its late arrival
-	 * cannot free the next tick to ask again. `pause` and `play` move nothing
-	 * but forgive what was owed, so an answer nothing awaits is stale too: the
-	 * stream says where the reader is.
+	 * Router's bounce of a line whose target does not name a node, which is not
+	 * a command and settles nothing. An answer echoing the arguments a step
+	 * would send now settles the request; any other is stale, a seek having
+	 * moved the position since, and leaves the step in flight, so its late
+	 * arrival cannot free the next tick to ask again. `pause` and `play` move
+	 * nothing but forgive what was owed, so an unawaited answer is stale too:
+	 * the stream says where the reader is.
 	 *
 	 * A record goes through `receive()` and drains as a streamed line does,
 	 * one poll per owed step; the reply's cursor is then where the reader
-	 * stands, since it places even a record carrying no crumb. No record owes
-	 * nothing more and still takes the cursor, which moves past a line the
-	 * spoke could not unpack. A payload that is not a struct is a refusal: it owes
-	 * nothing and leaves the cursor where it is.
+	 * stands, since it places even a record carrying no crumb. A reply without
+	 * a record owes nothing more and still takes the cursor, which moves past a
+	 * line the spoke could not unpack. A payload that is not a struct is a
+	 * refusal: it owes nothing and leaves the cursor where it is.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -393,10 +394,11 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * poison and crash accounting (attempts+1, and a hard-crash lineage enters crawl), then arm
 	 * the boot head-skip. A seek a caller asked for through `next_offset()` before this first
 	 * restore stands, and the cursor stays for the spoke to resolve it; the frame's head then
-	 * names no record the spoke will send, so no head-skip arms. Otherwise the restored
-	 * cursor answers the fresh reader's end seek. Idempotent: connect_position() calls it to
-	 * state the cursor in the first request, and the Durable_Reader boot seam calls it again on
-	 * the first poll. Returns empty on a fresh offsetlog.
+	 * does not name a record the spoke will send, so a head-skip never arms.
+	 * Otherwise the restored cursor answers the fresh reader's end seek.
+	 * Idempotent: connect_position() calls it to state the cursor in the first
+	 * request, and the Durable_Reader boot seam calls it again on the first
+	 * poll. Returns empty on a fresh offsetlog.
 	 *
 	 * @return array{segment?:int,offset?:int}
 	 */
@@ -454,10 +456,11 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * Crawl-entry head sacrifice: the 3-way compare deciding the fate of the first relayed
 	 * message while the boot head-skip is armed. An EXACT crumb-start match on the boot pin is
 	 * the suspect that was in flight when the death struck — dead-lettered under reason
-	 * 'crash', or dropped when no quarantine is configured, and the caller skips the forward.
-	 * A start PAST the pin means the suspect was GC'd or the stream resumed beyond it, so
-	 * disarm without sacrificing and forward normally. Anything earlier leaves the flag armed
-	 * for the real suspect. One-shot either way, once resolved.
+	 * 'crash', or dropped when the reader has no quarantine configured, and the
+	 * caller skips the forward. A start PAST the pin means the suspect was GC'd
+	 * or the stream resumed beyond it, so disarm without sacrificing and
+	 * forward normally. Anything earlier leaves the flag armed for the real
+	 * suspect. One-shot either way, once resolved.
 	 *
 	 * @param string $line The raw line under judgment.
 	 * @param array{segment:int, offset:int} $crumb The line's parsed breadcrumb (its start).
@@ -583,8 +586,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * Reposition. A live reader's stream restarts from the new place; a paused
 	 * one only moves its cursor, since it is not in the stream. A bare seek is
 	 * forwarded for the spoke to resolve, and the in-flight buffer goes either
-	 * way, since it belongs to the position being left behind. A position naming
-	 * no segment moves the offset alone and leaves the generation unknown.
+	 * way, since it belongs to the position being left behind. A position that
+	 * does not name a segment moves the offset alone and leaves the generation
+	 * unknown.
 	 *
 	 * @param string|int|array<array-key,mixed> $position Explicit {segment?,offset}, or a seek sentinel / alias word.
 	 */
@@ -630,13 +634,13 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * begins. Without one the handshake only names the position the connect
 	 * asked for, which ticks may since have drained past, so it is not adopted;
 	 * nor while records are held, since the connect asked past them and the
-	 * cursor reaches them first. A cursor naming no segment leaves the
-	 * generation unknown rather than writing segment 0.
+	 * cursor reaches them first. A cursor that does not name a segment
+	 * leaves the generation unknown rather than writing segment 0.
 	 *
 	 * The bytes the spoke's log holds from that start, when it says, are the
 	 * backlog's anchor, as a block's header is: a stream starting caught up
 	 * sends no block, and its reader would stand unknown until the log grew.
-	 * A start naming no segment anchors nothing.
+	 * A start that does not name a segment anchors nothing.
 	 *
 	 * @param array{segment?:int,offset:int,distance?:int} $start This stream's CURSORS entry, with its DISTANCES entry when the spoke stated one.
 	 */
@@ -652,9 +656,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/**
 	 * Stand the cursor at a place, the cursor's one deliberate writer: a real
-	 * place answers any pending seek. A place naming no segment moves the
-	 * offset alone and leaves the generation unknown, rather than writing
-	 * segment 0, which a File_Tail reads as a foreign inode.
+	 * place answers any pending seek. A place that does not name a segment
+	 * moves the offset alone and leaves the generation unknown, rather than
+	 * writing segment 0, which a File_Tail reads as a foreign inode.
 	 *
 	 * @param array{segment?:int,offset:int} $at Where the reader now stands.
 	 */
@@ -742,9 +746,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			$this->anchor_backlog( $segment, $header['offset'], $header['distance'] );
 		} elseif ( '' !== $bytes ) {
 			if ( null === $header['asked'] ) {
-				$this->print_less_often( 'a block with bytes names no segment: ', $id );
+				$this->print_less_often( 'a block with bytes does not name a segment: ', $id );
 			} else {
-				$this->settle_refusal( [ 'payload' => "a block with bytes names no segment: {$id}" ] );
+				$this->settle_refusal( [ 'payload' => "a block with bytes does not name a segment: {$id}" ] );
 			}
 			return;
 		} elseif ( null === $this->held_end() && ( null !== $this->pending_seek || $this->generation_unknown ) ) {
@@ -865,8 +869,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * place in the spoke's log, and take the busy cadence: data arrives on
 	 * the cURL drain, between fires. A torn line comes with no message and is
 	 * dead-lettered when it drains; a step's record may come with no place.
-	 * A split block and a step's reply share it, so no line is decoded twice
-	 * (ADR-1's amendment).
+	 * A split block and a step's reply share it, so a line is never decoded
+	 * twice (ADR-1's amendment).
 	 *
 	 * @param string                                          $raw     The line, without its newline.
 	 * @param array<int,mixed>|null                           $message Its decoded message, or null when torn.
@@ -999,11 +1003,12 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * DISTANCE is the spoke's own count of the bytes its log holds past where
 	 * it last answered from, plus the spoke-side length of every record this
 	 * reader holds undrained, which lie before that place; null until a spoke
-	 * reports one, as one older than the report does not. The spoke names no
-	 * end position, so the END pair stays null. A segment this reader does not
-	 * know — a file source's generation before the spoke names it — is null
-	 * too, never 0, which names a real segment or a foreign inode. A reader
-	 * whose seek is still pending stands nowhere yet, so it sends nothing.
+	 * reports one, as one older than the report does not. The spoke does not
+	 * name an end position, so the END pair stays null. A segment this reader
+	 * does not know — a file source's generation before the spoke names it — is
+	 * null too, never 0, which names a real segment or a foreign inode. A
+	 * reader whose seek is still pending stands nowhere yet, so it sends
+	 * nothing.
 	 *
 	 * @return array<int,int|string|null>|null A `Probe_Record`-indexed positional array, or null.
 	 */

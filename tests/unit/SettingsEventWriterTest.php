@@ -175,8 +175,8 @@ class SettingsEventWriterTest extends TestCase {
 
 	public function test_unfittable_record_drops_to_name_only_never_the_event(): void {
 		// A pathological (filter-allowlisted) option name alone exceeds PIPE_BUF, so
-		// no excerpt trimming can fit it: the writer drops to name-only rather than
-		// dropping the change event entirely.
+		// trimming the excerpt can never fit it: the writer drops to name-only
+		// rather than dropping the change event entirely.
 		$huge = 'newspack_' . \str_repeat( 'z', Partition_Node::MAX_LINE_SIZE );
 		\add_filter(
 			'newspack_nodes/settings_audit_values_allowlist',

@@ -78,13 +78,14 @@ trait Schema_Reflection {
 	 * by answering no value for it.
 	 *
 	 * A declared name that is not a real property is refused rather than assigned:
-	 * PHP would take the typo as a dynamic property, which nothing then reads.
+	 * PHP would take the typo as a dynamic property, which is then never read.
 	 *
 	 * @param list<string> $args Raw positional argument tokens.
 	 * @return array<string,mixed> Property => value.
-	 * @throws \InvalidArgumentException When a spec carries no name, names no
-	 *                                   property, a required token is missing, or
-	 *                                   a token is not of its declared type.
+	 * @throws \InvalidArgumentException When a spec carries no name, does not
+	 *                                   name a property, a required token is
+	 *                                   missing, or a token is not of its
+	 *                                   declared type.
 	 */
 	protected function schema_values( array $args ): array {
 		static::refuse_unmarked_partition( $this->name, $args );
@@ -131,7 +132,8 @@ trait Schema_Reflection {
 	 * @param string                 $token    Raw positional token.
 	 * @param array<array-key,mixed> $arg_spec The argument's schema spec.
 	 * @return string The token the argument takes.
-	 * @throws \InvalidArgumentException When the token names a value nothing bound.
+	 * @throws \InvalidArgumentException When the token names a value that was
+	 *                                   never bound.
 	 */
 	private static function resolve_marked( string $node, string $arg, string $token, array $arg_spec ): string {
 		if ( 'bound' !== ( $arg_spec['partition'] ?? null ) ) {
@@ -144,7 +146,7 @@ trait Schema_Reflection {
 				self::refuse_named( $node, "{$arg} names {$spelling}, but no {$what} is bound" );
 			}
 		}
-		// A token naming no partition ignores the index it is handed.
+		// A token without a partition ignores the index it is handed.
 		return Core::resolve_partition( $token, $partition ?? 0, $topology );
 	}
 
@@ -255,9 +257,9 @@ trait Schema_Reflection {
 	 * one, so a `Vault_Group`, which records a repeat once, rebuilds a child
 	 * holding what its live children hold. `auto_wire_interpreter()` synthesizes both
 	 * handlers from their `list` / `unlist` keys, each refusing a blank, the
-	 * remove also a value no entry holds, and `dump_lists()` writes one
-	 * `add_{$noun}` line per entry. A variadic arg's tokens join with a space
-	 * into one entry.
+	 * remove also a value that is not in any entry, and `dump_lists()` writes
+	 * one `add_{$noun}` line per entry. A variadic arg's tokens join with a
+	 * space into one entry.
 	 *
 	 * @param string                 $noun        The verbs' shared suffix.
 	 * @param string                 $property    The list property, a `list<string>`.
@@ -278,7 +280,7 @@ trait Schema_Reflection {
 			],
 			[
 				'name'        => "remove_{$noun}",
-				'description' => "Undo {$add}: drop the entry equal to <{$val}>. Refused when none is.",
+				'description' => "Undo {$add}: drop the entry equal to <{$val}>. Refused unless one is.",
 				'args'        => [ $arg ],
 				'unlist'      => $property,
 				'noun'        => $noun,
@@ -299,9 +301,9 @@ trait Schema_Reflection {
 
 	/**
 	 * The token `$name` takes among `$args`, as written; '' when absent. The
-	 * static half of `written_argument()`, for a judge of a line no node
-	 * holds yet. A name the schema does not declare is the caller's bug, so
-	 * it is refused rather than read as an absent token.
+	 * static half of `written_argument()`, for a judge of a line that is not
+	 * yet held by any node. A name the schema does not declare is the caller's
+	 * bug, so it is refused rather than read as an absent token.
 	 *
 	 * @param list<string> $args Raw positional argument tokens.
 	 * @param string       $name A declared positional.
@@ -452,8 +454,8 @@ trait Schema_Reflection {
 	 * Synthesize the handler a `list` or `unlist` declaration stands for: join
 	 * the verb's one arg, bound by name, into one trimmed entry, then append it
 	 * to the patron's `$prop` list unless an entry equals it, or drop the
-	 * entry equal to it. A blank entry is refused, and so is a removal no
-	 * entry matches, naming the `noun` its declaration carries.
+	 * entry equal to it. A blank entry is refused, and so is a removal that
+	 * does not match any entry, naming the `noun` its declaration carries.
 	 *
 	 * @param class-string<Node>     $class Class whose schema declares the verb.
 	 * @param string                 $name  The verb.
@@ -574,7 +576,7 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * The interpreter's patron, refused when it is no $class. An interpreter
+	 * The interpreter's patron, refused when it is not a $class. An interpreter
 	 * re-pointed at a foreign node would otherwise write a property or call a
 	 * `set_` method that class never declared, and the fatal would name the
 	 * member rather than the mis-wiring.
@@ -583,7 +585,7 @@ trait Schema_Reflection {
 	 * @param class-string<Node>       $class       Class whose schema declares the verb.
 	 * @param string                   $what        What the verb writes, for the refusal.
 	 * @return Node
-	 * @throws \RuntimeException When the patron is no $class.
+	 * @throws \RuntimeException When the patron is not a $class.
 	 */
 	private static function patron_of( Command_Interpreter_Node $interpreter, string $class, string $what ): Node {
 		$patron = $interpreter->patron();
@@ -649,7 +651,7 @@ trait Schema_Reflection {
 	 *
 	 * @param array<int,mixed> $message Incoming Message.
 	 * @return bool True when the message was a TM_REQUEST, now answered.
-	 * @throws \RuntimeException When no sink is wired to carry the reply.
+	 * @throws \RuntimeException When the node has no sink to carry the reply.
 	 */
 	protected function answer_request( array $message ): bool {
 		if ( ! ( Core::as_int( $message[ Message::TYPE ] ) & Message::TM_REQUEST ) ) {

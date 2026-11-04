@@ -56,7 +56,7 @@
     <div class="route">
       <h3><span class="mono">Line_Fitter::fit( $message, $fields )</span> <span class="cap keep">4096</span></h3>
       <p>Runs at the producer, immediately before the sink. <span class="mono">$fields</span> is a sacrifice order, most expendable first: the first field is halved until the packed line plus newline fits or the field is spent, and only then does the next open. Fields outside the list are never touched.</p>
-      <p>Returns <span class="mono">null</span> when no listed field is left to cut, and the caller drops loud. A fitted line keeps its head; an unfitted one is gone.</p>
+      <p>Returns <span class="mono">null</span> once every listed field is cut, and the caller drops loud. A fitted line keeps its head; an unfitted one is gone.</p>
       <p><span class="mono">Job_Probe_Node</span> fits every jobstats record; event-logger-nodes fits its error entries, completed-request summaries and in-flight gyroscope rows.</p>
     </div>
     <div class="route" style="margin-bottom:0">
@@ -98,6 +98,6 @@
 
 <div class="note">
   <h4>Habitable zone</h4>
-  <p>Everything under <span class="mono">base_directory</span> — locks, partitions, offsets, IPC — is scoped to one host's local POSIX filesystem, shared by that host's PHP processes. NFS and overlay mounts void the 4 KB append atomicity; containers with separate <span class="mono">/tmp</span> are separate hosts, and two containers pointed at one path that is two filesystems split-brain silently. Nothing detects an exotic mount at runtime, because no portable signal identifies one on the platforms we run on.</p>
+  <p>Everything under <span class="mono">base_directory</span> — locks, partitions, offsets, IPC — is scoped to one host's local POSIX filesystem, shared by that host's PHP processes. NFS and overlay mounts void the 4 KB append atomicity; containers with separate <span class="mono">/tmp</span> are separate hosts, and two containers pointed at one path that is two filesystems split-brain silently. Nothing detects an exotic mount at runtime, because the platforms we run on offer no portable signal that identifies one.</p>
 </div>
 </div>

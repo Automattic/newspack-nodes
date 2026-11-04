@@ -151,7 +151,8 @@ class SettingsCITest extends TestCase {
 	/**
 	 * The options table hands an int back as a string, and the hub pushes the
 	 * full option name: two such pushes in a row, the settings-sync loop's
-	 * shape, write nothing, fire no option action and flag no worker.
+	 * shape, write nothing, and neither fire an option action nor flag a
+	 * worker.
 	 */
 	public function test_set_verb_pushing_the_stored_string_int_in_its_wire_form_writes_nothing(): void {
 		$this->activate_partition_topology();
@@ -174,7 +175,7 @@ class SettingsCITest extends TestCase {
 		$this->assertIsArray( $first, 'each push answers with the snapshot' );
 		$this->assertIsArray( $second );
 		$this->assertSame( '11', $GLOBALS['_wp_options']['newspack_nodes_remote_min_segments'], 'the stored row is untouched' );
-		$this->assertSame( 0, $writes, 'no option action, so no settings event' );
+		$this->assertSame( 0, $writes, 'without an option action there is no settings event' );
 		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RESTART_FLAG );
 		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
 	}
@@ -235,7 +236,7 @@ class SettingsCITest extends TestCase {
 	}
 
 	public function test_get_verb_declares_no_args(): void {
-		// `get` reads no $payload/$args — it just returns the snapshot.
+		// `get` does not read $payload or $args — it just returns the snapshot.
 		$verbs = self::verbs_by_name();
 		$this->assertSame( [], $verbs['get']['args'] );
 	}

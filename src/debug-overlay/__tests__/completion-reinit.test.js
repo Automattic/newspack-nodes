@@ -6,7 +6,7 @@
  * candidates via `useNodeState( _completion, 'candidates' )`, which re-binds
  * only when the resolved node instance changes between renders. If the rebuild
  * doesn't force a re-render, the subscription stays bound to the removed old
- * node and every Tab afterwards fires at a node nobody is listening to —
+ * node and every Tab afterwards fires at a node without a listener —
  * completion silently dies after the first Reset Graph.
  */
 

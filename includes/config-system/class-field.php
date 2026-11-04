@@ -66,8 +66,8 @@ class Field {
 	 *
 	 * The thunk defers `__()` to render time. A worker or WP-CLI process builds
 	 * the whole schema through `Config` just to read `overlay_keys()`, and a
-	 * translation call at that point runs at plugin load for a page nobody
-	 * renders. Resolve through {@see self::label()}.
+	 * translation call at that point runs at plugin load for a page that
+	 * is never rendered. Resolve through {@see self::label()}.
 	 *
 	 * @var string|callable
 	 */
@@ -126,11 +126,11 @@ class Field {
 		public readonly bool $ui = true,
 		public readonly array $register_args = [],
 		/**
-		 * The key whose final value this one takes when no layer sets it — no
-		 * file, no option, or a null in either; '' follows nothing. Resolved
-		 * by `Schema::resolve_follows()` after every layer, so an option
-		 * setting only the followed key moves both. A following Field declares
-		 * no `default`: the followed key's is its default.
+		 * The key whose final value this one takes when every layer leaves it
+		 * unset — no file, no option, or a null in either; '' follows nothing.
+		 * Resolved by `Schema::resolve_follows()` after every layer, so an
+		 * option setting only the followed key moves both. A following Field
+		 * declares no `default`: the followed key's is its default.
 		 *
 		 * @api
 		 */

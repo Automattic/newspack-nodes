@@ -3,9 +3,9 @@
  * Holds what a node needs from the process it runs in — the registry it is
  * dispatched through, the tick clock, the diagnostic path — so a graph wired
  * at runtime never has to thread any of it down the chain. Beside those sit the
- * process-wide helpers no single node owns: `<ns:key>` token resolution, the
- * mixed-value read family, the raw-curl spawn POST, and the rule that decides a
- * property name reads as a credential.
+ * process-wide helpers that do not belong to any single node: `<ns:key>` token
+ * resolution, the mixed-value read family, the raw-curl spawn POST, and the
+ * rule that decides a property name reads as a credential.
  *
  * @package Newspack_Nodes
  */
@@ -55,9 +55,9 @@ class Core {
 	 *
 	 * The threat model is a terminal in UTF-8 MODE, which is what every
 	 * terminal reading these logs runs. Under it a 0x80-0x9F byte reaches this
-	 * class only when no well-formed sequence claims it, because CONTROL_SCAN
-	 * tries the sequence branches first — so what renders here is a byte that
-	 * decodes to nothing, and rendering it costs no legible text.
+	 * class only when it is not claimed by any well-formed sequence, because
+	 * CONTROL_SCAN tries the sequence branches first — so what renders here is
+	 * a byte that decodes to nothing, and rendering it costs no legible text.
 	 *
 	 * A terminal OUTSIDE that mode is out of scope, and cannot be brought into
 	 * it. It reads the same byte as 8-bit CSI or OSC wherever it sits,
@@ -80,7 +80,7 @@ class Core {
 	 * byte sitting inside any OTHER well-formed character is claimed by that
 	 * character and returned untouched: `\xC3\x9B` decodes to `Û`, which is
 	 * text, so `terminal_safe("\xC3\x9B2J")` correctly returns its input
-	 * byte-identical. Only a byte belonging to no sequence falls through to the
+	 * byte-identical. Only a byte outside every sequence falls through to the
 	 * control class and renders.
 	 */
 	private const CONTROL_SCAN = '/\xC2[\x80-\x9F]|[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}|[\xF0-\xF4][\x80-\xBF]{3}|' . self::CONTROL_CLASS . '/';
@@ -133,7 +133,7 @@ class Core {
 	 *
 	 * The replacement performs the transfer, handing any answer to the
 	 * options' CURLOPT_WRITEFUNCTION as libcurl would, and returns the HTTP
-	 * status, 0 when no answer arrived.
+	 * status, 0 without an answer.
 	 *
 	 * Signature: `function (\CurlHandle $ch, array $body, array $options): int`.
 	 *
@@ -152,10 +152,10 @@ class Core {
 
 	/**
 	 * The one process-wide Memcached handle, built by the substrate's own
-	 * `Bootstrap::init_memcached()` from `memcache_servers` so that no substrate
-	 * path waits on an application plugin to populate it. Null when no server is
-	 * configured, and deliberately not a stub handle, so a caller can tell the
-	 * two apart.
+	 * `Bootstrap::init_memcached()` from `memcache_servers` so that a substrate
+	 * path never waits on an application plugin to populate it. Null when the
+	 * config does not name a server, and deliberately not a stub handle, so a
+	 * caller can tell the two apart.
 	 *
 	 * Most consumers reach it through `Cache_Backend`, which falls back to APCu,
 	 * so the null alone fails nobody. Only once NEITHER tier answers does
@@ -182,7 +182,7 @@ class Core {
 	 * reader wanting one instant reads it once and passes it down. Tests pin
 	 * it directly.
 	 *
-	 * In request or CLI scope, where nothing drains the event loop, the tick
+	 * In request or CLI scope, where the event loop is never drained, the tick
 	 * holds that class-load instant until some `right_now()` caller advances
 	 * it — nothing else re-pins it on that path. A reader there that
 	 * genuinely needs a fresh timestamp calls `right_now()` itself, per its
@@ -282,7 +282,7 @@ class Core {
 	/**
 	 * Resolve a path template as a worker would — `resolve_partition()`, then
 	 * every `<ns:key>` config token in the result — for a reader of the TSL
-	 * as written, which no Shell has interpolated.
+	 * as written, which a Shell has not interpolated.
 	 *
 	 * @param string      $template Path template.
 	 * @param int         $p        Partition index.
@@ -899,11 +899,11 @@ class Core {
 	/**
 	 * Whether `$partition` reads a source as its TSL wrote it: in every worker
 	 * when it names `{partition}`, and otherwise once per fleet (ADR-33). A
-	 * source naming no partition belongs to worker partition 0, and a process
-	 * bound to no partition is the only reader there is, so it owns one too.
-	 * The one ownership predicate: a node passes `bound_partition()`, and a
-	 * caller judging some other worker, as the wake map does, passes that
-	 * worker's partition.
+	 * source that does not name a partition belongs to worker partition 0, and
+	 * a process that is not bound to a partition is the only reader there is,
+	 * so it owns one too. The one ownership predicate: a node passes
+	 * `bound_partition()`, and a caller judging some other worker, as the wake
+	 * map does, passes that worker's partition.
 	 *
 	 * @param string   $written   The source as the TSL wrote it, unresolved.
 	 * @param int|null $partition The worker partition judged, or null for none.
@@ -1072,7 +1072,8 @@ class Core {
 	/**
 	 * Tear down every registered node, then raise every teardown that threw.
 	 * The registry is snapshotted first, so a node unregistering itself does not
-	 * mutate the walk, and one node's failure costs no other node its teardown.
+	 * mutate the walk, and one node's failure never costs another node its
+	 * teardown.
 	 *
 	 * @throws \Throwable What the teardowns threw, combined by `Worker_Should_Stop::raise()`.
 	 */
@@ -1088,7 +1089,8 @@ class Core {
 	 * never loads the config system or connects; one that does gets the same
 	 * handle a worker holds.
 	 *
-	 * @return \Memcached|null The handle, or null when no server is configured.
+	 * @return \Memcached|null The handle, or null when the config does not name
+	 *         a server.
 	 */
 	public static function memd(): ?\Memcached {
 		Bootstrap::ensure_diagnostics_wired();

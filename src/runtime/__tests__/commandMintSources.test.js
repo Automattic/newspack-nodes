@@ -67,7 +67,7 @@ const walk = ( dir, out = [] ) => {
 	return out;
 };
 
-test( 'no command source stamps ID or KEY', () => {
+test( 'none of the command sources stamps ID or KEY', () => {
 	const offenders = walk( SRC )
 		.filter( ( hit ) => ! ( hit.file in ALLOWED ) )
 		.map( ( hit ) => `${ hit.file }:${ hit.line }  ${ hit.text }` );

@@ -30,7 +30,7 @@ describe( 'resolveSkin', () => {
 		expect( resolveSkin( 'CRT Phosphor', SKINS ) ).toBe( 'crt' );
 	} );
 
-	it( 'matches a slug by prefix when no label matches', () => {
+	it( 'matches a slug by prefix when the labels do not match', () => {
 		expect( resolveSkin( 'blue', SKINS ) ).toBe( 'blueprint' );
 	} );
 

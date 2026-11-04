@@ -324,7 +324,7 @@ final class SqliteArmRowsTest extends TestCase {
 	/** SQL's `= NULL` matches nothing, so a null would delete nothing and answer success. */
 	public function test_a_delete_matching_a_null_is_refused(): void {
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'tallies: a delete matches no null, as kind would' );
+		$this->expectExceptionMessage( 'tallies: a delete cannot match kind to null' );
 		$this->rows_arm()->write_rows( [ [ 'delete', 'tallies', [ 'bucket' => 7341, 'kind' => null ] ] ] );
 	}
 
@@ -337,13 +337,13 @@ final class SqliteArmRowsTest extends TestCase {
 
 	public function test_a_delete_naming_no_column_is_refused(): void {
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'tallies: a delete names no column' );
+		$this->expectExceptionMessage( 'tallies: a delete must name a column' );
 		$this->rows_arm()->write_rows( [ [ 'delete', 'tallies', [] ] ] );
 	}
 
 	public function test_a_delete_naming_an_undeclared_column_is_refused_naming_it(): void {
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'tallies: a delete names no such column wingspan' );
+		$this->expectExceptionMessage( 'tallies: a delete names wingspan, which the table does not declare' );
 		$this->rows_arm()->write_rows( [ [ 'delete', 'tallies', [ 'wingspan' => 3 ] ] ] );
 	}
 

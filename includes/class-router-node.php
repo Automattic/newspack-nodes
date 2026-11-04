@@ -14,8 +14,8 @@ namespace Newspack_Nodes;
  *
  * `fill()` peels the head segment off TO, hands the message to the node bound to
  * that name, and answers a miss with NOT_AVAILABLE back along FROM. Addressing
- * is by name and path, never by socket, so no node has to know where its peers
- * live: `a/b/c` means "find `a`, give it `b/c`".
+ * is by name and path, never by socket, so a node never has to know where its
+ * peers live: `a/b/c` means "find `a`, give it `b/c`".
  *
  * The second job is why it extends `Timer_Node`. Its `fire_cb()` calls each
  * TIMER registrant's own `fire_cb()` directly — the Router-hitchhike pattern,
@@ -33,8 +33,8 @@ class Router_Node extends Timer_Node {
 	 * Tick cadence in milliseconds, armed by `Worker_Base::build_scaffolding()`.
 	 * The tick lands just after each boundary of the grid at this cadence
 	 * (`Timer_Node::next_fire_after()`). `Timer_Node` also reads it as the
-	 * assumed cadence when no Router is mounted, so a timer arming in a graph
-	 * without one still resolves a mode.
+	 * assumed cadence when the graph has no Router mounted, so a timer arming
+	 * in a graph without one still resolves a mode.
 	 */
 	public const DEFAULT_TICK_MS = 1000;
 
@@ -164,9 +164,9 @@ class Router_Node extends Timer_Node {
 	 * The housekeeping rides here because the tick is the one fixed cadence every
 	 * worker already pays for: `Partition_Node::flush_pending_wakes()` wakes
 	 * on-demand workers once per process instead of once per partition write,
-	 * `Table_Node::tick()` deletes the rows no read of a Table reaches,
-	 * writes each SQLite Table's WAL back after the tick's flushes and writes
-	 * each traced Table's trace line,
+	 * `Table_Node::tick()` deletes the rows that a read of a Table never
+	 * reaches, writes each SQLite Table's WAL back after the tick's flushes and
+	 * writes each traced Table's trace line,
 	 * `Core::prune_logs()` re-windows the rate limiter so a recurring warning
 	 * eventually prints again, and `trim_profiles()` drops idle profile entries.
 	 *
@@ -260,9 +260,9 @@ class Router_Node extends Timer_Node {
 	 * whose own FROM names the address that went missing.
 	 *
 	 * A TM_NOREPLY command — every line a topology load sends — asked for no
-	 * reply, so no bounce can carry the miss: it throws to whatever filled the
-	 * command, as `Command_Interpreter_Node::interpret()` throws a failure of
-	 * one, and a line aimed at a node that does not exist fails the load.
+	 * reply, so a bounce can never carry the miss: it throws to whatever filled
+	 * the command, as `Command_Interpreter_Node::interpret()` throws a failure
+	 * of one, and a line aimed at a node that does not exist fails the load.
 	 *
 	 * @param array<int,mixed> $message Message that failed to route.
 	 * @param string           $error   Text carried as the TM_ERROR VALUE; callers pass `NOT_AVAILABLE`.

@@ -106,8 +106,8 @@ export function useNodeState( nodeName, event ) {
  *
  * @param {string} nodeName Registered node name.
  * @param {string} field    The field, and the event its changes notify.
- * @return {*} The field's current value, or undefined while no node holds the
- *             name.
+ * @return {*} The field's current value, or undefined while the name is
+ *             not registered to any node.
  */
 export function useNodeField( nodeName, field ) {
 	return useNodeRead( nodeName, field, ( node ) => node?.[ field ] );
@@ -178,9 +178,9 @@ export function useGraphGeneration() {
  *
  * The lookup runs at call time rather than at render, so the callback keeps
  * working across a rebuild that replaced the node under that name. It discards
- * the message while no node holds the name: a component can mount and take a
- * click before the graph it addresses is built, and throwing from the handler
- * would take the page down with it.
+ * the message while the name is not registered to any node: a component can
+ * mount and take a click before the graph it addresses is built, and throwing
+ * from the handler would take the page down with it.
  *
  * @param {string} nodeName Registered node name.
  * @return {( message: Array ) => void} Fills the named node.

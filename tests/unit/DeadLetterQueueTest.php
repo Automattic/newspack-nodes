@@ -803,7 +803,7 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertStringContainsString( "requeued status not recorded at {$older} — ", $lines );
 	}
 
-	/** The count doctor reports: every record no requeue or removal settled. */
+	/** The count doctor reports: every record that has not been settled by a requeue or a removal. */
 	public function test_quarantined_records_counts_what_no_tombstone_settles(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$this->deliver_to( $d, new Capture_Sink_Node() );
@@ -819,7 +819,7 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( 5, Dead_Letter_Queue_Double::quarantined_records( $dlq ) );
 	}
 
-	/** A segment no index describes counts each of its lines: nothing can settle them. */
+	/** A segment that is not described by any index counts each of its lines: nothing can settle them. */
 	public function test_quarantined_records_counts_every_line_of_an_unindexed_segment(): void {
 		$dir = "{$this->tmp}/shared-dlq-8813.p0";
 		\mkdir( $dir, 0755, true );

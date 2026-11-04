@@ -44,7 +44,7 @@ function addFromEnd( out, history ) {
  * @param {Map<string,RateEntry>}                    rates useGraphRates' per-node map.
  * @param {Array<{id:string}>}                       nodes The nodes to measure.
  * @param {'history'|'readHistory'|'writtenHistory'} key   Which of an entry's sample rings to measure.
- * @return {number} Sample count, zero when no member has recorded anything.
+ * @return {number} Sample count, zero when the members have recorded nothing.
  */
 function longest( rates, nodes, key ) {
 	let max = 0;

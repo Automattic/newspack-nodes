@@ -143,7 +143,7 @@ cd "$PLUGIN_DIR"
 # green light that cannot fail — which is exactly how it behaved when the class
 # regex used a `\b` that git grep does not support.
 if [ ${#unresolved[@]} -gt 0 ]; then
-	echo "✗ floor check: ${#unresolved[@]} substrate APIs resolve to no tag at all:"
+	echo "✗ floor check: ${#unresolved[@]} substrate APIs do not resolve to any tag:"
 	printf '    %s\n' "${unresolved[@]}" | head -10
 	echo "  The tag lookup is broken; fix it rather than trusting the result."
 	exit 1

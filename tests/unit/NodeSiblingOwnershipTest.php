@@ -69,8 +69,9 @@ final class NodeSiblingOwnershipTest extends TestCase {
 	}
 
 	/**
-	 * Teardown is a fan-out over the siblings: one that throws costs no other
-	 * its teardown, the patron still unregisters, and the failure escapes last.
+	 * Teardown is a fan-out over the siblings: one that throws does not cost
+	 * another its teardown, the patron still unregisters, and the failure
+	 * escapes last.
 	 */
 	public function test_remove_node_tears_down_every_sibling_then_raises(): void {
 		$refused = new \RuntimeException( 'flush refused 8836' );

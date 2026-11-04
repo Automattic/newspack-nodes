@@ -225,8 +225,8 @@ describe( 'useContainerRefit', () => {
 
 	it( 'clamps a content box that padding drives negative', () => {
 		// `clientWidth` already excludes the scrollbar gutter, so a padded
-		// scrolling panel mid-animation measures narrower than its own
-		// padding. Layout reports 0; an unclamped -5 matches no observation.
+		// scrolling panel mid-animation measures narrower than its own padding.
+		// Layout reports 0; an unclamped -5 never matches an observation.
 		const el = sized( 15, 40 );
 		el.style.padding = '0 10px';
 		withObserver( box( 0, 40 ) );

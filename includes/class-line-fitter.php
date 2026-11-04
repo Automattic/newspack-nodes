@@ -34,8 +34,8 @@ final class Line_Fitter {
 	/**
 	 * Fit a message's PACKED line, newline included, within
 	 * `Partition_Node::MAX_LINE_SIZE` by halving the trimmable VALUE string
-	 * fields named in `$fields`. Returns the fitting message, or null when no
-	 * listed field is left to cut — callers drop that loud with
+	 * fields named in `$fields`. Returns the fitting message, or null when the
+	 * listed fields have nothing left to cut — callers drop that loud with
 	 * `print_less_often()` rather than emit oversize.
 	 *
 	 * The `+ 1` is the newline `Partition_Node::serialize_record()` appends to

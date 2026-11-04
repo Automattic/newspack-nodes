@@ -33,7 +33,8 @@ class SSE_Slot_Pool {
 
 	/**
 	 * What a superseded owner's liveness key holds once a reconnect took its
-	 * lease over. No identity can equal it: those are `{user id}:{ip hash}`.
+	 * lease over. An identity can never equal it: those are
+	 * `{user id}:{ip hash}`.
 	 */
 	private const SUPERSEDED = 'superseded';
 
@@ -274,14 +275,16 @@ class SSE_Slot_Pool {
 	 * being deleted, so the slot keeps a pointer for the next claimant to swap,
 	 * and 0 itself is refused as an owner — it is the tombstone, not a holder.
 	 *
-	 * A session's lease forgets its takeover index with it, so nothing names a
-	 * slot the session no longer holds.
+	 * A session's lease forgets its takeover index with it, so the index never
+	 * names a slot the session no longer holds.
 	 *
 	 * @param string      $namespace Pool scope.
 	 * @param int         $slot      Slot from the lease.
 	 * @param int         $owner     Owner from the lease.
 	 * @param string|null $session   The stream's session lease key, or null.
-	 * @return bool True when the tombstone landed or no backend answered; false on a non-positive owner or a pointer that no longer names this one.
+	 * @return bool True when the tombstone landed or the backends did not
+	 *              answer; false on a non-positive owner or a pointer that no
+	 *              longer names this one.
 	 */
 	public static function release( string $namespace, int $slot, int $owner, ?string $session = null ): bool {
 		if ( $owner <= 0 ) {
@@ -446,7 +449,10 @@ class SSE_Slot_Pool {
 	 * @param int         $reserved         Trailing slots this caller may not claim.
 	 * @param string|null $session          The stream's session lease key, or null for none.
 	 * @param int         $session_ttl      Seconds the session has left; bounds the index.
-	 * @return array{slot:int,owner:int}|false Lease, or false when the identity is at its share, every claimable slot is live, or no store answered.
+	 * @return array{slot:int,owner:int}|false Lease, or false when the identity
+	 *                                         is at its share, every claimable
+	 *                                         slot is live, or the stores did
+	 *                                         not answer.
 	 */
 	public static function acquire( string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl, int $reserved = 0, ?string $session = null, int $session_ttl = 0 ): array|false {
 		$backend = Cache_Backend::shared_first();

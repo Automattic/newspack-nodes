@@ -363,7 +363,7 @@ class LRU_Cache {
 	 * another lands on the boundary its predecessor would have used. That is
 	 * what makes the phase survive a restart with nothing persisted. Timers ride
 	 * the same clock-derived grid (ADR-17); this one carries no phase offset,
-	 * because no cadence here has to align with another. Table.pm snaps to
+	 * because a cadence here never has to align with another. Table.pm snaps to
 	 * localtime components; the epoch grid is the same idea without a DST
 	 * discontinuity, and nothing here reads a boundary as a label.
 	 *

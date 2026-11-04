@@ -309,7 +309,7 @@ final class Crawler_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * under a delay one url a tick.
 	 *
 	 * @param bool $tick Whether the timer asks, rather than a seed or an answer.
-	 * @throws \LogicException When no Curl sibling was built.
+	 * @throws \LogicException When the Curl sibling was never built.
 	 */
 	private function refill( bool $tick ): void {
 		$paced = 0 < $this->delay_ms;

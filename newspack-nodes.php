@@ -13,9 +13,9 @@
  * Domain Path: /languages
  *
  * Plugin entry point: the registrations that make the substrate reachable from
- * WordPress. No logic lives here — each hook names a handler elsewhere, and the
- * two functions defined below register the `wp nodes` tree and mount the
- * substrate's service CIs.
+ * WordPress. This file holds no logic — each hook names a handler elsewhere,
+ * and the two functions defined below register the `wp nodes` tree and mount
+ * the substrate's service CIs.
  *
  * Loading this file wires nothing a page view may not need, because it runs
  * on every request's critical path. Admin and WP-CLI requests wire
@@ -107,11 +107,11 @@ function newspack_nodes_register_cli_commands(): void {
  *
  * `Bootstrap::mount_request_graph()` builds `_router` and
  * `_command_interpreter`, then fires `newspack_nodes/request_graph_ready` —
- * the same action applications mount their own CIs on, so no door ends up with
- * a different verb surface behind it. Each CI arrives through `make_node()`,
- * which constructs, names and sinks it in one step; without that sink a verb
- * reply, addressed TO=FROM, has no path back to the `_output` response writer
- * and drops silently.
+ * the same action applications mount their own CIs on, so a door never ends up
+ * with a different verb surface behind it. Each CI arrives through
+ * `make_node()`, which constructs, names and sinks it in one step; without that
+ * sink a verb reply, addressed TO=FROM, has no path back to the `_output`
+ * response writer and drops silently.
  *
  * A named function rather than a closure, so the callback can be re-attached
  * or unhooked by name: tests that wipe `$GLOBALS['_wp_actions']` for isolation

@@ -71,7 +71,7 @@
     <div class="card">
       <h3 style="font-size:14.5px;margin:0 0 8px">Where a session lives, in two places</h3>
       <p class="kv"><b>A WordPress option</b> holds the directory of issued sessions: the label, the scope, the minting user and the expiry. A label is sanitized and cut to 64 characters, because a listing is a listing and not storage.</p>
-      <p class="kv"><b>The cache</b> holds the key, and so decides whether a handle still resolves. Mint throws when it cannot store the key, rather than handing back a session nothing can verify.</p>
+      <p class="kv"><b>The cache</b> holds the key, and so decides whether a handle still resolves. Mint throws when it cannot store the key, rather than handing back a session that cannot be verified.</p>
       <p class="kv">The session records its minting user, so a credential presented outside a browser acts as that user under the scope as its ceiling.</p>
     </div>
   </div>

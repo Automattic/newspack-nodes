@@ -62,7 +62,8 @@ class CacheBackendTest extends TestCase {
 
 	/**
 	 * The install id hashes `DB_NAME`, the base prefix and `DB_HOST` alone, so
-	 * no spelling of `ABSPATH`, a versioned core or a docroot link, enters it.
+	 * a spelling of `ABSPATH`, a versioned core or a docroot link never enters
+	 * it.
 	 */
 	public function test_the_install_id_hashes_the_database_prefix_and_host_alone(): void {
 		$GLOBALS['wpdb']              = new \wpdb();
@@ -842,8 +843,9 @@ class CacheBackendTest extends TestCase {
 
 	/**
 	 * Activation and the admin_init self-heal seed the salt before anything
-	 * resolves the runtime base, so a base that cannot resolve — where no
-	 * worker can hold a lock — still gets its salt and fails no boot.
+	 * resolves the runtime base, so a base that cannot resolve — where a
+	 * worker can never hold a lock — still gets its salt and never fails a
+	 * boot.
 	 */
 	public function test_seeding_the_first_salt_under_an_unusable_base_still_seeds(): void {
 		[ $dir, $base ] = $this->use_uncreatable_base_dir( 'salt-blocked-' );
@@ -890,7 +892,7 @@ class CacheBackendTest extends TestCase {
 		}
 	}
 
-	/** A write the database refused moved no salt, so nothing claims it did. */
+	/** A write that the database refused did not move the salt, so nothing claims it did. */
 	public function test_a_refused_salt_write_moves_nothing(): void {
 		\update_option( Cache_Backend::SALT_OPTION, 'kea-salt-6113' );
 		Cache_Backend::$salt = null;

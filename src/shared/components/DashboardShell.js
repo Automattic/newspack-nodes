@@ -64,7 +64,9 @@ export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
  * container.
  *
  * @param {Object}                                        props                 Component props.
- * @param {string}                                        props.storageKey      Debug-overlay key; scopes the persisted panel layout to this page, so no two dashboards may share one.
+ * @param {string}                                        props.storageKey
+ *                                                                              Debug-overlay key; scopes the persisted panel layout to this page, so
+ *                                                                              two dashboards may never share one.
  * @param {string}                                        props.subtitle        Names this dashboard in the header, beside the one shared wordmark.
  * @param {import('react').CSSProperties['overflowY']}    props.overflowY       Vertical overflow for the scrolling area below the header.
  * @param {(slot: ?Element) => import('react').ReactNode} props.children        Called with the header's controls slot — null until it mounts — and returns the dashboard root(s) to frame.

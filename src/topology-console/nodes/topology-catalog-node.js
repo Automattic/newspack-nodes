@@ -103,7 +103,8 @@ export function seedFromGlobal() {
  * frontmatter — while the fallback knows only the site-wide config value.
  *
  * @param {TopologyListEntry[]} list              Rows from the reply.
- * @param {number}              defaultPartitions Count for a row declaring no `num_partitions`.
+ * @param {number}              defaultPartitions Count for a row without a
+ *                                                `num_partitions`.
  * @return {TopologyCatalog} The catalog to publish.
  */
 function catalogFromList( list, defaultPartitions ) {

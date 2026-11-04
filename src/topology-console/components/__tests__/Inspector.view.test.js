@@ -2439,7 +2439,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( document.activeElement ).toBe( getByLabelText( /rootstock/ ) );
 	} );
 
-	it( 'clicking a live verb button is a no-op when no action handler is wired', () => {
+	it( 'clicking a live verb button is a no-op without a wired action handler', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -2836,7 +2836,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( queryByText( /Triage/ ) ).toBeNull();
 	} );
 
-	it( 'annotates the empty state and drops the count when no segments are quarantined', () => {
+	it( 'annotates the empty state and drops the count when there are no quarantined segments', () => {
 		const { getByText, queryByText } = renderDlq(
 			dlqNode( { deadletter_segments: 0 } )
 		);

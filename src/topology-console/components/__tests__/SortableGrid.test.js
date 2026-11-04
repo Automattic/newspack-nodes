@@ -14,7 +14,7 @@ const COLS = [
 ];
 const SORT = { key: 'name', dir: 'asc' };
 
-test( 'renders no tfoot when no footer prop is passed', () => {
+test( 'renders no tfoot without a footer prop', () => {
 	const { getByTestId } = render(
 		<Grid
 			testid="grid"

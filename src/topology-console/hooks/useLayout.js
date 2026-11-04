@@ -29,7 +29,7 @@ import { LAYOUTS_CI } from './useCatalogs';
  * @param {Object} [o]           Reply handlers, each run once per reply.
  * @param {OnDone} [o.onFetched] Runs on the get's reply. `result` is `{name,
  *                               positions}`, `positions` a map or LAYOUT_AUTO,
- *                               which is also what no saved file answers;
+ *                               which is also the answer without a saved file;
  *                               `args[0]` names the topology it was asked for.
  * @param {OnDone} [o.onSaved]   Runs on the save's reply. `result` is `{name,
  *                               path, positions}`, the positions being

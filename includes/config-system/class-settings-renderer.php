@@ -160,11 +160,12 @@ class Settings_Renderer {
 	 * The `[]` case is the one that reads wrong on the page: it recycles no
 	 * process, yet a save still writes every live worker's reload watermark, so
 	 * the value lands within one `_fleet` scan instead of at the end of a ~595s
-	 * worker lifetime. A classification naming node types that no ACTIVE topology
-	 * instantiates reports no consumer, which is the honest answer — nothing will
-	 * be restarted. Otherwise the column names the topologies. An active topology
-	 * that will not read leaves the impact unknown, and the column says so with
-	 * the failure rather than taking the whole page down; a stop propagates.
+	 * worker lifetime. A classification naming node types that are not
+	 * instantiated by any ACTIVE topology reports no consumer, which is the
+	 * honest answer — nothing will be restarted. Otherwise the column names the
+	 * topologies. An active topology that will not read leaves the impact
+	 * unknown, and the column says so with the failure rather than taking the
+	 * whole page down; a stop propagates.
 	 *
 	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
 	 * @return string Panel text, already translated.
@@ -201,7 +202,8 @@ class Settings_Renderer {
 
 	/**
 	 * Whether an unstored following Field's effective value is the one its
-	 * followed key holds, which is what it takes when no file sets it.
+	 * followed key holds, which is what it takes when it is not set in any
+	 * file.
 	 *
 	 * The panel sees only the resolved config, so a file setting the key to
 	 * exactly the followed key's value also reads as following; the value
@@ -261,7 +263,8 @@ class Settings_Renderer {
 	 *
 	 * @param string     $id          Input element id.
 	 * @param string     $name        WP-option name the input posts under.
-	 * @param int|string $value       Stored option value ('' when no row exists).
+	 * @param int|string $value       Stored option value ('' when the option
+	 *                                has no row).
 	 * @param int        $default     The default a reset restores; shown as the placeholder.
 	 * @param int        $min         Inclusive lower bound (the Field's).
 	 * @param int        $max         Inclusive upper bound; over 999 widens the input to `regular-text`.
@@ -299,7 +302,8 @@ class Settings_Renderer {
 	 *
 	 * @param string $id          Input element id.
 	 * @param string $name        WP-option name the input posts under.
-	 * @param string $value       Stored option value ('' when no row exists).
+	 * @param string $value       Stored option value ('' when the option has no
+	 *                            row).
 	 * @param string $default     The default a reset restores; shown as the placeholder.
 	 * @param string $description Text rendered under the input.
 	 * @param string $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).
@@ -329,7 +333,8 @@ class Settings_Renderer {
 	 *
 	 * @param string               $id          Select element id.
 	 * @param string               $name        WP-option name the select posts under.
-	 * @param string               $value       Stored option value ('' when no row exists).
+	 * @param string               $value       Stored option value ('' when the
+	 *                                          option has no row).
 	 * @param array<array-key,string> $choices Value => label, in display order; PHP keys a numeric value as an int.
 	 * @param string               $description Text rendered under the select.
 	 * @param string               $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).
@@ -363,7 +368,8 @@ class Settings_Renderer {
 	 *
 	 * @param string $id          Textarea element id.
 	 * @param string $name        WP-option name the textarea posts under.
-	 * @param string $value       Stored entries, newline-joined ('' when no row exists).
+	 * @param string $value       Stored entries, newline-joined ('' when the
+	 *                            option has no row).
 	 * @param string $placeholder Default entries, newline-joined.
 	 * @param string $description Text rendered under the textarea.
 	 * @param string $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).

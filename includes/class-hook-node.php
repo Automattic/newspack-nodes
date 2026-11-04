@@ -69,7 +69,7 @@ class Hook_Node extends Node {
 	 * TM_STRUCT — the documented gate for an array VALUE — denies.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
-	 * @throws \RuntimeException When no sink is wired or no hook name is set.
+	 * @throws \RuntimeException When the node has no sink or no hook name.
 	 */
 	public function fill( array $message ): void {
 		$this->require_sink();

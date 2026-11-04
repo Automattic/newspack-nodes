@@ -510,7 +510,7 @@ class SpawnCoordinatorTest extends TestCase {
 	}
 
 	/**
-	 * load_spawn_ts returns null when no persisted timestamp exists for
+	 * load_spawn_ts returns null when there is no persisted timestamp for
 	 * the key. is_recently_spawned then returns false (nothing to gate).
 	 */
 	public function test_load_spawn_ts_returns_null_on_miss(): void {
@@ -681,7 +681,7 @@ class SpawnCoordinatorTest extends TestCase {
 		}
 	}
 
-	/** A shared tier that answers neither the add nor the read stops no spawn. */
+	/** A shared tier that answers neither the add nor the read still lets the spawn through. */
 	public function test_admit_spawn_admits_through_a_failing_shared_tier(): void {
 		$memd = $this->shared_tier();
 		$memd->fail_add( \Memcached::RES_FAILURE );
@@ -913,8 +913,8 @@ class SpawnCoordinatorTest extends TestCase {
 	}
 
 	/**
-	 * Every exit after the readability read raises what it found, the one
-	 * where no spawn endpoint resolves included.
+	 * Every exit after the readability read raises what it found, including
+	 * the one taken when the spawn endpoint does not resolve.
 	 */
 	public function test_spawn_each_raises_an_unreadable_topology_when_no_endpoint_resolves(): void {
 		$stock = $this->make_temp_dir( 'cold-start-cracked-' );

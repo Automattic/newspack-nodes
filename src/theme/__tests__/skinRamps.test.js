@@ -1565,7 +1565,7 @@ describe( 'theme skin ramps', () => {
 		}
 	} );
 
-	it( 'resolves the legacy focus ring to --np-text where no skin sets --ink', () => {
+	it( 'resolves the legacy focus ring to --np-text when the skin does not set --ink', () => {
 		let outline = null;
 		stylesheet.walkRules( ( rule ) => {
 			if ( /:focus-visible/.test( rule.selector ) ) {
@@ -2815,7 +2815,7 @@ describe( "CRT's data greens and the true-color variant", () => {
 				token.startsWith( '--phosphor' )
 			)
 		).toEqual( [] );
-		// The helpers cycle on PHOSPHOR_COUNT; no green past it goes unused.
+		// The helpers cycle on PHOSPHOR_COUNT; a green past it would go unused.
 		expect(
 			skinMaps.get( 'crt' )[ `--phosphor-${ PHOSPHOR_COUNT + 1 }` ]
 		).toBeUndefined();

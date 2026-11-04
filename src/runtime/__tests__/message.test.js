@@ -184,7 +184,7 @@ describe( 'typeLabels', () => {
 		expect( typeLabels( TM_BATCH ) ).toEqual( [ 'TM_BATCH' ] );
 	} );
 
-	it( 'returns nothing when no known flag matches, so callers name that case', () => {
+	it( 'returns nothing for a type without a known flag, so callers name that case', () => {
 		expect( typeLabels( 0 ) ).toEqual( [] );
 	} );
 } );

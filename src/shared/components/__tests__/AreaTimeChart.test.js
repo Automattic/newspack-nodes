@@ -127,7 +127,7 @@ describe( 'AreaTimeChart', () => {
 		expect( tall.style.fill ).toBe( '#111111' );
 	} );
 
-	it( 'leaves hit-testing to the overlay: no band takes the pointer', () => {
+	it( 'leaves hit-testing to the overlay: the bands never take the pointer', () => {
 		const { container } = mount();
 		const marks = bands( container );
 		expect( marks ).toHaveLength( 2 );
@@ -258,7 +258,7 @@ describe( 'AreaTimeChart', () => {
 			expect( subpaths( bands( container )[ 0 ] ) ).toBe( 1 );
 		} );
 
-		it( 'scales the axis to the measured peak and lists the gap in no tooltip row', () => {
+		it( 'scales the axis to the measured peak and leaves the gap out of every tooltip row', () => {
 			const { container } = mount( { series: gapped } );
 			expect( highestPoint( bands( container )[ 0 ] ) ).toBeCloseTo(
 				CEILING,

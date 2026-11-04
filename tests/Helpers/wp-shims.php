@@ -10,7 +10,7 @@
  * @package Newspack_Nodes
  */
 
-// WordPress defines this in wp_initial_constants(), which no test loads.
+// WordPress defines this in wp_initial_constants(), which tests never load.
 if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 	define( 'DAY_IN_SECONDS', 86400 );
 }
@@ -115,7 +115,7 @@ if ( ! function_exists( 'rest_url' ) ) {
 		if ( 'https' === $scheme ) {
 			$base = (string) preg_replace( '#^\w+:#', 'https:', $base );
 		}
-		// Filtered as core filters it, so a test can resolve no endpoint.
+		// Filtered as core filters it, so a test can rewrite or blank the URL.
 		return apply_filters( 'rest_url', $base . ltrim( $path, '/' ), $path, null, $scheme );
 	}
 }

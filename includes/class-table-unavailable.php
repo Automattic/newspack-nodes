@@ -20,7 +20,7 @@ namespace Newspack_Nodes;
  *
  * A type of its own so a reader can degrade for exactly this while a
  * misconfiguration — a Table two topologies declare differently, a bad TTL,
- * a name no file can carry, a topology that will not read — still fails
+ * a name that a file cannot carry, a topology that will not read — still fails
  * loud. It extends `\RuntimeException`, so every catch that took the plain
  * refusal takes this one.
  */

@@ -117,7 +117,8 @@ class RateLimitTest extends TestCase {
 
 	/**
 	 * A cache that cannot answer the slot read cannot meter either: the claim
-	 * is unavailable, and spends no slot on a backend already failing.
+	 * is unavailable, and does not spend a slot on a backend that is already
+	 * failing.
 	 */
 	public function test_a_failed_slot_read_is_unavailable_and_claims_nothing(): void {
 		$dead       = new class() extends InMemoryMemcached {
@@ -153,7 +154,7 @@ class RateLimitTest extends TestCase {
 		Rate_Limit::claim( self::NAME, Rate_Limit::MAX_BURST + 1, self::WINDOW_S );
 	}
 
-	/** Every write refuses a key holding whitespace, so no slot could be claimed. */
+	/** Every write refuses a key holding whitespace, so such a key can never claim a slot. */
 	public function test_a_name_holding_whitespace_is_refused(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		Rate_Limit::claim( "probe 4471", self::BURST, self::WINDOW_S );

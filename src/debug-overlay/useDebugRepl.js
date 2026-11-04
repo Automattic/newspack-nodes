@@ -60,11 +60,12 @@ const EMPTY_TRANSCRIPT = [];
  * preferred because every command in the graph is observed there; the
  * interpreter is the fallback for a page whose Tap is gone.
  *
- * The gate is unnamed, so nothing can address it and the overlay's reference is
+ * The gate is unnamed, so it cannot be addressed and the overlay's reference is
  * the only way in. That is what makes its forward tap a safe place for the
- * Reset Graph chip to watch, since nothing routed can reach it.
+ * Reset Graph chip to watch, since a routed message cannot reach it.
  *
- * @param {Object} interpreter Fallback sink when no `_shell` Tap is mounted.
+ * @param {Object} interpreter Fallback sink when the `_shell` Tap is not
+ *                             mounted.
  * @return {OutgoingGateNode} The gate, sunk and ready for `shell.sink`.
  */
 function makeGate( interpreter ) {

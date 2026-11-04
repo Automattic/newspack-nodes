@@ -116,7 +116,7 @@ abstract class OauthStoreContract extends TestCase {
 		];
 		$this->assertSame( [ 'id' => $client['id'] ] + $kept, $client, 'registration answers with what it kept' );
 		$this->assertSame( $kept, Oauth_Store::client( $client['id'] ) );
-		$this->assertNull( Oauth_Store::client( 'feedfacefeedfacefeedfacefeedface' ), 'an unregistered id names no client' );
+		$this->assertNull( Oauth_Store::client( 'feedfacefeedfacefeedfacefeedface' ), 'an unregistered id does not name a client' );
 		$this->assertNull( Oauth_Store::client( "kea desk\n4410" ), 'an id no registration could make never reaches the store' );
 	}
 

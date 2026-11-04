@@ -757,7 +757,7 @@ describe( 'useTopologyManager — partition stall + rolled-up health', () => {
 		expect( row.health ).toBe( 'ok' );
 	} );
 
-	it( 'rolls up to health=behind when no partition stalled but a consumer is behind', async () => {
+	it( 'rolls up to health=behind when a consumer is behind but the partitions did not stall', async () => {
 		const row = await pollHealth( {
 			heartbeatIntervalS: 10,
 			workers: [

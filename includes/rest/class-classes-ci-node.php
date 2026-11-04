@@ -77,7 +77,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	 * and arguments here; the palette leaves that category out itself.
 	 *
 	 * The console reads this as one slice of its batched poll, so the whole
-	 * catalog is a single payload and no class costs a follow-up request.
+	 * catalog is a single payload and a class never costs a follow-up request.
 	 *
 	 * @return array<string,mixed> `classes`, sorted by `[category, shell_name]`, and the sorted `formatters` names.
 	 */
@@ -161,8 +161,8 @@ class Classes_CI_Node extends Service_CI_Node {
 	 * `declared_verbs()` indexes them — to the serializable fields the console
 	 * renders: `name` and `description`, then each field `$fields` names, kept
 	 * by its rule. The non-serializable `handler`, the `capability`
-	 * `dispatch()` enforces server-side, and any field no rule names stay
-	 * server-side, so the strip fails closed.
+	 * `dispatch()` enforces server-side, and any field that is not named by a
+	 * rule stay server-side, so the strip fails closed.
 	 *
 	 * Rules: `always` keeps the value, `[]` when absent; `if_set` keeps a set
 	 * value; `string` keeps a set value as a string; `flag` keeps `true` for a

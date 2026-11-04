@@ -42,7 +42,7 @@ abstract class CacheBackendContract extends TestCase {
 
 	public function test_a_value_past_its_ttl_reads_as_absent(): void {
 		if ( ! $this->moves_clock() ) {
-			$this->markTestSkipped( 'this arm expires on a clock no test moves' );
+			$this->markTestSkipped( 'this arm expires on a clock that tests cannot move' );
 		}
 		$arm = $this->arm();
 		$this->assertTrue( $arm->set( 'kea-ttl', [ 'n' => 41 ], 37 ) );
@@ -56,7 +56,7 @@ abstract class CacheBackendContract extends TestCase {
 
 	public function test_an_expired_row_is_absent_to_every_verb(): void {
 		if ( ! $this->moves_clock() ) {
-			$this->markTestSkipped( 'this arm expires on a clock no test moves' );
+			$this->markTestSkipped( 'this arm expires on a clock that tests cannot move' );
 		}
 		$arm = $this->arm();
 		$arm->write_multi( [ 'kea-exp:n' => 41, 'kea-exp:c' => 43, 'kea-exp:t' => 1, 'kea-exp:d' => 2 ], 37 );

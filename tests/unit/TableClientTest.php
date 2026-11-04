@@ -370,7 +370,7 @@ final class TableClientTest extends TestCase {
 		$this->asker->fill( $stray );
 		$this->assertSame( [], $this->asker->folded );
 		$this->assertCount( 1, $lines, 'the drop line is rate-limited' );
-		$this->assertStringContainsString( 'Table_Client: dropped a reply no ask awaits — lab-7:owl to asker-9', $lines[0] );
+		$this->assertStringContainsString( 'Table_Client: dropped a reply that is not awaited by any ask — lab-7:owl to asker-9', $lines[0] );
 	}
 
 	public function test_a_table_first_named_by_an_ask_is_never_folded_afterwards(): void {

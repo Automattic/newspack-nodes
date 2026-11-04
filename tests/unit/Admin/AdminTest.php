@@ -594,7 +594,8 @@ class AdminTest extends TestCase {
 	public function test_saving_max_segments_restarts_live_topologies_not_phantom_groups(): void {
 		// Storage geometry classifies for the Partition node type. The fixture
 		// 'combined' topology has a Partition; the phantom 'request-workers'
-		// worker-group label matches no live topology and must NOT be touched.
+		// worker-group label does not match any live topology and must NOT be
+		// touched.
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );
 		$this->prepare_lock_dir( 'request-workers', 0 );
@@ -654,7 +655,7 @@ class AdminTest extends TestCase {
 		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$reported = self::stderr_lines( $lines, 'heron-9933' );
 		$this->assertCount( 1, $reported );
-		$this->assertStringStartsWith( "settings: max_segments: unknown topology 'heron-9933': no .tsl resolves (", $reported[0] );
+		$this->assertStringStartsWith( "settings: max_segments: unknown topology 'heron-9933': it does not resolve to a .tsl file (", $reported[0] );
 	}
 
 	/**
@@ -1343,7 +1344,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		// Force Config::get_base_directory() to throw by writing a config file
 		// whose `base_directory` contains a null byte — Config::ensure_path()
 		// rejects these immediately. The option row is already written, so the
-		// log must say that no worker heard of it, and the save page survives.
+		// log must say that the workers never heard of it, and the save page
+		// survives.
 		$conf = $this->base_dir . '/bad-base-dir.php';
 		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => \"/tmp/has\\0null\" ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );

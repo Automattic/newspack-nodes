@@ -437,8 +437,9 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	/**
 	 * A seek word asked for before the first restore outlives a crash-lineage
-	 * frame, so the frame's head describes no record the spoke sends: the first
-	 * record `recent` lands on is forwarded, never sacrificed as the suspect.
+	 * frame, so the frame's head describes none of the records the spoke sends:
+	 * the first record `recent` lands on is forwarded, never sacrificed as the
+	 * suspect.
 	 */
 	public function test_a_pending_seek_word_arms_no_head_skip_from_the_frame(): void {
 		$this->stub_sse_connect();
@@ -495,7 +496,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $reader->dump_metadata()['cursor'], 'the cursor stays short of the held record, so a checkpoint cannot skip it' );
 	}
 
-	/** A fragment no block continues is torn, even when its bytes happen to parse. */
+	/** A fragment that is not continued by any block is torn, even when its bytes happen to parse. */
 	public function test_an_abandoned_fragment_that_parses_is_still_dead_lettered(): void {
 		$sink   = new Capture_Sink_Node();
 		$reader = new Remote_Consumer_Node();
@@ -596,7 +597,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->make_remote( 'remote-aspen', null, [ 'sources:php', 'downstream' ] );
 		$reader = Core::node( 'remote-aspen:sources:php' );
 
-		// The spoke's handshake named no generation: `:<offset>`.
+		// The spoke's handshake did not name a generation: `:<offset>`.
 		$reader->next_offset( Consumer_Node::SEEK_END );
 		$this->handshake( Core::node( 'remote-aspen:sse-in' ), 'sources:php=:18' );
 		$asked = $reader->connect_position();

@@ -52,7 +52,7 @@ describe( 'hullsUnder', () => {
 } );
 
 describe( 'hullAt', () => {
-	it( 'takes the topmost hull containing the point when none is selected', () => {
+	it( 'takes the topmost hull containing the point when the selection is null', () => {
 		expect( hullAt( stack, at( 150, 150 ), null ) ).toBe( 'top-616' );
 		expect( hullAt( stack, at( 60, 60 ), null ) ).toBe( 'mid-515' );
 	} );
@@ -78,7 +78,7 @@ describe( 'hullAt', () => {
 		expect( hullAt( apart, at( 20, 20 ), 'top-616' ) ).toBe( 'base-414' );
 	} );
 
-	it( 'returns null where no hull reaches', () => {
+	it( 'returns null outside every hull', () => {
 		expect( hullAt( stack, at( 900, 900 ), null ) ).toBeNull();
 	} );
 } );

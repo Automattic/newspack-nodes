@@ -118,7 +118,7 @@ function newNonce() {
  */
 
 /**
- * The live session, or null while none is held.
+ * The live session, or null while the page holds no session.
  *
  * @type {CommandSession|null}
  */
@@ -226,8 +226,8 @@ export function __setAuthFetch( fn ) {
 
 /**
  * When the issued session stops being usable, in clock() ms, or Infinity when
- * the server named no lifetime. Honouring it is what makes expiry cheap to
- * discover: otherwise the only way to learn a session has died is to have a
+ * the server did not name a lifetime. Honouring it is what makes expiry cheap
+ * to discover: otherwise the only way to learn a session has died is to have a
  * command refused, and that command is the one thing lost.
  */
 let expiresAt = Infinity;
@@ -261,7 +261,7 @@ export function hasSession() {
  * carries. Replies are addressed to the session that asked rather than to a
  * connection, so they survive every reconnect it makes.
  *
- * @return {?string} The handle, or null while no session is live.
+ * @return {?string} The handle, or null while there is no live session.
  */
 export function sessionHandle() {
 	return hasSession() ? session.handle : null;
@@ -539,7 +539,7 @@ export function signCommand( message, keepTimestamp = false ) {
 
 	const live = session;
 	if ( ! live ) {
-		// Quiet where none was obtainable; loud where one was expected.
+		// Quiet where a session could not be had; loud where one was expected.
 		if ( attempted ) {
 			Core.printLessOften(
 				'ERROR: no command session; this command will be refused'

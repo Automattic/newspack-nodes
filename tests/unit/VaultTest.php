@@ -513,7 +513,8 @@ final class VaultTest extends TestCase {
 
 	/**
 	 * `credential_header()` is the one rule for every transport, answering the
-	 * whole header line, so no copy can disagree with the operator's own test.
+	 * whole header line, so a copy can never disagree with the operator's own
+	 * test.
 	 */
 	public function test_credential_header_sends_basic_for_a_username_and_password(): void {
 		$this->assertSame(

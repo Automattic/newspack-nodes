@@ -15,8 +15,9 @@
  * The schema is checked before the file opens: identifiers, the closed set
  * of column types, `add` columns outside the key, an INTEGER
  * `autoincrement`, a `retain` and each `retained_by` reference served by an
- * index or the key, TEXT `fts` columns no `add` folds, every table purged by
- * its own `retain` or by a `retained_by`, and no `retained_by` cycle.
+ * index or the key, TEXT `fts` columns that are not folded by any `add`, every
+ * table purged by its own `retain` or by a `retained_by`, and no `retained_by`
+ * cycle.
  *
  * @package Newspack_Nodes
  */
@@ -70,8 +71,8 @@ class Row_Table_Node extends Table_Node {
 	 * @param list<string>|null $args
 	 * @return list<string>
 	 * @throws \InvalidArgumentException With no schema word.
-	 * @throws \RuntimeException On a word naming no Row_Schema, a schema it
-	 *                           refuses, or a file SQLite refuses.
+	 * @throws \RuntimeException On a word that does not name a Row_Schema, a
+	 *                           schema it refuses, or a file SQLite refuses.
 	 * @throws Table_Unavailable When pdo_sqlite is missing.
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -133,7 +134,7 @@ class Row_Table_Node extends Table_Node {
 			$kept   += isset( $spec['keep'] ) ? 1 : 0;
 		}
 		if ( ! $retains && \count( $tables ) !== $kept ) {
-			self::refuse_schema( $word, 'retains no table, so no purge ever starts' );
+			self::refuse_schema( $word, 'retains no table, so a purge never starts' );
 		}
 		foreach ( \array_keys( $tables ) as $table ) {
 			self::check_acyclic( $word, $tables, [ $table ] );
@@ -141,8 +142,8 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
-	 * Refuse a `retained_by` chain that returns to a table on it, which no
-	 * release would ever bound.
+	 * Refuse a `retained_by` chain that returns to a table on it, which a
+	 * release would never bound.
 	 *
 	 * @param string                 $word   The schema word.
 	 * @param array<string,Row_Spec> $tables Every table it declares.
@@ -196,7 +197,7 @@ class Row_Table_Node extends Table_Node {
 		foreach ( $named as $what => $names ) {
 			foreach ( $names as $column ) {
 				if ( ! isset( $columns[ $column ] ) ) {
-					self::refuse_schema( $word, "{$table} {$what} names {$column}, which it declares no column for" );
+					self::refuse_schema( $word, "{$table} {$what} names {$column}, a column {$table} does not declare" );
 				}
 			}
 		}
@@ -224,9 +225,9 @@ class Row_Table_Node extends Table_Node {
 
 	/**
 	 * Check how a table purges: a `keep` of true, which purges nothing and
-	 * stands beside no `retain` or `retained_by`, or a `retain` whose column
-	 * leads an index or the key, with a window and a unit of at least one,
-	 * `retained_by` entries each a `[ table, column, own ]` list naming a
+	 * stands beside neither a `retain` nor a `retained_by`, or a `retain` whose
+	 * column leads an index or the key, with a window and a unit of at least
+	 * one, `retained_by` entries each a `[ table, column, own ]` list naming a
 	 * declared table whose referencing column leads one there and this
 	 * table's autoincrement column or one-column key, so a released value
 	 * deletes one row by a seek, or both.
@@ -253,12 +254,12 @@ class Row_Table_Node extends Table_Node {
 			return;
 		}
 		if ( null === $retain && [] === $retained_by ) {
-			self::refuse_schema( $word, "{$table} declares neither retain nor retained_by, so nothing ever purges it" );
+			self::refuse_schema( $word, "{$table} declares neither retain nor retained_by, so it is never purged" );
 		}
 		if ( null !== $retain ) {
 			[ $column, $window, $unit ] = $retain;
 			if ( ! self::leads( $spec, $column ) ) {
-				self::refuse_schema( $word, "{$table} retains by {$column}, which leads no index or key" );
+				self::refuse_schema( $word, "{$table} retains by {$column}, which does not lead any index or key" );
 			}
 			if ( $window < 1 || $unit < 1 ) {
 				self::refuse_schema( $word, "{$table} retains {$column} for a window or a unit below one" );
@@ -267,20 +268,20 @@ class Row_Table_Node extends Table_Node {
 		foreach ( $retained_by as $at => $reference ) {
 			$malformed = self::malformed_reference( $reference );
 			if ( null !== $malformed ) {
-				self::refuse_schema( $word, "{$table} retained_by entry {$at} ({$malformed}) is no [ table, column, own ] list: retained_by is a list of them" );
+				self::refuse_schema( $word, "{$table} retained_by entry {$at} ({$malformed}) is not a [ table, column, own ] list: retained_by is a list of them" );
 			}
 			[ $names, $column, $own ] = $reference;
 			if ( ! isset( $tables[ $names ] ) ) {
-				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which it declares no table for" );
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, but the schema declares no table {$names}" );
 			}
 			if ( isset( $tables[ $names ]['keep'] ) ) {
 				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which keeps every row, so it never releases" );
 			}
 			if ( ! self::leads( $tables[ $names ], $column ) ) {
-				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which leads no index or key there" );
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which does not lead any index or key there" );
 			}
 			if ( ! isset( $spec['columns'][ $own ] ) ) {
-				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column} on {$own}, which it declares no column for" );
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column} on {$own}, a column {$table} does not declare" );
 			}
 			if ( ( $spec['autoincrement'] ?? null ) !== $own && [ $own ] !== ( $spec['key'] ?? [] ) ) {
 				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column} on {$own}, which is neither its autoincrement column nor a one-column key" );
@@ -352,7 +353,7 @@ class Row_Table_Node extends Table_Node {
 	 * @param string $word  The schema word.
 	 * @param string $table The Row_Table, for the refusal.
 	 * @return class-string<Row_Schema>
-	 * @throws \RuntimeException When no registered namespace holds one.
+	 * @throws \RuntimeException When the registered namespaces do not hold one.
 	 */
 	private static function schema_class( string $word, string $table ): string {
 		$fqcn = 1 === \preg_match( self::SCHEMA_WORD, $word ) ? Command_Interpreter_Node::resolve_named( $word, '_Row_Schema', Row_Schema::class ) : null;
@@ -478,7 +479,7 @@ class Row_Table_Node extends Table_Node {
 	/**
 	 * The file of the snapshot `$name`, `{base}/tables/{name}.sqlite`, or of
 	 * one build of it, `{name}+{build}.sqlite`: the one spelling `build()`
-	 * writes and `remove_snapshot()` globs. No Table name holds `+`, so a
+	 * writes and `remove_snapshot()` globs. A Table name never holds `+`, so a
 	 * build is never a published file or a Table's file.
 	 *
 	 * @param string      $name  The snapshot's name.
@@ -513,9 +514,9 @@ class Row_Table_Node extends Table_Node {
 	 * @param class-string<Row_Schema> $schema The schema the table holds.
 	 * @param \Closure(Row_Reader): T  $read   The read.
 	 * @return T What `$read` returned.
-	 * @throws Table_Unavailable When no active topology declares a table of
-	 *                           the schema, pdo_sqlite is missing, or a file
-	 *                           will not attach or is not a database.
+	 * @throws Table_Unavailable When the active topologies do not declare a
+	 *                           table of the schema, pdo_sqlite is missing, or
+	 *                           a file will not attach or is not a database.
 	 * @throws \RuntimeException As `Bootstrap::row_table()`, when the process
 	 *                           runs as root, or when the temporary directory
 	 *                           will not resolve.

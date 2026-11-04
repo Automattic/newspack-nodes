@@ -43,7 +43,7 @@ class Tap_Node extends Tee_Node {
 	 * message arrived with, or a Tap spliced mid-pipeline would re-route it.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
-	 * @throws \RuntimeException When no sink is wired.
+	 * @throws \RuntimeException When the node has no sink.
 	 * @throws \Throwable Every target and passthrough failure, combined, raised after the passthrough.
 	 */
 	public function fill( array $message ): void {

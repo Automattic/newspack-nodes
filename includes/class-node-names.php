@@ -18,7 +18,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The reserved names as constants, so no caller spells one as a literal.
+ * The reserved names as constants, so a caller never spells one as a literal.
  *
  * @api JS-PHP wire constants; the dead-code audit cannot see the JSON half.
  */
@@ -95,9 +95,9 @@ final class Node_Names {
 	 *
 	 * A dump omits them because every session already has them, so emitting one
 	 * would build it twice on replay. A remove refuses them because destroying
-	 * one breaks the session issuing the command: without `_router` no
-	 * addressed message is deliverable, and without `_command_interpreter` no
-	 * further verb runs.
+	 * one breaks the session issuing the command: without `_router` an
+	 * addressed message is undeliverable, and without `_command_interpreter` a
+	 * further verb never runs.
 	 *
 	 * @var array<int,string>
 	 */

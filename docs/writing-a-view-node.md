@@ -37,11 +37,11 @@ export const views = registerSliceViews( {
 |---|---|
 | `empty` | The shaped-but-empty model, copied per node so one view's mutation never surfaces in the next. |
 | `parse` | The map from reply to model. It receives the verb's struct as the wire decoded it, and returning `null` keeps the model already on screen. Omit `parse` when the reply *is* the slice: an object payload then publishes whole, and anything else keeps the model on screen. |
-| `description` | The `help <Name>` description, the only part of the schema a declaration can restate. It reaches no palette tile, because `sliceView()` overrides the description and never the inherited `Hidden` category. |
+| `description` | The `help <Name>` description, the only part of the schema a declaration can restate. It never reaches a palette tile, because `sliceView()` overrides the description and never the inherited `Hidden` category. |
 
 Omitting `parse` moves the shape guard to the widget. The view then publishes
 whatever the verb answered, over the status fields the empty model declares, so
-no field of your own shape is guaranteed. The example's `SourceCountsViewNode`
+a field of your own shape is never guaranteed. The example's `SourceCountsViewNode`
 declares neither `loading` nor `error`, which leaves its published model the
 verb's struct wholesale; `<SourceCounts/>` carries the only guard on that path,
 reading `slice.sources ?? {}` on top of the `{ sources: {} }` default that covers
@@ -248,7 +248,7 @@ is written out by hand where the class is registered — each bundle's
 derived, though a named class conventionally registers as its own name minus the
 trailing `Node`. A `sliceView()` declaration returns an anonymous class, so that
 registered name is the only handle TSL and the REPL have on it. A base nothing
-registers is an import and nothing more: no TSL line can name it.
+registers is an import and nothing more: a TSL line can never name it.
 
 | Class | Registers as | Where | Base, and what it owns |
 |---|---|---|---|
@@ -282,7 +282,7 @@ next fold after that, so a snapshot never changes under React. A key holds at
 most 481 buckets per worker. A sample keeps its raw deltas and levels, and a
 chart metric divides two of them: `msgRate` is Σ`msgs` / Σ`elapsed` over the
 bucket. The Overview's charts plot one series per
-partition per worker, since a source names no worker and Overview asks
+partition per worker, since a source does not name a worker and Overview asks
 `topicChartSeries()` to split by one: co-readers of a partition inside one
 worker sum, and the stacked chart sums the workers. Every card sums the same
 readers its chart stacks, so `liveTotal` (rate, backlog, cache size) and

@@ -633,7 +633,7 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 		expect( Core.node( 'visibility-race:timer' ).mode ).toBe( 'inactive' );
 	} );
 
-	test( 'while the tab is HIDDEN no router tick posts; becoming visible resumes polling', async () => {
+	test( 'while the tab is HIDDEN a router tick never posts; becoming visible resumes polling', async () => {
 		const wire = installWire();
 		renderPoll( {} );
 		await act( async () => {} );
@@ -658,7 +658,7 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 } );
 
 describe( 'useBatchedPoll — paused gate', () => {
-	test( 'while paused no router tick posts; unpausing resumes polling', async () => {
+	test( 'while paused a router tick never posts; unpausing resumes polling', async () => {
 		const wire = installWire();
 		const { rerender } = renderHook(
 			( { paused } ) =>

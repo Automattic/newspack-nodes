@@ -73,11 +73,12 @@ import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
  * which bars changed, and hands them to the bar that draws them.
  *
  * @param {Segment}        segment  The segment.
- * @param {ReaderPosition} [cursor] Where the reader stands; undefined when no
- *                                  consumer reads the log.
+ * @param {ReaderPosition} [cursor] Where the reader stands; undefined when the
+ *                                  log has no consumer.
  * @return {{read: number, recorded: number, crossed: boolean}} Bytes read,
  *   bytes up to the recorded end (never below `read`), and whether that end
- *   lies past the cursor's segment; 0, 0 and false when nothing reads the log.
+ *   lies past the cursor's segment; 0, 0 and false when the log has no
+ *   consumer.
  */
 export function segmentRegions( segment, cursor ) {
 	if ( ! cursor ) {
@@ -122,7 +123,7 @@ export function segmentRegions( segment, cursor ) {
  *
  * The backlog is ONE color, picked by how far behind the reader has fallen:
  * amber while the recorded end sits in the cursor's own segment, red once it
- * has crossed into a later one. A log nothing reads paints entirely gray,
+ * has crossed into a later one. An unread log paints entirely gray,
  * because both leading regions collapse to zero width.
  *
  * The stylesheet hides `segment-label-h` and `segment-size-h` in this layout,

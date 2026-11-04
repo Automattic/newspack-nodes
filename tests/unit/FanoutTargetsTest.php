@@ -153,7 +153,7 @@ class FanoutTargetsTest extends TestCase {
 			$this->assertStringStartsWith( 'spout-4410 takes no target: ', $e->getMessage() );
 		}
 		$this->assertSame( [], $node->target() );
-		$this->assertSame( [], $node->target( [] ), 'clearing names no target' );
+		$this->assertSame( [], $node->target( [] ), 'clearing leaves no target' );
 	}
 
 	public function test_connect_node_ignores_a_duplicate(): void {

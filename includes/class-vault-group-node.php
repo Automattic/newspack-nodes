@@ -45,7 +45,7 @@ final class Vault_Group_Node extends Node {
 	/** The placeholder a child argument carries for its Vault id. */
 	public const ID_TOKEN = '{id}';
 
-	/** The Vault id no child takes: the group's `:config` interpreter's slot. */
+	/** The Vault id a child never takes: the group's `:config` interpreter's slot. */
 	private const RESERVED_ID = self::CONFIG_KIND;
 
 	/** Shell type of the children, resolved like any `make_node` type. */
@@ -75,7 +75,8 @@ final class Vault_Group_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read them.
 	 * @return list<string>
-	 * @throws \InvalidArgumentException When the child type resolves to no node class.
+	 * @throws \InvalidArgumentException When the child type does not resolve to
+	 *                                   a node class.
 	 * @throws \Throwable Every retraction and build that failed, combined.
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -136,8 +137,8 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * The child class's own verbs, each forwarded to every child. No envelope
-	 * rides along, so a live child takes each verb exactly as a later one
+	 * The child class's own verbs, each forwarded to every child. An envelope
+	 * never rides along, so a live child takes each verb exactly as a later one
 	 * replays it. A verb the child declares a `toggle` or `setter` holds one
 	 * value, so its record replaces rather than adds.
 	 *
@@ -263,7 +264,7 @@ final class Vault_Group_Node extends Node {
 	/**
 	 * Set every child's target along with the group's own. A child class
 	 * taking no target is refused before anything changes, so an empty group
-	 * stores no target its later children would refuse.
+	 * never stores a target its later children would refuse.
 	 *
 	 * @param string $target Path stamped into an empty TO.
 	 * @throws \RuntimeException When the child class declares no target.
@@ -395,8 +396,9 @@ final class Vault_Group_Node extends Node {
 
 	/**
 	 * The child class's declared targets for the arguments the group hands each
-	 * member, with an empty id slot; none for a child type no class resolves,
-	 * since the analyzer reads lines the runtime would refuse.
+	 * member, with an empty id slot; none for a child type that does not
+	 * resolve to a class, since the analyzer reads lines the runtime would
+	 * refuse.
 	 *
 	 * @param list<string> $args The group's `make_node` tokens, the name excluded.
 	 * @return list<string>

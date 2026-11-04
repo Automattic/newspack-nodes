@@ -15,10 +15,10 @@
  *
  * This module is the ONLY writer of those three styles. Two owners saving and
  * restoring the same property under separate bookkeeping leave the page
- * permanently unscrollable: whichever restores last writes the other's
- * `hidden` back, and no lock remains to undo it. So a hold is keyed by REASON
- * — the pointer inside the panel, the panel maximized — and only the last
- * reason to leave restores the saved styles.
+ * permanently unscrollable: whichever restores last writes the other's `hidden`
+ * back, and the lock that would undo it is gone. So a hold is keyed by REASON —
+ * the pointer inside the panel, the panel maximized — and only the last reason
+ * to leave restores the saved styles.
  */
 
 import { scrollbarWidth } from './scrollbarWidth';
@@ -35,7 +35,7 @@ const holds = new Set();
 
 /**
  * The inline styles the first hold captures and the last release writes back.
- * Null while no hold stands.
+ * Null while there is no hold.
  *
  * @type {?{htmlOverflow:string,htmlPaddingRight:string,bodyOverflow:string}}
  */
@@ -47,8 +47,8 @@ let saved = null;
  * Only WebKit that is not Chromium ignores `preventDefault()` on a wheel event
  * over the SVG canvas; everywhere else the panel's wheel eater suffices and
  * the lock would buy a reflow for nothing. Sniffing the user agent is the only
- * test available, because no feature query reports whether a wheel
- * `preventDefault()` will be honored.
+ * test available, because there is no feature query that reports whether a
+ * wheel `preventDefault()` will be honored.
  *
  * @return {boolean} True on WebKit browsers that are not Chromium.
  */
@@ -90,7 +90,7 @@ export function holdPageScroll( reason ) {
 }
 
 /**
- * Drop a hold, restoring the saved styles once no reason is left.
+ * Drop a hold, restoring the saved styles once the last reason is gone.
  *
  * Dropping a hold that was never taken is a no-op, which is what lets the
  * panel release unconditionally when its ref detaches.
@@ -130,8 +130,8 @@ export function lockPageScroll() {
  * panel ref's detach.
  *
  * It skips the `needsCssScrollLock()` test its counterpart makes: a hold once
- * taken must come off whatever the browser now reports, and a release nobody
- * is holding is already a no-op.
+ * taken must come off whatever the browser now reports, and a release without
+ * a hold is already a no-op.
  *
  * @return {void}
  */

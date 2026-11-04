@@ -62,7 +62,7 @@ trait Publishes_Status {
 		$this->status_written_at = $now;
 	}
 
-	/** Seconds the cache keeps a snapshot nothing rewrites. */
+	/** Seconds the cache keeps a snapshot that is never rewritten. */
 	abstract protected function status_ttl(): int;
 
 	/** Seconds after which an unchanged snapshot is written again. */
@@ -110,8 +110,8 @@ trait Publishes_Status {
 	}
 
 	/**
-	 * The snapshot a node published, or null when the key is absent or no
-	 * shared cache exists.
+	 * The snapshot a node published, or null when the key is absent or the
+	 * host has no shared cache.
 	 *
 	 * @param string $name      The node's name.
 	 * @param int    $partition The worker partition it runs in.

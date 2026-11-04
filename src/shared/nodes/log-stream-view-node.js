@@ -185,7 +185,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 	 * Where a paused stream resumes: the boundary after the last record the
 	 * ring passed, so a record a pause dropped is read again, never skipped.
 	 * Null before any record, and while breadcrumbs are not tracked, since a
-	 * glob's crumbs name no one subscription's position.
+	 * glob's crumbs do not name any one subscription's position.
 	 *
 	 * @return {?{segment:number,offset:number}} The resume position.
 	 */
@@ -333,7 +333,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 	/**
 	 * Drop every buffered row and reset the line counter and the rate window
 	 * — the ONE reset `select`, `browse`, the `clear` verb and assigning
-	 * `lines` all land on, so no caller can half-clear the view.
+	 * `lines` all land on, so a caller cannot half-clear the view.
 	 */
 	_clear() {
 		this._emptyRing();

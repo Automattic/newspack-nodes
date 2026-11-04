@@ -400,7 +400,7 @@ class VaultCINodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 	// `add` declares the url required, so an absent one is refused by name —
 	// `Vault::add()`'s generic refusal names the URL format, which is the
-	// wrong cause when no url was sent at all.
+	// wrong cause when the request sent no url at all.
 	// ---------------------------------------------------------------------
 
 	public function test_add_refuses_a_missing_url(): void {

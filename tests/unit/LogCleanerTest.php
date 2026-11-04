@@ -235,8 +235,8 @@ class LogCleanerTest extends TestCase {
 
 	public function test_sweeps_jobstats_when_no_declaring_topology_is_active(): void {
 		// jobstats.p0 is TSL-declared (topologies/job-worker.tsl), not whitelisted.
-		// When no active topology declares it, it is an orphan and GCs like any other
-		// deactivated topology's log.
+		// When the active topologies do not declare it, it is an orphan and GCs
+		// like any other deactivated topology's log.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		$jobstats = $this->seed_log_partition( 'jobstats', 0 );
 
@@ -317,9 +317,10 @@ class LogCleanerTest extends TestCase {
 	}
 
 	public function test_a_producer_template_outside_the_logs_root_refuses_the_sweep_and_raises(): void {
-		// A producer whose template declares nothing has live dirs in NO declared
-		// set while a topology keeps that set non-empty, so the sweep would delete
-		// them. It refuses loudly, naming the template, before any delete.
+		// A producer whose template declares nothing has live dirs OUTSIDE the
+		// declared set while a topology keeps that set non-empty, so the sweep
+		// would delete them. It refuses loudly, naming the template, before any
+		// delete.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
 			static fn (): array => [ 'firehose-7702.p{partition}' ]
@@ -686,8 +687,9 @@ class LogCleanerTest extends TestCase {
 	public function test_sweeps_offsets_when_the_last_topology_is_deactivated(): void {
 		// Deactivating the last topology empties the offset bucket, and an empty
 		// bucket still sweeps — otherwise a fleet with everything inactive
-		// could never reclaim a cursor, however long it sat. No topology active
-		// means no consumer running, which is exactly when it is safe to.
+		// could never reclaim a cursor, however long it sat. With every
+		// topology inactive, no consumer is running, which is exactly when it
+		// is safe to.
 		$this->declare_inactive_topology(
 			'complete-cozy',
 			"make_node Consumer scored:consumer <config:logs_dir>/scored.p{partition} <config:offsets_dir>/scored.p{partition}\n"

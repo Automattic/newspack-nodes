@@ -112,7 +112,7 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 	}
 
 	public function test_catalog_includes_user_dir_topologies(): void {
-		// The editor's "New" writes a .tsl into the user dir, owned by no plugin.
+		// The editor's "New" writes a .tsl into the user dir, not owned by any plugin.
 		$user_dir = $this->make_temp_dir();
 		Topology_Registry::register_user_dir( $user_dir );
 		$this->seed_topology( $user_dir, 'my-custom' );

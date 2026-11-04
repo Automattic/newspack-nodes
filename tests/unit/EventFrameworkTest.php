@@ -268,9 +268,9 @@ class EventFrameworkTest extends TestCase {
 	}
 
 	public function test_drain_with_curl_and_no_timers_still_returns(): void {
-		// Confirms the cURL branch in drain_inner doesn't hang when no timers
-		// are registered: curl_multi_select uses the IDLE_TIMEOUT_US fallback
-		// (~100ms) and we exit on the should_continue gate.
+		// Confirms the cURL branch in drain_inner doesn't hang when there are
+		// no timers registered: curl_multi_select uses the IDLE_TIMEOUT_US
+		// fallback (~100ms) and we exit on the should_continue gate.
 		$ef = Event_Framework::instance();
 
 		$curl_node = $this->curl_owner();

@@ -35,9 +35,9 @@
  *            outline per include the canvas draws). Informational — the runtime
  *            is the Shell's `include`. The console's edit-mode baseline.
  *   delete — args `{name}`. Returns `{name, deleted, pruned_active,
- *            restarted_fleets}`. User copy only (stock immutable). When no stock
- *            copy resolves the name, restarts the affected fleets (symmetry
- *            with save) and prunes it from the active set
+ *            restarted_fleets}`. User copy only (stock immutable). When the
+ *            name does not resolve to a stock copy, restarts the affected
+ *            fleets (symmetry with save) and prunes it from the active set
  *            (`newspack_nodes_topologies`); `pruned_active` reports whether it
  *            was present and removed.
  *   activate   — args `{name}`. Adds the name to the persisted active set
@@ -45,7 +45,7 @@
  *                cache and spawns the fleet, all through the shared
  *                `Topology_Registry::activate()`. Returns
  *                `{name, active:true, spawned:<int>, warning}`: `warning`
- *                names the active topologies no conflict check could read,
+ *                names the active topologies the conflict check could not read,
  *                null when none.
  *   deactivate — args `{name}`. Removes the name from the active set, invalidates
  *                the config cache and drains the fleet, through
@@ -152,7 +152,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, source, tsl, includes, expanded, resolved_config_edges}`.
-	 * @throws \RuntimeException When the name is not file-name safe, resolves to no file, or names a file that cannot be read.
+	 * @throws \RuntimeException When the name is not file-name safe, does not
+	 *                           resolve to a file, or names a file that cannot
+	 *                           be read.
 	 */
 	public static function cmd_get( array $args ): array {
 		$name = self::require_valid_name( Core::as_string( $args['name'] ) );
@@ -336,7 +338,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, deleted, pruned_active, restarted_fleets}`.
-	 * @throws \RuntimeException When the name is not file-name safe, no user copy exists, or the unlink fails.
+	 * @throws \RuntimeException When the name is not file-name safe, the user
+	 *                           copy does not exist, or the unlink fails.
 	 */
 	public static function cmd_delete( array $args ): array {
 		$name = self::require_valid_name( Core::as_string( $args['name'] ) );
@@ -390,7 +393,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @param string $name Validated topology name.
 	 *
 	 * @return string Absolute path to the user copy, which need not exist yet.
-	 * @throws \RuntimeException When no user dir is configured.
+	 * @throws \RuntimeException When the config does not name a user dir.
 	 */
 	private static function user_path( string $name ): string {
 		$user_dir = Topology_Registry::user_dir();

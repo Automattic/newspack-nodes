@@ -44,7 +44,8 @@ import './TabHost.scss';
  * @param {Object}                props
  * @param {'overlay'|'station'}   props.host                Which registry scope to render.
  * @param {Object}                [props.tabProps]          Extra props spread into the mounted tab.
- * @param {*}                     [props.emptyState]        Rendered when no tab matches the host.
+ * @param {*}                     [props.emptyState]        Rendered when the
+ *                                                          host has no tabs.
  * @param {(id?: string) => void} [props.onActiveTabChange] Called with the resolved active tab id on mount and on every switch, and with `undefined` while the host has no tabs — lets a host key sibling chrome (the station's debug overlay) on which tab is showing. A switch reports from the click and again from the effect behind it, so the handler tolerates a repeated id.
  * @param {boolean}               [props.syncUrl]           Mirror the active tab into `?tab=<slug>` via replaceState; the initial tab is read from `?tab=`. Default false (overlay + other consumers stay URL-free).
  * @return {*} The tab bar and the selected tab, or the empty state.

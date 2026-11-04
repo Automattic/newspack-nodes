@@ -1,7 +1,7 @@
 /**
  * primaryButtonClass — a disabled button must not carry `button-primary`,
  * because core styles `.wp-core-ui .button-primary:disabled` with !important
- * and no selector we can write outranks it.
+ * and a selector we can write never outranks it.
  */
 
 import { primaryButtonClass } from '../buttonClass';

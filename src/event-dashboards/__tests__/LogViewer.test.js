@@ -221,7 +221,7 @@ describe( 'LogViewer', () => {
 		expect( select.options[ 1 ].textContent ).toBe( 'debug' );
 	} );
 
-	it( 'offers a row that names no log as a disabled option', async () => {
+	it( 'offers a row without a log as a disabled option', async () => {
 		const warn = jest
 			.spyOn( console, 'error' )
 			.mockImplementation( () => {} );

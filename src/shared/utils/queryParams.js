@@ -13,8 +13,8 @@
 /**
  * Read a query param from the current URL.
  *
- * A context with no `window` yields null instead of throwing, so no call site
- * carries its own guard.
+ * A context with no `window` yields null instead of throwing, so call sites
+ * carry no guard of their own.
  *
  * @param {string} name Param name.
  * @return {string|null} The value, or null when absent or unreadable.

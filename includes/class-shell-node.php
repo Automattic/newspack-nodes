@@ -178,7 +178,8 @@ class Shell_Node extends Node {
 	 * a session key (ADR-15). The minter signs.
 	 *
 	 * @param array<int,mixed> $message Message to parse or pass through.
-	 * @throws \RuntimeException When no sink is wired, or TYPE is not an integer.
+	 * @throws \RuntimeException When the node has no sink, or TYPE is not an
+	 *                           integer.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();
@@ -729,7 +730,7 @@ class Shell_Node extends Node {
 	 *
 	 * @param string       $verb The first token of the statement.
 	 * @param list<string> $args Tokens after the verb.
-	 * @return bool True when the verb was a builtin and no message is minted.
+	 * @return bool True when the verb was a builtin and mints no message.
 	 */
 	private function run_builtin( string $verb, array $args ): bool {
 		switch ( $verb ) {
@@ -990,9 +991,9 @@ class Shell_Node extends Node {
 
 	/**
 	 * Every offset where interpolation may open a `<…>` token: a `<` outside
-	 * single quotes and backticks, past no escape pair, and before an unquoted
-	 * `#`, whose comment tail is inert. The one statement of the quote rules
-	 * `interpolate()` follows and `expands()` reads.
+	 * single quotes and backticks, not escaped by a backslash, and before an
+	 * unquoted `#`, whose comment tail is inert. The one statement of the
+	 * quote rules `interpolate()` follows and `expands()` reads.
 	 *
 	 * @param string $line One statement, or one token's span.
 	 * @return \Generator<int,int>

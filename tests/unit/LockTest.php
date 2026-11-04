@@ -253,8 +253,9 @@ class LockTest extends TestCase {
 
 	/**
 	 * A holder may release between the dir check and the write. A dir gone by
-	 * then means no worker holds the slot, the same answer a missing dir gets.
-	 * The error text is never read: under a German locale it is not English.
+	 * then means the slot is not held by any worker, the same answer a missing
+	 * dir gets. The error text is never read: under a German locale it is not
+	 * English.
 	 */
 	public function test_request_stop_at_answers_false_when_the_holder_releases_mid_write(): void {
 		$dir = "{$this->tmp}/tidewater-sluice.p8.lock.d";
@@ -560,10 +561,10 @@ class LockTest extends TestCase {
 	}
 
 	/**
-	 * A stale write lock beside a partition — outside `locks/`, where no reaper
-	 * looks — holding a file this class never wrote and a stray subdirectory is
-	 * still stolen, and the steal leaves no aside behind: the stolen dir is
-	 * garbage the moment it is renamed away.
+	 * A stale write lock beside a partition — outside `locks/`, where a reaper
+	 * never looks — holding a file this class never wrote and a stray
+	 * subdirectory is still stolen, and the steal leaves no aside behind: the
+	 * stolen dir is garbage the moment it is renamed away.
 	 */
 	public function test_acquire_steals_a_stale_write_lock_holding_strays_and_leaves_no_aside(): void {
 		$dir = "{$this->tmp}/logs/scoria-vent.p3/write.lock.d";

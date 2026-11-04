@@ -992,7 +992,7 @@ describe( 'useGraphHandlers — onCompose', () => {
 			{ type: TM_COMMAND, name: 'ls', response: true },
 		],
 	] )(
-		'sets a filled Timestamp on %s, which nothing signs',
+		'sets a filled Timestamp on %s, which is never signed',
 		( label, over ) => {
 			const { refusal, sent } = compose( {
 				...over,
@@ -1182,7 +1182,7 @@ describe( 'useGraphHandlers — onCompose', () => {
 		expect( onReplSend ).not.toHaveBeenCalled();
 	} );
 
-	it( "echoes a struct's own auth key, which no signer added", () => {
+	it( "echoes a struct's own auth key, which a signer never added", () => {
 		const { sent, append } = compose( {
 			type: TM_STRUCT,
 			value: '{"auth":{"sig":"typed-7"}}',
@@ -1227,7 +1227,7 @@ describe( 'useGraphHandlers — onCompose', () => {
 		);
 
 		it.each( [ '1e13', 'abc' ] )(
-			'echoes a message whose TIMESTAMP %s makes no date',
+			'echoes a message whose TIMESTAMP %s does not make a date',
 			( timestamp ) => {
 				const { sent, append } = compose( {
 					type: TM_INFO,
@@ -1510,7 +1510,7 @@ describe( 'useGraphHandlers — invoke refusals', () => {
 		] );
 	} );
 
-	it( 'writes the refusal when no session can sign the command', () => {
+	it( 'writes the refusal when there is no session to sign the command', () => {
 		const { result, append } = renderHandlers( { graph, catalogClasses } );
 		Core.node( names.OUTPUT ).command = () => null;
 		result.current.onInspectorAction( 'invoke', 'n1', {

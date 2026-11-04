@@ -199,7 +199,7 @@ class ConsumerTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$this->tmp}/deadletter/public-reader.p0/.read-capability" );
 	}
 
-	/** The marker is no record, no offsetlog frame and no dead letter. */
+	/** The marker is not a record, an offsetlog frame or a dead letter. */
 	public function test_the_marker_reads_as_no_record_frame_or_dead_letter(): void {
 		$c = $this->read_a_gated_source();
 
@@ -513,9 +513,9 @@ class ConsumerTest extends TestCase {
 	}
 
 	/**
-	 * A Consumer's source is a read view, so no `cmd <reader>:source:config`
-	 * can lift its cap or take the log's write lock; the offsetlog it writes
-	 * keeps its `:config`, and its verbs reach it there.
+	 * A Consumer's source is a read view, so a `cmd <reader>:source:config`
+	 * can never lift its cap or take the log's write lock; the offsetlog it
+	 * writes keeps its `:config`, and its verbs reach it there.
 	 */
 	public function test_a_consumers_source_takes_no_config_and_its_offsetlog_keeps_one(): void {
 		$c = new Consumer_Node();
@@ -4896,7 +4896,7 @@ class ConsumerTest extends TestCase {
 			$c->interpreter()->dispatch( 'remove_snapshot_node', [ 'osprey-gate' ] );
 			$this->fail( 'an undeclared snapshot node was removed' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( "remove_snapshot_node 'osprey-gate' names no snapshot node this reader declares", $e->getMessage() );
+			$this->assertSame( "remove_snapshot_node 'osprey-gate' names a snapshot node this reader does not declare", $e->getMessage() );
 		}
 		$this->assertSame( [ 'flame-builder' ], $this->read_private( $c, 'snapshot_nodes' ) );
 	}

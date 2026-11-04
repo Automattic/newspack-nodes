@@ -41,7 +41,7 @@
 
 <div class="hop" data-span="2,3"><span class="n">5</span><span class="mono">build_scaffolding()</span> mounts <span class="mono">_router</span> (ticking at 1000 ms), <span class="mono">_command_interpreter</span>, <span class="mono">_fleet</span>, the <span class="mono">_repl</span> output Partition under <span class="mono">void_warranty()</span>, and the <span class="mono">_repl:input</span> IPC-input Consumer stamping <span class="mono">_repl</span>.</div>
 
-<div class="hop bad" data-span="2,3"><span class="n">6</span><span class="mono">run_topology()</span> evaluates the <span class="mono">.tsl</span>. Every statement runs; any that failed — a refused <span class="mono">make_node</span>, a <span class="mono">cmd</span> that throws or reaches no node, a missing or cyclic include — are raised together at end of file. The worker tears down, releases, raises the failure and does NOT respawn.</div>
+<div class="hop bad" data-span="2,3"><span class="n">6</span><span class="mono">run_topology()</span> evaluates the <span class="mono">.tsl</span>. Every statement runs; any that failed — a refused <span class="mono">make_node</span>, a <span class="mono">cmd</span> that throws or does not reach a node, a missing or cyclic include — are raised together at end of file. The worker tears down, releases, raises the failure and does NOT respawn.</div>
 
 <div class="panel" data-span="2,3">
   <header><span class="n">7</span><span class="mono">drain( should_continue, cooperative_stop: true )</span> — for about 595 seconds</header>

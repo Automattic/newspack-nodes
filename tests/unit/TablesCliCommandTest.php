@@ -143,8 +143,8 @@ final class TablesCliCommandTest extends TestCase {
 	 * A live `{topology}.p{partition}`'s lock dir with a fresh heartbeat, and
 	 * the read of its input channel a worker runs, verifying each command and
 	 * answering it through the interpreter it addresses onto its output
-	 * channel, TO the command's FROM; an address no node answers to bounces
-	 * as the Router bounces it.
+	 * channel, TO the command's FROM; an address without a node to answer it
+	 * bounces as the Router bounces it.
 	 *
 	 * @param bool $answers False for a worker that reads commands and answers none.
 	 */
@@ -501,7 +501,7 @@ final class TablesCliCommandTest extends TestCase {
 
 	// ── inactive topologies ──
 
-	/** Registers `emu-z`, declaring a `sqlite` Table over two partitions, and `ant-x`, including it; no option activates either. */
+	/** Registers `emu-z`, declaring a `sqlite` Table over two partitions, and `ant-x`, including it; neither is activated by any option. */
 	private function register_inactive_emu(): void {
 		$this->write_tsl( 'emu-z', "var num_partitions = 2\nmake_node Table lab-7:emu emu:p{partition} 4242 sqlite\n" );
 		$this->write_tsl( 'ant-x', "var num_partitions = 2\ninclude emu-z\n" );

@@ -493,7 +493,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 2207, Core::node( 'remote-aspen:firehose.p0' )->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
-	/** A start naming no generation places no backlog: the reader's place is unknown. */
+	/** A start that does not name a generation places no backlog: the reader's place is unknown. */
 	public function test_a_handshake_distance_at_no_generation_is_not_taken(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
@@ -524,7 +524,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 60417, $firehose->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
-	/** A record sent alone, outside a block, belongs to no stream: dropped, and said. */
+	/** A record sent alone, outside a block, does not belong to any stream: dropped, and said. */
 	public function test_a_record_frame_reaches_no_reader(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$errors = $this->capture_stderr();
@@ -631,8 +631,8 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// Ownership: a reader of a source naming no partition belongs to p0.
-	// ---------------------------------------------------------------------
+	// Ownership: a reader of a source that does not name a partition belongs to
+	// p0. ---------------------------------------------------------------------
 
 	/**
 	 * Build and connect a broker over two fixed sources and two partitioned
@@ -721,7 +721,7 @@ class RemoteSourceNodeTest extends TestCase {
 		);
 	}
 
-	/** @return array<string,array{string}> Label => a source no spoke can stream. */
+	/** @return array<string,array{string}> Label => a source that cannot be streamed by any spoke. */
 	public static function unstreamable_sources(): array {
 		return [
 			'an upper-case partition'         => [ 'Firehose.p0' ],
@@ -745,7 +745,7 @@ class RemoteSourceNodeTest extends TestCase {
 			$node->interpreter()->dispatch( 'add_source', [ $source, 'audit-17' ] );
 			$this->fail( 'expected the source to be refused' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( "add_source '{$source}' names a source no spoke can stream", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			$this->assertSame( "add_source '{$source}' names a source that spokes cannot stream", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 		}
 		$this->assertStringNotContainsString( 'add_source', $node->dump_config(), 'a refused source is not kept' );
 	}
@@ -770,7 +770,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = $this->bare_broker( 'remote-ibis' );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( "add_source 'Firehose.p{partition}' names a source no spoke can stream" );
+		$this->expectExceptionMessage( "add_source 'Firehose.p{partition}' names a source that spokes cannot stream" );
 		$node->interpreter()->dispatch( 'add_source', [ 'Firehose.p{partition}', 'heron-4471' ] );
 	}
 
@@ -934,7 +934,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
 	}
 
-	/** A glob removed takes only the readers no other source claims; a survivor takes its claimant's target. */
+	/** A glob removed takes only the readers that are not claimed by any other source; a survivor takes its claimant's target. */
 	public function test_removing_a_glob_retracts_only_the_readers_it_alone_claimed(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Core::$now = 5000.0;
@@ -953,7 +953,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'kite-2290', $kept->target() );
 	}
 
-	/** @return array<string,array{list<string>}> Label => a remove_source naming no declared source. */
+	/** @return array<string,array{list<string>}> Label => a remove_source that does not name a declared source. */
 	public static function undeclared_removals(): array {
 		return [
 			'a source never added'       => [ [ 'egret.p6', 'heron-4471' ] ],
@@ -962,7 +962,7 @@ class RemoteSourceNodeTest extends TestCase {
 		];
 	}
 
-	/** A removal naming no declared source is refused, naming it as written, and changes nothing. */
+	/** A removal that does not name a declared source is refused, naming it as written, and changes nothing. */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'undeclared_removals' )]
 	public function test_remove_source_refuses_a_source_not_declared( array $tokens ): void {
 		$node = $this->bare_broker( 'remote-ibis' );
@@ -974,7 +974,7 @@ class RemoteSourceNodeTest extends TestCase {
 			$node->interpreter()->dispatch( 'remove_source', $tokens );
 			$this->fail( 'expected the removal to be refused' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( "remove_source '{$bound['remote_log']}' '{$bound['local_node']}' names no source this node declares", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			$this->assertSame( "remove_source '{$bound['remote_log']}' '{$bound['local_node']}' names a source this node does not declare", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 		}
 		$this->assertSame( $before, $node->dump_config() );
 	}
@@ -1033,7 +1033,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( $expected, $targets );
 	}
 
-	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>|array{refused:string}}> Each case's answer where no partition is bound, as a browser link folds. */
+	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>|array{refused:string}}> Each case's answer with no partition bound, as a browser link folds. */
 	public static function unbound_source_commands(): array {
 		$cases = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-sources.json' ), true );
 		return \array_column( \array_map( static fn ( array $c ): array => [ $c[0], [ $c[1], $c[3]['unbound'] ?? $c[2] ] ], $cases ), 1, 0 );
@@ -1173,7 +1173,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
 		$this->assertSame( 0, $child->buffered_bytes(), 'no reader is handed it' );
-		$this->assertStringContainsString( 'dropping a line no source claims: jobstats.p5', \implode( '', $errors->getArrayCopy() ) );
+		$this->assertStringContainsString( 'dropping a line that is not claimed by any source: jobstats.p5', \implode( '', $errors->getArrayCopy() ) );
 	}
 
 	public function test_a_line_with_no_stamp_is_dropped(): void {
@@ -1190,9 +1190,9 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/**
 	 * A glob's `*` matches any run of a segment, so a spoke can send a stamp
-	 * the source claims that no stream would be named — a doubled dot, a space,
-	 * a NUL, a name too long for a directory — or one naming a slot the
-	 * broker keeps for itself.
+	 * the source claims but that a stream would never be named — a doubled dot,
+	 * a space, a NUL, a name too long for a directory — or one naming a slot
+	 * the broker keeps for itself.
 	 *
 	 * @return array<string,array{list<string>,string,string}> Label => source, the stamp a spoke sends, the refusal logged.
 	 */
@@ -1205,7 +1205,7 @@ class RemoteSourceNodeTest extends TestCase {
 			'a NUL'                               => [ [ 'kea*', 'herd-52' ], "kea\0hose.p0", $grammar ],
 			'a name too long for a directory'     => [ [ 'kea*', 'herd-52' ], 'kea' . \str_repeat( 'w', 300 ), $grammar ],
 			'the slot of the broker\'s null sink' => [ [ 'n*', 'herd-52' ], 'null', 'refusing a stamp that names a slot the broker keeps' ],
-			'a broker reader\'s stamp no glob carries' => [ [ 'o*', 'herd-52' ], 'offsets:hub.tw0:firehose.p0', 'dropping a line no source claims' ],
+			'a broker reader\'s stamp outside every glob' => [ [ 'o*', 'herd-52' ], 'offsets:hub.tw0:firehose.p0', 'dropping a line that is not claimed by any source' ],
 		];
 	}
 
@@ -1542,7 +1542,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertCount( 2, $asked, 'one reconnect for the pause' );
 		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'], 'a paused reader stays out of the request' );
 
-		// A tick of its own, so no reconnect the pause owed can absorb it.
+		// A tick of its own, so it cannot be absorbed by any reconnect the pause owed.
 		$php->next_offset( [ 'segment' => 3, 'offset' => 5 ] );
 		$this->assertNotNull( $sse->test_get_handle(), 'paused, a seek leaves the stream open' );
 		Core::$now = 6045.0;
@@ -1761,7 +1761,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		Core::$now = 1748959990.0;
 		[ $node ] = $this->make_remote( 'remote-aspen' );
-		// Twelve digits: no midfix's pid or uptime can hold the owner.
+		// Twelve digits: neither a midfix's pid nor its uptime can hold the owner.
 		self::set_slot( Core::node( 'remote-aspen:sse-in' ), 7, 731942580617 );
 		Core::$now = 1748960000.0;
 		$node->fire();

@@ -658,7 +658,7 @@ return [
 	// 'base_directory' => '/tmp/newspack-nodes',
 ];
 PHP
-assert_flags 'a comment run naming no key is flagged in a config file' \
+assert_flags 'a comment run that does not name a key is flagged in a config file' \
 	"$root/zzlint-prose-config.php" 'documents no config key'
 
 # Length is NOT relaxed: a ledger line still fits the 80 columns.

@@ -22,9 +22,9 @@ namespace Newspack_Nodes;
  * Timer and cURL scheduling for one process, plus the cooperative-stop seam.
  *
  * A singleton because the loop is process state rather than graph state: any
- * node arms a timer through `instance()`, so nothing has to thread a reference
- * down the graph to reach it. `Worker_Base`, `wp nodes cli` and an SSE stream
- * each enter it through `drain()`.
+ * node arms a timer through `instance()`, so a reference never has to be
+ * threaded down the graph to reach it. `Worker_Base`, `wp nodes cli` and an SSE
+ * stream each enter it through `drain()`.
  */
 class Event_Framework {
 
@@ -287,10 +287,11 @@ class Event_Framework {
 	/**
 	 * Microseconds to wait before the soonest armed timer is due.
 	 *
-	 * Yields IDLE_TIMEOUT_US when no timer is armed, and 0 when one is already
-	 * overdue, which drops the tick's wait to nothing so the timer fires at once.
-	 * It rounds up, so a wait never ends a fraction of a microsecond short of
-	 * a fire time that is not a whole microsecond away, as a grid boundary is.
+	 * Yields IDLE_TIMEOUT_US when the loop has no timer armed, and 0 when one
+	 * is already overdue, which drops the tick's wait to nothing so the timer
+	 * fires at once. It rounds up, so a wait never ends a fraction of a
+	 * microsecond short of a fire time that is not a whole microsecond away, as
+	 * a grid boundary is.
 	 *
 	 * @return int Microseconds, never negative.
 	 */
@@ -395,7 +396,7 @@ class Event_Framework {
 	 * web request, a cli or an SSE stream is never thrown out of its own loop.
 	 *
 	 * The throttle reads the live clock through `Core::right_now()` rather than
-	 * the cached `Core::$now`, which nothing refreshes while a blocking job runs
+	 * the cached `Core::$now`, which is not refreshed while a blocking job runs
 	 * — a frozen read could not gate anything. Going through `right_now()` also
 	 * un-freezes that cached clock on every pump a worker makes, throttled or
 	 * not, which is what keeps mid-job message TIMESTAMPs advancing.
@@ -517,14 +518,14 @@ class Event_Framework {
 	}
 
 	/**
-	 * Run $work as one unit no cooperative stop may split: `stop_check()`, and
-	 * so `pump()`, raises nothing while it runs. A stop that fell due inside
-	 * raises at the first check after it, because a held check leaves the pump
-	 * throttle where it was. `Consumer_Node`'s checkpoint writer runs the
-	 * snapshot saves and the frame commit this way, since a save that writes,
-	 * as Flame_Builder's flush into its stats Tables does, would otherwise
-	 * stop between the state it saved and the frame carrying that state.
-	 * Reentrant: a nested unit hands the outer one back its hold.
+	 * Run $work as one unit that a cooperative stop may not split:
+	 * `stop_check()`, and so `pump()`, raises nothing while it runs. A stop
+	 * that fell due inside raises at the first check after it, because a held
+	 * check leaves the pump throttle where it was. `Consumer_Node`'s checkpoint
+	 * writer runs the snapshot saves and the frame commit this way, since a
+	 * save that writes, as Flame_Builder's flush into its stats Tables does,
+	 * would otherwise stop between the state it saved and the frame carrying
+	 * that state. Reentrant: a nested unit hands the outer one back its hold.
 	 *
 	 * @param \Closure(): void $work The unit.
 	 * @throws \Throwable Whatever $work throws.

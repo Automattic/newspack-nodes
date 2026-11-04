@@ -73,7 +73,7 @@ describe( 'parseMetadata', () => {
 		);
 	} );
 
-	it( 'defaults pwd to empty string when no _header is present', () => {
+	it( 'defaults pwd to empty string when the _header is absent', () => {
 		expect(
 			parseMetadata( { a: { class: 'Echo', counter: 0 } } ).pwd
 		).toBe( '' );

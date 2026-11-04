@@ -98,7 +98,8 @@ final class Oauth_Consent {
 	 * The approval form for a checked request.
 	 *
 	 * @param Request $request      The request.
-	 * @param bool    $refused_name Whether an approval came back naming no connection.
+	 * @param bool    $refused_name Whether an approval came back without a
+	 *                              connection name.
 	 */
 	private static function form( array $request, bool $refused_name ): void {
 		$host   = Core::str( \wp_parse_url( $request['params']['redirect_uri'], \PHP_URL_HOST ) );
@@ -301,7 +302,7 @@ final class Oauth_Consent {
 		}
 		if ( null === Oauth_Server::resource_metadata( $params['resource'] ) ) {
 			/* translators: %s: the resource the request named. */
-			return \sprintf( \__( 'This site serves no resource %s.', 'newspack-nodes' ), $params['resource'] );
+			return \sprintf( \__( 'This site does not serve the resource %s.', 'newspack-nodes' ), $params['resource'] );
 		}
 		$scopes = self::scopes();
 		if ( [] === $scopes ) {

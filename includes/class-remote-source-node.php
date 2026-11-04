@@ -164,8 +164,8 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	 * Make the housekeeping due on the timer scan that follows the cURL
 	 * completion asking for it, later in the same drain iteration: a recurring
 	 * 0 ms slot of its own in place of the Router hitchhike, which `fire()`
-	 * swaps back. `SSE_In` asks from inside that completion, where nothing may
-	 * connect. A stopped broker stays stopped.
+	 * swaps back. `SSE_In` asks from inside that completion, where connecting
+	 * is not allowed. A stopped broker stays stopped.
 	 */
 	private function housekeep_now(): void {
 		if ( ! $this->timer_is_active() ) {
@@ -210,9 +210,9 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	/**
 	 * Route one raw block, or its header, to the reader its FROM stamp names,
 	 * which splits the block into records. A frame that will not unpack has
-	 * nothing to route by, and one that is not a raw block belongs to no stream
-	 * this broker reads: both are dropped, rate-limited. `consumer_for()`
-	 * refuses the rest.
+	 * nothing to route by, and one that is not a raw block does not belong to
+	 * any stream this broker reads: both are dropped, rate-limited.
+	 * `consumer_for()` refuses the rest.
 	 *
 	 * @param string $raw One packed Message.
 	 */

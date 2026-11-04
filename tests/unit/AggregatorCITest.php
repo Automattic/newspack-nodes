@@ -477,8 +477,8 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_all_verbs_declare_no_args(): void {
-		// summary/list_servers read no $payload/$args — neither handler even
-		// declares a $payload param, so each stays args => [].
+		// summary/list_servers do not read $payload or $args — neither handler
+		// even declares a $payload param, so each stays args => [].
 		$verbs = [];
 		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $verb ) {
 			$verbs[ $verb['name'] ] = $verb;

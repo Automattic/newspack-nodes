@@ -77,10 +77,10 @@ class Topic_Probe_Node extends Probe_Node {
 
 	/**
 	 * Read the cadence `topic-probe.tsl` declares, or `DEFAULT_INTERVAL_S` when
-	 * no such topology is registered or it names no `Topic_Probe`. Memoized for
-	 * the request — a status poll asks once per reader row — off a graph the
-	 * analyzer already caches; `forget_interval()` drops the memo when the active
-	 * set changes.
+	 * the topology is not registered or does not name a `Topic_Probe`. Memoized
+	 * for the request — a status poll asks once per reader row — off a graph
+	 * the analyzer already caches; `forget_interval()` drops the memo when the
+	 * active set changes.
 	 *
 	 * @throws \RuntimeException When the topology is registered but will not parse.
 	 */

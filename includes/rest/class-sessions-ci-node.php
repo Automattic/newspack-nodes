@@ -77,7 +77,8 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 * to what the issuing user actually holds, so an editor asking for `manage`
 	 * receives a session that says `read`. A scope off the ladder is a typo and
 	 * is refused, because clamping a misspelling would hand back a working key
-	 * under a scope nobody asked for. The ttl is clamped to the session bounds.
+	 * under a scope that was never asked for. The ttl is clamped to the session
+	 * bounds.
 	 *
 	 * An empty label still mints a working session, and `Sessions::issue()`
 	 * declines to list it: the automatic `/auth` mints are unlabelled, and
@@ -109,7 +110,8 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array<string,mixed> The id, and `revoked`.
-	 * @throws \RuntimeException When the store did not answer, or no session or connection held the id.
+	 * @throws \RuntimeException When the store did not answer, or the id named
+	 *                           neither a session nor a connection.
 	 */
 	public static function cmd_revoke( array $args ): array {
 		$id = Core::as_string( $args['id'] );

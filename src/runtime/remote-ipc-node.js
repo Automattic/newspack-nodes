@@ -50,7 +50,7 @@ import names from './reserved-node-names.json';
 export class RemoteIpcNode extends RemoteLinkNode {
 	/**
 	 * The RemoteIpc holding the live SseIn — one per session, and a send on any
-	 * other RemoteIpc takes it. Null while no stream is open.
+	 * other RemoteIpc takes it. Null while there is no open stream.
 	 *
 	 * @type {?RemoteIpcNode}
 	 */
@@ -130,7 +130,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		// _http holds both in the one POST every send of this task joins.
 		const h = Core.node( names.HTTP );
 		if ( ! h ) {
-			// Mid-rebuild: no reply is deliverable, but silence reads as a 202.
+			// Mid-rebuild a reply is undeliverable, but silence reads as a 202.
 			this.dropMessage( message, 'no sink' );
 			return;
 		}
@@ -191,7 +191,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * RemoteIpc throws on its first connect or send rather than posting commands
 	 * into an empty address.
 	 *
-	 * @throws {Error} When no `reader` is configured.
+	 * @throws {Error} When the `reader` is not configured.
 	 */
 	_assertConfigured() {
 		if ( '' === this.reader ) {
@@ -201,7 +201,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 	/**
 	 * Close the composed stream and release this session's live-connection
-	 * claim, so nothing holds the slot until another link connects.
+	 * claim, so the slot stays free until another link connects.
 	 */
 	close() {
 		super.close();

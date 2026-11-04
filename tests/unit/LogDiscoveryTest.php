@@ -11,7 +11,8 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Disk-discovery primitive — readdir the first-level dirs under `{base}/logs`
  * and return the concrete dir basename list verbatim (flat partition-in-name
- * layout: `firehose.p0`), so no application hardcodes a log catalog.
+ * layout: `firehose.p0`), so that an application never hardcodes a log
+ * catalog.
  */
 #[CoversClass( Log_Discovery::class )]
 class LogDiscoveryTest extends TestCase {
@@ -132,7 +133,7 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( 'deadletter:hub.TundraLedger:firehose.p3', Log_Discovery::source_for( 'deadletter/hub.TundraLedger/firehose.p3' ) );
 	}
 
-	/** A sidecar no stamp names keeps its path, and throws nothing. */
+	/** A sidecar that is not named by any stamp keeps its path, and throws nothing. */
 	public function test_source_for_keeps_the_path_of_a_reader_no_stamp_names(): void {
 		$this->assertSame( 'offsets/hub:tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub:tw0/firehose.p3' ) );
 		$this->assertSame( 'offsets/hub tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub tw0/firehose.p3' ), 'a root ROOT_PATTERN refuses' );
@@ -182,7 +183,7 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [ 'fleet-58' ], Log_Discovery::groups()['offsets'] );
 	}
 
-	/** A dir the catalog cannot read is named apart, and costs no other dir its place. */
+	/** A dir the catalog cannot read is named apart, and every other dir keeps its place. */
 	public function test_groups_names_a_dir_it_cannot_read_and_lists_the_rest(): void {
 		$this->seed_segment( 'deadletter/hub.coast-73/firehose.p3', 3 );
 		$this->seed_segment( 'deadletter/hub.tundra-41/firehose.p3', 5 );

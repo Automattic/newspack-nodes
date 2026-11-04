@@ -11,8 +11,8 @@
  *      Service_CI_Node::commands_from_schema() and dispatch to nothing.
  *
  *   2. Constructing the interpreter emits NO "no callable handler" warning — proves
- *      no verb lacks a handler (commands_from_schema warns + skips any named verb
- *      that lacks a callable handler).
+ *      every verb has a handler (commands_from_schema warns + skips any named
+ *      verb that lacks a callable handler).
  *
  * @package Newspack_Nodes
  */

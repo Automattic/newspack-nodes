@@ -28,7 +28,7 @@ export class TapNode extends TeeNode {
 	 *
 	 * @param {Array} message 7-field positional message, forwarded unchanged;
 	 *                        only the per-target copies get their TO rewritten.
-	 * @throws {Error} When no sink is wired, or what the fan-out threw.
+	 * @throws {Error} When the node has no sink, or what the fan-out threw.
 	 */
 	fill( message ) {
 		this.counter++;

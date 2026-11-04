@@ -170,10 +170,11 @@ trait Durable_Reader {
 	protected string $stamp_override = '';
 
 	/**
-	 * When and why this reader idles, or null while it reads. A source naming
-	 * no partition is read on worker p0 alone (ADR-33), so a reader of one
-	 * built on any other worker opens nothing, arms no timer, blanks its
-	 * offsetlog and dead-letter dirs and reports `POLLING` as `IDLE`.
+	 * When and why this reader idles, or null while it reads. A source that
+	 * does not name a partition is read on worker p0 alone (ADR-33), so a
+	 * reader of one built on any other worker opens nothing, arms no timer,
+	 * blanks its offsetlog and dead-letter dirs and reports `POLLING` as
+	 * `IDLE`.
 	 *
 	 * @var array{since:float,reason:string}|null
 	 */
@@ -523,7 +524,8 @@ trait Durable_Reader {
 	 * its lifted cap, since its writer is still the sole one.
 	 *
 	 * @param string $name A node `add_snapshot_node` named.
-	 * @throws \InvalidArgumentException When this reader names no such snapshot node.
+	 * @throws \InvalidArgumentException When this reader does not name that
+	 *                                   snapshot node.
 	 */
 	public function remove_snapshot_node( string $name ): void {
 		if ( ! \in_array( $name, $this->snapshot_nodes, true ) ) {
@@ -583,7 +585,7 @@ trait Durable_Reader {
 
 	/**
 	 * Refuse a per-partition source beside an offsetlog or dead-letter dir
-	 * naming no partition: every worker would commit one cursor and
+	 * that does not name a partition: every worker would commit one cursor and
 	 * quarantine into one queue. Judged on the tokens as written, before any
 	 * field moves, and static, so the analyzer refuses the line a load would.
 	 *
@@ -769,7 +771,7 @@ trait Durable_Reader {
 	 * otherwise end every read until the segment rotates. Each such caller
 	 * reports `take_unparseable_lines()` where its reader can see it. A reader
 	 * with a cursor or a quarantine is refused: the first would commit past a
-	 * line nothing replays, and the second is where that line belongs.
+	 * line that is never replayed, and the second is where that line belongs.
 	 *
 	 * @api Programmatic only, not a verb: a topology's readers are durable.
 	 * @param bool $flag True skips and counts; false raises, the default.
@@ -823,7 +825,7 @@ trait Durable_Reader {
 	 * name is all this does — the restore is deferred so topology declaration
 	 * order can't forward-reference a node that doesn't exist yet. Lifts the
 	 * offsetlog's PIPE_BUF cap (void_warranty): the worker holding the topology
-	 * lock is the offsetlog's sole writer, so no per-write lock is needed.
+	 * lock is the offsetlog's sole writer, so it needs no per-write lock.
 	 *
 	 * A snapshot node must handle the record the cursor still points at
 	 * idempotently. A plain stop leaves the cursor on the in-flight record, so
@@ -1304,8 +1306,8 @@ trait Durable_Reader {
 	/**
 	 * Consume-cursor advance: move the durable read offset PAST the record just drained, by the
 	 * length in its own crumb. Called once per record from the drain loop — the one place that
-	 * owns it, so no forward_line override can forget it — after the record was forwarded and
-	 * its ID stamped from the pre-advance cursor.
+	 * owns it, so a forward_line override can never forget it — after the
+	 * record was forwarded and its ID stamped from the pre-advance cursor.
 	 *
 	 * The cursor therefore always names the next UNREAD position, and it means that for every
 	 * reader. Pinned at the last-forwarded record's start instead, every resume re-delivers that
@@ -1599,7 +1601,7 @@ trait Durable_Reader {
 		$this->ensure_offsetlog();
 		$this->ensure_deadletter();
 		$this->stop_timer();
-		// Never polled again: no probe sweep claims a reader that is not READY.
+		// Never polled again: a probe sweep claims only a READY reader.
 		unset( $this->set_state['READY'] );
 		$this->poll_cb          = null;
 		$this->poll_initialized = false;
@@ -1615,7 +1617,7 @@ trait Durable_Reader {
 	 *
 	 * Idempotent on the dir, not on the property: `arguments()` is a replay
 	 * setter, so an incumbent built for a dir the args have since superseded
-	 * goes on committing the cursor where nothing reads it. Retracting here is
+	 * goes on committing the cursor where it is never read. Retracting here is
 	 * what covers every reader — the two that build their sidecars from
 	 * `arguments()` and the one that builds them lazily — without any of them
 	 * spelling the rule again.

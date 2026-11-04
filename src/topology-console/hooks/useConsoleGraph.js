@@ -78,10 +78,10 @@ import { ROUTER_TICK_MS } from '../../runtime/router-node';
  * `enabled`.
  *
  * One RemoteIpc per active worker, named `{topology}.p{N}`, so `cd /{worker}`
- * routes straight to it and no node demultiplexes replies for several workers
- * (ADR-7). Only one SSE stream is live at a time, because slots are a finite
- * host-wide pool: the active worker's RemoteIpc steals it on a send or a
- * connect.
+ * routes straight to it and a node never demultiplexes replies for several
+ * workers (ADR-7). Only one SSE stream is live at a time, because slots are a
+ * finite host-wide pool: the active worker's RemoteIpc steals it on a send or
+ * a connect.
  *
  * The view nodes come down on unmount and on entering edit mode. The backbone
  * beneath them stands for as long as the console is mounted.
@@ -298,9 +298,9 @@ export function useConsoleGraph( {
 	 *
 	 * Seed the COMPOSED graph. A topology that mostly `include`s others owns few
 	 * nodes of its own, so seeding the parsed file alone paints a sliver and the
-	 * rest pops in on the next `dump_metadata` — a staged paint no autofit
-	 * survives. `topologies get` ships the expansion that composition needs.
-	 * An owner's sidecars stay off it, as they stay off the live graph.
+	 * rest pops in on the next `dump_metadata` — a staged paint that defeats
+	 * every autofit. `topologies get` ships the expansion that composition
+	 * needs. An owner's sidecars stay off it, as they stay off the live graph.
 	 */
 	useEffect( () => {
 		// Without `fans_out` a custom fan-out seeds wrong edges, confidently.

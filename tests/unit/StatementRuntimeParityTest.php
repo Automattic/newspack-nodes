@@ -78,7 +78,7 @@ TSL;
 
 	/**
 	 * TYPE/TO/VALUE — what the message says. `ping` carries the mint clock as
-	 * its VALUE, which no two runs share; normalize it to the type name.
+	 * its VALUE, which differs from run to run; normalize it to the type name.
 	 *
 	 * @param array<int,mixed> $message A minted Message.
 	 */

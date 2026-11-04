@@ -22,7 +22,7 @@ You already know these ideas — they wear different names here. The right colum
 | You know… | In Nodes… | The difference that matters |
 |---|---|---|
 | `add_action()` / `do_action()` | [`Hook_Node`](../includes/class-hook-node.php), or `register()` / `notify()` on any node | Same pub/sub idea, wired in a topology file instead of scattered through code |
-| `wp_schedule_event()` (cron) | [`Timer_Node`](../includes/class-timer-node.php) | Fires inside an always-on worker, so no traffic is needed; an interval under the one-second router tick takes its own event-loop slot |
+| `wp_schedule_event()` (cron) | [`Timer_Node`](../includes/class-timer-node.php) | Fires inside an always-on worker, so it needs no traffic; an interval under the one-second router tick takes its own event-loop slot |
 | `wp_schedule_single_event()` | [`Job_Intake::queue`](../includes/class-job-intake.php)`( $handler, $id, $params, null, null, null, [ 'delay' => $s ] )` | Durable: the entry parks in the `jobdelay.p0` log and survives a restart. The sweep that delivers it rides the minute cadence, so it fires late, never early. `$options` is the seventh parameter, behind `$key` and the `$base_dir` and `$num_partitions` overrides tests use — pass the three nulls |
 | Action Scheduler job | `Job_Intake::queue()` + a `newspack_nodes/job_handlers` handler | Adds opt-in retries with exponential backoff, batch fan-in and per-job stats, all on the queued path. Its small-job counterpart `Job_Intake::feed()` accepts no options at all |
 | `error_log()` (debug.log) | [`Log_Node`](../includes/class-log-node.php) | Segmented: it rotates at a byte size, prunes by count and age, and the dashboard tails it |

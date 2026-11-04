@@ -508,7 +508,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 		} );
 	} );
 
-	// One log no worker probes: its live segments, stamped at `at`.
+	// One unprobed log: its live segments, stamped at `at`.
 	const unprobed = ( segments, at ) => ( {
 		...FANOUT_DATA,
 		consumers: [],
@@ -531,7 +531,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 		logs_at: at,
 	} );
 
-	it( 'rates a log no probe record names from its live segments on the stat clock', () => {
+	it( 'rates a log absent from every probe record from its live segments on the stat clock', () => {
 		const src = 'completed.p0';
 		const p1 = reconstructWorkers(
 			unprobed( [ { id: 4, size: 100 } ], 1000.25 ),

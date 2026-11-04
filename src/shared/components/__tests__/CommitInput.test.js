@@ -366,7 +366,7 @@ describe( 'CommitInput', () => {
 		}
 	);
 
-	it( 'never commits a replacement naming no suggestion', () => {
+	it( 'never commits a replacement that is not one of the suggestions', () => {
 		const onCommit = jest.fn();
 		const { input } = mount( {
 			value: '',

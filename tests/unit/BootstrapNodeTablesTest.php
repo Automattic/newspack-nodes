@@ -624,8 +624,9 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	/**
-	 * An active name no `.tsl` resolves declares nothing, so it fails no
-	 * lookup; `wp nodes doctor` and the spawn gate stay where it is loud.
+	 * An active name that does not resolve to any `.tsl` declares nothing, so
+	 * it never fails a lookup; `wp nodes doctor` and the spawn gate stay where
+	 * it is loud.
 	 */
 	public function test_an_active_name_with_no_tsl_fails_no_row_table_lookup(): void {
 		$this->activate( 'quoll-a', 'plugin-gone-7392' );
@@ -648,7 +649,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->assertStringNotContainsString( 'plugin-gone-7392', $e->getMessage() );
 	}
 
-	/** A table or dir lookup reads past an active name no `.tsl` resolves. */
+	/** A table or dir lookup reads past an active name that does not resolve to any `.tsl`. */
 	public function test_an_active_name_with_no_tsl_fails_no_table_or_dir_lookup(): void {
 		$this->activate( 'kea-a', 'plugin-gone-7392' );
 
@@ -670,7 +671,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	public function test_a_class_that_names_no_row_schema_is_refused(): void {
 		$this->activate( 'quoll-a' );
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'Newspack_Nodes\\Tests\\Capture_Sink_Node names no Row_Schema' );
+		$this->expectExceptionMessage( 'Newspack_Nodes\\Tests\\Capture_Sink_Node does not name a Row_Schema' );
 		Bootstrap::row_table( Capture_Sink_Node::class );
 	}
 

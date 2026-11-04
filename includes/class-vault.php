@@ -62,8 +62,8 @@ class Vault {
 
 	/**
 	 * Header names that frame a request, hold or upgrade its connection, or
-	 * carry its cookies or a proxy's credential, lowercased: no credential
-	 * rides in one, and no `Curl_Node` request sends or reads one.
+	 * carry its cookies or a proxy's credential, lowercased: a credential
+	 * never rides in one, and a `Curl_Node` request never sends or reads one.
 	 *
 	 * @api Curl_Node
 	 */
@@ -124,9 +124,10 @@ class Vault {
 	/**
 	 * Every server in the Vault, under the name that reads as intent.
 	 *
-	 * A spoke is enabled by being present — wired into the graph — so no stored
-	 * flag decides it and this is an alias for `get_all()`. It keeps a name of its
-	 * own so a caller expressing "the enabled spokes" stays readable.
+	 * A spoke is enabled by being present — wired into the graph — so a stored
+	 * flag never decides it and this is an alias for `get_all()`. It keeps a
+	 * name of its own so a caller expressing "the enabled spokes" stays
+	 * readable.
 	 *
 	 * @api
 	 * @return array<array-key,array<string,mixed>> Keys are array-key, not string: PHP coerces a numeric server id to int.
@@ -140,7 +141,8 @@ class Vault {
 	 *
 	 * @api
 	 * @param string $id Server id.
-	 * @return array<string,mixed>|null The config, or null when no entry claims that id.
+	 * @return array<string,mixed>|null The config, or null when the id is not
+	 *                                  claimed by any entry.
 	 */
 	public function get( string $id ): ?array {
 		$servers = $this->get_all();
@@ -262,7 +264,7 @@ class Vault {
 
 		$wp_servers = $this->get_wp_servers();
 		if ( $renaming ) {
-			// One write does the move; no reader sees both ids or neither.
+			// One write does the move; a reader never sees both ids or neither.
 			unset( $wp_servers[ $id ] );
 		}
 		$wp_servers[ $target ] = $validated;
@@ -429,7 +431,7 @@ class Vault {
 	/**
 	 * Whether a URL may carry a credential: userinfo — `user@` or `user:pass@`
 	 * before its host — in the URL as it would be STORED, or a stored form
-	 * that will not parse, since nothing then shows it has none.
+	 * that will not parse, since then it cannot be shown to have none.
 	 *
 	 * The ONE rule: `validate_config()` refuses such a URL and the `vault` CI
 	 * names the refusal. A credential belongs in the sealed password field; in

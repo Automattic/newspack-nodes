@@ -36,23 +36,23 @@
 /**
  * The fixed colors, keyed by the base name `getStateColor` reduces an event to.
  *
- * Two keys carry a fallback role: `hook` colors a hook no category pattern
- * claims, and `default` colors a name this table does not hold at all.
+ * Two keys carry a fallback role: `hook` colors a hook outside every category
+ * pattern, and `default` colors a name this table does not hold at all.
  */
 const SYSTEM_COLORS = {
 	process: '#FF7043',
 	custom: '#FF5722',
 	hook: '#66BB6A',
 	plugin: '#AB47BC', // Purple for plugin timing.
-	command: '#905665', // Morganite 900, a hue no other span takes.
+	command: '#905665', // Morganite 900, a hue unused by any other span.
 	complete: '#4CAF50',
 	// @longform Query and outbound-HTTP spans are named `base: detail`, so
 	// they resolve here on the base. Both carry a hue of their own rather
 	// than sharing `request`'s grey, which would leave the two most
 	// expensive things in a trace the two least visible. HTTP takes the
 	// hook categorizer's own HTTP color so a span reads like the hooks
-	// around it; SQL has no category to borrow from and takes a hue no hook
-	// category uses.
+	// around it; SQL has no category to borrow from and takes a hue unused
+	// by any hook category.
 	sql: '#8E24AA',
 	http: '#42A5F5',
 	aggregate: '#9e9e9e',
@@ -127,8 +127,8 @@ const getCompiledPatterns = () => {
  * Memoized lookups from hook name to color, misses included.
  *
  * A miss caches `null` rather than nothing, which is why the read tests
- * `!== undefined`. The common case in a busy trace is a hook no category
- * claims, and rerunning every pattern against it on each row is the cost
+ * `!== undefined`. The common case in a busy trace is a hook outside every
+ * category, and rerunning every pattern against it on each row is the cost
  * worth avoiding.
  */
 const hookColorCache = {};

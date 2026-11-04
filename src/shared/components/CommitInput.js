@@ -47,7 +47,7 @@ const oneKeystroke = ( before, after ) => {
 /**
  * Whether an edit picked a suggestion rather than typed toward one. A browser
  * filling the box from its list says so through `insertReplacementText`;
- * one that names no inputType filled it when the text jumped further than a
+ * one that omits inputType filled it when the text jumped further than a
  * keystroke reaches.
  *
  * @param {Event}        event       The native input event.
@@ -103,7 +103,7 @@ const picked = ( event, before, after, suggestions ) => {
  * is false, and only a draft differing from `value`. A suggestion picked from
  * the list commits at once, as Enter would, while the same text typed key by
  * key waits for Enter; a refused pick shows its refusal whatever
- * `refuseWhileTyping` says. A browser naming no `inputType` is read by how
+ * `refuseWhileTyping` says. A browser that omits `inputType` is read by how
  * far the text jumped, so there a pick one character from the typed text
  * reads as a keystroke and waits for Enter. The owner may refuse by
  * returning the reason, which the field shows beside the draft it refused, so

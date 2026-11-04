@@ -26,7 +26,7 @@
 <div class="lane card" data-lane="2"><h3>The backing closure</h3><p>Installed by <span class="mono">backed_by( \Closure )</span>. The application supplies it: it knows the line format.</p></div>
 <div class="lane card" data-lane="3"><h3><span class="mono">Partition_Node</span></h3><p>Treats index lines and keys as opaque strings. Owns the walk.</p></div>
 
-<div class="hop" data-arrow="0,1" data-cap="lookup" data-span="1,2"><span class="n">1</span>A hit is served from the cache. A miss, an expiry and a backend read error all take the same branch: through the backing when one is installed, and back as null when none is. A miss is never remembered, so every one reaches the backing.</div>
+<div class="hop" data-arrow="0,1" data-cap="lookup" data-span="1,2"><span class="n">1</span>A hit is served from the cache. A miss, an expiry and a backend read error all take the same branch: through the backing when one is installed, and back as null without one. A miss is never remembered, so every one reaches the backing.</div>
 
 <div class="hop app" data-arrow="1,2" data-cap="every miss, asked ONCE" data-span="2,3"><span class="n">2</span>A read asks once for all of its misses. The closure receives the key list and returns <span class="mono">key => { value, ttl? }</span>.</div>
 

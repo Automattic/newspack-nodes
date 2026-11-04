@@ -584,7 +584,7 @@ describe( 'HttpOut', () => {
 				delete global.fetch;
 			} );
 
-			it( 'defaults its client from window.NewspackNodesData when none was assigned, then POSTs through it', async () => {
+			it( 'defaults an unassigned client from window.NewspackNodesData, then POSTs through it', async () => {
 				window.NewspackNodesData = {
 					restUrl: 'https://example.test/wp-json/',
 					nonce: 'GNONCE',
@@ -783,7 +783,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 	} );
 
 	/** No target: neither arm engages, so existing graphs are untouched. */
-	it( 'passes an unaddressed non-response through when no target is set', async () => {
+	it( 'passes an unaddressed non-response through when the target is unset', async () => {
 		const { node, seen } = replyWith( bytestream() );
 
 		node.fill( routed( { to: 'topologies' } ) );
@@ -827,8 +827,9 @@ describe( 'HttpOut — an undelivered command', () => {
 	} );
 
 	// A receiver that throws is not a POST that failed: every other reply in
-	// the batch still lands, no minter is told its command went undelivered,
-	// and the receiver's failure escapes the delivery rather than vanishing.
+	// the batch still lands, a minter is never told its command went
+	// undelivered, and the receiver's failure escapes the delivery rather than
+	// vanishing.
 	it( 'delivers the rest of a batch past a receiver that throws, then raises', async () => {
 		const { node, postBatch } = makeNode();
 		const replies = [ 'fetch:a', 'fetch:b' ].map( ( to ) => {
@@ -1155,8 +1156,8 @@ describe( 'inbound FROM stamping', () => {
 	/**
 	 * Through `stampMessage`, like every other transport that stamps — the
 	 * sibling is `RemoteLink`. Its two guards are the point: a reply looping
-	 * hub → spoke → hub grows its path without bound, and the Router would
-	 * drop it a layer later naming no transport, where the guard names this
+	 * hub → spoke → hub grows its path without bound, and the Router would drop
+	 * it a layer later without naming a transport, where the guard names this
 	 * one at the boundary that overflowed it.
 	 */
 	it( 'drops a reply whose stamped path would exceed MAX_FROM_SIZE', async () => {

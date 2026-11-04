@@ -18,7 +18,7 @@ if ( ! \class_exists( 'wpdb', false ) ) {
 		public string $base_prefix = 'wp_';
 		public string $options     = 'wp_options';
 
-		/** Core's connection, a `\mysqli`; no suite opens one. */
+		/** Core's connection, a `\mysqli`; a suite never opens one. */
 		protected mixed $dbh = null;
 
 		/** Core's accessor for its protected members, `dbh` among them. */

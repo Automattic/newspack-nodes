@@ -29,7 +29,7 @@
     <header>Physical: <span class="mono">sink</span></header>
     <div class="body">
       <div class="wire"><span class="n">node</span><span class="a">fill() forwards to →</span><span class="n">sink</span></div>
-      <p>An object reference, so it cannot leave the process and cannot be named. A node reachable only by sink is <b>unaddressable</b>: absent from the registry, no TO path reaches it.</p>
+      <p>An object reference, so it cannot leave the process and cannot be named. A node reachable only by sink is <b>unaddressable</b>: absent from the registry and unreachable by any TO path.</p>
       <p>The stdin reader and <span class="mono">Shell_Node</span> (<span class="mono">wp nodes cli</span>, and the JS Shell) are deliberately unnamed. The Shell is the privilege point (it marks commands LOCAL and signs them); a crafted TM_BYTESTREAM that could route TO a Shell would turn unsigned bytes into authorized commands. <span class="mono">Shell_Node::name()</span> throws on any argument. The only way in is the physical input path: stdin feeds the Shell, and the Shell feeds the interpreter. No name, no attack surface.</p>
     </div>
   </div>
@@ -52,7 +52,7 @@
   </div>
   <div class="callout">
     <h4>All-physical routing loses the serializable address</h4>
-    <p>No cd into a remote worker, no cross-process TO=FROM reply, and a rewire on every pivot. A single combined "next" pointer falls to this argument, and no port has one.</p>
+    <p>No cd into a remote worker, no cross-process TO=FROM reply, and a rewire on every pivot. A single combined "next" pointer falls to this argument, and none of the ports has one.</p>
   </div>
   <div class="ok">
     <h4>Both are load-bearing, so the split is minimal, not redundant</h4>
@@ -105,7 +105,7 @@
     <text x="876" y="201" text-anchor="middle" fill="#50575E">on to the sink as it stands</text>
   </svg>
   <p>A reply self-routes by the TO the remote echoed off our FROM breadcrumb, so anything addressed is the remote naming a node inside our graph, and every node sinks into <span class="mono">_router</span>, so whatever it names would be reached. The list is therefore the whole gate, and the remote sets the type bits, so keying off them would let a spoke pick its arm. Unaddressed output — a server-side <span class="mono">log</span> broadcast, minted with no TO and packed verbatim into the reply body — belongs to the target: that is how it reaches the browser transcript instead of dying at <span class="mono">_router</span> as <em>message not addressed</em>.</p>
-  <p>The browser's <span class="mono">HttpOut</span> keeps Tachikoma's type-bit test instead: a <span class="mono">TM_RESPONSE</span> or <span class="mono">TM_ERROR</span> carrying a TO self-routes, an addressed non-reply is refused while a target is set, and no allowlist applies, because its remote is the server the session is logged into and every address coming back is a breadcrumb the browser minted.</p>
+  <p>The browser's <span class="mono">HttpOut</span> keeps Tachikoma's type-bit test instead: a <span class="mono">TM_RESPONSE</span> or <span class="mono">TM_ERROR</span> carrying a TO self-routes, an addressed non-reply is refused while a target is set, and an allowlist never applies, because its remote is the server the session is logged into and every address coming back is a breadcrumb the browser minted.</p>
   <p><span class="mono">Remote_Broker_Node</span> builds a <span class="mono">Null_Node</span> as <span class="mono">&lt;name&gt;:null</span>, points <span class="mono">HTTP_Out</span> at it on every rename, and lists its own name so its heartbeat replies reach it; a Null swallows the remote's unaddressed output and counts it, where aiming the target at the relay that owns the egress would send the spoke's output straight back out. The per-spoke <span class="mono">HTTP_Out</span> an operator wires for <span class="mono">topologies/settings-sync.tsl</span> needs both lines by hand: <span class="mono">connect_node &lt;egress&gt; null</span> and <span class="mono">cmd &lt;egress&gt;:config allow_replies_to settings-sync</span>. <span class="mono">SSE_In</span> carries no such gate, because a subscription's records are not replies: <span class="mono">RemoteLink</span> takes each record through its SseIn's <span class="mono">onMessage</span> and hands it to its stamp's Tee, <span class="mono">&lt;link&gt;:&lt;stamp&gt;</span>; a link with no sources, <span class="mono">RemoteIpc</span> included, declines every record, so each keeps its TO; and a command reply, or a <span class="mono">TM_RESPONSE</span> or <span class="mono">TM_ERROR</span> carrying a TO, keeps the TO it was addressed to either way, because overwriting it would deliver the reply to a view instead of its receiver.</p>
 </div>
 </div>

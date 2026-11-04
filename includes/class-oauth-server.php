@@ -72,7 +72,8 @@ final class Oauth_Server {
 	 * application declares through `newspack_nodes/oauth_resources`.
 	 *
 	 * @param string $resource The resource's canonical URI.
-	 * @return array<string,mixed>|null Null for a resource no filter declares.
+	 * @return array<string,mixed>|null Null for a resource that is not declared
+	 *                                  by any filter.
 	 */
 	public static function resource_metadata( string $resource ): ?array {
 		return \in_array( $resource, self::resources(), true ) ? self::document( $resource ) : null;
@@ -90,7 +91,8 @@ final class Oauth_Server {
 
 	/**
 	 * The answer for a `.well-known` path: a metadata document, a 404 for a
-	 * resource path no filter declares, or null for every other path.
+	 * resource path that is not declared by any filter, or null for every other
+	 * path.
 	 *
 	 * @param string $request The request path below the home URL, as
 	 *                        `WP::$request` holds it: no leading slash.
@@ -346,8 +348,9 @@ final class Oauth_Server {
 	}
 
 	/**
-	 * Revoke a grant no answer named, as far as a failing store allows; what
-	 * it refuses goes to the log, and the grant lapses on its own.
+	 * Revoke a grant that was not named by any answer, as far as a failing
+	 * store allows; what it refuses goes to the log, and the grant lapses on
+	 * its own.
 	 *
 	 * @param string $grant Grant id.
 	 */
@@ -445,8 +448,8 @@ final class Oauth_Server {
 	 * @param string $name     The budget's name.
 	 * @param int    $burst    Requests admitted per window.
 	 * @param int    $window_s The window, in seconds.
-	 * @return Answer|null Null when admitted; 429 throttled, 503 when no cache
-	 *                     can meter it, as the MCP door refuses one.
+	 * @return Answer|null Null when admitted; 429 throttled, 503 when the cache
+	 *                     cannot meter it, as the MCP door refuses one.
 	 */
 	private static function meter( string $name, int $burst, int $window_s ): ?array {
 		return match ( Rate_Limit::claim( $name, $burst, $window_s ) ) {

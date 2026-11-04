@@ -27,7 +27,7 @@
 </style>
 <div class="sheet">
 <h1>The minter signs, the ingress only verifies, and which key signs is the destination</h1>
-<p class="sub">In-process, a command carries a taint no wire can forge. Across a boundary it carries an HMAC envelope inside VALUE. Both are checked by one <span class="mono">authorize</span> closure at every <span class="mono">Command_Interpreter_Node</span>, and a refusal replies <span class="mono">unauthorized: &lt;verb&gt;</span>.</p>
+<p class="sub">In-process, a command carries a taint that cannot be forged over a wire. Across a boundary it carries an HMAC envelope inside VALUE. Both are checked by one <span class="mono">authorize</span> closure at every <span class="mono">Command_Interpreter_Node</span>, and a refusal replies <span class="mono">unauthorized: &lt;verb&gt;</span>.</p>
 
 <div class="card" style="padding-bottom:12px">
   <h3>The canonical signing string: <span class="mono">JSON.stringify([ ts, name, arguments, nonce ])</span>, semantics only</h3>
@@ -86,7 +86,7 @@
   <div class="callout"><h4>Sign at the ingress</h4><p>Makes the boundary an ORACLE: anything reaching it acquires authority however it got there, so a wire-arrived frame routed into the egress would go back out signed.</p></div>
   <div class="callout"><h4>LOCAL alone, everywhere</h4><p>Cannot cross a process boundary, which is what makes it trustworthy in-process and useless for a worker that legitimately reads commands off IPC.</p></div>
   <div class="callout"><h4>One shared site secret for every client</h4><p>Anything shipped to wp-admin is readable by whoever sits there. A session key is a capability scoped to one session with a bounded life.</p></div>
-  <div class="callout"><h4>Asymmetric signing (Ed25519)</h4><p>Rejected even for hub → spoke authority through <span class="mono">sign_for()</span>: both ends of a session are one trust domain, since the site that minted the key verifies it. Public-key signing buys non-repudiation and third-party verification; no consumer needs either, and it costs a key-distribution problem.</p></div>
+  <div class="callout"><h4>Asymmetric signing (Ed25519)</h4><p>Rejected even for hub → spoke authority through <span class="mono">sign_for()</span>: both ends of a session are one trust domain, since the site that minted the key verifies it. Public-key signing buys non-repudiation and third-party verification; our consumers need neither, and it costs a key-distribution problem.</p></div>
   <div class="callout"><h4><span class="mono">crypto.subtle</span> in the browser</h4><p>Returns promises; awaiting one makes the Shell's dispatch async and moves every graph mutation a microtask later. Synchronous <span class="mono">@noble/hashes</span> instead.</p></div>
   <div class="callout"><h4>Filesystem permissions alone for IPC</h4><p>They gate the directory, not the message. Still the first gate; the signature is what makes a command believable however it reached the partition.</p></div>
 </div>

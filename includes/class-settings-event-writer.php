@@ -11,8 +11,8 @@
  * OLD/NEW value excerpts ride ONLY for options on an explicit allowlist
  * (`newspack_nodes/settings_audit_values_allowlist`, defaulting to the
  * substrate's own Settings_Schema option names). The encrypted vault option is
- * refused before that filter is consulted, so nothing can opt it back in —
- * fail-closed, not a denylist.
+ * refused before that filter is consulted, so a filter can never opt it back
+ * in — fail-closed, not a denylist.
  *
  * A name-only record fits under PIPE_BUF, which is what keeps the append atomic
  * and lockless (ADR-4); WordPress caps `option_name` at 191 characters, so in
@@ -31,8 +31,8 @@ namespace Newspack_Nodes;
  * Appends settings-change events (name always, values only by allowlist) to settings.p0.
  *
  * Static throughout, and not a Node: the option hooks fire inside whatever
- * request changed the setting, where no event loop and no node graph are
- * running, so each append builds a Partition, writes through it and tears it
+ * request changed the setting, where neither an event loop nor a node graph
+ * is running, so each append builds a Partition, writes through it and tears it
  * down within the callback.
  */
 class Settings_Event_Writer {
@@ -296,8 +296,8 @@ class Settings_Event_Writer {
 	/**
 	 * Whether an option may carry value excerpts: it is on the
 	 * Settings_Schema-derived allowlist, which ALLOWLIST_FILTER may replace. The
-	 * vault option is refused before that filter is consulted, so no filter can
-	 * opt the encrypted credential store back in.
+	 * vault option is refused before that filter is consulted, so a filter can
+	 * never opt the encrypted credential store back in.
 	 *
 	 * @param string $option Option name.
 	 */

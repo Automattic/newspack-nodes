@@ -119,8 +119,9 @@ class Settings_CI_Node extends Service_CI_Node {
 	 *
 	 * Every key is read through the fail-loud `Config::value()` rather than
 	 * `get_option()`: that resolves the EFFECTIVE value — option, per-request
-	 * overlay or schema default — and throws on a key no schema declares, so a
-	 * renamed key surfaces here instead of reporting a silent zero.
+	 * overlay or schema default — and throws on a key that is not declared by
+	 * any schema, so a renamed key surfaces here instead of reporting a silent
+	 * zero.
 	 *
 	 * @return array{num_partitions:int,segment_size:int,min_segments:int,num_segments:int,min_lifetime:int,lifetime:int,max_segments:int}
 	 */
@@ -168,7 +169,7 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * `commands[]`, carrying its handler and the capability role it demands.
 	 * The inherited `Service_CI_Node` constructor builds the dispatch table
 	 * from this, and `dispatch()` refuses a caller below the declared role
-	 * (ADR-26), so no hand-built table can drift from what the catalog and
+	 * (ADR-26), so a hand-built table can never drift from what the catalog and
 	 * `help` advertise.
 	 *
 	 * `get` is READ because a snapshot changes nothing; `set` is TUNE, the

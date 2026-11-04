@@ -52,8 +52,8 @@ class Digest_Builder_Demo_Node extends Node {
 	 * `answer_request()` answers it from the schema. A TM_STRUCT whose VALUE is
 	 * not an array is dropped rather than accumulated, because the renderer
 	 * reads `summary` off each item. The numeric guard casts TYPE before the
-	 * bitwise test, so a TYPE that is not numeric reads as 0 and matches no
-	 * gate.
+	 * bitwise test, so a TYPE that is not numeric reads as 0 and never matches
+	 * a gate.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */

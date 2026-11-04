@@ -14,8 +14,8 @@
  * Verbs:
  *   get  — args `{name}`. Returns `{name, positions: object|"auto"}`. A
  *          missing, unreadable or malformed file answers "auto", as does one
- *          placing no node; no other top-level key of the saved file is
- *          surfaced.
+ *          placing no node; the saved file's other top-level keys stay
+ *          hidden.
  *   save — args `{name, positions: {node_id: [x,y]} | "auto"}`. Returns
  *          `{name, path, positions}`, the positions being "auto" or what
  *          survived sanitizing — an entry that fails validation is dropped

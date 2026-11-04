@@ -23,7 +23,7 @@ namespace Newspack_Nodes;
  * closure that means to transform and pass on fills the next node itself. Its
  * constructor takes a required argument, which is why `make_node` cannot build
  * it — that sequence instantiates with `new $fqcn()` (ADR-11) — so callers
- * construct it directly in PHP and no topology line ever names it. Tachikoma's
+ * construct it directly in PHP and a topology line never names it. Tachikoma's
  * `Callback.pm`, the model, guards the same ground by dying whenever
  * `arguments()` is handed anything.
  */

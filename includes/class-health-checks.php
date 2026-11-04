@@ -58,9 +58,9 @@ final class Health_Checks {
 	public const MESSAGE_BYTES = 512;
 
 	/**
-	 * A character no runtime row's message carries, because doctor prints it
-	 * to a terminal it could rewrite: `runtime()` spaces each one out, and
-	 * `Health_Probe_Client` refuses a reply still holding one.
+	 * A character that never appears in a runtime row's message, because doctor
+	 * prints it to a terminal it could rewrite: `runtime()` spaces each one
+	 * out, and `Health_Probe_Client` refuses a reply still holding one.
 	 */
 	public const WIRE_CONTROL = '/[\p{Cc}\p{Zl}\p{Zp}]/u';
 
@@ -222,9 +222,10 @@ final class Health_Checks {
 	/**
 	 * Whether a keyed Table of an active readable topology resolves to the
 	 * shared wpdb tables. The caller checks command sessions itself. A name
-	 * that will not resolve is skipped unless no name resolves to wpdb.
+	 * that will not resolve is skipped as long as some name resolves to wpdb.
 	 *
-	 * @throws \Throwable The first resolution failure, when no name resolves to wpdb.
+	 * @throws \Throwable The first resolution failure, when every name fails to
+	 *                    resolve to wpdb.
 	 */
 	private static function wpdb_in_use(): bool {
 		[ $readable ] = Bootstrap::active_topologies();
@@ -314,8 +315,8 @@ final class Health_Checks {
 				'housekeeping',
 				'Housekeeping',
 				self::STATUS_CRITICAL,
-				'The ' . Bootstrap::CRON_EVENT . ' cron event is not scheduled, so nothing runs the '
-				. 'reconciliation pass: log retention, orphan partition/IPC reaping, alert emission, '
+				'The ' . Bootstrap::CRON_EVENT . ' cron event is not scheduled, so the reconciliation '
+				. 'pass never runs: log retention, orphan partition/IPC reaping, alert emission, '
 				. 'the delayed-jobs sweep, every newspack_nodes/periodic subscriber and cold-start '
 				. 'worker revival are all stopped. Recover with: wp cron event schedule '
 				. Bootstrap::CRON_EVENT . ' now ' . Bootstrap::CRON_SCHEDULE
@@ -476,8 +477,8 @@ final class Health_Checks {
 	 * `File_Tail_Node::followed_path()`, so this row refuses what the load
 	 * refuses. A topology that will not read leaves its sources unchecked, so
 	 * the row is never good while one stands; `worker-liveness` names why. A
-	 * broker's `add_source` names a source on its spoke, whose registry no
-	 * check here can read, so only a `File_Tail` counts.
+	 * broker's `add_source` names a source on its spoke, whose registry the
+	 * checks here cannot read, so only a `File_Tail` counts.
 	 *
 	 * @return HealthResult
 	 * @throws Worker_Should_Stop When reading the topologies raises a cooperative stop.
@@ -558,10 +559,10 @@ final class Health_Checks {
 	 *
 	 * `shared_first()` is the tier the cross-process surfaces resolve — transient
 	 * coordination, command sessions and SSE slot leases — so the probe measures
-	 * the posture those depend on rather than one nothing reads. `add()` is the
-	 * write, and it doubles as proof the key was absent; the `finally` deletes
-	 * whatever the round trip left behind, and the 30-second expiry retires the
-	 * key even when deleting is what failed.
+	 * the posture those depend on rather than one that is never read. `add()`
+	 * is the write, and it doubles as proof the key was absent; the `finally`
+	 * deletes whatever the round trip left behind, and the 30-second expiry
+	 * retires the key even when deleting is what failed.
 	 *
 	 * @return HealthResult
 	 */
@@ -743,7 +744,7 @@ final class Health_Checks {
 	 * Read one required string field off an alert row.
 	 *
 	 * Empty counts as missing: an empty key, message or severity would travel
-	 * into the report as a blank line no operator can act on.
+	 * into the report as a blank line that an operator cannot act on.
 	 *
 	 * @param array<array-key,mixed> $alert Alert evaluator row.
 	 * @param string                 $field Field to read.

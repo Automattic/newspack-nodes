@@ -154,7 +154,7 @@ describe( 'useNodeField', () => {
 		expect( result.current ).toEqual( { from: 'b' } );
 	} );
 
-	it( 'is undefined while no node holds the name', () => {
+	it( 'is undefined while the name is not registered to any node', () => {
 		const { result } = renderHook( () =>
 			useNodeField( 'zulu-0000', 'view' )
 		);

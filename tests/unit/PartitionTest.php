@@ -1028,7 +1028,7 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
-	 * An UNNAMED Partition names no sibling, so nothing refuses a second
+	 * An UNNAMED Partition does not name a sibling, so nothing refuses a second
 	 * `allow_large_writes()` — and the pair the first call installed is simply
 	 * overwritten. The Timer keeps beating a Lock nothing references, and the
 	 * lock dir on disk is never released, because the fresh `lock_held = false`
@@ -5849,8 +5849,8 @@ class PartitionTest extends TestCase {
 
 	/**
 	 * A parser answering false cuts the walk: nothing more is read, the call
-	 * answers null, and the memo records no key as searched, so the next
-	 * call walks again and finds what the cut walk never reached.
+	 * answers null, and the memo does not record any key as searched, so the
+	 * next call walks again and finds what the cut walk never reached.
 	 */
 	public function test_a_parser_answering_false_cuts_the_walk_and_forgets_it(): void {
 		$p     = $this->indexed_partition( 'cut', 6 );
@@ -5874,9 +5874,9 @@ class PartitionTest extends TestCase {
 
 	/**
 	 * A parser answering true ends the walk with what it found: the rest of
-	 * the index holds no wanted key. Only the keys found are remembered, so a
-	 * key the ended walk never reached is looked for again. The parser reads
-	 * each line's segment beside it.
+	 * the index holds none of the wanted keys. Only the keys found are
+	 * remembered, so a key the ended walk never reached is looked for again.
+	 * The parser reads each line's segment beside it.
 	 */
 	public function test_a_parser_answering_true_ends_the_walk_with_what_it_found(): void {
 		$p        = $this->indexed_partition( 'ended', 6 );

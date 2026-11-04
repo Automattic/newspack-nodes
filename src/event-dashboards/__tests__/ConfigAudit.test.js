@@ -196,7 +196,7 @@ describe( 'ConfigAudit', () => {
 		expect( getByText( /2 changes/ ) ).toBeTruthy();
 	} );
 
-	it( 'shows the total count when no filter is active', () => {
+	it( 'shows the total count without an active filter', () => {
 		useNodeField.mockReturnValue( model() );
 		const { getByText } = render( <ConfigAudit /> );
 		expect( getByText( /2 changes/ ) ).toBeTruthy();

@@ -75,7 +75,8 @@ class CLI {
 	 *
 	 * @param string $worker_id Worker id in `{type}.p{N}` form.
 	 * @return array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}
-	 * @throws \InvalidArgumentException When the id will not parse, or names no worker that is running or wakeable.
+	 * @throws \InvalidArgumentException When the id will not parse, or does not
+	 *                                   name a running or wakeable worker.
 	 * @throws \Throwable The endpoint's refusal of the wake.
 	 */
 	public function attach_to_worker( string $worker_id ): array {
@@ -122,8 +123,8 @@ class CLI {
 	 * at least `PROBE_MIN_WINDOW_MS`: the bytes it grew and the window that
 	 * covers, keyed by the log's SOURCE, so a write rate divides ONE record.
 	 * Each prober measures the whole log, so the newest stands for them all.
-	 * A stale record — nobody sweeping that log — is left out rather than
-	 * read as a log that stopped growing.
+	 * A stale record, from a log that is no longer swept, is left out rather
+	 * than read as a log that stopped growing.
 	 *
 	 * The rows come out in the order the tail window first names each reader, so
 	 * a caller rendering a table sorts them. `unparseable_lines` is how many
@@ -278,9 +279,10 @@ class CLI {
 	 * Partition record per log, every
 	 * `Topic_Probe_Node::declared_interval_s()` seconds, 15 by default, and a
 	 * record exists only while a worker is running to write one. A Partition
-	 * record names no reader, which is what files it under `partitions`. The
-	 * timestamp is therefore the only thing separating a reporting reader from
-	 * a departed one, and departed is what `consumer_rows()` falls back on.
+	 * record does not name a reader, which is what files it under `partitions`.
+	 * The timestamp is therefore the only thing separating a reporting reader
+	 * from a departed one, and departed is what `consumer_rows()` falls back
+	 * on.
 	 *
 	 * Every worker appends to that one log, so "latest" means the newest sweep
 	 * instant, not the last line. A reader also keeps its `window`: the
@@ -442,8 +444,8 @@ class CLI {
 	 * idle window off the active set the caller already read, and reads the
 	 * hold once, so a caller classifies its whole fleet here rather than slot
 	 * by slot. `$leftovers` adds every other lock dir after the slots, as
-	 * `wp nodes status` lists a worker winding down; without it no lock dir
-	 * outside `$worker_ids` is read.
+	 * `wp nodes status` lists a worker winding down; without it a lock dir
+	 * outside `$worker_ids` is never read.
 	 *
 	 * @param list<string>        $worker_ids The slots the caller expects, as `worker_id()` spells them.
 	 * @param array<string,mixed> $topologies The active set, `Bootstrap::get_topologies()`.
@@ -503,7 +505,7 @@ class CLI {
 	 * and no NUL, because the id is one path segment of the lock and IPC trees
 	 * and one segment of a node path; the partition carries no leading zero,
 	 * because `x.p03` would resolve to the lock `x.p3` holds while naming an
-	 * IPC tree nothing reads.
+	 * IPC tree that is never read.
 	 *
 	 * @param string $worker_id Worker id.
 	 * @return array{0:string,1:int}|null Type and partition; null when the id

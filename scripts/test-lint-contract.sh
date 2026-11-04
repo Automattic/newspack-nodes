@@ -149,7 +149,7 @@ d=$( fixture fanout-heredoc includes/class-widget-node.php "$heredoc" )
 assert_clean "a '/*' inside a heredoc ahead of a real live_targets( is not flagged" "$d"
 
 d=$( fixture fanout-none includes/class-widget-node.php $'<?php\nclass Widget_Node extends Node {\n}' )
-assert_clean "a file using no Fanout_Targets is not flagged" "$d"
+assert_clean "a file that does not use Fanout_Targets is not flagged" "$d"
 
 mint='Command_Auth::sign_for( $spoke, $message );'
 d=$( fixture mint includes/class-widget-node.php "$mint" )

@@ -74,8 +74,8 @@ final class Oauth_Controller {
 	}
 
 	/**
-	 * Answer a token request from its form body alone, so no credential is
-	 * read from a URL, which access logs keep.
+	 * Answer a token request from its form body alone, so a credential is
+	 * never read from a URL, which access logs keep.
 	 *
 	 * @param \WP_REST_Request $req The token request.
 	 */

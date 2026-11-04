@@ -3,7 +3,7 @@
  * SchemaTest: the shared declarative config Schema — one Field per setting, the
  * SINGLE source every consumer (overlay key-list, option_names, delete-on-blank
  * set, reset list, worker-restart classification, register/render loops) derives
- * from, so no plugin's Config and Admin keep parallel hand-listed arrays.
+ * from, so a plugin's Config and Admin never keep parallel hand-listed arrays.
  *
  * The WP-Settings-API stubs a Schema registers into (register_setting /
  * add_settings_section / add_settings_field) are shared from tests/bootstrap.php.

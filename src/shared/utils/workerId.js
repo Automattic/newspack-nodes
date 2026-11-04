@@ -48,7 +48,7 @@ export function parseWorkerId( id ) {
  * The worker a frame's FROM names, `''` when none. The reader's stamp comes
  * off first, by position, through `splitStamp()`. What remains is `{worker-id}/{name}`, as
  * every probe stamps it (`Probe_Node::from()`, ADR-22); any other shape, a
- * malformed or foreign FROM, names no worker.
+ * malformed or foreign FROM, does not name a worker.
  *
  * @param {?string} from A frame's FROM, stamp included.
  * @return {string} The worker id, such as `job-worker.p2`.

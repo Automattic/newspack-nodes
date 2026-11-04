@@ -806,7 +806,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( 2, $this->table_calls( $crawler ), 'the recovery and one move' );
 		$this->ticks( $crawler, 37 );
 
-		$this->assertSame( 2, $this->table_calls( $crawler ), 'nothing is pending, so no tick asks' );
+		$this->assertSame( 2, $this->table_calls( $crawler ), 'nothing is pending, so a tick never asks' );
 		$this->assertSame( [], $this->dispatched );
 	}
 

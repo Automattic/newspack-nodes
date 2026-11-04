@@ -45,8 +45,8 @@ class File_Tail_Node extends Tail_Node {
 	 * The open read handle for the currently-followed generation, or null when
 	 * none is open — the path is absent, unreadable, or not yet opened. A
 	 * rotated-away generation stays open here until drained to EOF. Its inode
-	 * lives in the inherited $cursor_segment, which reads 0 while no generation
-	 * is open.
+	 * lives in the inherited $cursor_segment, which reads 0 while the reader
+	 * has no generation open.
 	 *
 	 * @var resource|null
 	 */
@@ -56,8 +56,9 @@ class File_Tail_Node extends Tail_Node {
 	 * The generation and offset of an array-form next_offset() seek made BEFORE
 	 * the file opens (build time), awaiting validation on the first poll once
 	 * the live inode is known. A runtime seek (handle already open) validates
-	 * immediately and leaves this null. A null `inode` names no generation, and
-	 * its offset is taken in whichever file the path holds at that poll.
+	 * immediately and leaves this null. A null `inode` does not name a
+	 * generation, and its offset is taken in whichever file the path holds at
+	 * that poll.
 	 *
 	 * @var array{inode:int|null,offset:int}|null
 	 */
@@ -87,9 +88,10 @@ class File_Tail_Node extends Tail_Node {
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read the stored set back.
 	 * @return list<string> The tokens as stored.
-	 * @throws \InvalidArgumentException When no worker could follow the file as
-	 *                                   written, or a per-worker file names a
-	 *                                   dir every worker would share.
+	 * @throws \InvalidArgumentException When the file as written could not be
+	 *                                   followed by any worker, or a per-worker
+	 *                                   file names a dir every worker would
+	 *                                   share.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -123,7 +125,8 @@ class File_Tail_Node extends Tail_Node {
 	 * @param int         $partition The worker partition it resolves at.
 	 * @param string|null $topology  The fleet, or null to leave `<topology>` alone.
 	 * @return string The absolute path followed.
-	 * @throws \InvalidArgumentException On a relative path, or a source no file family carries.
+	 * @throws \InvalidArgumentException On a relative path, or a source that is
+	 *                                   not carried by any file family.
 	 */
 	public static function followed_path( string $name, string $written, int $partition, ?string $topology ): string {
 		$path   = Core::resolve_partition_template( $written, $partition, $topology );
@@ -257,8 +260,8 @@ class File_Tail_Node extends Tail_Node {
 	 * size, every other sentinel, alias or number is 0 (one file has no previous segment to fall
 	 * back to), and an explicit array {segment: inode, offset} is a RESUME CANDIDATE validated
 	 * through the same validate_resume_offset() path as a durable frame (a foreign generation
-	 * or a shrunk file reads from 0; one naming no segment is the current file; a mid-line
-	 * offset syncs forward). A runtime seek
+	 * or a shrunk file reads from 0; one that does not name a segment is the
+	 * current file; a mid-line offset syncs forward). A runtime seek
 	 * (handle already open) validates now; a build-time one defers to the first poll.
 	 *
 	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
@@ -294,8 +297,8 @@ class File_Tail_Node extends Tail_Node {
 	 * newest-segment walk has no segment list to walk.
 	 *
 	 * Null means "not idle", which is what an absent path reports: a rotation gap
-	 * is a moment between generations, not a stream nobody writes, and hanging up
-	 * on one would drop the reader before the new file appears.
+	 * is a moment between generations, not a stream that has no writer, and
+	 * hanging up on one would drop the reader before the new file appears.
 	 *
 	 * @return float|null Epoch seconds the followed file was last written, or null
 	 *                    while the path is absent or bytes are still unread.
@@ -347,7 +350,8 @@ class File_Tail_Node extends Tail_Node {
 	 * The offset is named even when it is mid-line;
 	 * the resume syncs forward from there.
 	 *
-	 * @return string `{inode}:{offset}`, or `:{offset}` when no generation is named.
+	 * @return string `{inode}:{offset}`, or `:{offset}` when it does not name a
+	 *                generation.
 	 */
 	public function cursor_position(): string {
 		// A candidate's offset belongs to the generation the CLIENT named.
@@ -566,7 +570,8 @@ class File_Tail_Node extends Tail_Node {
 	 * A raw block reads from the exact byte asked, mid-line included: the
 	 * reader at the other end splits lines and carries a cut one across
 	 * blocks, so the forward sync a resume arms would drop bytes it needs. A
-	 * file not there names no generation, since inode 0 would name another.
+	 * file that is not there does not name a generation, since inode 0 would
+	 * name another.
 	 *
 	 * @param positive-int $max The most bytes to return.
 	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool}

@@ -99,7 +99,7 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
 } );
 
-test( 'a TM_NOREPLY command no node answers throws and bounces nothing', () => {
+test( 'an unanswered TM_NOREPLY command throws and bounces nothing', () => {
 	const r = new RouterNode();
 	r.name = '_router';
 
@@ -392,7 +392,7 @@ describe( 'a tick asked for during a tick', () => {
 
 	function tickHarness() {
 		// Mid-second and held: a grid boundary passing between two ticks would
-		// fire a timer nobody asked for.
+		// fire an unrequested timer.
 		jest.spyOn( Core, 'now' ).mockReturnValue( 1_790_000_100.86 );
 		const router = new RouterNode();
 		router.name = '_router';
@@ -529,7 +529,7 @@ describe( 'a tick asked for during a tick', () => {
 		expect( fired.filter( ( n ) => 'unsigned' === n ) ).toHaveLength( 1 );
 	} );
 
-	test( 'leaves a timer nobody marked due alone', async () => {
+	test( 'leaves alone a timer that is not marked due', async () => {
 		const { router, fired, timer } = tickHarness();
 		timer( 'status:poll', 1000 );
 		const fetch = timer( 'rail:fetch', 1000 );

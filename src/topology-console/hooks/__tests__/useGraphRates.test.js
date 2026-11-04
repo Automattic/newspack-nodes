@@ -151,7 +151,7 @@ describe( 'useGraphRates', () => {
 		expect( result.current.rateRef.current.has( 'b' ) ).toBe( true );
 	} );
 
-	it( 'samples nothing while no snapshot is published, and keeps every history', () => {
+	it( 'samples nothing while there is no published snapshot, and keeps every history', () => {
 		let now = 2000;
 		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
 		const { result, rerender } = renderHook(

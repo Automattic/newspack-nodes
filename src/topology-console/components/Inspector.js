@@ -308,7 +308,7 @@ function ProcessStatsHeader( { nodes, rateSeries, local } ) {
  *
  * A node whose counter has never moved carries no timestamp. On an open stream
  * that means idle rather than unknown, so it reads "streaming" instead of an
- * age nobody can compute.
+ * age that cannot be computed.
  *
  * @param {?number} ts   Unix seconds of the last counter change; nullish when it never changed.
  * @param {boolean} live Whether the SSE stream is open.
@@ -1318,7 +1318,7 @@ function parseStruct( text ) {
  * `--name=value` token, which the server binds by name, so a field left blank
  * shifts nothing after it; a `variadic` field sends one such token per word.
  * A request has no binder — its VALUE is words — so its arguments ride by
- * position; every one is required, so none is blank. A request whose schema
+ * position; every one is required, so each is filled. A request whose schema
  * declares `value: 'struct'` sends its one `json` field parsed, as the struct
  * a TM_REQUEST|TM_STRUCT carries, and Run waits until that text parses to an
  * object or an array, and while any field shows a refusal. The first field
@@ -1826,17 +1826,18 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  * only a hull is selected, the `_command_interpreter` process view when nothing
  * is, and the node view otherwise. Edit mode swaps the node view for a
  * schema-driven config form — locked when the node is borrowed through an
- * include, since its configuration belongs to the topology that defines it.
- * A shown sidecar, an owned node no canvas draws, takes the selection's place:
- * its row is the one the console polls by name, and its own sidecars open from
- * the "…" on its card in its owner's grid.
+ * include, since its configuration belongs to the topology that defines it. A
+ * shown sidecar, an owned node that a canvas never draws, takes the selection's
+ * place: its row is the one the console polls by name, and its own sidecars
+ * open from the "…" on its card in its owner's grid.
  *
  * @param {Object}                  props
  * @param {?string}                 props.selectedId        Selected node id; null falls through to the hull or process view.
  * @param {?string}                 [props.sidecar]         An owned node shown in the selection's place; null shows the selection.
  * @param {?Object}                 [props.sidecarGraph]    The polled rows the shown sidecar's is among; null until they answer.
  * @param {(name: string) => void}  [props.onOpenNode]      Shows a node an owner link or a back link names.
- * @param {?string}                 [props.selectedHull]    Selected include, shown only while no node is selected.
+ * @param {?string}                 [props.selectedHull]    Selected include,
+ *                                                          shown only without a selected node.
  * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]`.
  * @param {Function}                [props.onOpenTopology]  (name) — drill into a hull's own topology.
  * @param {Object}                  props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
@@ -2785,7 +2786,7 @@ export default function Inspector( {
 					const schema = catalog.find(
 						( c ) => c.shell_name === type
 					);
-					// No `:config` on a sidecar: no command reaches it.
+					// No `:config` on a sidecar: a command cannot reach it.
 					const unreachable =
 						!! sidecar &&
 						false === node.has_config &&

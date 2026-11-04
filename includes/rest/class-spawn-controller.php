@@ -8,7 +8,7 @@
  * deploy hold and the 15-second per-worker throttle for every spawner.
  * `Spawn_Coordinator::spawn_each()` checks both, and the multisite subsite
  * refusal, before posting too, and must: the endpoint records no refused
- * spawn, so nothing else throttles one.
+ * spawn, so a refused spawn would not be throttled anywhere else.
  *
  * Two ways in, both carrying `nonce`: the internal HMAC token minted for the
  * current 10-second window, or an external caller holding the `manage` role
@@ -91,7 +91,7 @@ class Spawn_Controller {
 	 * an open one against the site's five connections to itself (ADR-8).
 	 * Without `fastcgi_finish_request()` the worker runs with it held. The
 	 * listener echoes the three-field body itself, so `rest_pre_echo_response`
-	 * and `_pretty` never reach it; no spawner reads the body.
+	 * and `_pretty` never reach it; a spawner never reads the body.
 	 *
 	 * @param \WP_REST_Request $req Authorized spawn request.
 	 * @return \WP_REST_Response|\WP_Error The accepted spawn, or the refusal.
@@ -192,7 +192,7 @@ class Spawn_Controller {
 			}
 		}
 		if ( 0 === $max ) {
-			// Unknown or deactivated type: no partition of it is spawnable.
+			// Unknown or deactivated type: none of its partitions is spawnable.
 			return false;
 		}
 		return $partition < $max;
@@ -289,9 +289,9 @@ class Spawn_Controller {
 	/**
 	 * Check a worker type against the active topology set.
 	 *
-	 * The route runs this as its `validate_callback`, so a type no active
-	 * topology declares is refused before `spawn()` sees it. That is what
-	 * keeps a POST from naming a topology the operator never activated:
+	 * The route runs this as its `validate_callback`, so a type that is not
+	 * declared by any active topology is refused before `spawn()` sees it. That
+	 * is what keeps a POST from naming a topology the operator never activated:
 	 * downstream, the type is the name `Topology_Loader` resolves to a `.tsl`.
 	 *
 	 * @param mixed $type Worker type, straight off the request.

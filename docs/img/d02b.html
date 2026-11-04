@@ -31,7 +31,7 @@
       <div class="listing">
         <div><div class="ln">1</div></div>
         <div class="code mono"><span class="verb">make_node</span> Topic_Probe topicprobe 15</div>
-        <div class="ann">Builds a <strong>Topic_Probe</strong> named <span class="mono">topicprobe</span> with the argument 15: a timed node that every fifteen seconds records the progress of each reader in this worker. Its <strong>sink</strong>, the node object it hands every message to, is set to <span class="mono">_command_interpreter</span>. No line says so; every node a topology builds gets that same physical next hop.</div>
+        <div class="ann">Builds a <strong>Topic_Probe</strong> named <span class="mono">topicprobe</span> with the argument 15: a timed node that every fifteen seconds records the progress of each reader in this worker. Its <strong>sink</strong>, the node object it hands every message to, is set to <span class="mono">_command_interpreter</span>. It is implicit; every node a topology builds gets that same physical next hop.</div>
 
         <div><div class="ln">2</div></div>
         <div class="code mono"><span class="verb">make_node</span> Partition topicprobe:log <span class="tok">&lt;config:logs_dir&gt;</span>/topicprobe.p0 1048576 2 8 0 86400 86400</div>
@@ -43,7 +43,7 @@
 
         <div><div class="ln">4</div></div>
         <div class="code mono"><span class="verb">secure</span></div>
-        <div class="ann">Freezes the graph: no later command can build or remove a node. It comes last.</div>
+        <div class="ann">Freezes the graph: a later command cannot build or remove a node. It comes last.</div>
       </div>
     </div>
   </div>

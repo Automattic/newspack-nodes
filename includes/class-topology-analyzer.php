@@ -412,7 +412,7 @@ class Topology_Analyzer {
 	 * verb sent so far (`Node::command_targets()`): draw a `pair` edge to
 	 * each destination the verb adds, and take the role back from each it
 	 * drops that the node's arguments do not name, the edge with it when
-	 * nothing else holds it.
+	 * the edge has no other holder.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The verbs sent to each node's `:config`, by reference.
@@ -553,7 +553,7 @@ class Topology_Analyzer {
 
 	/**
 	 * Remove the runtime connect role while preserving the config and pair
-	 * roles, which no `connect_node` or `disconnect_node` made.
+	 * roles, which were not made by any `connect_node` or `disconnect_node`.
 	 *
 	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>,pair: list<string>}} $edge Edge state.
 	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>,pair: list<string>}}|null
@@ -687,7 +687,7 @@ class Topology_Analyzer {
 
 	/**
 	 * The class a TSL type token names, or `Node`, which declares no target,
-	 * when no namespace resolves it.
+	 * when the namespaces do not resolve it.
 	 *
 	 * @param string $type TSL class token.
 	 * @return class-string<Node>
@@ -939,7 +939,7 @@ class Topology_Analyzer {
 	 * @param string $name Topology name.
 	 * @return array<string> Sorted, namespaced token-form paths.
 	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
-	 *                           or a Table backend token nothing resolves.
+	 *                           or a Table backend token that does not resolve.
 	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function write_set( string $name ): array {
@@ -1081,8 +1081,8 @@ class Topology_Analyzer {
 	 * The nodes an owner in a topology builds for itself, its includes
 	 * flattened in, in declaration order: each sibling its class's
 	 * `node_schema()['owns']` declares, suffix to class, named as
-	 * `Node::sibling_name_of()` names it, such as a `{name}:seen` Table. No
-	 * `make_node` line declares one; its owner builds and writes it.
+	 * `Node::sibling_name_of()` names it, such as a `{name}:seen` Table. A
+	 * `make_node` line never declares one; its owner builds and writes it.
 	 *
 	 * @param string $name Topology name.
 	 * @return list<array{name: string, class: string, owner: string}>
@@ -1307,7 +1307,8 @@ class Topology_Analyzer {
 	 * byte count; a token or an omitted argument takes the configured default.
 	 *
 	 * @param list<string> $values A `make_node` statement's values.
-	 * @return int|null Bytes, or null when the line names no literal size.
+	 * @return int|null Bytes, or null when the line does not name a literal
+	 *                  size.
 	 */
 	private static function literal_segment_size( array $values ): ?int {
 		$size = $values[4] ?? '';
@@ -1421,9 +1422,9 @@ class Topology_Analyzer {
 	 * provenance; a copy carries the provenance of the line it copies.
 	 *
 	 * The same walk refuses a `connect_node` onto a node whose class declares
-	 * no target, as the load would refuse it, so no reader draws an edge that
-	 * never routes; a group answers for its child class, members or none, and
-	 * so does each child derived from it. It refuses a `make_node` line's
+	 * no target, as the load would refuse it, so a reader never draws an edge
+	 * that cannot route; a group answers for its child class, members or none,
+	 * and so does each child derived from it. It refuses a `make_node` line's
 	 * partition layout as the load would, written lines and children alike.
 	 *
 	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Walked statements.
@@ -1492,10 +1493,10 @@ class Topology_Analyzer {
 
 	/**
 	 * A statement's tokens with the group replaced by one child, or null when
-	 * it names no group: the source of a `connect_node` / `disconnect_node`,
-	 * its target when the source fans out, or the group's `:config`
-	 * interpreter under `command_node`. A reference is matched by its head
-	 * segment and keeps its rest, as the runtime expands `<group>/<rest>`.
+	 * it does not name a group: the source of a `connect_node` /
+	 * `disconnect_node`, its target when the source fans out, or the group's
+	 * `:config` interpreter under `command_node`. A reference is matched by its
+	 * head segment and keeps its rest, as the runtime expands `<group>/<rest>`.
 	 *
 	 * @param array{verb: string,values: list<string>,spans: list<string>} $statement Walked statement.
 	 * @param string $group    The group node's name.
@@ -1554,8 +1555,8 @@ class Topology_Analyzer {
 	 * Ask the type system, never string-compare the raw token. The write set is
 	 * a SAFETY gate — it feeds `find_conflicts` and `Log_Cleaner`'s declared-dir
 	 * set — and a plugin's Partition subclass writes a real log that a token
-	 * comparison hides from both: no conflict check sees it, and the GC does not
-	 * know it is declared.
+	 * comparison hides from both: none of the conflict checks sees it, and the
+	 * GC does not know it is declared.
 	 *
 	 * @param string $type TSL class token.
 	 * @param string $fqcn Fully-qualified base class.
@@ -1578,11 +1579,11 @@ class Topology_Analyzer {
 
 	/**
 	 * Refuse a `make_node` line whose layout the load would refuse:
-	 * `{partition}` in an argument its class marks no partition, a durable
-	 * reader of a per-worker source beside a dir every worker would share, or
-	 * a broker token past its positionals. Each check is the class's own
-	 * static, the one the load calls. A class token no namespace resolves
-	 * refuses nothing.
+	 * `{partition}` in an argument its class does not mark as a partition, a
+	 * durable reader of a per-worker source beside a dir every worker would
+	 * share, or a broker token past its positionals. Each check is the class's
+	 * own static, the one the load calls. A class token that does not resolve
+	 * in any namespace refuses nothing.
 	 *
 	 * @param array{verb: string, values: list<string>} $statement A walked statement.
 	 * @throws \InvalidArgumentException When the class refuses the line.
@@ -1607,7 +1608,8 @@ class Topology_Analyzer {
 
 	/**
 	 * Refuse a connect from `$source` when its class, or a group's child class,
-	 * declares no target. A class token no namespace resolves refuses nothing.
+	 * declares no target. A class token that does not resolve in any namespace
+	 * refuses nothing.
 	 *
 	 * @param string               $source   The connect's source node.
 	 * @param array<string,string> $targeted Node name => the class token a target is set on.
@@ -1800,7 +1802,7 @@ class Topology_Analyzer {
 	 * divergence 4. A compound assignment therefore leaves its operator head
 	 * on the key, so a non-identifier key is SKIPPED rather than coined: the
 	 * executed topology still applies the operator, and a junk entry here
-	 * would be a name no caller could ever ask for.
+	 * would be a name that a caller could never ask for.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string,string> Surviving `var` assignments, in file order.

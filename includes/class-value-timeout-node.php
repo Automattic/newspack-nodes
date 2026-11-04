@@ -89,8 +89,8 @@ class Value_Timeout_Node extends Timer_Node {
 	 *
 	 * Three checks drop a message before dedup even looks at it: a type other
 	 * than TM_BYTESTREAM, a missing or non-numeric TIMESTAMP, and an age past
-	 * `expires`. A stale trigger describes work whose result nobody waits for
-	 * any more, and dispatching it costs as much as fresh work.
+	 * `expires`. A stale trigger describes work whose result is no longer
+	 * awaited any more, and dispatching it costs as much as fresh work.
 	 *
 	 * Every accepted arrival refreshes `recently_received`, the suppressed ones
 	 * included — that stamp is the only evidence `fire()` has that a burst

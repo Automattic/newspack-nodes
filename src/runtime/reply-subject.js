@@ -26,8 +26,8 @@ export function replyAddress( name, subject ) {
 
 /**
  * The subject a reply answers about, read off its remaining TO. A malformed
- * escape names no subject `replyAddress()` could have written, so it answers
- * no ask.
+ * escape does not name a subject `replyAddress()` could have written, so it
+ * does not answer an ask.
  *
  * @param {Array} message The reply as it reached the node that asked.
  * @return {?string} The subject as the sender named it, or null for none.

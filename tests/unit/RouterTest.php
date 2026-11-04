@@ -131,8 +131,8 @@ class RouterTest extends TestCase {
 		$this->assertSame( '', $err[ Message::TO ] );
 		// Tachikoma's own addressing: `$response->[FROM] = $message->[TO]`.
 		// Nothing keys on the Router as the sender: `send_error()` already
-		// refuses to answer an error, so no node needs to tell a self-minted
-		// bounce from a forwarded one.
+		// refuses to answer an error, so a node never needs to tell a
+		// self-minted bounce from a forwarded one.
 		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
 	}
 
@@ -185,7 +185,7 @@ class RouterTest extends TestCase {
 
 		$e = $this->caught(
 			fn () => $router->fill( $message ),
-			'a TM_NOREPLY command no node answers must throw'
+			'a TM_NOREPLY command without an answering node must throw'
 		);
 		$this->assertStringContainsString( 'NOT_AVAILABLE', $e->getMessage() );
 		$this->assertStringContainsString( 'absent-8813:config', $e->getMessage() );

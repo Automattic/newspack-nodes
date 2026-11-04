@@ -6,11 +6,12 @@
  *
  * `target` and the incoming TO pick one of four cases. A target plus a TO
  * prefixes the path (`target/TO`), and because Router peels only the head
- * segment the original address still routes onward behind it. No target and no
- * TO returns the message to its sender (TO=FROM), which is what makes a bare
- * Echo a ping responder. The other two fall through to `Node::fill`: a TO with
- * no target passes through untouched, and a target with an empty TO takes the
- * base stamp, so the message goes to the target rather than back to FROM.
+ * segment the original address still routes onward behind it. With neither a
+ * target nor a TO, the message returns to its sender (TO=FROM), which is what
+ * makes a bare Echo a ping responder. The other two fall through to
+ * `Node::fill`: a TO with no target passes through untouched, and a target with
+ * an empty TO takes the base stamp, so the message goes to the target rather
+ * than back to FROM.
  *
  * A TM_ERROR with an empty TO is dropped instead of bounced, because returning
  * it would land an error trail on a producer that never asked for one. The

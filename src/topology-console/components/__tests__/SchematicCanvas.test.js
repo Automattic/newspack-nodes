@@ -1794,7 +1794,7 @@ describe( 'SchematicCanvas', () => {
 		);
 		return { svg: container.querySelector( 'svg' ), onViewportChange };
 	};
-	// A wheel event carrying the fields no init dict sets: the legacy
+	// A wheel event carrying the fields an init dict never sets: the legacy
 	// `wheelDeltaY` a trackpad leaves its signature in, and a timestamp.
 	const wheel = ( svg, init, extra = {} ) => {
 		const e = new window.WheelEvent( 'wheel', {
@@ -2834,7 +2834,7 @@ describe( 'SchematicCanvas', () => {
 
 	// === setViewport is a no-op when the parent owns no viewport ===
 
-	it( 'arrow pan does nothing when no onViewportChange is provided (setViewport short-circuits)', () => {
+	it( 'arrow pan does nothing without an onViewportChange (setViewport short-circuits)', () => {
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...baseProps } />,
 			{
@@ -3371,7 +3371,7 @@ describe( 'SchematicCanvas', () => {
 			);
 		} );
 
-		it( 'a press nothing adopts leaves the nodes on the selection', () => {
+		it( 'an unadopted press leaves the nodes on the selection', () => {
 			const { container } = nested( 'job-intake', undefined );
 			const top = container.querySelector(
 				'[data-include="job-intake"]'

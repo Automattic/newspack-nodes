@@ -243,7 +243,7 @@ class Command_Args {
 	 * @param list<array<array-key,mixed>> $specs The verb's declared `args`.
 	 * @param string                       $name  Option name, without `--`.
 	 * @return array<array-key,mixed>
-	 * @throws \InvalidArgumentException When no spec declares $name.
+	 * @throws \InvalidArgumentException When the specs do not declare $name.
 	 */
 	private static function require_declared( array $specs, string $name ): array {
 		foreach ( $specs as $spec ) {
@@ -334,10 +334,11 @@ class Command_Args {
 	}
 
 	/**
-	 * The refusal of a removal naming nothing its add gave, in the one wording
-	 * every remove verb refuses with: `<verb> '<arg>'… names no <noun> this
-	 * <holder> declares`, each argument quoted as given. The browser's
-	 * `foldSource()` spells its removal the same.
+	 * The refusal of a removal that names a value its add never gave, in the
+	 * one wording every remove verb refuses with:
+	 * `<verb> '<arg>'… names a <noun> this <holder> does not declare`, each argument
+	 * quoted as given. The browser's `foldSource()` spells its removal the
+	 * same.
 	 *
 	 * @param string       $verb   The removal verb.
 	 * @param list<string> $args   Its arguments, as given.
@@ -348,6 +349,6 @@ class Command_Args {
 	public static function undeclared( string $verb, array $args, string $noun, string $holder ): \InvalidArgumentException {
 		$quoted = \implode( ' ', \array_map( static fn ( string $arg ): string => "'{$arg}'", $args ) );
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-		return new \InvalidArgumentException( "{$verb} {$quoted} names no {$noun} this {$holder} declares" );
+		return new \InvalidArgumentException( "{$verb} {$quoted} names a {$noun} this {$holder} does not declare" );
 	}
 }

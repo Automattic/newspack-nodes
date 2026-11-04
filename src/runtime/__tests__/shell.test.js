@@ -362,7 +362,7 @@ describe( 'Shell node — local builtins', () => {
 	} );
 
 	// parseInt stops at the first non-digit, so `2abc` read as 2 and silently
-	// turned rendering ON at a level nobody asked for. PHP uses ctype_digit and
+	// turned rendering ON at an unrequested level. PHP uses ctype_digit and
 	// Tachikoma Shell.pm:158 refuses anything but ^\d+$.
 	it( 'debug_level refuses a trailing-garbage argument', () => {
 		const { shell, out } = makeShell();
@@ -690,7 +690,7 @@ describe( 'Shell node — var + interpolation', () => {
 		warn.mockRestore();
 	} );
 
-	it( 'a config key no namespace owns warns instead of blanking silently', () => {
+	it( 'a config key without an owning namespace warns instead of blanking silently', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.config = { spool_dir: '/srv/quarantine' };
 		const warn = jest
@@ -939,7 +939,7 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 } );
 
 describe( 'splitStatements (unquoted `;` splitter)', () => {
-	it( 'returns single statement when no semicolons', () => {
+	it( 'returns a single statement for input without a semicolon', () => {
 		expect( splitStatements( 'help' ) ).toEqual( [ 'help' ] );
 	} );
 
@@ -1537,7 +1537,7 @@ describe( 'Shell node — var value/print edges (Shell3 parity)', () => {
 		expect( shell.vars.foo ).toBe( '' );
 	} );
 
-	it( 'deletes only when no value follows the operator', () => {
+	it( 'deletes only when the operator has nothing after it', () => {
 		const { shell } = makeShell();
 		shell.parse( 'var foo = bar' );
 		shell.parse( 'var foo =' );
@@ -1593,7 +1593,7 @@ describe( 'parseStatements — static statements replay to runtime messages', ()
 	];
 
 	// TYPE/TO/VALUE — what the message says. `ping` carries the mint clock as
-	// its VALUE, which no two runs share; normalize it.
+	// its VALUE, which differs on every run; normalize it.
 	const meaning = ( m ) => {
 		let value = m[ TYPE ] & TM_PING ? '<mint-clock>' : m[ VALUE ];
 		if ( value && 'object' === typeof value ) {

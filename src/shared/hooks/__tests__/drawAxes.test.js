@@ -121,7 +121,7 @@ describe( 'drawAxes', () => {
 		expect( labels ).toEqual( [ '0 B', '1 MB', '2 MB', '3 MB', '4 MB' ] );
 	} );
 
-	it( 'ticks a whole-unit axis in whole units, so no label repeats', () => {
+	it( 'ticks a whole-unit axis in whole units, so a label never repeats', () => {
 		const yFormat = ( v ) => `${ v } runs`;
 		yFormat.tickValues = integerTicks;
 		const labels = valueLabels( frame( { yDomain: [ 0, 3.3 ], yFormat } ) );

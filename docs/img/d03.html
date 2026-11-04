@@ -18,7 +18,7 @@
 </style>
 <div class="sheet">
 <h1>From fill() to the segment</h1>
-<p class="sub">Three nodes stand between a producer and the bytes on disk. The Topic chooses the partition, the Partition batches and flushes, and no writer ever takes a lock on the segment it appends to.</p>
+<p class="sub">Three nodes stand between a producer and the bytes on disk. The Topic chooses the partition, the Partition batches and flushes, and a writer never takes a lock on the segment it appends to.</p>
 
 <div class="lanes">
   <div class="lane" style="grid-column:1"><div class="lane-h">Producer</div></div>
@@ -50,7 +50,7 @@
   </div>
   <div class="ok hop" style="grid-column:3;grid-row:3;margin-bottom:14px">
     <h4>The hash is the concurrency control</h4>
-    <p>One partition has one reader. Every message with one KEY lands in one partition, so one process reads that key's messages serially, in append order, and no per-key lock ever needs to exist.</p>
+    <p>One partition has one reader. Every message with one KEY lands in one partition, so one process reads that key's messages serially, in append order, and a per-key lock is never needed.</p>
   </div>
   <div class="card hop" style="grid-column:5;grid-row:3;margin-bottom:14px">
     <h3><span class="n">4</span>Flush before 4096 bytes</h3>
@@ -103,7 +103,7 @@
       <text x="912" y="56">segments</text>
       <line x1="60" y1="46" x2="60" y2="58" stroke="#787C82"/><text x="60" y="76" text-anchor="middle">0</text>
       <line x1="240" y1="40" x2="240" y2="64" stroke="#1E5B1E" stroke-width="2"/><text x="240" y="76" text-anchor="middle">2</text>
-      <text x="240" y="98" text-anchor="middle" class="lab" style="fill:#1E5B1E">floor: no rule prunes below two</text>
+      <text x="240" y="98" text-anchor="middle" class="lab" style="fill:#1E5B1E">floor: never pruned below two</text>
       <line x1="420" y1="40" x2="420" y2="64" stroke="#003DA5" stroke-width="2"/><text x="420" y="76" text-anchor="middle">4</text>
       <text x="420" y="34" text-anchor="middle" class="lab" style="fill:#003DA5">count rule: above four, delete the oldest</text>
       <line x1="780" y1="40" x2="780" y2="64" stroke="#B32D2E" stroke-width="2"/><text x="780" y="76" text-anchor="middle">8</text>

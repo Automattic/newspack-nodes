@@ -6,8 +6,8 @@
  * node created inside a helper as internal plumbing. Per the make_node
  * discipline (Rule 2 / Rule 4) it MUST be named, have its patron set (so
  * dump_metadata hides it from the canvas), and be sunk into the
- * `_command_interpreter` when one is in scope (Rule 4 skips the sink when no
- * interpreter is registered — request-scope helper with no graph).
+ * `_command_interpreter` when one is in scope (Rule 4 skips the sink when there
+ * is no interpreter registered — request-scope helper with no graph).
  */
 
 namespace Newspack_Nodes\Tests\Unit;

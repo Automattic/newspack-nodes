@@ -57,7 +57,7 @@
 
 <div class="band" style="left:0;top:322px">when a frame is written, and when it is not</div>
 <div class="nd" id="due" style="left:600px;top:348px;width:226px"><span class="t">every fire(): poll, then checkpoint()</span><span class="k">only once <span class="mono">CHECKPOINT_INTERVAL_S</span> = 30 s has passed since the last commit, and only if the cursor moved since it</span></div>
-<div class="nd" id="flush" style="left:0;top:348px;width:290px"><span class="t">request_node digest FLUSH</span><span class="k">empties <span class="mono">$items</span> in memory and moves no cursor, so no frame: the cards keep the pre-flush list until a new scored record advances the cursor</span></div>
+<div class="nd" id="flush" style="left:0;top:348px;width:290px"><span class="t">request_node digest FLUSH</span><span class="k">empties <span class="mono">$items</span> in memory and moves no cursor, so it writes no frame: the cards keep the pre-flush list until a new scored record advances the cursor</span></div>
 <div class="nd" id="grace" style="left:846px;top:348px;width:206px"><span class="t">clean shutdown</span><span class="k"><span class="mono">checkpoint( true )</span> writes whatever the cursor says, skipping the advance guard</span></div>
 <div class="nd" id="fresh" style="left:310px;top:348px;width:250px"><span class="t">freshness</span><span class="k">a consumed record waits up to one interval before any frame carries it</span></div>
 </div>
@@ -66,7 +66,7 @@
   <div class="card">
     <h3>On respawn: cursor and state in lockstep</h3>
     <div class="step"><div class="n">1</div><div class="t"><b><span class="mono">init_position()</span></b> reads the last frame, seeds the cursor, and calls <span class="mono">restore_state()</span> on every node <span class="mono">add_snapshot_node</span> named. The items and the cursor come from one record, so they cannot disagree.</div></div>
-    <div class="step"><div class="n no">!</div><div class="t"><b>A name that cannot restore degrades, never loses.</b> A node absent by the first poll, declaring no <span class="mono">restore_state()</span>, or with no blob in the frame logs a rate-limited <span class="mono">WARNING: snapshot node '&lt;name&gt;' missing, stateless, or absent from the frame; skipping its restore</span>. The blob is carried into every frame this reader writes from then on, until a live <span class="mono">save_state()</span> replaces it or a boot where the node exists restores it. A typo in the name reads as never restored, never lost, and that warning is its only symptom.</div></div>
+    <div class="step"><div class="n no">!</div><div class="t"><b>A name that cannot restore degrades, never loses.</b> A node absent by the first poll, without a <span class="mono">restore_state()</span>, or with no blob in the frame logs a rate-limited <span class="mono">WARNING: snapshot node '&lt;name&gt;' missing, stateless, or absent from the frame; skipping its restore</span>. The blob is carried into every frame this reader writes from then on, until a live <span class="mono">save_state()</span> replaces it or a boot where the node exists restores it. A typo in the name reads as never restored, never lost, and that warning is its only symptom.</div></div>
   </div>
   <div class="card">
     <h3>Keep the snapshot bounded</h3>

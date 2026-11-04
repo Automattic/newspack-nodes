@@ -24,14 +24,14 @@
  * A link declares its sources, `{ stamp, target }` records, through
  * `addSource()` and `removeSource()`, the handlers of the `add_source` and
  * `remove_source` its `:config` answers. Both fold through the one
- * `foldSource()` the PHP broker and the console's TSL reader fold through:
- * one target per stamp, an identical repeat a no-op, a removal naming no
- * declared source refused, and a source a spoke cannot stream, one taking a
- * kept slot or one naming `{partition}`, which no browser binds, refused. It
- * asks the server for the sources' stamps and sends each record to the
+ * `foldSource()` the PHP broker and the console's TSL reader fold through: one
+ * target per stamp, an identical repeat a no-op, a removal that names an
+ * undeclared source refused, and a source a spoke cannot stream, one taking a
+ * kept slot or one naming `{partition}`, which a browser never binds, refused.
+ * It asks the server for the sources' stamps and sends each record to the
  * target of every source carrying its stamp, where PHP
- * `Remote_Broker_Node::source_for()` hands one to the first alone, so an
- * exact view and a glob view over its stamp both see the record.
+ * `Remote_Broker_Node::source_for()` hands one to the first alone, so an exact
+ * view and a glob view over its stamp both see the record.
  *
  * A page view declares no source of its own. It attaches to a stamp's Tee,
  * the hidden sibling `<link>:<stamp>`, as one of its targets: the first view
@@ -145,7 +145,7 @@ const without = ( records, stamp, target ) =>
  *
  * `subscribe`, the sole positional argument, names what the stream carries.
  * Nothing opens at construction: the first `connect()`, `connectNode()` or
- * `send()` builds the children, and each of those refuses while no
+ * `send()` builds the children, and each of those refuses until a
  * subscription has been supplied. Records arrive on the link's own `sink` and
  * `target`, so a consumer wires a RemoteLink exactly as it wires any other
  * source node. A link carrying sources takes its subscription from them
@@ -203,8 +203,8 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		this.sources = [];
 		/**
 		 * Paused views, `{ stamp, target }` each: off their stamp's Tee, but
-		 * still claiming it, so no other view seeks it and no `forget()`
-		 * drops its place.
+		 * still claiming it, so another view never seeks it and a
+		 * `forget()` never drops its place.
 		 *
 		 * @type {Source[]}
 		 */
@@ -432,8 +432,8 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 	/**
 	 * Undo the `addSource()` that declared `stamp` → `target`, both as
-	 * written, as PHP `Remote_Broker_Node::remove_source()` does. A stamp no
-	 * source carries leaves the subscription, and its place stays until
+	 * written, as PHP `Remote_Broker_Node::remove_source()` does. A stamp left
+	 * without a source leaves the subscription, and its place stays until
 	 * `forget()`.
 	 *
 	 * @param {string} stamp  The source, as `addSource()` took it.
@@ -454,12 +454,12 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Forget what the stream holds for the dirs `subscribe` carries and no
-	 * source claims, a paused view's included: their seeds, read positions
-	 * and skipped-line counts, as a view leaving for good does, so a later
-	 * view on them tails. Dropping a place the open stream carries makes the
-	 * next reopen happen even on the same set, or a replay one view asked for
-	 * runs on into another.
+	 * Forget what the stream holds for the dirs `subscribe` carries that are
+	 * not claimed by any source, a paused view's included: their seeds, read
+	 * positions and skipped-line counts, as a view leaving for good does, so a
+	 * later view on them tails. Dropping a place the open stream carries makes
+	 * the next reopen happen even on the same set, or a replay one view asked
+	 * for runs on into another.
 	 *
 	 * @param {string[]} subscribe The subscriptions let go.
 	 */
@@ -489,7 +489,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 *
 	 * An empty stamp or target is refused, and whatever `addSource()` would
 	 * refuse of the stamp's source aimed at its Tee: a stamp a source
-	 * declared to another target, one no spoke can stream and one whose Tee
+	 * declared to another target, one a spoke cannot stream and one whose Tee
 	 * would take a slot the link keeps. So is a seek on a stamp another view
 	 * claims, a paused one included, or a source a verb declared: one stream
 	 * holds one place per stamp, so the seek would move that one too.
@@ -560,7 +560,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Drop the seek a view has not stated once it is on no Tee.
+	 * Drop the seek a view has not stated once it is not on any Tee.
 	 *
 	 * @param {string} target The view's node path.
 	 */
@@ -678,7 +678,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * Only the SseIn is created. `_http` and `_heartbeat` are looked up and
 	 * configured, because they are backbone every link on the page shares.
 	 *
-	 * @throws {Error} When no subscription has been supplied.
+	 * @throws {Error} Before a subscription has been supplied.
 	 */
 	ensureChildren() {
 		this._assertConfigured();
@@ -742,14 +742,14 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * source carrying its stamp, each copy addressed by TO, where PHP
 	 * `Remote_Broker_Node::source_for()` hands one to the first alone. The
 	 * targets come from one lookup in `_routes`, filled on a stamp's first
-	 * record and emptied by `_reroute()`. A link with no sources declines
-	 * every record. Every link declines a reply, which the server addressed to
-	 * its minter (TO=FROM, ADR-7): a command reply, and a TM_RESPONSE or
-	 * TM_ERROR carrying a TO, as `HttpOut` reads one, so a Router bounce
-	 * reaches the node it answers. The SseIn sends a declined record by its
-	 * TO. A record no source claims is dropped, rate-limited, and the drop
-	 * line's FROM names its stamp. Every target is tried whatever an earlier
-	 * one threw, and what they threw is raised after the last, as a Tee does.
+	 * record and emptied by `_reroute()`. A link with no sources declines every
+	 * record. Every link declines a reply, which the server addressed to its
+	 * minter (TO=FROM, ADR-7): a command reply, and a TM_RESPONSE or TM_ERROR
+	 * carrying a TO, as `HttpOut` reads one, so a Router bounce reaches the
+	 * node it answers. The SseIn sends a declined record by its TO. A record
+	 * without a claiming source is dropped, rate-limited, and the drop line's
+	 * FROM names its stamp. Every target is tried whatever an earlier one
+	 * threw, and what they threw is raised after the last, as a Tee does.
 	 *
 	 * @param {Array}  message The positional Message just received.
 	 * @param {string} stamp   The stamp its FROM opens with.

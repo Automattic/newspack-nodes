@@ -566,7 +566,7 @@ test( 'a structurally invalid command warns to stderr (classified, not silent)',
 	warnSpy.mockRestore();
 } );
 
-test( 'a TM_NOREPLY command that fails throws, since no reply can carry it', () => {
+test( 'a TM_NOREPLY command that fails throws, since there is no reply to carry it', () => {
 	const sink = new Node();
 	const got = [];
 	sink.fill = ( m ) => got.push( [ ...m ] );
@@ -610,7 +610,7 @@ test( 'an unauthorized TM_NOREPLY command throws and runs nothing', () => {
 	expect( ran ).toBe( false );
 } );
 
-test( 'a TM_NOREPLY command naming no verb throws', () => {
+test( 'a TM_NOREPLY command naming an unknown verb throws', () => {
 	const interpreter = new CommandInterpreterNode();
 	interpreter.name = 'test_interpreter';
 	interpreter.sink = { fill: () => {} };
@@ -949,7 +949,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 			expect( tee.target ).toContain( 'session' );
 		} );
-		it( 'connect usage when no target and no envelope FROM are available', () => {
+		it( 'connect usage without a target or an envelope FROM', () => {
 			const interpreter = makeInterpreter();
 			const tee = new TeeNode();
 			tee.name = 't';
@@ -1253,7 +1253,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( got[ 0 ][ TO ] ).toBe( 'some/target' );
 			expect( got[ 0 ][ VALUE ].name ).toBe( 'uptime' );
 		} );
-		it( 'throws usage when no command is given', () => {
+		it( 'throws usage without a command', () => {
 			const interpreter = makeInterpreter();
 			expect( () =>
 				dispatch( interpreter, 'reply_to', 'some/target' )
@@ -1515,7 +1515,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	} );
 
 	// The verb is `trace`; the reply strings report the `debug_state`
-	// node property, but no verb answers to `debug_state`.
+	// node property, but `debug_state` is not a verb.
 	describe( 'trace (formerly debug_state)', () => {
 		it( 'the old `debug_state` verb name no longer resolves', () => {
 			const interpreter = makeInterpreter();
@@ -1523,7 +1523,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'unknown command: debug_state'
 			);
 		} );
-		it( 'no args toggles this interpreter', () => {
+		it( 'without args it toggles this interpreter', () => {
 			const interpreter = makeInterpreter();
 			expect( dispatch( interpreter, 'trace', '' ) ).toBe(
 				'_command_interpreter debug_state: 1'
@@ -1578,7 +1578,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	} );
 
 	describe( 'help', () => {
-		it( 'no topic lists the unified commands section', () => {
+		it( 'without a topic it lists the unified commands section', () => {
 			const interpreter = makeInterpreter();
 			const out = dispatch( interpreter, 'help', '' );
 			expect( out ).toContain( '### COMMANDS ###' );

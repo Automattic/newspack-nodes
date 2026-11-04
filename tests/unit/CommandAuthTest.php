@@ -332,7 +332,7 @@ class CommandAuthTest extends TestCase {
 	/** The key both live sessions sign under. */
 	private const FEED_KEY = 'feed-key-7746-7746-7746-7746-7746';
 
-	/** A key no session holds. */
+	/** A key that is not held by any session. */
 	private const FEED_WRONG = 'feed-wrong-7746-7746-7746-7746-77';
 
 	/** The clock every handle-naming test runs at. */
@@ -423,8 +423,9 @@ class CommandAuthTest extends TestCase {
 	}
 
 	/**
-	 * A handle naming no live site-wide session is named nowhere: neither a
-	 * dead one nor a grant's, which the verifier refuses as naming none.
+	 * A handle that does not name a live site-wide session is named nowhere:
+	 * neither a dead one nor a grant's, which the verifier refuses as naming
+	 * none.
 	 */
 	public function test_a_refusal_names_no_handle_without_a_live_session(): void {
 		$dead        = 'dead7746dead7746dead7746dead7746';
@@ -446,8 +447,8 @@ class CommandAuthTest extends TestCase {
 	}
 
 	/**
-	 * A refusal before the envelope is whole names no handle, even one
-	 * naming a live session.
+	 * A refusal before the envelope is whole does not name a handle, not even
+	 * one that names a live session.
 	 */
 	public function test_a_bad_envelope_names_no_handle(): void {
 		$envelope = self::feed_command( self::FEED_HANDLE, self::FEED_KEY, self::FEED_NOW );

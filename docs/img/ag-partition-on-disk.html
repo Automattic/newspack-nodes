@@ -46,7 +46,7 @@
       <div class="r" style="margin-top:8px"><span class="d">{base}/deadletter/logs.firehose.p0/</span><span class="c">write quarantine for a segment that will not open: the dir under base, dotted</span></div>
       <div class="r" style="margin-top:8px"><span class="d">out.log.0 &nbsp;out.log.1</span><span class="c">a Log lays segments as {file}.{seg}: raw VALUEs, no bare {file}</span></div>
     </div>
-    <p style="margin-top:10px">Segments are ids sorted numerically (<span class="mono">SEGMENT_PATTERN /^(\d+)\.log$/</span>); rotation is monotonic. No <span class="mono">.idx</span> exists unless a formatter is installed, and there is no binary index format.</p>
+    <p style="margin-top:10px">Segments are ids sorted numerically (<span class="mono">SEGMENT_PATTERN /^(\d+)\.log$/</span>); rotation is monotonic. An <span class="mono">.idx</span> exists only when a formatter is installed, and there is no binary index format.</p>
     <p><span class="mono">read_at( seg, off, len )</span> seeks into a <span class="mono">.log</span>; <span class="mono">scan_index()</span> walks the <span class="mono">.idx</span> lines; <span class="mono">index_mtimes()</span> stats each <span class="mono">.idx</span> fresh, the one clock a reader owns on a hub.</p>
   </div>
   <div class="card pipe">

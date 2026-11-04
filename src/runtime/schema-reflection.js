@@ -93,7 +93,8 @@ export function boundArguments( declared ) {
 /**
  * The positional walk (PHP trait `parse_schema_args`): assign each token of
  * `args` to the property its declared `nodeSchema().arguments` entry names,
- * coerced to the declared type. A node declaring no arguments is a no-op.
+ * coerced to the declared type. For a node without declared arguments it is a
+ * no-op.
  *
  * Excess tokens are ignored. A blank token at an `int` or `float` position
  * reads as "not supplied", so a line can fill a later position without

@@ -70,7 +70,7 @@ describe( 'foldSource', () => {
 		).toBe( declared );
 	} );
 
-	it( 'refuses {partition} where no partition is bound', () => {
+	it( 'refuses {partition} while the partition is unbound', () => {
 		expect( () =>
 			foldSource(
 				[],
@@ -91,7 +91,7 @@ describe( 'foldSource', () => {
 		expect( () =>
 			foldSource( [], 'add_source', 'Egret<zeta:lane>', 'ibis-41', 0 )
 		).toThrow(
-			"add_source 'Egret<zeta:lane>' names a source no spoke can stream"
+			"add_source 'Egret<zeta:lane>' names a source that spokes cannot stream"
 		);
 	} );
 

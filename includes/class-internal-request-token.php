@@ -5,10 +5,11 @@
  * Two endpoints take requests the site makes of itself: the spawn controller,
  * which a worker's self-respawn, a peer scan and the cold-start cron pass all
  * POST to, and the health-runtime probe, which reports the web runtime's cache
- * posture and log sources to `wp nodes doctor`. No such caller carries a user
- * session, so a capability check would refuse every one of them; each presents
- * a token minted from a shared secret instead. Spawn keeps a second door beside the token, for
- * a caller holding the `manage` role and a valid WordPress nonce.
+ * posture and log sources to `wp nodes doctor`. None of these callers carries a
+ * user session, so a capability check would refuse every one of them; each
+ * presents a token minted from a shared secret instead. Spawn keeps a second
+ * door beside the token, for a caller holding the `manage` role and a valid
+ * WordPress nonce.
  *
  * The purpose string sits INSIDE the hashed message, so a token minted for one
  * endpoint never validates at the other and a leaked one reaches only the

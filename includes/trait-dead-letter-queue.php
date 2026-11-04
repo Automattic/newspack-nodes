@@ -7,8 +7,8 @@
  * line back into a replayable Message (`poison_from_line`), the attempt accounting a
  * respawn resumes (`resume_attempts_from_frame` and `record_poison_strike`), crawl
  * mode, and the `dl_*` triage verbs. What DECIDES when to call any of it — the buffer,
- * the cursor and its advance — belongs to `Durable_Reader`, so no reader can adopt the
- * quarantine and forget the accounting.
+ * the cursor and its advance — belongs to `Durable_Reader`, so a reader can
+ * never adopt the quarantine and forget the accounting.
  *
  * Three classes use it, in two shapes. `Durable_Reader` mixes it into Consumer_Node
  * and Remote_Consumer_Node, which both carry a durable cursor and use every piece.
@@ -91,10 +91,10 @@ trait Dead_Letter_Queue {
 	/** Hard cap, pruned unconditionally: the quarantine cannot grow past 32 segments. */
 	public const DEADLETTER_MAX_SEGMENTS = 32;
 
-	/** Newest-first page size for the `dl_list` triage verb when no limit is given. */
+	/** Newest-first page size for the `dl_list` triage verb without a limit. */
 	public const DEADLETTER_LIST_DEFAULT_LIMIT = 50;
 
-	/** Status of a record no tombstone names: what `dl_list`'s total counts. */
+	/** Status of a record without a tombstone: what `dl_list`'s total counts. */
 	public const DEADLETTER_QUARANTINED = 'quarantined';
 
 	/** Tombstone status: a requeue delivered the record and its sink returned. */
@@ -144,9 +144,9 @@ trait Dead_Letter_Queue {
 	protected string $deadletter_dir = '';
 
 	/**
-	 * The quarantine Partition, or null — either because no directory is configured,
-	 * in which case poison is reported and dropped, or because `ensure_deadletter()`
-	 * has not run yet.
+	 * The quarantine Partition, or null — either because the node has no
+	 * directory configured, in which case poison is reported and dropped, or
+	 * because `ensure_deadletter()` has not run yet.
 	 */
 	protected ?Partition_Node $deadletter = null;
 
@@ -187,12 +187,12 @@ trait Dead_Letter_Queue {
 	 * Records in $deadletter still quarantined: the count `wp nodes doctor` and
 	 * Site Health report. An indexed record counts until a requeue or removal
 	 * tombstone settles it, as `dl_list`'s `total` counts, and every line of an
-	 * unindexed segment counts, since nothing addresses those records to settle
-	 * them. It reads every .idx row and every unindexed segment, so the cost is
-	 * the queue's size, which DEADLETTER_MAX_SEGMENTS bounds.
+	 * unindexed segment counts, since those records have no locator a tombstone
+	 * could name. It reads every .idx row and every unindexed segment, so the
+	 * cost is the queue's size, which DEADLETTER_MAX_SEGMENTS bounds.
 	 *
 	 * @param Partition_Node $deadletter The quarantine.
-	 * @return int Records no tombstone settled.
+	 * @return int Records that a tombstone has not settled.
 	 */
 	public static function quarantined_records( Partition_Node $deadletter ): int {
 		$records = self::census( $deadletter, 0 )['total'];
@@ -205,7 +205,8 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Segments no index describes: no .idx companion, or an empty one.
+	 * Segments that are not described by any index: no .idx companion, or an
+	 * empty one.
 	 *
 	 * @param Partition_Node $deadletter The quarantine.
 	 * @return list<int> Their ids.
@@ -225,7 +226,7 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * One walk of the index: the first $limit records a removal left, each with
-	 * its status, and how many indexed records no tombstone settled.
+	 * its status, and how many indexed records a tombstone has not settled.
 	 *
 	 * @param Partition_Node $deadletter The quarantine.
 	 * @param int            $limit      Rows to return; 0 counts alone.
@@ -268,12 +269,12 @@ trait Dead_Letter_Queue {
 	 * A delivery whose sink returned appends a `requeued` tombstone, so the row
 	 * lists as requeued; one that throws appends nothing and the row stays as it
 	 * was. A removed record is refused rather than delivered, and so is an
-	 * unaddressed one or one whose first hop names no mounted node, which the
-	 * Router would drop without a throw. A record dropped deeper in its path
-	 * still reads requeued, as does a job no handler is registered for. A
-	 * tombstone that cannot be written after the sink took the record leaves the
-	 * ok line standing with a warning beside it, because an error would invite a
-	 * second delivery.
+	 * unaddressed one or one whose first hop does not name a mounted node,
+	 * which the Router would drop without a throw. A record dropped deeper in
+	 * its path still reads requeued, as does a job that has no registered
+	 * handler. A tombstone that cannot be written after the sink took the
+	 * record leaves the ok line standing with a warning beside it, because an
+	 * error would invite a second delivery.
 	 *
 	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
 	 * @return string The `ok:` line the verb replies, with any warning after it.
@@ -346,13 +347,15 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * The breadcrumb of the listed record at $locator, refused when it is not
-	 * listed: no .idx row names it, or a tombstone removed it. A line that does
-	 * not contain the locator is skipped undecoded; the exact compare decides.
+	 * listed: it is not named by any .idx row, or a tombstone removed it. A
+	 * line that does not contain the locator is skipped undecoded; the exact
+	 * compare decides.
 	 *
 	 * @param Partition_Node $deadletter The sidecar.
 	 * @param string         $locator    `segment:offset:length` in the sidecar, from dl_list.
 	 * @return array{segment: int, offset: int, length: int} The record's position.
-	 * @throws \RuntimeException When the locator is malformed, or names no listed record.
+	 * @throws \RuntimeException When the locator is malformed, or does not name
+	 *                           a listed record.
 	 */
 	private static function require_listed( Partition_Node $deadletter, string $locator ): array {
 		$crumb  = self::deadletter_crumb( $locator );
@@ -471,7 +474,8 @@ trait Dead_Letter_Queue {
 	 * never required for correctness.
 	 *
 	 * @return string The `ok:` count line.
-	 * @throws \RuntimeException When no dead-letter queue is configured.
+	 * @throws \RuntimeException When the node has no dead-letter queue
+	 *                           configured.
 	 */
 	public function purge_deadletter(): string {
 		$deadletter = $this->require_deadletter();
@@ -508,7 +512,8 @@ trait Dead_Letter_Queue {
 	 * The dead-letter sidecar, for a verb that cannot answer without one.
 	 *
 	 * @return Partition_Node The sidecar.
-	 * @throws \RuntimeException When no dead-letter directory is configured.
+	 * @throws \RuntimeException When the node has no dead-letter directory
+	 *                           configured.
 	 */
 	private function require_deadletter(): Partition_Node {
 		return $this->ensure_deadletter() ?? throw new \RuntimeException( 'no dead-letter queue configured' );
@@ -521,7 +526,8 @@ trait Dead_Letter_Queue {
 	 * built for a directory the arguments have since superseded would go on
 	 * quarantining where nobody triages.
 	 *
-	 * @return Partition_Node|null The sidecar, or null when no directory is configured.
+	 * @return Partition_Node|null The sidecar, or null when the node has no
+	 *                             directory configured.
 	 */
 	protected function ensure_deadletter(): ?Partition_Node {
 		$dir = \rtrim( $this->deadletter_dir, '/' );
@@ -585,7 +591,7 @@ trait Dead_Letter_Queue {
 	 * sidecar's PIPE_BUF cap via void_warranty (lockless rotation) — safe only
 	 * for a sole writer.
 	 *
-	 * @return bool True when nothing else writes this quarantine.
+	 * @return bool True when this is the quarantine's only writer.
 	 */
 	protected function deadletter_sole_writer(): bool {
 		return true;
@@ -784,7 +790,8 @@ trait Dead_Letter_Queue {
 	 * @param string           $reason  Why it is being quarantined; rides in the .idx row
 	 *                                  and heads the reported line.
 	 * @param \Throwable|null  $error   The throw that condemned it, when there was one.
-	 * @throws \Throwable `$error` when no quarantine is configured; else the failed write, combined with `$error`.
+	 * @throws \Throwable `$error` when the node has no quarantine configured;
+	 *                    else the failed write, combined with `$error`.
 	 */
 	protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
 		$where   = Core::as_string( $message[ Message::ID ] ?? '' );

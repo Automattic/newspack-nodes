@@ -266,9 +266,10 @@ function deriveConnected( {
  *                                                        that succeeded with a
  *                                                        warning, as an activate
  *                                                        does beside an active
- *                                                        topology no conflict
- *                                                        check could read; the
- *                                                        message is the warning.
+ *                                                        topology that a
+ *                                                        conflict check could
+ *                                                        not read; the message
+ *                                                        is the warning.
  * @param {boolean}                      [opts.paused]    Suspend polling, as the
  *                                                        Overview does while a row
  *                                                        drag is in flight.

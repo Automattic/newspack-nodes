@@ -55,7 +55,7 @@ final class Row_Reader {
 
 	/**
 	 * The schema names of the attached files, `p{N}`, in partition order;
-	 * none when no partition has written a file.
+	 * none until a partition has written a file.
 	 *
 	 * @api The row tables' read path, for a verb answering from them.
 	 * @return list<string>

@@ -13,11 +13,11 @@
  *
  * A disabled button must NOT carry `button-primary`. WordPress core styles
  * `.wp-core-ui .button-primary:disabled` with `!important` on background,
- * border-color and color, so no selector we can write outranks it, and what
- * it paints is a #e2e2e2 slab that out-glows every enabled control in the
+ * border-color and color, so a selector we can write never outranks it, and
+ * what it paints is a #e2e2e2 slab that out-glows every enabled control in the
  * dialog under a dark skin. Core's plain disabled `.button` rule forces
- * `background: transparent` instead, letting the panel behind show through,
- * so the button roles' 0.5 opacity is what reads as disabled.
+ * `background: transparent` instead, letting the panel behind show through, so
+ * the button roles' 0.5 opacity is what reads as disabled.
  *
  * @param {boolean} disabled Whether the button is disabled.
  * @param {string}  extra    Additional classes, such as `is-danger`.

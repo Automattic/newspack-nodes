@@ -564,7 +564,7 @@ describe( 'RemoteIpcNode', () => {
 		expect( node.pid ).toBeUndefined();
 	} );
 
-	it( 'drops a command it cannot address while no session is live, naming why', async () => {
+	it( 'drops a command it cannot address while there is no live session, naming why', async () => {
 		expectConsoleWarn(
 			'aggregator.p0: WARNING: no command session to address its reply'
 		);
@@ -632,7 +632,7 @@ describe( 'RemoteIpcNode', () => {
 		);
 	} );
 
-	it( 'reopens a stream opened under no session once one exists, resuming where it read', async () => {
+	it( 'reopens a stream opened without a session once one exists, resuming where it read', async () => {
 		forgetSession();
 		__setAuthFetch( async () => null );
 		await ensureSession();

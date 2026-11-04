@@ -135,7 +135,7 @@ test( 'it re-measures when the window resizes', () => {
 	expect( ring().style.left ).toBe( '163px' );
 } );
 
-// The page is picked by marking its box, which no render follows: the ring
+// The page is picked by marking its box without a render: the ring
 // watches that one attribute on that one element.
 test( 'the ring wears the mark while the page is picked', async () => {
 	const page = pageBox();

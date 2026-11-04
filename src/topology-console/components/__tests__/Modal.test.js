@@ -216,7 +216,7 @@ describe( 'ModalShell', () => {
 
 	it( 'centres the dialog on its overlay panel and bounds it to that panel', () => {
 		// Whole-page dim, but the dialog belongs to the panel: centred on it
-		// in both axes and capped to its box, so no edge escapes the overlay.
+		// in both axes and capped to its box, so it stays inside the overlay.
 		renderShell( overlayPanel( { width: 900, height: 620 } ) );
 		const dialog = document.body.querySelector( '.topology-modal' );
 		// The panel's box reaches the stylesheet as a cap it narrows the
@@ -369,7 +369,7 @@ describe( 'ModalShell', () => {
 		} );
 	} );
 
-	it( 'leaves the dialog viewport-centred when no overlay panel is present', () => {
+	it( 'leaves the dialog viewport-centred without an overlay panel', () => {
 		renderShell();
 		expect(
 			positioning( document.body.querySelector( '.topology-modal' ) )
@@ -562,7 +562,7 @@ describe( 'PromptModal', () => {
 
 	it( 'drops button-primary while disabled so core cannot force #e2e2e2', () => {
 		// `.wp-core-ui .button-primary:disabled` sets its grey with !important,
-		// which no selector outranks — so a disabled primary must stop being one.
+		// which beats any selector — so a disabled primary must stop being one.
 		const { getByText, baseElement } = render(
 			<PromptModal
 				title=""

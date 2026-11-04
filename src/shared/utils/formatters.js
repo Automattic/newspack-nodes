@@ -2,7 +2,7 @@
  * The dashboards' presentation formatters: byte sizes, byte/message rates,
  * compact counts, elapsed age, consumer ETA. One home for all of them — the
  * event dashboards, the debug overlay and the topology console render every
- * number through this module, so no two surfaces can disagree about what
+ * number through this module, so two surfaces can never disagree about what
  * 881869 bytes reads as.
  */
 

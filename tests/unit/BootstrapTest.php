@@ -322,7 +322,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_get_topologies_uses_config_file_topologies_when_wp_option_unset(): void {
 		// `topologies` is a substrate Config key: the file default is the active
-		// set when no operator overlay (`newspack_nodes_topologies`) is set.
+		// set when the operator overlay (`newspack_nodes_topologies`) is unset.
 		\Newspack_Nodes\Topology_Registry::reset();
 		$stock = $this->make_temp_dir();
 		\file_put_contents( "{$stock}/widget.tsl", "make_node Echo e\n" );
@@ -404,8 +404,8 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
-	 * A padded, slashed or non-numeric id names no worker, even where the
-	 * worker it resembles holds a lock and an input dir.
+	 * A padded, slashed or non-numeric id does not name a worker, even where
+	 * the worker it resembles holds a lock and an input dir.
 	 */
 	public function test_register_worker_partition_refuses_an_id_the_fleet_never_spells(): void {
 		$base = $this->make_temp_dir();
@@ -1450,10 +1450,10 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_reconcile_fleet_reports_an_unusable_base_instead_of_throwing(): void {
-		// This is the LAST revival path when no worker is alive, and it runs on
-		// a cron callback every minute. A misconfigured base must log once and
-		// return, as the two sibling entry points already do — not throw out of
-		// the callback sixty times an hour.
+		// This is the LAST revival path when every worker is down, and it runs
+		// on a cron callback every minute. A misconfigured base must log once
+		// and return, as the two sibling entry points already do — not throw
+		// out of the callback sixty times an hour.
 		$prev_env    = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		$tmp         = $this->make_temp_dir( 'cold-start-no-base-' );
 		$runtime_ref = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
@@ -1530,9 +1530,9 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
-	 * An active name no `.tsl` resolves — a deploy mid-reinstall, a stale
-	 * config entry — is reported once a pass per failing step, each line
-	 * naming one topology, and the cron callback returns.
+	 * An active name that does not resolve to any `.tsl` — a deploy
+	 * mid-reinstall, a stale config entry — is reported once a pass per failing
+	 * step, each line naming one topology, and the cron callback returns.
 	 */
 	public function test_reconcile_fleet_logs_each_unresolved_topology_and_returns(): void {
 		$dir = $this->make_temp_dir( 'cold-start-unresolved-' );
@@ -1549,8 +1549,8 @@ class BootstrapTest extends TestCase {
 
 		$reported = self::stderr_lines( $lines, 'unknown topology' );
 		$this->assertCount( 2, $reported, 'one line per topology, never a combined Failures' );
-		$this->assertMatchesRegularExpression( "/^retention: unknown topology 'heron-9931': no \\.tsl resolves \\(.*class-bootstrap\\.php:\\d+\\)$/", $reported[0] );
-		$this->assertMatchesRegularExpression( "/^retention: unknown topology 'ibis-4471': no \\.tsl resolves \\(.*class-bootstrap\\.php:\\d+\\)$/", $reported[1] );
+		$this->assertMatchesRegularExpression( "/^retention: unknown topology 'heron-9931': it does not resolve to a \\.tsl file \\(.*class-bootstrap\\.php:\\d+\\)$/", $reported[0] );
+		$this->assertMatchesRegularExpression( "/^retention: unknown topology 'ibis-4471': it does not resolve to a \\.tsl file \\(.*class-bootstrap\\.php:\\d+\\)$/", $reported[1] );
 		$this->assertStringContainsString( ' reconcile[', $lines[0], 'the process label names the pass' );
 		$this->assertSame( 1, $periodic, 'every step still ran' );
 		$this->rmdir_recursive( $dir );
@@ -1585,7 +1585,7 @@ class BootstrapTest extends TestCase {
 	// ── reconcile_fleet: housekeeping ────────────────────────────────────
 
 	public function test_reconcile_fleet_fires_the_periodic_hook(): void {
-		// Housekeeping rides no job on the `job-worker` pool, so it runs
+		// Housekeeping does not ride a job on the `job-worker` pool, so it runs
 		// even when the fleet is down — which is when disk most needs reclaiming.
 		$dir   = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
@@ -2243,9 +2243,9 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
-	 * A node no readable topology declares may live in a `.tsl` that will not
-	 * read, so the reader gets that failure rather than an empty answer
-	 * reading as "nothing declares it".
+	 * A node that is not declared by any readable topology may live in a `.tsl`
+	 * that will not read, so the reader gets that failure rather than an empty
+	 * answer reading as "nothing declares it".
 	 */
 	public function test_node_readers_raise_the_unreadable_topologies_when_no_readable_one_declares_the_node(): void {
 		$stock = $this->activate_topologies(
@@ -2304,7 +2304,8 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
-	 * Activation seeds the cache salt, so no install runs on a computable scope.
+	 * Activation seeds the cache salt, so an install never runs on a computable
+	 * scope.
 	 *
 	 * `Cache_Backend::site()` folds the salt into the install scope, and an
 	 * empty salt leaves that scope derivable from `DB_NAME` and the table

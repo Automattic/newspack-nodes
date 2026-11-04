@@ -36,8 +36,9 @@ class Config {
 	 * Contract for a callback: call `Config::register_keys()` and nothing else. It runs
 	 * from INSIDE a config read (any request, any process), so config reads, option
 	 * writes, or I/O from a callback fire at an unpredictable point in the request —
-	 * and `value()` on a key no earlier callback has declared THROWS, because the
-	 * declaring guard suppresses the re-fire that would otherwise find it.
+	 * and `value()` on a key that an earlier callback has not yet declared
+	 * THROWS, because the declaring guard suppresses the re-fire that would
+	 * otherwise find it.
 	 */
 	public const DECLARE_ACTION = 'newspack_nodes/declare_config_keys';
 
@@ -54,8 +55,8 @@ class Config {
 	private static $config_files = null;
 
 	/**
-	 * Keys the shipped config named that no Field declares. Reported, never
-	 * thrown — see `note_unrecognized_keys()`.
+	 * Keys the shipped config named that are not declared by any Field.
+	 * Reported, never thrown — see `note_unrecognized_keys()`.
 	 *
 	 * @var list<string>
 	 */
@@ -617,13 +618,16 @@ class Config {
 
 	/**
 	 * The effective configuration: the config files with the stored WordPress
-	 * options overlaid, then every following key no layer set resolved
-	 * (`Schema::overlay()`). Memoized for the process; `reset()`
+	 * options overlaid, then every following key that every layer left unset,
+	 * resolved (`Schema::overlay()`). Memoized for the process; `reset()`
 	 * clears it.
 	 *
 	 * @api
 	 * @return array<string,mixed>
-	 * @throws \RuntimeException When either config file returns anything but a tree of scalars, nulls and arrays, or LOCAL_NEWSPACK_NODES_CONF names no canonical readable PHP file.
+	 * @throws \RuntimeException When either config file returns anything but a
+	 *                           tree of scalars, nulls and arrays, or
+	 *                           LOCAL_NEWSPACK_NODES_CONF does not name a
+	 *                           canonical readable PHP file.
 	 */
 	public static function load_config(): array {
 		if ( null !== self::$config ) {
@@ -641,7 +645,10 @@ class Config {
 	 * schema is the definition; both files are override surfaces.
 	 *
 	 * @return array<string,mixed>
-	 * @throws \RuntimeException When either config file returns anything but a tree of scalars, nulls and arrays, or LOCAL_NEWSPACK_NODES_CONF names no canonical readable PHP file.
+	 * @throws \RuntimeException When either config file returns anything but a
+	 *                           tree of scalars, nulls and arrays, or
+	 *                           LOCAL_NEWSPACK_NODES_CONF does not name a
+	 *                           canonical readable PHP file.
 	 */
 	private static function load_config_files(): array {
 		if ( null !== self::$config_files ) {
@@ -698,7 +705,7 @@ class Config {
 	}
 
 	/**
-	 * Keys in $config that no Field declares.
+	 * Keys in $config that are not declared by any Field.
 	 *
 	 * A stray key is an operator typo: 'base_directroy' leaves the real
 	 * base_directory on its default and the runtime writes its tree somewhere

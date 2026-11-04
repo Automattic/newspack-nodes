@@ -44,7 +44,7 @@ POST  /wp-json/newspack-nodes/v1/workers/spawn
 HMAC-validated worker spawn, used by every worker's `_fleet` peer scan, the
 WP-Cron cold-start pass, and the worker's own `self_respawn()` chain. **Not for
 public callers** — the token rotates every 10s and is per-site, so an external
-call presenting no valid one returns `403 Forbidden`.
+call without a valid one returns `403 Forbidden`.
 
 ![A five-lane sequence of one spawn POST across the spawner, WordPress, check_permission, spawn() and the worker: the argument check, the fleet gate, the two validators of the one nonce field, the three ordered refusals, the accepted spawn, the 200 written and the request finished before the worker runs inline for 595 seconds; below, the internal token formula for both purposes and the Perl mirror that copies it by hand.](img/api-spawn-handshake.png)
 
@@ -52,7 +52,7 @@ call presenting no valid one returns `403 Forbidden`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | yes | Worker type, which is also the topology name (see `wp nodes types`). The route's `validate_callback` refuses a type no ACTIVE topology declares, so an unknown one never reaches the handler. |
+| `type` | string | yes | Worker type, which is also the topology name (see `wp nodes types`). The route's `validate_callback` refuses a type that is not declared by any ACTIVE topology, so an unknown one never reaches the handler. |
 | `partition` | int | yes | Partition index, 0-based. Must be below both the type's active partition count and `Spawn_Coordinator::MAX_PARTITIONS` (8). |
 | `nonce` | string | yes | Either the internal HMAC token or a WordPress nonce for the `newspack_nodes_spawn_worker` action — one field, two validators. |
 
@@ -170,7 +170,7 @@ health rows whose answer depends on the PHP runtime asking: the cache backend
 the WEB runtime selects, and whether every `sources:<name>` its active
 topologies read resolves in its log-source registry, whose built-ins read the
 runtime's own ini and constants. A probe run under WP-CLI can report a posture
-no visitor and no worker ever gets, because WP-CLI selects its own backend and
+that visitors and workers never get, because WP-CLI selects its own backend and
 reads its own php.ini. It is not a general cache API and not for public callers.
 
 ### Request
@@ -188,7 +188,7 @@ authorize this route, and a health-runtime token cannot authorize worker spawn.
 
 WordPress REST enforces the required `token` argument. Omitting it returns HTTP
 `400` with code `rest_missing_callback_param`, before the permission callback
-and before `Bootstrap::fleet_gate()`, so no controller validation runs either.
+and before `Bootstrap::fleet_gate()`, so controller validation never runs either.
 
 When a token is supplied, the fleet gate applies before controller validation:
 on multisite, only the main fleet site may use the route, and a subsite receives
@@ -255,7 +255,7 @@ Once `Worker_Base::execute()` holds that worker's lock, it fires
 the keys before they were set — a request logger naming the process at its
 start — learns the worker's identity mid-process. A spawn that loses the lock
 race never becomes the worker and announces nothing, and neither does
-`wp nodes run`, which sets no tag. A listener that needs the worker id spells
+`wp nodes run`, which does not set a tag. A listener that needs the worker id spells
 it with `CLI::worker_id( $type, $partition )`, the inverse of
 `CLI::parse_worker_id()`.
 
@@ -271,7 +271,7 @@ and a consumer may tag a request of its own the same way — cache-cozy's
 mu-plugin writes `'cache-cozy'` on its warm loopback so that deliberately
 expensive render lands outside the global stats. The value is a stats dimension,
 not a worker type: nothing compares against the literal. What every writer
-shares is that no client can reach the key, since PHP exposes request headers
+shares is that a client can never reach the key, since PHP exposes request headers
 under an `HTTP_` prefix — which is why event-logger-nodes' [`Auto_Tuner_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-auto-tuner-node.php)
 treats the type's mere presence as proof of worker context before it rewrites
 the ruleset.
@@ -284,11 +284,11 @@ metered by `Rate_Limit` below and answering `429 rate_limited`, and the 15-secon
 ([`Spawn_Coordinator::MIN_SPAWN_INTERVAL_S`](../includes/class-spawn-coordinator.php)) every spawner shares, taken by
 `Spawn_Coordinator::admit_spawn()` with one atomic `add()` in the shared cache, so of
 concurrent spawns for one slot exactly one is admitted and the rest answer
-`429 spawn_throttled`, or checked and then set in a transient where no shared cache
-exists. The key lives one second past the window, because memcached expires in whole
+`429 spawn_throttled`, or checked and then set in a transient where there is no shared
+cache. The key lives one second past the window, because memcached expires in whole
 seconds and a key stored for exactly 15 could lapse early. Only an admitted spawn takes
 it: a spawn refused for a bad partition or a hold leaves the slot free. Spawning is how the fleet
-revives itself, so where no shared cache can meter the admin path the spawn
+revives itself, so where the shared cache cannot meter the admin path, the spawn
 is admitted unmetered, with one rate-limited warning, rather than refused.
 
 The `/command` endpoint applies its own per-user limit
@@ -452,7 +452,7 @@ declared resource's trailing slash is ignored, because WordPress trims it.
 | Path | Document |
 |---|---|
 | `/.well-known/oauth-authorization-server` | RFC 8414: `issuer` (the home URL, no trailing slash), `authorization_endpoint` (`wp-admin/admin.php?page=newspack-nodes-authorize`), `token_endpoint`, `registration_endpoint`, `response_types_supported: ["code"]`, `grant_types_supported: ["authorization_code", "refresh_token"]`, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["none"]`, `scopes_supported` |
-| `/.well-known/oauth-protected-resource/<path>` | RFC 9728, for a resource whose URI path is `<path>`: `resource`, `authorization_servers: [<issuer>]`, `scopes_supported`, `bearer_methods_supported: ["header"]`. A path no declared resource has answers 404 `invalid_target` |
+| `/.well-known/oauth-protected-resource/<path>` | RFC 9728, for a resource whose URI path is `<path>`: `resource`, `authorization_servers: [<issuer>]`, `scopes_supported`, `bearer_methods_supported: ["header"]`. A path that does not belong to any declared resource answers 404 `invalid_target` |
 
 `scopes_supported` is [`Oauth_Store::SCOPES`](../includes/class-oauth-store.php),
 `read` and `tune`. An application declares each resource it protects through the
@@ -470,7 +470,7 @@ approval page would match the URI and then send the browser elsewhere. A
 `token_endpoint_auth_method` other than `none` is refused. The
 answer is **201** with `client_id`, `client_id_issued_at`, `client_name` (kept as
 a session label is), `redirect_uris`, `token_endpoint_auth_method: "none"`,
-`grant_types` and `response_types: ["code"]`; no secret is issued. A missing
+`grant_types` and `response_types: ["code"]`; the server issues no secret. A missing
 name answers 400 `invalid_client_metadata`, a refused URI list 400
 `invalid_redirect_uri`. A client lapses 180 days after registering.
 
@@ -518,7 +518,7 @@ Approve and Deny post to `admin-post.php` with
 `action=newspack_nodes_oauth_decide` and the nonce field
 `newspack_nodes_oauth_nonce`. The handler dies on a missing or wrong nonce,
 then checks every parameter again and dies on any refusal, or on a scope the
-user cannot grant. Deny, or a post naming no decision, redirects to the
+user cannot grant. Deny, or a post without a decision, redirects to the
 registered URI with `error=access_denied&state=<state>`. Approve naming no
 connection returns to the page, which asks for one; otherwise it issues a code
 that lives 60 seconds, bound to the client, the redirect URI, the challenge,
@@ -531,14 +531,14 @@ URI with `code=<code>&state=<state>`. Both redirects go through
 A form-encoded token request naming `grant_type` and `client_id`. Only the form
 body is read: a credential in the query string would land in access logs, so a
 request carrying its fields there is answered as if it named none. A
-`client_id` no live registration holds answers **401** `invalid_client`, which
+`client_id` that is not held by any live registration answers **401** `invalid_client`, which
 tells the client to register again; it spends no rate-limit slot. Thirty
 requests a minute are then admitted per client (`oauth-token:<client>`).
 
 | `grant_type` | Also names | Checks |
 |---|---|---|
 | `authorization_code` | `code`, `redirect_uri`, `code_verifier`, `resource` | The code is taken once, so a refused exchange spends it too. It must have been issued to this client for this exact `redirect_uri` and `resource`, and `base64url( sha256( code_verifier ) )` must equal its challenge. A new thirty-day grant opens |
-| `refresh_token` | `refresh_token`, optionally `resource` | The token rotates through `Oauth_Store::rotate()`: a retry within 60 s is answered with the same pair, and a token reused later revokes its grant. A token issued to another client, or a `resource` other than the grant's, is refused and spends nothing, a retry inside the 60 s included; a request naming no resource is bound to the grant's |
+| `refresh_token` | `refresh_token`, optionally `resource` | The token rotates through `Oauth_Store::rotate()`: a retry within 60 s is answered with the same pair, and a token reused later revokes its grant. A token issued to another client, or a `resource` other than the grant's, is refused and spends nothing, a retry inside the 60 s included; a request without a resource is bound to the grant's |
 
 Before either mints a session, the grant's user is signed in for the one check
 that they still hold its scope (`Oauth_Server::can_grant( $scope )`, the check
@@ -632,7 +632,7 @@ that POSTs the batch, and `_output` is the local sink an unaddressed reply lands
 on.
 
 The permission callback (`HTTP_In_Node::check_permission`) authenticates the
-request and signs no command inside it — see
+request and does not sign any command inside it — see
 [Command Signing](#command-signing). READ is the FLOOR every verb behind the
 endpoint needs, not the level any of them demands; who may call what is drawn
 under [Service CIs](#service-cis).
@@ -922,9 +922,9 @@ config verb pointed at a `<namespace:key>` token names an edge only the server
 can resolve. A client parsing a document that carries such a token must treat a
 response without that list as fatal rather than wire an edge to the literal
 token text; the console's document loader throws there, and
-[`augmentWithVirtualEdges()`](../src/topology-console/utils/virtualEdges.js) draws no edge at all for a token the server resolved
+[`augmentWithVirtualEdges()`](../src/topology-console/utils/virtualEdges.js) does not draw any edge at all for a token the server resolved
 to nothing. A node an owner builds for itself, such as a Crawler's
-`{name}:seen` Table, is in no reply: no canvas draws one, and it opens from
+`{name}:seen` Table, is not in any reply: a canvas never draws one, and it opens from
 the "…" on its owner's card.
 
 **`aggregator` — one `id` field, two meanings.** `list_servers` returns one
@@ -948,7 +948,7 @@ deadletter_segments }`, counting the spoke's workers by the `state` each
 `workers[]` row carries — the word `wp nodes status` prints for that slot — so
 a spoke reporting any other state fails the probe naming the worker, and
 `worst_distance` is the largest known `distance` across the spoke's `consumers[]`,
-null when no reader's distance can be measured. `summary` reduces the same snapshot
+null when every reader's distance is unmeasurable. `summary` reduces the same snapshot
 to `{ connected, idle, total, server_now, unreadable }` — `unreadable` maps each
 active topology that will not read to its message, and the Aggregator Status
 tab renders each as an error banner — and its per-server reading is best
@@ -974,7 +974,7 @@ drive one verb unmodified.
 Two `set` behaviours differ from the settings page. A value outside the Field's
 bounds is REFUSED rather than clamped, throwing `invalid value for setting:
 <key>` as a `TM_COMMAND|TM_ERROR` reply. And a value already in place writes
-nothing, resets no config and requests no restart, which is what keeps the sync
+nothing, and neither resets the config nor requests a restart, which is what keeps the sync
 sweep's unchanged re-pushes from recycling the fleet every tick; a real change
 resets `Config` and asks [`Restart_Planner`](../includes/config-system/class-restart-planner.php) to recycle the topologies the Field's
 restart class names. The reply to `set` is the same seven-key snapshot `get`
@@ -1001,10 +1001,10 @@ layout per topology name. It seeds [`useCanvasLayout`](../src/topology-console/h
 matches the topology, and writes back only when a person clicks Save Layout —
 dragging autosaves nothing. A layout's `positions` is a node-id map or the
 string `"auto"`, which the canvas treats as a map holding a fresh autolayout of
-the graph it draws. `"auto"` is never stored: `get` answers it where no file is
-saved, or the file is unreadable or its map places no node, and `save` given it,
-or a map placing no node, removes the file, as Save Layout does while nobody has
-moved a card since the canvas laid itself out. `save` refuses any other value. Every other canvas in the substrate, the debug
+the graph it draws. `"auto"` is never stored: `get` answers it where the file is
+missing or unreadable or its map places no node, and `save` given it,
+or a map placing no node, removes the file, as Save Layout does while every card
+still sits where the canvas laid it out. `save` refuses any other value. Every other canvas in the substrate, the debug
 overlay's Inspector and each station tab graph included, persists positions to
 `localStorage` through the same hook and never reaches the server, so a
 dashboard wanting layout to survive a change of browser wires these two verbs up
@@ -1096,7 +1096,7 @@ A node schema may also
 carry `requests`, `registrations`, `accepts_fill`, `has_target`, `owns` and
 `hidden`; `owns` names the siblings a class builds that the analyzer must know
 of, suffix to class, such as a Crawler's `seen` Table, and only a class on the
-palette may declare it. No REST reply carries it. `hidden` keeps a class off every console surface: the
+palette may declare it. A REST reply never carries it. `hidden` keeps a class off every console surface: the
 palette, the canvas, a `sidecars` list and the class catalog.
 A `requests` entry is `{ name, description, reply_shape }` plus an optional
 `args`, in the shape a command's take, and an optional
@@ -1204,7 +1204,7 @@ holds a segment boundary until `Consumer_Node::SEAL_GRACE_SECONDS` have passed
 since the later of the older segment's mtime plus one second and the newer
 segment's first record TIMESTAMP, and while the newer segment is empty; a
 segmented `Log` holds bare values with no stamp, so it seals on the mtime alone.
-It answers no command reply: the reader's [raw block](#raw-blocks) goes to the
+It does not answer with a command reply: the reader's [raw block](#raw-blocks) goes to the
 asker's FROM as two messages, its header echoing the position as `ASKED
 <position>` and its TM_BATCH sent even when empty, so the asker settles on it. The
 ownership-fenced `workers heartbeat` binds exactly `[ slot, owner ]`, both declared
@@ -1282,7 +1282,7 @@ answers:
 ```
 
 The subscriptions are resolved first, before the session and the slot. A
-prefix no stamp carries (`logs:x`, `secrets:x`), a name the stream's guard
+prefix that is not carried by any stamp (`logs:x`, `secrets:x`), a name the stream's guard
 refuses (`offsets:Kea-1`) and a `sources:<name>` the registry lacks refuse the
 stream with the reason; a registry that will not read is a server error:
 
@@ -1297,7 +1297,7 @@ stream with the reason; a registry that will not read is a server error:
 | `subscribe` | string | yes | CSV of subscription names, described below. Blank entries between commas are dropped. |
 | `session` | string | no | The handle of the [command session](#establishing-a-session) the client signs with. Its attached commands head their FROM with `_sse:{session}`, and this stream passes only the replies headed with it; a stream presenting none passes none, which is what a server-to-server pull does. |
 | `stream` | string | no | The client's own id for this stream, 1-64 characters of `[A-Za-z0-9_.:-]`; the browser sends its `SseInNode`'s name. With `session` it keys the slot lease, so a reconnect takes its own live lease over instead of claiming a second slot, while two streams on one page keep two leases. A malformed id answers `400 sse_stream_invalid`. Because the session is resolved first, a request carrying a deliberately malformed id is a probe: it answers `401 sse_session_refused` for a dead session and `400` for a live one, and opens nothing. |
-| `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as [`Consumer_Node::SEEK_START`](../includes/class-consumer-node.php) / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: a `Remote_Source` states a position for every live reader it asks for, so a reader resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. `-1` / `end` seeks the newest segment's current size; `-2` / `recent` seeks byte 0 of the SECOND-newest segment, or of the only segment when there is just one, so it can replay up to a whole segment. Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value is handled the opposite way: `SSE_Out_Node::position_arg()` reads a word of `Log_Position::WORDS` as its number and any other string through [`Log_Position::parse()`](../includes/class-log-position.php), so `"<segment>:<offset>"` seeks that place, and any string that is neither seeks to `start`, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. A value of `skip` ([`SSE_Out_Node::SKIP`](../includes/rest/class-sse-out-node.php)) keeps that stamp out of the stream: no reader opens for it, and under a glob the stamp stays closed through every rescan while the glob's other matches open. |
+| `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as [`Consumer_Node::SEEK_START`](../includes/class-consumer-node.php) / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: a `Remote_Source` states a position for every live reader it asks for, so a reader resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. `-1` / `end` seeks the newest segment's current size; `-2` / `recent` seeks byte 0 of the SECOND-newest segment, or of the only segment when there is just one, so it can replay up to a whole segment. Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value is handled the opposite way: `SSE_Out_Node::position_arg()` reads a word of `Log_Position::WORDS` as its number and any other string through [`Log_Position::parse()`](../includes/class-log-position.php), so `"<segment>:<offset>"` seeks that place, and any string that is neither seeks to `start`, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. A value of `skip` ([`SSE_Out_Node::SKIP`](../includes/rest/class-sse-out-node.php)) keeps that stamp out of the stream: a reader never opens for it, and under a glob the stamp stays closed through every rescan while the glob's other matches open. |
 | `multi_writer` | boolean | no | Read the subscribed logs with the multi-writer seal-grace (`Consumer_Node::SEAL_GRACE_SECONDS`). Set it for a log every request process on this server appends to — the firehose — where a peer can keep writing to segment N for up to [`Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS`](../includes/class-partition-node.php) after N+1 appears; without it the reader advances off N on sight and orphans that straggler, typically a request's terminal `process (complete)`. The CLIENT asserts it, because nothing on disk records which logs are shared. It applies to log Consumers only — a worker IPC attach has one writer and never takes the grace. Default off: a single-writer log seals N the instant it creates N+1, so the grace would be pure added latency. [`Remote_Source_Node`](../includes/class-remote-source-node.php) sends it through its `set_multi_writer` config verb; browser dashboards leave it unset. |
 
 #### Subscription grammar
@@ -1320,7 +1320,7 @@ apart:
 | `connected` | `KEY=connected`, VALUE the flat envelope below | The session handshake; see below. |
 | `msg` | the packed Message the egress received | A raw block or its header, which the TM_BATCH bit marks and the client splits into records (see [Raw blocks](#raw-blocks)), or one reply from a worker's IPC channel. These count as data, which is what defers the idle close. |
 | `heartbeat` | `KEY=heartbeat`, VALUE the tick's wall seconds | Liveness every `HEARTBEAT_MS = 2000`ms. Deliberately not data: a heartbeat never defers the idle close. A hub's reader takes it as word that its stream has nothing more to send, which keeps the backlog the last header gave from going stale. |
-| `unparseable_lines` | `KEY=unparseable_lines`, VALUE `COUNT <n> COUNTS <stamp>=<n>,… CURSORS <pairs>` | Lines a worker IPC reader skipped since the last such frame because they would not unpack, sent on the tick that skipped them; a log or source reader reads no line, and its client counts what it cannot split. The IPC reader keeps no cursor to replay a torn line from, so each is skipped rather than ending the stream on it; `CURSORS` is the `connected` envelope's token, restating every reader's resume point past the skip so a reopen does not read the line again. `COUNTS` lists only the stamps that skipped this tick, each with its own count, and leaves out a stamp holding a space or a comma, as `CURSORS` does. Not data: it never defers the idle close. The browser's `SseInNode` adds `COUNT` to a running total it publishes as `UNPARSEABLE_LINES`, and re-seats each subscription's resume point from `CURSORS`; a hub pulls no IPC stream, so its `SSE_In_Node` ignores the event. |
+| `unparseable_lines` | `KEY=unparseable_lines`, VALUE `COUNT <n> COUNTS <stamp>=<n>,… CURSORS <pairs>` | Lines a worker IPC reader skipped since the last such frame because they would not unpack, sent on the tick that skipped them; a log or source reader does not read lines, and its client counts what it cannot split. The IPC reader keeps no cursor to replay a torn line from, so each is skipped rather than ending the stream on it; `CURSORS` is the `connected` envelope's token, restating every reader's resume point past the skip so a reopen does not read the line again. `COUNTS` lists only the stamps that skipped this tick, each with its own count, and leaves out a stamp holding a space or a comma, as `CURSORS` does. Not data: it never defers the idle close. The browser's `SseInNode` adds `COUNT` to a running total it publishes as `UNPARSEABLE_LINES`, and re-seats each subscription's resume point from `CURSORS`; a hub pulls no IPC stream, so its `SSE_In_Node` ignores the event. |
 | `disconnect` | `KEY=slot_lease_lost`, VALUE `SSE slot lease lost`; or `KEY=superseded`, VALUE `SSE stream superseded by its reconnect` | The terminal frame for a stream whose lease is gone. `slot_lease_lost` is a failure and writes a diagnostic line; `superseded` means the stream's own reconnect took the lease over, and writes nothing. |
 
 The stream **closes itself after `sse_idle_timeout` seconds** (default 5)
@@ -1329,8 +1329,8 @@ with no `msg` event, and **after `sse_max_lifetime` seconds open** (default
 clock, from `Core::$now` against the instant the stream opened, so a session
 never holds one PHP-FPM child for its whole life: the client resumes from its
 positions and takes its own slot over. After an idle close it waits out the
-`retry` schedule, which is what gives the child back to a page nobody is
-reading. A lifetime close on a stream that delivered records sends `retry` 0
+`retry` schedule, which is what gives the child back to a page that is not
+being read. A lifetime close on a stream that delivered records sends `retry` 0
 first, so a busy stream reopens at once; one that delivered nothing keeps the
 gap. Neither close sends a terminal event; a `disconnect` frame always
 means failure, and `SSE_In_Node` is the reference
@@ -1383,7 +1383,7 @@ line's byte length with its newline. A packed line is unpacked and stamped FROM
 the stream; a source's line becomes a TM_BYTESTREAM carrying it. What follows the
 last newline is carried and joined to the next block that continues it, so a
 record longer than a block arrives whole; one the next block does not continue
-was torn, as is a line that will not unpack. A batch no header placed is dropped.
+was torn, as is a line that will not unpack. A batch that was not placed by any header is dropped.
 A hub reader dead-letters a torn line at its place and moves past it; the browser's `SseInNode`, which has no
 quarantine, counts it under `UNPARSEABLE_LINES`. A hub reader's
 backlog is the latest `DISTANCE` less how far its cursor has drained past
@@ -1398,8 +1398,8 @@ The application controls concurrency through four optional Closure seams on
 | Seam | Signature | Called |
 |---|---|---|
 | `$acquire_slot` | `function ( int $partition, ?array $session ): array{slot:int,owner:positive-int}\|false` | Once per stream, before any header, so `false` can still answer `429 too_many_connections`. `$session` is `{key, ttl}` — `<handle>:<stream>` and the seconds the session has left — or null. The shipped pool hands a live lease recorded under the key to the new stream and rotates the owner, so the old process's next check fails; it never takes a recorded slot past `max_streams` or inside a browser's reserved tail, and records the index for `ttl` seconds at most. |
-| `$check_slot` | `function ( array $lease, int $partition ): bool` | Every drain tick; false takes the `disconnect` close. It only READS — refreshing the TTL belongs to the client heartbeat, and refreshing it here would let a stream nobody is reading hold its slot forever. |
-| `$release_slot` | `function ( array $lease, int $partition, ?string $session ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so no close, throw, fatal or client abort leaves the slot held until its TTL expires. `$session` is the lease key the stream acquired under, whose takeover index the pool forgets with the lease. |
+| `$check_slot` | `function ( array $lease, int $partition ): bool` | Every drain tick; false takes the `disconnect` close. It only READS — refreshing the TTL belongs to the client heartbeat, and refreshing it here would let an unread stream hold its slot forever. |
+| `$release_slot` | `function ( array $lease, int $partition, ?string $session ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so a close, a throw, a fatal or a client abort never leaves the slot held until its TTL expires. `$session` is the lease key the stream acquired under, whose takeover index the pool forgets with the lease. |
 | `$inspect_slot` | `function ( array $lease, int $partition ): array<string,int\|string>` | Only once a check has already failed, to name the backend and lease state in the diagnostic line. The healthy path never pays it. |
 
 The stream draws on one host-wide pool, sized by `sse_max_streams`
@@ -1433,8 +1433,8 @@ total_size }`; `read_message sources:<name> <position>` single-steps it; and
 `read_block sources:<name> <position>` answers one raw block of up to 4 MiB. A
 source whose segments will not list takes an unavailable row carrying `error`
 beside every readable source, so one failure never blanks the picker. An active
-topology that will not read takes one too, labelled for the topology and keyed
-by no stamp, because it names no log to stream. Every reader of a stamp
+topology that will not read takes one too, labelled for the topology and
+keyed without a stamp, because it names no log to stream. Every reader of a stamp
 resolves it one way ([ADR-29](architecture-decisions.md#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind)),
 so `read_message`, `read_block` and `dump_log` refuse what the stream refuses, with its
 message.
@@ -1454,7 +1454,7 @@ goes, and a marker that will not read refuses everyone.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `subscribe` | string | yes | CSV of subscriptions, any mix of partitions and `sources:<name>`. A `sources:` name the registry lacks is refused before the stream opens, as `400 sse_subscription_invalid` carrying the teaching `unknown log source` error that lists the names that exist. A registry that will not read — an active topology no `.tsl` resolves, a broken include — is the server's fault: the stream logs it as a `stream: <subscribe>: <cause>` stderr line and answers `500 sse_subscription_unavailable` with a message naming no internals. An `\Error` is not caught. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
+| `subscribe` | string | yes | CSV of subscriptions, any mix of partitions and `sources:<name>`. A `sources:` name the registry lacks is refused before the stream opens, as `400 sse_subscription_invalid` carrying the teaching `unknown log source` error that lists the names that exist. A registry that will not read — an active topology with no matching `.tsl`, a broken include — is the server's fault: the stream logs it as a `stream: <subscribe>: <cause>` stderr line and answers `500 sse_subscription_unavailable` with a message naming no internals. An `\Error` is not caught. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
 | `positions` | string | no | Optional resume positions, same vocabulary as the partition subscriptions: a JSON object keyed by the whole `sources:<name>` stamp, each value a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`, `recent` and `end` accepted as aliases. [`File_Tail_Node`](../includes/class-file-tail-node.php) folds `recent` to the start, because one file has no previous segment to fall back to. The shape round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot, and the cursor self-validates against the live file and degrades to 0 on mismatch. That validation happens on the FIRST POLL, not at subscribe time — `open_subscription()` seeks before the file is open, so the pair is held as a candidate, and `cursor_position()` echoes the client's own unvalidated value straight back into the `connected` envelope's CURSORS. An unchanged echo is therefore not an acknowledgement that the server accepted it. A candidate counts toward `compute_lag()` only while it still names the live generation and sits within the file: honouring a stale pre-rotation position would declare the new generation caught up and let the stream idle-close on its first tick without ever delivering it. Omit to start at `end` (live tail). |
 | `multi_writer` | boolean | no | Inert for a source: the seal-grace belongs to a Consumer, and a source resolves to a `Tail_Node`. |
 
@@ -1543,7 +1543,7 @@ header, and may not name one of `Vault::FRAMING_HEADERS` (`Host`, `Cookie`,
 `Authorization` or the header the credential rides in where the vault group
 lends the origin one. `proxy`, when present, is the `<scheme>://<host>:<port>`
 the fetch goes through, set as `CURLOPT_PROXY` with `CURLOPT_NOPROXY` empty, so
-no `no_proxy` variable bypasses it, its TLS verified as `vault_verify_ssl`
+a `no_proxy` variable cannot bypass it, its TLS verified as `vault_verify_ssl`
 says: its scheme `socks5h`, `socks5`, `http` or `https`, a trailing slash
 allowed, and nothing else, userinfo above all; beside a credential, the
 vault's or a header line of the request's own, the url must be https. `response_headers`, when present, names at most eight
@@ -1565,7 +1565,7 @@ consumer can match.
 
 A fetch follows redirects, up to `MAX_REDIRECTS`. `follow_redirects( false )`
 turns that off for one node, and is a method rather than a positional because
-the optional `vault_group` has no empty placeholder. Following none, a fetch sets
+the optional `vault_group` has no empty placeholder. With redirects off, a fetch sets
 `CURLOPT_FOLLOWLOCATION` off, and a 3xx naming a Location answers a
 TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 (`CURLINFO_REDIRECT_URL`).
@@ -1617,14 +1617,14 @@ naming `public_only` is not guarded, and libcurl follows its redirects.
 
 | TYPE | VALUE | When |
 |---|---|---|
-| TM_RESPONSE | `<absolute url>` | Following no redirects, the status is 300-399 and names a Location. |
+| TM_RESPONSE | `<absolute url>` | With redirects off, the status is 300-399 and names a Location. |
 
 | VALUE | When |
 |---|---|
-| `HTTP <code> <url>` | The response's status is 400 or more, or, following no redirects, 300-399 with no Location. |
+| `HTTP <code> <url>` | The response's status is 400 or more, or, with redirects off, 300-399 with no Location. |
 | `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
 | `invalid url <value>` | VALUE, or a request's `url`, is not an absolute http(s) url with a host. |
-| `redirect not followed: credential in <header> <url>`, `redirect not followed: credential in request headers <url>`, `redirect not followed: a DELETE <url>` | The node follows redirects, the response is a 3xx naming a Location, and the fetch followed none: the url's credential rides in a header other than `Authorization`, the request carries header lines of its own, or it is a DELETE. No value is shown. |
+| `redirect not followed: credential in <header> <url>`, `redirect not followed: credential in request headers <url>`, `redirect not followed: a DELETE <url>` | The node follows redirects, the response is a 3xx naming a Location, and the fetch followed none: the url's credential rides in a header other than `Authorization`, the request carries header lines of its own, or it is a DELETE. The value is never shown. |
 | `invalid method <method> <url>` | A request's `method` is not `GET`, `POST` or `DELETE`, or is absent. |
 | `body on a GET <url>`, `body on a DELETE <url>` | A GET or DELETE request carries a `body`, even an empty one. |
 | `invalid body <url>` | A POST request's `body` is not a string. |
@@ -1650,11 +1650,11 @@ naming `public_only` is not guarded, and libcurl follows its redirects.
 | `redirects past 5 <url>` | A public-only request on a node following redirects was redirected again after `MAX_REDIRECTS` hops; `<url>` is the last hop. |
 | `proxy carries CR or LF <url>` | A request's `proxy` holds a carriage return or a line feed; the proxy is left out. |
 | `invalid url carrying userinfo` | VALUE carries userinfo before its host, as `Vault::url_carries_credentials()` reads it; the url, which may hold a credential, is left out. PHP and libcurl split an authority holding two `@` at different ones, so the origin read here need not be the host fetched. |
-| `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so no one credential belongs to the url. |
+| `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so the fetch cannot choose between their credentials. |
 | `vault_require_ssl set but url is not https <url>` | The url is plaintext, an entry of the vault group sits on its origin, and `vault_require_ssl` is set. |
-| `no event loop <url>` | The process is not inside a drain loop, so no transfer could ever complete. |
+| `no event loop <url>` | The process is not inside a drain loop, so a transfer could never complete. |
 | `busy: <N> requests in flight <url>` | `MAX_IN_FLIGHT` transfers are already running; nothing is queued. |
-| `curl_init failed <url>` | libcurl yielded no handle, so no transfer started. |
+| `curl_init failed <url>` | libcurl yielded no handle, so the transfer never started. |
 
 The output goes to `target` like any forwarded message, never back along FROM.
 Anything but a TM_BYTESTREAM or a TM_STRUCT is dropped with one rate-limited line. A transfer
@@ -1664,20 +1664,21 @@ counts the discards ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-mes
 Under a vault group each fetch looks up the group's entries through
 `Vault::in_group()` and keeps those whose `Vault::url_of()` has the url's
 origin, by `Curl_Node::origin_of()`: the same scheme, host and effective port.
-None fetches the url with no credential, and an entry with no url sits on
-no origin. One sends the header line its `Vault::credential_header()` answers,
-and under `vault_require_ssl` refuses a plaintext url and takes https alone,
-redirects included. Two or more refuse, naming every one. The url is fetched as
+With no matching entry, the url is fetched with no credential; an entry
+with no url has no origin. With one, the fetch sends the header line its
+`Vault::credential_header()` answers, and under `vault_require_ssl` refuses a
+plaintext url and takes https alone, redirects included. With two or more, the
+fetch refuses, naming every one. The url is fetched as
 written; a vault entry's path plays no part. A credential starts on its own
 origin and stays there: the transfer sets `CURLOPT_UNRESTRICTED_AUTH` off, so
 libcurl (7.83.1 and later) drops an `Authorization` header when a redirect
 changes host, port or scheme. libcurl sends every other header past a redirect,
 so a fetch whose credential rides in another header, a request carrying header
 lines of its own, any of which may be a credential, and a DELETE, whose method
-libcurl would carry along, follow no redirect: on a
+libcurl would carry along, do not follow redirects: on a
 node following redirects its 3xx naming a Location answers the TM_ERROR
-`redirect not followed`, and on one following none it answers the Location as
-any 3xx does. A node following no redirects sends nothing past the first
+`redirect not followed`, and on one with redirects off it answers the Location as
+any 3xx does. A node with redirects off sends nothing past the first
 response. Every fetch, vault group or not, verifies TLS as `vault_verify_ssl`
 says, through `Vault::tls_opts()`.
 
@@ -1698,7 +1699,7 @@ sizes each refill by Curl's own count.
 
 [`Crawler_Node`](../includes/class-crawler-node.php) crawls the site of each
 seed. It fetches each url through a [`Curl_Node`](#curl_node--any-https-url)
-it owns, which follows no redirect, follows the same-origin links every page
+it owns, which does not follow redirects, follows the same-origin links every page
 carries and the same-origin Location every redirect names, and sends each
 answer to `target`. `make_node Crawler <name> <ttl> [vault_group] [delay_ms] [concurrency]`:
 `ttl` is a whole number of seconds, at least 1, that a url counts as seen, so
@@ -1785,7 +1786,7 @@ The crawler answers a seed itself in three cases:
 |---|---|---|
 | TM_ERROR | `invalid url <value>` | A seed's trimmed VALUE is not an absolute http(s) url with a host, holds whitespace or carries userinfo (`https://u:p@host/`). |
 | TM_INFO | `already seen <url>` | The Table's `ADD` reports the seed's normalized url seen within the `ttl`. KEY is that url, and nothing is fetched. A link or Location already seen is skipped without a word. |
-| TM_ERROR | `ADD to <name>:seen failed <url>` | The `{name}:seen` Table refused the seed's `ADD` or left it unanswered, so nothing shows the url seen. KEY is that url, and nothing is fetched. |
+| TM_ERROR | `ADD to <name>:seen failed <url>` | The `{name}:seen` Table refused the seed's `ADD` or left it unanswered, so the url is not recorded as seen. KEY is that url, and nothing is fetched. |
 
 Each is a copy of the seed with its whole TYPE and its VALUE replaced and its
 TO cleared, sent to `target`, so FROM and ID stay as the seeder set them. Every TM_ERROR Curl answers (see [`Curl_Node`](#curl_node--any-https-url))
@@ -1807,8 +1808,8 @@ name, so two workers running one crawler share the file and re-queue each
 other's `inflight`. `Topology_Analyzer` claims that file in the write set, so
 two active topologies declaring one crawler conflict, and lists the Table in
 `declared_tables()`. The vault group adds nothing to either: Curl reads it per
-fetch, and it builds no node. The crawler honors no robots.txt, keeps no depth
-limit, checks no content type and retries nothing; the `ttl` and the
+fetch, and it builds no node. The crawler does not honor robots.txt, keep a depth
+limit or check the content type, and it retries nothing; the `ttl` and the
 same-origin rule bound the crawl.
 
 | Constant | Value | Bounds |
@@ -1846,7 +1847,7 @@ or the first after `restart()`, returns everything in `inflight` to `pending`,
 `Table_Node::MAX_MEMBERS_LIMIT` at a time; a move the Table does not answer
 leaves the recovery owed, and nothing is taken until it finishes, or it would
 return live members to `pending`. Once a `take()` moves fewer members than it
-asked for, no `take()` asks the Table again until an `add()` or a recovery
+asked for, `take()` stops asking the Table until an `add()` or a recovery
 puts members in `pending`, so an idle owner's tick costs no round trip. One
 partition has one writer, so each member is taken once; two workers sharing
 one Table would re-queue each other's `inflight`.
@@ -1888,19 +1889,19 @@ answer. Every `newspack_nodes/*` name and signature is frozen surface — see
 | Hook | Arguments | Fired from |
 |---|---|---|
 | `newspack_nodes/request_graph_ready` | `Command_Interpreter_Node $base_interpreter` | [`Bootstrap::mount_request_graph()`](../includes/class-bootstrap.php), on every command door. Mount your service CIs here — see below. |
-| `newspack_nodes/worker_identified` | `string $type, int $partition` | [`Worker_Base::execute()`](../includes/class-worker-base.php), once the worker holds its lock, and only where `Spawn_Controller` tagged the process as that worker. The identity is the validated pair, never the raw request; a refused spawn, a spawn that loses the lock race and `wp nodes run` fire nothing. A request logger that named the process at its start renames it here. The announcement runs inside the topology load path, so a listener's `RuntimeException` ends the run as a malformed `.tsl` does: the lock is released, the throw escapes `execute()`, and no successor is spawned. |
+| `newspack_nodes/worker_identified` | `string $type, int $partition` | [`Worker_Base::execute()`](../includes/class-worker-base.php), once the worker holds its lock, and only where `Spawn_Controller` tagged the process as that worker. The identity is the validated pair, never the raw request; a refused spawn, a spawn that loses the lock race and `wp nodes run` fire nothing. A request logger that named the process at its start renames it here. The announcement runs inside the topology load path, so a listener's `RuntimeException` ends the run as a malformed `.tsl` does: the lock is released, the throw escapes `execute()`, and a successor is never spawned. |
 | `newspack_nodes/spawn_worker` | `string $type, int $partition` | [`Spawn_Controller::spawn()`](../includes/rest/class-spawn-controller.php). Build the worker for `$type` and `->execute()` it. `Topology_Registry::spawn_worker` handles every active topology already. |
 | `newspack_nodes/reconcile` | — | The WP-Cron event itself, on the registered 60-second `newspack_nodes_minute` schedule. `Bootstrap::reconcile_fleet()` is its handler. |
 | `newspack_nodes/before_reconcile` | — | `Bootstrap::reconcile_fleet()`, before the pass. |
 | `newspack_nodes/periodic` | — | `Bootstrap::reconcile_fleet()`. The minute-cadence tick for work that needs no worker, fired as the last of the reconciliation steps. The substrate's own minute work — [`Alerts::emit()`](../includes/class-alerts.php) and [`Job_Delay::sweep()`](../includes/class-job-delay.php) — runs as steps of their own ahead of it, not as subscribers. The whole action is ONE step, so a subscriber that throws takes every later subscriber's window in that tick with it; the other steps all run regardless, and the failure is then written to stderr beside theirs as `periodic: <cause>`, behind the pass's `reconcile[<pid>]` process label. |
 | `newspack_nodes/after_reconcile` | — | `Bootstrap::reconcile_fleet()`, after the pass's last step, whatever the steps threw, and after their failures are written to stderr, so a subscriber closing a log context closes it after them. Its own failure is written last, as `after: <cause>`, and the callback returns. |
-| `newspack_nodes/restart_fleet` | `string $name` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php), once per AFFECTED fleet on a topology save or delete — a saved child restarts every parent that composes it, transitively. [`Worker_CLI_Command::restart_fleet_by_name()`](../includes/cli/class-worker-cli-command.php) is registered on it at load and restarts every partition of the named fleet, so a substrate-side restart already happens; a name no active worker carries restarts nothing. |
+| `newspack_nodes/restart_fleet` | `string $name` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php), once per AFFECTED fleet on a topology save or delete — a saved child restarts every parent that composes it, transitively. [`Worker_CLI_Command::restart_fleet_by_name()`](../includes/cli/class-worker-cli-command.php) is registered on it at load and restarts every partition of the named fleet, so a substrate-side restart already happens; a name that is not carried by any active worker restarts nothing. |
 | `newspack_nodes/declare_config_keys` | — | [`Config`](../includes/class-config.php), on the first key check of the process and again on any miss. Call `Config::register_keys()` here and nothing else — see below. |
 | `newspack_nodes/config_reset` | — | `Config::reset()`. Drop anything memoized from config: the substrate drops log-dir scans, parsed TSL and vault credentials here. |
 | `newspack_nodes/job_worker/after_job` | `string $handler, string $id, ?array $outcome` | [`Job_Worker_Node`](../includes/class-job-worker-node.php), always — after a success, a throw, or a decline. Tear down per-job request context here. A listener that throws fails the job: its failure joins the job's own and propagates to the Consumer. |
 | `newspack_nodes/job_worker/batch_complete` | `string $batch` | `Job_Worker_Node`, when a batch's last job settles. |
 | `newspack_nodes/vault/changed` | `string $id, string $action, string $previous` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php), on any credential write, a `group` edit included. `$action` is `added`, `updated`, `renamed` or `removed`; `$previous` carries the id a rename moved away from, else `''`. [`Bootstrap::reload_vault_consumers()`](../includes/class-bootstrap.php) listens here to signal RELOAD to every topology holding a `Remote_Source`, `HTTP_Source` or `Vault_Group`, and to reset the analyzer's caches so a planning read later in the same process sees the write. |
-| `newspack_nodes/stderr` | `string $text, string $keyword` | [`Core::_stderr()`](../includes/class-core.php), beside the stderr handler and under the same re-entry guard. A listener that throws cannot break the last-resort diagnostic path, and one that calls `stderr()` itself short-circuits to `error_log` rather than recursing. `$keyword` is what a logger files the line under: `Core::STDERR_KEYWORD`, `stderr`, for every `stderr()` line. `Core::stderr_to_seam( $text, $keyword )` fires it with the line `stderr()` would compose under a keyword of its own and runs no handler, so the line never reaches `error_log`; a worker writes its routine stops (`stop requested`, `restart requested`, `timeout`, `idle: no message for <n>s`) this way, under `worker (stop)`. |
+| `newspack_nodes/stderr` | `string $text, string $keyword` | [`Core::_stderr()`](../includes/class-core.php), beside the stderr handler and under the same re-entry guard. A listener that throws cannot break the last-resort diagnostic path, and one that calls `stderr()` itself short-circuits to `error_log` rather than recursing. `$keyword` is what a logger files the line under: `Core::STDERR_KEYWORD`, `stderr`, for every `stderr()` line. `Core::stderr_to_seam( $text, $keyword )` fires it with the line `stderr()` would compose under a keyword of its own and does not run a handler, so the line never reaches `error_log`; a worker writes its routine stops (`stop requested`, `restart requested`, `timeout`, `idle: no message for <n>s`) this way, under `worker (stop)`. |
 | `newspack_nodes/settings_after_form` | — | [`Admin`](../includes/admin/class-admin.php), below the settings form. |
 
 [`Hook_Node`](../includes/class-hook-node.php) fires whatever name its required `hook_name` argument carries —
@@ -1934,10 +1935,10 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/capability_map` | `array $map` — role => WP capability | [`Capabilities::cap_for()`](../includes/class-capabilities.php). The baseline is [`Roles::defaults()`](../includes/class-roles.php): all three roles map to `manage_options` until a site installs the granular capabilities, and then to `newspack_nodes_{read,tune,manage}`. Return all three roles — the union form `fn ( $map ) => [ 'read' => 'edit_posts' ] + $map`, never a bare `[ 'read' => … ]`; see below. |
 | `newspack_nodes/oauth_resources` | `array $resources` — canonical resource URIs | [`Oauth_Server`](../includes/class-oauth-server.php). Declare each resource the OAuth server issues sessions for, such as an MCP door's URL; its RFC 9728 metadata is served for a declared resource alone. Non-string entries are dropped, and a non-array result declares nothing. |
 | `newspack_nodes/command_rate_limit` | `int $burst` | [`HTTP_In_Node::check_permission()`](../includes/rest/class-http-in-node.php): `/command` POSTs per user per one-second window. Clamped to 1 through `Rate_Limit::MAX_BURST` (256). |
-| `newspack_nodes/registered_log_producers` | `array<int,string> $producers` — path templates | [`Log_Cleaner`](../includes/class-log-cleaner.php). Declare a log dir the retention sweep must know about. Non-string and empty entries are dropped and duplicates collapse, but a well-formed template resolving to no directory under `<config:logs_dir>` anywhere in the partition range is NOT dropped: it refuses the whole sweep, `offsets/` included, raising `log producer <template> declares no dir under the logs root <root>` before any delete, and `dump_graph` lists every other log and names the template under `refused_producers`. [`Core::resolve_partition_template`](../includes/class-core.php) expands each template over `Bootstrap::global_num_partitions()` — the global `num_partitions` clamped to `Spawn_Coordinator::MAX_PARTITIONS`, never the declaring topology's own count — so a producer writing past that range leaves undeclared dirs the sweep will take. A template carrying no `{partition}` token collapses to one directory pinned across the fleet, which is how `alerts.p0` is declared. One log dir escapes this rule: `Log_Cleaner` reads `Settings_Event_Writer::SETTINGS_LOG_DIR` directly and seeds `settings.p0` at partition 0 into an already non-empty declared set, because the settings writer has no `.tsl` write-set entry and registers no template. Do not copy the settings writer as the model for a new PHP producer — one that declares nothing here is reaped. |
+| `newspack_nodes/registered_log_producers` | `array<int,string> $producers` — path templates | [`Log_Cleaner`](../includes/class-log-cleaner.php). Declare a log dir the retention sweep must know about. Non-string and empty entries are dropped and duplicates collapse, but a well-formed template that does not resolve to a directory under `<config:logs_dir>` anywhere in the partition range is NOT dropped: it refuses the whole sweep, `offsets/` included, raising `log producer <template> declares no dir under the logs root <root>` before any delete, and `dump_graph` lists every other log and names the template under `refused_producers`. [`Core::resolve_partition_template`](../includes/class-core.php) expands each template over `Bootstrap::global_num_partitions()` — the global `num_partitions` clamped to `Spawn_Coordinator::MAX_PARTITIONS`, never the declaring topology's own count — so a producer writing past that range leaves undeclared dirs the sweep will take. A template carrying no `{partition}` token collapses to one directory pinned across the fleet, which is how `alerts.p0` is declared. One log dir escapes this rule: `Log_Cleaner` reads `Settings_Event_Writer::SETTINGS_LOG_DIR` directly and seeds `settings.p0` at partition 0 into an already non-empty declared set, because the settings writer has no `.tsl` write-set entry and does not register a template. Do not copy the settings writer as the model for a new PHP producer — one that declares nothing here is reaped. |
 | `newspack_nodes/segment_size_overrides` | `array<string,int> $overrides` — basename => bytes | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php). Declare the geometry of a Partition built in PHP rather than by a `make_node` line, which has no literal size to read. The union keeps the left side, so the filter fills gaps and never restates. |
-| `newspack_nodes/settings_sync/value` | `mixed $value, string $option` | [`Settings_Sync_Node`](../includes/class-settings-sync-node.php). Resolve the value a hub pushes to its spokes — a requirement for any option that can be absent, not an optional refinement. `push()` reads `\get_option( $local )` with NO default and never goes through `Config::value()`, `register_setting()` defaults apply only inside `is_admin()` requests and a worker is never one, and [`Reset_Gate`](../includes/config-system/class-reset-gate.php) DELETES the row on reset-to-default. An unsaved or freshly-reset option therefore resolves to `false`, `Core::as_string()` makes that `''`, and the spoke's typed receiver refuses it with `invalid value for setting: …`. A hub syncing the substrate's own `remote_*` geometry needs a resolver mapping absent to the owning config's default; the filter runs on every push, the periodic sweep included. The substrate registers no handler of its own. |
-| `newspack_nodes/settings_audit_values_allowlist` | `array $options` | [`Settings_Event_Writer`](../includes/class-settings-event-writer.php), over the [`Settings_Schema`](../includes/class-settings-schema.php) option names. Options whose old and new values may ride in a settings-audit record; everything else is logged by NAME only. The encrypted vault option is refused BEFORE the filter runs, so no filter can opt the credential store back in. |
+| `newspack_nodes/settings_sync/value` | `mixed $value, string $option` | [`Settings_Sync_Node`](../includes/class-settings-sync-node.php). Resolve the value a hub pushes to its spokes — a requirement for any option that can be absent, not an optional refinement. `push()` reads `\get_option( $local )` with NO default and never goes through `Config::value()`, `register_setting()` defaults apply only inside `is_admin()` requests and a worker is never one, and [`Reset_Gate`](../includes/config-system/class-reset-gate.php) DELETES the row on reset-to-default. An unsaved or freshly-reset option therefore resolves to `false`, `Core::as_string()` makes that `''`, and the spoke's typed receiver refuses it with `invalid value for setting: …`. A hub syncing the substrate's own `remote_*` geometry needs a resolver mapping absent to the owning config's default; the filter runs on every push, the periodic sweep included. The substrate does not register a handler of its own. |
+| `newspack_nodes/settings_audit_values_allowlist` | `array $options` | [`Settings_Event_Writer`](../includes/class-settings-event-writer.php), over the [`Settings_Schema`](../includes/class-settings-schema.php) option names. Options whose old and new values may ride in a settings-audit record; everything else is logged by NAME only. The encrypted vault option is refused BEFORE the filter runs, so a filter cannot opt the credential store back in. |
 | `newspack_nodes/station_tab_bundles` | `array $bundles` | [`Admin`](../includes/admin/class-admin.php). Register a station tab bundle: `handle`, `dir` and `url` are required, `localize` and `lazy` optional. A malformed entry is dropped whole, so one bad contribution cannot break the others. Leave `lazy` off: it skips the enqueue and puts the load recipe on the station handle, but the fetch is driven by placeholders `lazyTabs.js` registers for the four substrate handles it names, so a bundle contributed under any other handle would simply never load. |
 | `newspack_nodes/overlay_pages` | `array $pages` | `Admin::overlay_pages()`. Admin page slugs the debug overlay should mount on; non-strings are filtered out. |
 
@@ -1971,7 +1972,7 @@ call), takes the same path.
 
 Fires from [`Bootstrap::mount_request_graph()`](../includes/class-bootstrap.php) once the request-scope graph has
 been built or confirmed already-built. That builder is shared by every command
-door, not just `/command`, so no door ends up with a different verb surface
+door, not just `/command`, so a door never ends up with a different verb surface
 behind it. At this point `Core`'s node map holds `_router` and
 `_command_interpreter` (the base CI); `HTTP_In_Node` names itself `_output`
 immediately after.
@@ -1996,7 +1997,7 @@ function my_app_mount_service_cis( \Newspack_Nodes\Command_Interpreter_Node $bas
 `make_node( string $type, string $name, ...$args ): ?Node` does four things and
 returns the node:
 
-1. Resolves and instantiates, via a no-arg `new $fqcn()`, the first `{$prefix}{$type}_Node` that exists and is a concrete `Node` subclass, looping the prefixes registered through `Command_Interpreter_Node::register_namespace()` at plugin load. So `make_node( 'My_Service_CI', … )` resolves `My_App\My_Service_CI_Node` once `My_App\` is registered. There is no per-class registry — a plugin registers its *namespace prefix* once ([ADR-10](architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution)). It returns null when no prefix yields a concrete class.
+1. Resolves and instantiates, via a no-arg `new $fqcn()`, the first `{$prefix}{$type}_Node` that exists and is a concrete `Node` subclass, looping the prefixes registered through `Command_Interpreter_Node::register_namespace()` at plugin load. So `make_node( 'My_Service_CI', … )` resolves `My_App\My_Service_CI_Node` once `My_App\` is registered. There is no per-class registry — a plugin registers its *namespace prefix* once ([ADR-10](architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution)). It returns null when every prefix fails to yield a concrete class.
 2. Calls `$node->name( $name )` so Router can find it.
 3. Calls `$node->arguments( $arg_tokens )` — the scalar positional args, cast to strings and re-indexed, as a flat token array (`arguments()` takes and returns `list<string>`, never a space-joined string). They map onto the node's declared `node_schema()['arguments']` properties, so config round-trips through `dump_config()`, which re-joins the tokens via [`Node::serialize_args()`](../includes/class-node.php). A non-scalar argument is dropped with a rate-limited warning; assign object dependencies as public properties after `make_node` returns, as the substrate does for `Workers_CI`'s `CLI`.
 4. Calls `$node->sink( $this )` so the node's reply routes back through the base CI to `_router` and out through `_output`.
@@ -2009,7 +2010,7 @@ constructor or `name()` that rejects is cleaned up, never left orphaned.
 Skipping `make_node()` — constructing and `name()`-ing a node by hand — leaves
 it unwired. Its verb responses walk back via TO=FROM
 ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)),
-find no path to `_output`, and drop on the floor. Always go through
+cannot find a path to `_output`, and drop on the floor. Always go through
 `make_node()`.
 
 Because the hook fires on every command request, keep CIs stateless: pure verb
@@ -2019,7 +2020,7 @@ read the per-CI `node_schema()` declarations under
 
 ### `newspack_nodes/declare_config_keys`
 
-[`Config::value()`](../includes/class-config.php) refuses a key nothing declared: it throws `unknown config key
+[`Config::value()`](../includes/class-config.php) refuses an undeclared key: it throws `unknown config key
 '<key>' — not declared by any registered schema` rather than answer null. The
 substrate derives the declared set on the first key check of the process —
 registering its own [`Settings_Schema`](../includes/class-settings-schema.php) overlay keys, then firing this action so
@@ -2070,7 +2071,7 @@ loader. The substrate PULLS the declaration from inside a read, and that read ca
 precede the loader: event-logger-nodes builds its logger at
 [`plugins_loaded`](https://developer.wordpress.org/reference/hooks/plugins_loaded/)`:-11001`, well ahead of a loader at priority 11, and `value()`
 would throw on a real key. A plugin whose slug sorts before `newspack-nodes`
-loads while no substrate class exists, so it hooks the literal action name rather
+loads before any substrate class exists, so it hooks the literal action name rather
 than the `Config::DECLARE_ACTION` constant.
 
 Do nothing else in the callback. It runs from inside a config read, on any

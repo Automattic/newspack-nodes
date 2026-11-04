@@ -32,8 +32,8 @@ class Job_Intake {
 
 	/**
 	 * Log basename for the large-write ingress, which a Consumer drains into
-	 * `jobs`. No `.tsl` declares this dir, so Bootstrap registers it as a
-	 * GC-protected producer and Log_Cleaner leaves queued jobs alone.
+	 * `jobs`. This dir is not declared by any `.tsl`, so Bootstrap registers it
+	 * as a GC-protected producer and Log_Cleaner leaves queued jobs alone.
 	 */
 	public const LOG_BASENAME = 'jobintake';
 
@@ -508,7 +508,8 @@ class Job_Intake {
 	 * @param array<string,mixed> $options The write_job options (unique + unique_ttl).
 	 * @return bool True when this enqueue won the slot.
 	 * @throws \InvalidArgumentException Without a positive unique_ttl.
-	 * @throws \LogicException When no selected cache backend is available.
+	 * @throws \LogicException When the selected cache backends are all
+	 *                         unavailable.
 	 */
 	private function claim_unique( string $handler, array $options ): bool {
 		$ttl = Core::as_int( $options['unique_ttl'] ?? 0, 0 );

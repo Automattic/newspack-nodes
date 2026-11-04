@@ -8,13 +8,13 @@
  * because a filter is state rather than navigation and earns no Back entry of
  * its own. `useQueryParamList` is the twin for a list, written as one repeated
  * `?param=` per item. Every hook here takes a last `{ written }` option that
- * holds its value off the bar while the view it belongs to is shut, so no
- * caller hand-writes a gated encoder.
+ * holds its value off the bar while the view it belongs to is shut, so a
+ * caller never hand-writes a gated encoder.
  *
  * A page can still push entries of its own — a `?url=`-style navigation — and
  * each carries the filters current when it was pushed. The view keeps its
  * filters across Back and Forward, so the hook writes the live value back over
- * the restored entry rather than let the bar name a view nobody is looking at.
+ * the restored entry rather than let the bar name a view that is not on screen.
  *
  * Canonical in newspack-nodes, consumed through the `@newspack-nodes/shared`
  * alias.

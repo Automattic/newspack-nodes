@@ -264,9 +264,9 @@ describe( 'TopologySettingsPanel secure level', () => {
 	} );
 
 	/**
-	 * "Empty = default." names no number, while Partitions right above it shows
-	 * "(1)". An author reading one and then the other has to go find out what
-	 * the other default is.
+	 * "Empty = default." does not name a number, while Partitions right above
+	 * it shows "(1)". An author reading one and then the other has to go find
+	 * out what the other default is.
 	 */
 	it( 'names the stale-timeout default rather than just calling it a default', () => {
 		setup( {}, { configStaleTimeout: 60 } );

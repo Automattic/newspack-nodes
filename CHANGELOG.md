@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Refusals and log lines say their negative outright.** Every `remove_<noun>` refuses `… names a <noun> this <holder> does not declare`, an unresolved topology reads `unknown topology '<name>': it does not resolve to a .tsl file`, and a broker refuses a source `that spokes cannot stream`. A test or caller matching the old wording must change with it.
+
 ## [2.144.1] - 2026-11-03
 
 ### Added

@@ -73,7 +73,7 @@ class ConfigSchemaTest extends TestCase {
 		$this->assertSame( [], $missing, "keys read but not declared:\n" . \implode( "\n", $missing ) );
 	}
 
-	/** Every declared key carries its default in code, or follows a key that does, so no file is required. */
+	/** Every declared key carries its default in code, or follows a key that does, so the config file never has to set it. */
 	public function test_the_schema_supplies_a_default_for_every_declared_key(): void {
 		$supplied = \array_merge(
 			\array_keys( Settings_Schema::get()->defaults() ),
@@ -191,7 +191,7 @@ class ConfigSchemaTest extends TestCase {
 		}
 	}
 
-	/** blank_value() of a key no schema declares throws, as value() does. */
+	/** blank_value() of an undeclared key throws, as value() does. */
 	public function test_blank_value_of_an_undeclared_key_throws(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no_such_key_4417' );

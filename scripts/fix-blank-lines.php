@@ -19,7 +19,7 @@
  * rewrites in place and still exits 0, because lint-staged runs this over the
  * staged `*.php` and re-stages what a task rewrites — failing there would
  * reject a commit the script has already fixed. `--check` rewrites nothing and
- * exits 1 on a violation. Naming no path at all exits 2.
+ * exits 1 on a violation. Either mode exits 2 without a path.
  *
  * @package Newspack_Nodes
  */

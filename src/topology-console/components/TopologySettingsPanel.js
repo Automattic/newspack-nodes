@@ -25,7 +25,7 @@ import { __, sprintf } from '@wordpress/i18n';
  * its own above the generic rows.
  *
  * A key listed here is kept out of the generic rows and refused as a new name,
- * so no key is ever editable from two controls at once.
+ * so a key is never editable from two controls at once.
  */
 export const RECOGNIZED_KEYS = [
 	'num_partitions',
@@ -108,10 +108,10 @@ function sanitizeValue( v ) {
 /**
  * Where the panel mounts: the station's root, else the document body.
  *
- * Rendered in place it would stack inside the canvas frame's context, which no
- * z-index lifts over the header and tab bar the panel drops from. The body
- * fallback is outside the console's theme provider as well, which is why the
- * panel carries the skin classes itself there.
+ * Rendered in place it would stack inside the canvas frame's context, which a
+ * z-index cannot lift over the header and tab bar the panel drops from. The
+ * body fallback is outside the console's theme provider as well, which is why
+ * the panel carries the skin classes itself there.
  *
  * @return {?Element} The mount point, or null where there is no document.
  */

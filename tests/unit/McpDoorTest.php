@@ -36,7 +36,7 @@ class McpDoorTest extends TestCase {
 	/** The second door's REST namespace. */
 	private const BETA = 'fixture-beta/v2';
 
-	/** The fixture door's canonical URI, served from a host no shim defaults to. */
+	/** The fixture door's canonical URI, served from a host distinct from the `rest_url()` shim's default. */
 	private const DOOR = 'https://test.example/wp-json/fixture-alpha/v1/mcp';
 
 	/** Where a client is told to read the fixture door's sign-in metadata. */
@@ -141,7 +141,7 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( 'Fixture Desk', Capabilities::$session_label );
 	}
 
-	/** No door request, or one refused at the credential, installs no label. */
+	/** Neither a missing door request nor one refused at the credential installs a label. */
 	public function test_a_request_refused_at_the_credential_installs_no_label(): void {
 		[ $minted ] = $this->session( Capabilities::READ, 'Fixture Desk' );
 		$this->assertNull( Capabilities::$session_label );
@@ -448,10 +448,10 @@ class McpDoorTest extends TestCase {
 	/**
 	 * The named-object → token-array mapping, which is the whole seam between
 	 * MCP and the command protocol: every argument rides by name, in the order
-	 * the agent gave it, because the verb binds by name and no table here has
-	 * to track which args a verb declares first. A list repeats its name, which
-	 * is how a variadic arg binds by name, and a JSON false reaches the verb as
-	 * `false`, where an empty `--flag=` would read true.
+	 * the agent gave it, because the verb binds by name and so needs no table
+	 * here to track which args a verb declares first. A list repeats its name,
+	 * which is how a variadic arg binds by name, and a JSON false reaches the
+	 * verb as `false`, where an empty `--flag=` would read true.
 	 *
 	 * @return array<string,array{0:mixed,1:list<string>}>
 	 */
@@ -469,7 +469,7 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( $tokens, ( new \ReflectionMethod( Mcp_Door::class, 'tokens' ) )->invoke( null, $arguments ) );
 	}
 
-	/** A map or a null names no value, so it refuses rather than vanishing. */
+	/** A map or a null does not name a value, so it refuses rather than vanishing. */
 	public function test_an_argument_that_is_neither_a_value_nor_a_list_is_refused(): void {
 		$tokens = new \ReflectionMethod( Mcp_Door::class, 'tokens' );
 

@@ -98,8 +98,8 @@ function readFlag( key, def ) {
  *
  * Only `toggle` stores, so an untouched flag keeps following `def`; the
  * setter changes state without storing it. A changed `key` or `def` re-reads
- * storage during render, so no render answers with the previous key's value
- * and nothing writes one key's value under another.
+ * storage during render, so a render never answers with the previous key's
+ * value and one key's value is never written under another.
  *
  * @param {string}  key Storage key.
  * @param {boolean} def Value when storage holds no answer.

@@ -36,7 +36,7 @@ describe( 'CtorField vault_id', () => {
 		expect( onChange ).toHaveBeenCalledWith( 'aspen' );
 	} );
 
-	it( 'falls back to a text input when no vaults are registered', () => {
+	it( 'falls back to a text input when there are no registered vaults', () => {
 		const { container } = render(
 			<CtorField spec={ spec } value="" onChange={ noop } vaults={ [] } />
 		);
@@ -93,7 +93,7 @@ describe( 'CtorField vault_group', () => {
 		expect( onChange ).toHaveBeenCalledWith( 'crawl-g7' );
 	} );
 
-	it( 'falls back to a text input when no entry names a group', () => {
+	it( 'falls back to a text input when the entries do not name a group', () => {
 		const { container } = render(
 			<CtorField
 				spec={ groupSpec }
@@ -107,7 +107,7 @@ describe( 'CtorField vault_group', () => {
 		expect( input.placeholder ).toBe( '(no vault groups)' );
 	} );
 
-	it( 'preserves a stored group no entry names', () => {
+	it( 'preserves a stored group that the entries never name', () => {
 		const { container } = render(
 			<CtorField
 				spec={ groupSpec }

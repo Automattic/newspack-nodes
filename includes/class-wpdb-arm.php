@@ -18,12 +18,13 @@
  * Values are the tagged serialization in base64, because `$wpdb`'s query
  * sanitizer is not a safe carrier for igbinary's raw bytes. The key columns
  * are binary, so `Kea` and `kea` stay two keys. A key or member longer than
- * its column, or a row no statement can carry under `max_allowed_packet`, is
- * refused before anything is sent: WordPress clears strict SQL mode, so MySQL
- * would otherwise truncate a long key silently into another key. A member read
- * is one statement per set key, a seek on the members table's primary key.
- * A statement that finds a shared table missing reinstalls the schema and
- * runs once more, so tables gone while the schema option stands come back.
+ * its column, or a row that a statement cannot carry under
+ * `max_allowed_packet`, is refused before anything is sent: WordPress clears
+ * strict SQL mode, so MySQL would otherwise truncate a long key silently into
+ * another key. A member read is one statement per set key, a seek on the
+ * members table's primary key. A statement that finds a shared table missing
+ * reinstalls the schema and runs once more, so tables gone while the schema
+ * option stands come back.
  *
  * @package Newspack_Nodes
  */
@@ -205,7 +206,7 @@ final class Wpdb_Arm extends Durable_Arm {
 
 	/**
 	 * The tagged bytes a `value` column carries in base64; a column that is
-	 * not base64 reads as the empty string, which no serializer wrote.
+	 * not base64 reads as the empty string, which a serializer never writes.
 	 *
 	 * @param mixed $column The column.
 	 * @return string The tagged bytes.

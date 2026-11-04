@@ -3,7 +3,7 @@
  * on the schematic canvas, in an owner's sidecar grid and as the palette's
  * drag ghost. The frame and the live readouts are separate components so the
  * canvas can layer them. Each surface defines the clips and blooms its cards
- * draw through under its own id prefix, so no id repeats on a page.
+ * draw through under its own id prefix, so an id never repeats on a page.
  */
 
 import { memo, useId } from '@wordpress/element';
@@ -245,7 +245,7 @@ export function pressOnKey( press ) {
 /**
  * The DOM id of the card the keys act on, unique to the surface drawing it.
  * The name is URI-encoded, because a node's name may hold whitespace, which
- * no id may.
+ * an id may not.
  *
  * @param {string} surface The id prefix of the surface's defs.
  * @param {string} name    The node the card draws.

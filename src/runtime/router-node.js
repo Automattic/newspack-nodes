@@ -2,7 +2,7 @@
  * Router — `_router`, where a TO path becomes a delivery, and the one heartbeat
  * the whole page graph ticks on.
  *
- * Addressing is by name and path rather than by reference, so no node holds a
+ * Addressing is by name and path rather than by reference, so a node holds no
  * handle on its peers: `a/b/c` means "find `a`, give it `b/c`". The same node
  * owns the tick, because a graph already paying for one heartbeat should not
  * grow a second — every periodic poller hitchhikes this one, and everything
@@ -136,11 +136,11 @@ export class RouterNode extends TimerNode {
 	 * turn.
 	 *
 	 * A TM_NOREPLY command that misses throws instead of bouncing: it asked for
-	 * no reply, so no TM_ERROR could carry the miss. PHP's `send_error()` throws
-	 * identically.
+	 * no reply, so a TM_ERROR could not carry the miss. PHP's `send_error()`
+	 * throws identically.
 	 *
 	 * @param {Array} message The 7-field positional message; TO is peeled in place.
-	 * @throws {Error} NOT_AVAILABLE for a TM_NOREPLY command no node answers.
+	 * @throws {Error} NOT_AVAILABLE for an unanswered TM_NOREPLY command.
 	 */
 	fill( message ) {
 		this.counter++;
@@ -170,7 +170,7 @@ export class RouterNode extends TimerNode {
 				message[ TYPE ] & TM_COMMAND &&
 				message[ TYPE ] & TM_NOREPLY
 			) {
-				// No bounce can carry it: a load line aimed at no node fails.
+				// No bounce can carry it: a load line to a missing node fails.
 				const verb = message[ VALUE ]?.name ?? '';
 				throw new Error( `NOT_AVAILABLE: ${ to } ${ verb }`.trimEnd() );
 			}
@@ -460,9 +460,9 @@ export class RouterNode extends TimerNode {
 	 * bounce back along FROM is what reports it.
 	 *
 	 * Nothing else is declared because nothing else reads it: the Router is
-	 * placed by `mountExospine` and never listed in `includeNodes`, so no
-	 * palette or `help` lookup reaches this schema. PHP spells the same
-	 * exclusion as a `Hidden` category.
+	 * placed by `mountExospine` and never listed in `includeNodes`, so
+	 * a palette or `help` lookup never reaches this schema. PHP spells the
+	 * same exclusion as a `Hidden` category.
 	 *
 	 * @return {{registrations: string[]}} The node schema.
 	 */

@@ -70,7 +70,7 @@ final class Rate_Limit {
 			throw new \InvalidArgumentException( "rate limit {$name}: burst {$burst} must be 1 to " . self::MAX_BURST . ", window {$window_s} at least 1" );
 		}
 		if ( 1 === \preg_match( '/\s/', $name ) ) {
-			// Every cache write refuses such a key; no slot could be claimed.
+			// Every cache write refuses such a key, so it can claim no slot.
 			throw new \InvalidArgumentException( "rate limit name holds whitespace: {$name}" );
 		}
 		$backend = Cache_Backend::shared_first();
@@ -94,8 +94,8 @@ final class Rate_Limit {
 	}
 
 	/**
-	 * Admit a call no shared cache could meter, saying so once a log window
-	 * per door. For a door whose loss costs more than an unmetered call.
+	 * Admit a call that a shared cache could not meter, saying so once a log
+	 * window per door. For a door whose loss costs more than an unmetered call.
 	 *
 	 * @param string $door The door, as the warning names it.
 	 * @return true

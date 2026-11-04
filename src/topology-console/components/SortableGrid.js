@@ -3,7 +3,7 @@
  * Profiler modals and its Table Stats section, plus the sort-toggle hook that
  * drives it. A view supplies column specs, keyed rows and sort state; the grid
  * owns the ordering, the headers and the cell formatting. It is a module of
- * its own rather than an export of any one view, so no view depends on
+ * its own rather than an export of any one view, so a view never depends on
  * another's internals.
  */
 

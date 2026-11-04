@@ -3,8 +3,8 @@
  *
  * `useVaultGraph` owns the data and the transport: the table is the `vault
  * list` catalog polled as a slice, and add, update, delete and test are
- * one-shot commands. This file renders that model and keeps only what no
- * answer supplies — the form's own refusals, and which row it is open on.
+ * one-shot commands. This file renders that model and keeps only what an
+ * answer never supplies — the form's own refusals, and which row it is open on.
  *
  * Every answer arrives already naming the row it is about, because the subject
  * rides in the reply's ADDRESS (ADR-7). `onAnswer` files each one under that

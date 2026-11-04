@@ -9,8 +9,8 @@
  * report their own idleness through `Idle_Reporter` and the worker stops only
  * when EVERY reporter has been idle for the whole window.
  *
- * Opting in is the point: the substrate names no application node. A graph with
- * no reporter at all has nothing to measure, and never idle-exits.
+ * Opting in is the point: the substrate does not name any application node. A
+ * graph with no reporter at all has nothing to measure, and never idle-exits.
  *
  * @package Newspack_Nodes
  */

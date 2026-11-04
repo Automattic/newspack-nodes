@@ -470,7 +470,7 @@ it( 'matches a token at an arbitrary position and rejects a non-digit middle', (
 	] );
 } );
 
-it( 'falls back to the literal partition-token vertex when no concrete catalog entry matches', () => {
+it( 'falls back to the literal partition-token vertex without a matching concrete catalog entry', () => {
 	const [ section ] = buildTopologySections(
 		{
 			t: {
@@ -639,7 +639,7 @@ it( 'falls back to consuming worker input status when the log catalog is absent'
 	);
 } );
 
-it( 'falls back to producing worker output status when no catalog or cursor status exists', () => {
+it( 'falls back to producing worker output status without a catalog or a cursor status', () => {
 	const [ section ] = buildTopologySections(
 		{
 			t: {
@@ -1193,7 +1193,7 @@ describe( 'substituteTokens', () => {
 		).toBe( 'firehose.combined.p2' );
 	} );
 
-	it( 'leaves <topology> alone when no fleet name is bound', () => {
+	it( 'leaves <topology> alone without a bound fleet name', () => {
 		expect(
 			substituteTokens( 'firehose.<topology>.p{partition}', {
 				partition: 0,

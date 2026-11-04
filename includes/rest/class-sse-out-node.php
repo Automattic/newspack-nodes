@@ -91,8 +91,8 @@ class SSE_Out_Node extends Node {
 	public const ROUTE = '/messages/stream';
 
 	/**
-	 * The lease an unmetered stream carries: what `stream()` uses when no slot
-	 * pool is wired, and what `run_stream_loop()` defaults to. Slot -1 sits
+	 * The lease an unmetered stream carries: what `stream()` uses without a
+	 * slot pool, and what `run_stream_loop()` defaults to. Slot -1 sits
 	 * outside every pool's range, and the owner is an arbitrary positive
 	 * integer because `require_lease()` refuses a non-positive one.
 	 */
@@ -141,7 +141,8 @@ class SSE_Out_Node extends Node {
 	 * Consulted on every drain tick to confirm the stream still holds the exact
 	 * lease it acquired; false takes the `disconnect` close. It only reads —
 	 * refreshing the TTL belongs to the client heartbeat, and refreshing it
-	 * here would let a stream nobody is reading hold its slot indefinitely.
+	 * here would let a stream that is not being read hold its slot
+	 * indefinitely.
 	 *
 	 * @var \Closure(array{slot:int,owner:int}, int): bool|null
 	 */
@@ -149,9 +150,10 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Called once per stream, from the drain's `finally` or from a shutdown
-	 * function, whichever runs first — so no close, throw, time-limit fatal
-	 * or client abort leaves the slot held until its TTL expires. The third
-	 * argument is the session lease key the stream acquired under, or null.
+	 * function, whichever runs first — so a close, a throw, a time-limit fatal
+	 * or a client abort never leaves the slot held until its TTL expires. The
+	 * third argument is the session lease key the stream acquired under, or
+	 * null.
 	 *
 	 * @var \Closure(array{slot:int,owner:int}, int, ?string): void|null
 	 */
@@ -249,7 +251,14 @@ class SSE_Out_Node extends Node {
 	 * 500, and an `\Error` still escapes.
 	 *
 	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions`, `multi_writer`, `session` and `stream`.
-	 * @return \WP_Error|void WP_Error when a subscription is refused (400 `sse_subscription_invalid`) or will not resolve (500 `sse_subscription_unavailable`), a position names no place (400 `sse_positions_invalid`), the session is refused (401), the stream id is malformed (400 `sse_stream_invalid`) or no slot is free (429); otherwise streams and exits.
+	 * @return \WP_Error|void WP_Error when a subscription is refused (400
+	 *                        `sse_subscription_invalid`) or will not resolve
+	 *                        (500 `sse_subscription_unavailable`), a position
+	 *                        does not name a place (400
+	 *                        `sse_positions_invalid`), the session is refused
+	 *                        (401), the stream id is malformed (400
+	 *                        `sse_stream_invalid`) or no slot is free (429);
+	 *                        otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subscribe     = $request->get_param( 'subscribe' );
@@ -372,7 +381,8 @@ class SSE_Out_Node extends Node {
 	 * grouped sub pools like its bare sibling.
 	 *
 	 * @param list<Resolved_Sub> $resolved Resolved subscriptions.
-	 * @return int A partition number, or -1 for a stream that names no partition.
+	 * @return int A partition number, or -1 for a stream that does not name a
+	 *             partition.
 	 */
 	private function subscription_partition( array $resolved ): int {
 		foreach ( $resolved as $sub ) {
@@ -574,7 +584,7 @@ class SSE_Out_Node extends Node {
 			$max_lifetime       = Core::num_int( Config::value( 'sse_max_lifetime' ), 0 );
 			Event_Framework::instance()->drain(
 				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $positions, $default_route, $heartbeat_interval, $idle_timeout, $max_lifetime, $opened_at, $active_lease, $partition, $subs ): bool {
-					// Before any close, so no skip goes unreported.
+					// Before any close, so every skip is reported.
 					$this->report_unparseable_lines( $consumers );
 					$check = self::$check_slot;
 					if ( null !== $check && ! $check( $active_lease, $partition ) ) {
@@ -696,7 +706,7 @@ class SSE_Out_Node extends Node {
 	/**
 	 * Require the whole two-field lease shape, with no slot-only fallback: a
 	 * slot number alone cannot be checked or released against its owner, so
-	 * accepting one would hand out a lease nothing can reclaim.
+	 * accepting one would hand out a lease that can never be reclaimed.
 	 *
 	 * @param mixed $lease Raw acquire result.
 	 * @return array{slot:int,owner:int} The validated lease.
@@ -838,7 +848,8 @@ class SSE_Out_Node extends Node {
 	 * A matching `$positions` entry seeds that reader's cursor and an absent
 	 * one tail-seeks. An exact subscription whose `$positions` entry is
 	 * `SSE_Out_Node::SKIP` opens nothing, and so does each stamp so marked
-	 * under a glob. A name or pattern no dir carries opens nothing.
+	 * under a glob. A name or pattern that is not carried by any dir opens
+	 * nothing.
 	 *
 	 * @param Resolved_Sub                $sub       What `resolve_subscription()` answered.
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
@@ -969,7 +980,8 @@ class SSE_Out_Node extends Node {
 	 * is caught up the instant it opens, and a console attaching to a quiet worker
 	 * would be hung up on before rendering a line — then wait out the whole
 	 * advertised `retry` gap for a stream it just asked for. The window
-	 * reclaims tails nobody is reading; an attached console is someone reading.
+	 * reclaims tails that are not being read; an attached console is someone
+	 * reading.
 	 *
 	 * @param array<string,Consumer_Node> $consumers Attached consumers, keyed by stamp.
 	 *
@@ -1030,7 +1042,8 @@ class SSE_Out_Node extends Node {
 	 * reads, because that stamp opens no reader.
 	 *
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
-	 * @throws \InvalidArgumentException Naming the first entry that names no place.
+	 * @throws \InvalidArgumentException Naming the first entry that does not
+	 *                                   name a place.
 	 */
 	private static function check_positions( ?array $positions ): void {
 		foreach ( $positions ?? [] as $stamp => $position ) {
@@ -1050,7 +1063,8 @@ class SSE_Out_Node extends Node {
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 * @param string                      $stamp     The stamp the reader carries.
 	 * @return array<array-key,mixed>|string|int A value `next_offset()` accepts.
-	 * @throws \InvalidArgumentException When the entry is text naming no place.
+	 * @throws \InvalidArgumentException When the entry is text that does not
+	 *                                   name a place.
 	 */
 	protected static function position_arg( ?array $positions, string $stamp ) {
 		if ( ! isset( $positions[ $stamp ] ) ) {
@@ -1069,7 +1083,7 @@ class SSE_Out_Node extends Node {
 			return $text;
 		}
 		return Log_Position::parse( $text ) ?? throw new \InvalidArgumentException(
-			\esc_html( "positions[\"$stamp\"] = \"$text\" names no position: use a seek word, a number, segment:offset or skip" )
+			\esc_html( "positions[\"$stamp\"] = \"$text\" does not name a position: use a seek word, a number, segment:offset or skip" )
 		);
 	}
 
@@ -1284,7 +1298,7 @@ class SSE_Out_Node extends Node {
 	 * writes nothing, so calling it on every drain tick costs one boolean.
 	 *
 	 * The padding is one SSE comment — a colon, `FLUSH_SIZE - 3` dots, then the
-	 * blank line — so every SSE parser discards it and no handler ever sees it.
+	 * blank line — so every SSE parser discards it and a handler never sees it.
 	 * Only the byte count matters, and it must come to exactly FLUSH_SIZE.
 	 */
 	protected function flush_if_needed(): void {

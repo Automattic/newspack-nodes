@@ -16,8 +16,8 @@
  * Router's tick calls `checkpoint()` instead, after the tick's writes, so a
  * write pays for its own frames and never for copying the WAL back. A file
  * many processes open as its writer, as a Table built outside any graph is,
- * keeps SQLite's own COMMIT checkpoint, because no tick reaches it, and its
- * flush empties the file in place, because the others hold it open.
+ * keeps SQLite's own COMMIT checkpoint, because it is not reached by any tick,
+ * and its flush empties the file in place, because the others hold it open.
  *
  * A write wrapped in `write_scope()` begins its own transaction, and a
  * rewrite is an UPSERT, updating the row it finds in place. Every fixed
@@ -248,8 +248,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param bool      $read_only       Open as a reader rather than the writer.
 	 * @param Rows|null $rows            The declared row tables, or none.
 	 * @param bool      $many_writers    Other processes open the file as its
-	 *                                   writer too, so no tick checkpoints it
-	 *                                   and a flush must keep its inode.
+	 *                                   writer too, so it is not checkpointed
+	 *                                   by any tick and a flush must keep its
+	 *                                   inode.
 	 * @throws \LogicException Without pdo_sqlite.
 	 * @throws \RuntimeException When the directory or a path SQLite cannot open.
 	 */
@@ -297,8 +298,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * One PASSIVE checkpoint: copy back every WAL frame no reader's snapshot
-	 * still needs, waiting on no reader and blocking none. Frames past an
+	 * One PASSIVE checkpoint: copy back every WAL frame that is not still
+	 * needed by any reader's snapshot, neither waiting on a reader nor blocking
+	 * one. Frames past an
 	 * open reader's snapshot stay for the next call, which is ordinary.
 	 *
 	 * @return array{0: int, 1: int}|null The WAL's frames and the frames now
@@ -380,7 +382,8 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param array<int,int>         $ids   Ids the batch's ignores resolved, by index.
 	 * @param string                 $table Set to the table being written.
 	 * @return array{0:int, 1:int|null} Rows written, and an `ignore`'s id.
-	 * @throws \RuntimeException On an undeclared table or an id no op resolved.
+	 * @throws \RuntimeException On an undeclared table or an id that was not
+	 *                           resolved by any op.
 	 */
 	private function write_op( array $op, array $ids, string &$table ): array {
 		$verb  = Core::as_string( $op[0] ?? null );
@@ -423,7 +426,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param array<array-key,mixed> $row The row the ignore wrote.
 	 * @param int                $written Rows the ignore inserted.
 	 * @return int The id.
-	 * @throws \RuntimeException When no row holds the key.
+	 * @throws \RuntimeException When the key is not in any row.
 	 */
 	private function resolved_id( string $table, array $spec, array $row, int $written ): int {
 		if ( 1 === $written ) {
@@ -449,9 +452,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param string   $table The table.
 	 * @param Row_Spec $spec  Its declaration.
 	 * @return string The SQL.
-	 * @throws \RuntimeException On an op no statement answers, or a `set` on a
-	 *                           table declaring no key or no column beside
-	 *                           its key and `autoincrement` id.
+	 * @throws \RuntimeException On an op that is not answered by any statement,
+	 *                           or a `set` on a table declaring no key or no
+	 *                           column beside its key and `autoincrement` id.
 	 */
 	private function row_sql( string $op, string $table, array $spec ): string {
 		if ( isset( $this->row_sql[ "{$op} {$table}" ] ) ) {
@@ -486,7 +489,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * column's incoming value is cast to NUMERIC, which applies the column's
 	 * own affinity: on a table keyed by one INTEGER column, its rowid alias,
 	 * `excluded` carries the bound text of a float, and text outranks
-	 * any number. No other fold has a statement.
+	 * any number. None of the other folds has a statement.
 	 *
 	 * @param string            $column The column.
 	 * @param 'sum'|'max'|'min' $how    The fold.
@@ -514,14 +517,14 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param Row_Spec               $spec  Its declaration.
 	 * @param array<array-key,mixed> $where Column => value, at least one.
 	 * @return int Rows deleted.
-	 * @throws \RuntimeException On no column, one the table does not declare,
-	 *                           a null, which `=` matches to nothing, or a
-	 *                           table whose rows retain others, which only
-	 *                           purge() releases.
+	 * @throws \RuntimeException On an empty `$where`, a column the table does
+	 *                           not declare, a null, which `=` matches to
+	 *                           nothing, or a table whose rows retain others,
+	 *                           which only purge() releases.
 	 */
 	private function delete_matching( string $table, array $spec, array $where ): int {
 		if ( [] === $where ) {
-			throw new \RuntimeException( "{$table}: a delete names no column" );
+			throw new \RuntimeException( "{$table}: a delete must name a column" );
 		}
 		if ( [] !== $this->releases[ $table ]['names'] ) {
 			throw new \RuntimeException( "{$table}: a delete would leave the rows it retains unreleased" );
@@ -530,11 +533,11 @@ final class Sqlite_Arm extends Durable_Arm {
 		foreach ( $columns as $column ) {
 			if ( ! isset( $spec['columns'][ $column ] ) ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
-				throw new \RuntimeException( "{$table}: a delete names no such column {$column}" );
+				throw new \RuntimeException( "{$table}: a delete names {$column}, which the table does not declare" );
 			}
 			if ( null === $where[ $column ] ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
-				throw new \RuntimeException( "{$table}: a delete matches no null, as {$column} would" );
+				throw new \RuntimeException( "{$table}: a delete cannot match {$column} to null" );
 			}
 		}
 		$cache = "delete {$table} " . \implode( ',', $columns );
@@ -613,9 +616,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Release the names rows the deleted rows of `$table` named and no row
-	 * of any table they are `retained_by` still names, then, in turn, the
-	 * names the released rows alone named.
+	 * Release the names rows that the deleted rows of `$table` named and that
+	 * are not still named by any row of any table they are `retained_by`, then,
+	 * in turn, the names the released rows alone named.
 	 *
 	 * @param string       $table The table rows left.
 	 * @param array<mixed> $gone  The deleted rows, as the columns they returned.
@@ -657,9 +660,9 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * A names table's release on its own column: delete its rows holding one
-	 * of a JSON array of released values that no row of any table it is
-	 * `retained_by` still names, returning the columns its own names tables
-	 * reference.
+	 * of a JSON array of released values that are not still named by any row
+	 * of any table it is `retained_by`, returning the columns its own names
+	 * tables reference.
 	 *
 	 * @param string $names The names table.
 	 * @param string $own   Its column the values match.
@@ -837,15 +840,15 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Open a file nothing writes again: read-only and `immutable`, so the
-	 * reader takes no lock and reads no journal, mapped, and `query_only`.
+	 * Open a file that is never written again: read-only and `immutable`, so
+	 * the reader takes no lock and reads no journal, mapped, and `query_only`.
 	 * The one `main` alias names it. `Row_Table_Node::open_snapshot()` is
 	 * the snapshot entry, resolving a snapshot's name to the file.
 	 *
 	 * @param string $file The file.
 	 * @return Row_Reader The query-only connection, aliased `main`.
 	 * @throws \LogicException Without pdo_sqlite.
-	 * @throws \PDOException When the file is absent or no database.
+	 * @throws \PDOException When the file is absent or not a database.
 	 * @api Opened by `Row_Table_Node::open_snapshot()`.
 	 */
 	public static function open_immutable( string $file ): Row_Reader {
@@ -854,7 +857,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db->exec( 'PRAGMA main.cache_size = -' . self::ROWS_CACHE_KIB );
 		$db->exec( 'PRAGMA main.mmap_size = ' . self::ROWS_MMAP_BYTES );
 		$db->exec( 'PRAGMA query_only = ON' );
-		// Read a page now, so an absent file or no database throws at open.
+		// Read a page now, so an absent or non-database file throws at open.
 		$db->query( 'SELECT 1 FROM sqlite_master LIMIT 1' );
 		return new Row_Reader( $db, [ 'main' ] );
 	}
@@ -1109,8 +1112,8 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * another process that opened the old file keeps reading its rows until
 	 * that request ends; one opened after reads the new file. A file many
 	 * processes write keeps its inode instead: one transaction deletes every
-	 * keyed row and member, so no other writer goes on reading what was
-	 * flushed or writing where no one reads.
+	 * keyed row and member, so another writer never goes on reading what
+	 * was flushed or writing what will never be read.
 	 *
 	 * @return array{bytes:int}|array{rows:int} What the three files held
 	 *         before the unlink, or the rows deleted in place.
@@ -1152,7 +1155,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	/**
 	 * See Durable_Arm::write_scope(): one transaction holding the write lock
 	 * from its start, so a read inside sees what it writes over. This arm owns
-	 * the file, so no caller's transaction shares the connection.
+	 * the file, so a caller's transaction never shares the connection.
 	 */
 	protected function write_scope( \Closure $work ): mixed {
 		$this->handle()->exec( 'BEGIN IMMEDIATE' );

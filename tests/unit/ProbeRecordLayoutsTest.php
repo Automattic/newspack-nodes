@@ -23,7 +23,7 @@ final class ProbeRecordLayoutsTest extends TestCase {
 	 * Each layout, its JS mirror, and the names the mirror must export: null
 	 * when it mirrors every slot. `probe-record.js` declares only the nine
 	 * slots a browser reads, and `tablestats-record.js` every slot but the
-	 * row's bytes, which no browser view reads.
+	 * row's bytes, which are not read by any browser view.
 	 *
 	 * @return array<string,array{class-string,string,list<string>|null}>
 	 */

@@ -80,7 +80,8 @@ class NumPartitionsDerivationTest extends TestCase {
 	/**
 	 * A catalog entry carrying no `num_partitions` spawns the GLOBAL count
 	 * through `expand_workers()`, so every reader must take that and never the
-	 * entry's `.tsl` frontmatter — or it walks stores no worker writes.
+	 * entry's `.tsl` frontmatter — or it walks stores that are not written by
+	 * any worker.
 	 */
 	public function test_a_catalog_entry_without_a_count_ignores_its_frontmatter(): void {
 		// 6 in the frontmatter, 2 globally: distinct from each other and from 1.

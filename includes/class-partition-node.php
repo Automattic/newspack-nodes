@@ -230,7 +230,7 @@ class Partition_Node extends Timer_Node {
 	/** @var resource|null Append handle on the current segment, opened lazily by get_handle(). */
 	protected $fh = null;
 
-	/** Segment the open handle belongs to; -1 when no handle is open. */
+	/** Segment the open handle belongs to; -1 without an open handle. */
 	protected int $fh_segment_id = -1;
 
 	/** Timer refreshing a held write lock inside a drain loop; null in request scope, where fill() beats it inline. */
@@ -392,7 +392,7 @@ class Partition_Node extends Timer_Node {
 
 		// No-event-loop heartbeat: throw if heartbeat() shows lost ownership.
 		if ( $this->large_writes_allowed() && $this->lock_held && null === $this->heartbeat_timer && null !== $this->write_lock ) {
-			// Staleness needs a REAL clock: no drain refreshes the cache here.
+			// Staleness needs a REAL clock: without a drain, the cache can lag.
 			$hb_now = Core::right_now();
 			if ( $hb_now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / self::LOCK_HEARTBEAT_DIVISOR ) {
 				if ( ! $this->write_lock->heartbeat() ) {
@@ -523,13 +523,14 @@ class Partition_Node extends Timer_Node {
 	 * Topic fans into them, a Log extends one, a worker's IPC input is one — so
 	 * this is the single place that sees every hop. A wake hung off the producer
 	 * helpers instead sees only the FIRST hop, and a job re-routed out of the
-	 * firehose, or drained out of jobintake, lands where nothing wakes a reader.
+	 * firehose, or drained out of jobintake, lands in a partition whose reader
+	 * is never woken.
 	 *
 	 * Marking is deliberately cheap — the resolved directory as its own key, no
 	 * lookup, no I/O — because this runs per message. The work happens at flush:
 	 * on the router tick inside a drain loop, and at shutdown in request scope,
 	 * so a web request never pays it on the way out. The path IS the key, so
-	 * nothing here parses a partition out of a name.
+	 * a partition is never parsed out of a name here.
 	 */
 	private function mark_pending_wake(): void {
 		$dir                         = \rtrim( $this->segment_dir(), '/' );
@@ -868,7 +869,8 @@ class Partition_Node extends Timer_Node {
 	 * first, so the line never precedes a record it annotates.
 	 *
 	 * @param string $entry The index line, without its newline.
-	 * @throws \RuntimeException When this is not the sole writer, no index is armed, or a write falls short.
+	 * @throws \RuntimeException When this is not the sole writer, the index is
+	 *                           not armed, or a write falls short.
 	 */
 	public function append_index( string $entry ): void {
 		if ( self::LARGE_WRITE_VOID !== $this->large_write_mode && ! $this->lock_held ) {
@@ -1124,7 +1126,8 @@ class Partition_Node extends Timer_Node {
 	 *     segments can't grow past max_segments.
 	 * So the age rule can prune below num_segments, and the count rule below
 	 * lifetime — each bounded by the other axis's floor; the hard cap is the ceiling.
-	 * With the keep_everything toggle on, no rule runs, the hard cap included.
+	 * With the keep_everything toggle on, none of the rules runs, the hard cap
+	 * included.
 	 */
 	public function cleanup_segments(): void {
 		// Use the warm cache; standalone callers (cold cache) force-scan.
@@ -1547,7 +1550,7 @@ class Partition_Node extends Timer_Node {
 					if ( null === $at ) {
 						return true;
 					}
-					// Cheapest test first: most lines name a key nobody wants.
+					// Cheapest test first: most lines name an unwanted key.
 					$key = $at['key'];
 					if ( ! isset( $remaining[ $key ] ) ) {
 						return true;
@@ -2216,7 +2219,7 @@ class Partition_Node extends Timer_Node {
 	 * the one a Topic propagates to each partition it materializes.
 	 *
 	 * @param string $formatter_name Registered formatter name.
-	 * @return bool False when no such formatter is registered.
+	 * @return bool False when `$formatter_name` is not registered.
 	 */
 	public function with_index_named( string $formatter_name ): bool {
 		$callable = Formatters::resolve( $formatter_name );
@@ -2453,8 +2456,8 @@ class Partition_Node extends Timer_Node {
 	 * `$recursive` applies the mode to every ancestor it creates, and the base
 	 * tree is shared, so 0700 there would lock out a differing uid. Group and
 	 * other are MASKED off rather than the mode being set: a 0500 directory is
-	 * a deliberate state, and widening it back would be a change nobody asked
-	 * for.
+	 * a deliberate state, and widening it back would be a change that was never
+	 * asked for.
 	 *
 	 * @param string $dir Directory to create or tighten.
 	 */
@@ -2544,9 +2547,10 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Keep every segment: no retention rule prunes, the hard cap included.
-	 * Retention runs in whichever process rotates, so every writer over this
-	 * directory must carry the flag; one without it prunes on its own rotation.
+	 * Keep every segment: none of the retention rules prunes, the hard cap
+	 * included. Retention runs in whichever process rotates, so every writer
+	 * over this directory must carry the flag; one without it prunes on its own
+	 * rotation.
 	 *
 	 * @param bool $flag True keeps every segment; false restores retention.
 	 */

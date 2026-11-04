@@ -29,7 +29,7 @@
  * that history into 180-second buckets per reader and worker, and each point a
  * panel draws is one bucket.
  * Each source panel plots one series per partition per worker,
- * `<source> · <worker>`, because a source names no worker and so the panels
+ * `<source> · <worker>`, because a source omits the worker and so the panels
  * ask `topicChartSeries` to split by one: co-readers of a partition inside
  * one worker add, each in its own bucket over the same window, and the
  * stacked chart sums the workers. The two partition panels do not split:

@@ -4,7 +4,7 @@
  * Appearance ownership: the stylesheets paint, the components do not.
  *
  * An inline `style` that carries appearance — a colour, a border, a shadow —
- * paints from JavaScript, where no stylesheet can reach it: the skin cannot
+ * paints from JavaScript, where a stylesheet cannot reach it: the skin cannot
  * retheme it, a media query cannot answer it, and the next reader looking for
  * the rule finds nothing. Geometry inline is fine, because geometry is often
  * computed; appearance is not.

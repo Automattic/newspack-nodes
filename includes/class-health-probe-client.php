@@ -14,12 +14,12 @@ namespace Newspack_Nodes;
  * its cache backend and its log-source registry.
  *
  * A CLI process picks its own cache backend and reads its own php.ini, so
- * either check run under WP-CLI can report a posture no visitor and no worker
- * ever sees — WP-CLI's APCu is not the one the web server uses, and a built-in source
- * resolved from its ini may not be the one a worker resolves. Asking the web runtime through
- * `POST /newspack-nodes/v1/health/runtime` reports the posture that serves
- * requests and runs workers; `Rest\Health_Runtime_Controller` is the half that
- * answers.
+ * either check run under WP-CLI can report a posture that a visitor or a worker
+ * never sees — WP-CLI's APCu is not the one the web server uses, and a built-in
+ * source resolved from its ini may not be the one a worker resolves. Asking the
+ * web runtime through `POST /newspack-nodes/v1/health/runtime` reports the
+ * posture that serves requests and runs workers;
+ * `Rest\Health_Runtime_Controller` is the half that answers.
  *
  * The reply is untrusted. It stands only whole, both rows in order, each the
  * exact shape `Health_Checks` produces, and every other outcome returns

@@ -114,9 +114,9 @@ final class Log_Discovery {
 
 	/**
 	 * A broker root's name: a Vault id's letters, digits, `_` and `-`, in
-	 * either case, and the `.` a topology joins it with, opening with no `.`.
-	 * It holds neither `/` nor `:`, so a reader stamp's first `:` after its
-	 * group ends the root; `..` is refused apart.
+	 * either case, and the `.` a topology joins it with, not opening with a
+	 * `.`. It holds neither `/` nor `:`, so a reader stamp's first `:` after
+	 * its group ends the root; `..` is refused apart.
 	 */
 	private const ROOT_PATTERN = '/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/D';
 
@@ -134,9 +134,10 @@ final class Log_Discovery {
 	 * base: the stamp `is_stamp()` admits for a first-level dir under one of
 	 * `GROUPS`, so a `logs` dir reads as its Consumers name it, or for a
 	 * broker reader's dir under one of `READER_GROUPS`, so it reads as the
-	 * catalog lists it; the relative path for any other dir, a dir no stamp
-	 * names included (`ipc/<worker>/output`, a quarantine named for a dir
-	 * holding a `:`), since a basename names many dirs. It never throws.
+	 * catalog lists it; the relative path for any other dir, including a dir
+	 * that is not named by any stamp (`ipc/<worker>/output`, a quarantine named
+	 * for a dir holding a `:`), since a basename names many dirs. It never
+	 * throws.
 	 *
 	 * @param string $relative The log's path under the runtime base.
 	 * @return string The record's SOURCE.
@@ -155,11 +156,11 @@ final class Log_Discovery {
 	/**
 	 * The dir a stamp names under `$base`, or null when none is there: the
 	 * stream's guard, then a direct path. A glob, a registry stamp and any
-	 * name the guard refuses are refused, so no stamp reaches a dir the
-	 * stream would not. It reads no listing: a broker's root and a Consumer's
-	 * cursor are both one flat name, which no shape tells apart, so a root
-	 * resolves to its dir, which holds no segments. A dir a log's read
-	 * capability gates is refused to a caller without it (ADR-39).
+	 * name the guard refuses are refused, so a stamp never reaches a dir
+	 * the stream would not. It reads no listing: a broker's root and a
+	 * Consumer's cursor are both one flat name, which their shapes cannot tell
+	 * apart, so a root resolves to its dir, which holds no segments. A dir a
+	 * log's read capability gates is refused to a caller without it (ADR-39).
 	 *
 	 * @param string $stamp A dir stamp: `firehose.p0`, `offsets:…`, `deadletter:…`, `offsets:<root>:<stamp>`.
 	 * @param string $base  The runtime base the roots sit under.
@@ -197,12 +198,12 @@ final class Log_Discovery {
 	 * `dir_of()` applies; `*` matches within one stamp part, so a dir whose
 	 * name holds a `:` is not a match, as `carries()` reads it, and an exact
 	 * reader stamp matches its own dir. A broker's root is not a match, as the
-	 * catalog lists none, and a glob reaches none of its readers, since no
-	 * glob names a root. A match whose stamp `is_stamp()` refuses is left out,
-	 * so a glob opens no dir `dir_of()` would refuse, and a dir gated on a
-	 * capability the caller lacks is left out too (ADR-39). A glob I/O fault
-	 * answers null rather than an empty map, so a caller never mistakes it
-	 * for "nothing there".
+	 * catalog lists none, and a glob reaches none of its readers, since a
+	 * glob never names a root. A match whose stamp `is_stamp()` refuses is left
+	 * out, so a glob never opens a dir `dir_of()` would refuse, and a dir gated
+	 * on a capability the caller lacks is left out too (ADR-39). A glob I/O
+	 * fault answers null rather than an empty map, so a caller never mistakes
+	 * it for "nothing there".
 	 *
 	 * @param string $sub  A subscription glob: `firehose.*`, `offsets:…*`.
 	 * @param string $base The runtime base the roots sit under.
@@ -292,9 +293,9 @@ final class Log_Discovery {
 	 * subscription past its group and its traversal guard: a stamp, or a glob
 	 * whose rest is one name once each `*` stands for a name character, with
 	 * no `*` opening it and none under `sources:`, whose registry is looked up
-	 * by name. A glob's `*` matches within one stamp part, so no glob names a
-	 * broker reader. `sources:<name>` and a worker's IPC channel are each
-	 * served before the guard, and their own readers judge the name.
+	 * by name. A glob's `*` matches within one stamp part, so a glob never
+	 * names a broker reader. `sources:<name>` and a worker's IPC channel are
+	 * each served before the guard, and their own readers judge the name.
 	 *
 	 * @param string $sub A candidate subscription.
 	 * @return bool True when the spoke would resolve it.
@@ -323,8 +324,10 @@ final class Log_Discovery {
 
 	/**
 	 * Whether the caller may read a log behind `$gate`: an ungated log, or
-	 * one whose capability `current_user_can()` answers for. No user holds
-	 * one, and nobody holds `UNREADABLE_GATE`.
+	 * one whose capability `current_user_can()` answers for. Without
+	 * `current_user_can()` there is no user to hold one, so every gated log is
+	 * refused; `UNREADABLE_GATE` is refused to every user, a super admin
+	 * included.
 	 *
 	 * @param string|null $gate The log's gate, or null for none.
 	 */
@@ -450,7 +453,8 @@ final class Log_Discovery {
 	/**
 	 * `broker_roots()` over one group's first-level dirs, and the dirs that
 	 * would not read: one glob over them all, and only when it fails one per
-	 * dir, so a dir that will not read is named and costs no other its place.
+	 * dir, so a dir that will not read is named and the others keep their
+	 * places.
 	 *
 	 * @param string       $pattern The group's first-level glob.
 	 * @param list<string> $dirs    The dirs it matched.
@@ -589,9 +593,9 @@ final class Log_Discovery {
 
 	/**
 	 * The registry name a `sources:<name>` stamp carries, or null for anything
-	 * else, a string no stamp names included. It reads through `is_stamp()`
-	 * and `split()`, so it never throws, and a caller holding a path or a
-	 * stamp can ask which it has.
+	 * else, including a string that is not named by any stamp. It reads through
+	 * `is_stamp()` and `split()`, so it never throws, and a caller holding a
+	 * path or a stamp can ask which it has.
 	 *
 	 * @param string $stamp A path or a stamp.
 	 * @return string|null The name after the prefix, or null.
@@ -607,9 +611,9 @@ final class Log_Discovery {
 	/**
 	 * Whether a subscription brings records stamped `$stamp`: its own name
 	 * exactly, or a glob whose `*` matches within one stamp part, as
-	 * `dirs_matching()` globs it, so no glob carries a broker reader's stamp.
-	 * Every other character is literal, `?` and `[` included, which is why
-	 * this is not `fnmatch()`.
+	 * `dirs_matching()` globs it, so a glob never carries a broker reader's
+	 * stamp. Every other character is literal, `?` and `[` included, which is
+	 * why this is not `fnmatch()`.
 	 *
 	 * @param string $sub   A subscription, as `subscribe` lists it.
 	 * @param string $stamp A record's stamp, as `dir_from_stamp()` reads it.
@@ -739,9 +743,10 @@ final class Log_Discovery {
 	 * `MAX_STAMP_BYTES`; or under one of `READER_GROUPS`, such a name, or a
 	 * broker reader's `<root>:<stamp>`, its root one `ROOT_PATTERN` admits and
 	 * the stamp it reads one `fits_a_dir_name()` admits, each within
-	 * `MAX_STAMP_BYTES`. The rest's own `:` tells the two apart, since no name
-	 * holds one, so the shape reads no disk. A stamp names directories on the
-	 * hub reading it, so one from a remote is held to this before it names any.
+	 * `MAX_STAMP_BYTES`. The rest's own `:` tells the two apart, since a name
+	 * never holds one, so the shape reads no disk. A stamp names directories on
+	 * the hub reading it, so one from a remote is held to this before it names
+	 * any.
 	 *
 	 * @param string $stamp A candidate stamp.
 	 * @return bool True when it names one dir and nothing above it.

@@ -315,7 +315,7 @@ describe( 'browseControl', () => {
 	 * `offsetEnd >= 0` on the FIRST record of the end segment and would flip
 	 * Replay→Live immediately, with no signal. The builder refuses it, in the
 	 * seek handler that called it, because the view applies the control from
-	 * `fill()`, where nothing would catch a throw.
+	 * `fill()`, where a throw would go uncaught.
 	 */
 	it( 'throws on a newest segment with an id but no numeric size', () => {
 		expect( () =>
@@ -336,7 +336,7 @@ describe( 'browseControl', () => {
 		} );
 	} );
 
-	it( 'follows when no segment carries a numeric id — there is no boundary', () => {
+	it( 'follows when the segments carry no numeric id — there is no boundary', () => {
 		expect( browseControl( { segments: [] } ) ).toEqual( {
 			action: 'follow',
 		} );

@@ -443,7 +443,7 @@ describe( 'useConsoleGraph — connection state', () => {
 		expect( Core.node( 'demo.p0' ).heartbeat.slot ).toBe( 1 );
 	} );
 
-	it( 'reports open with no session when no stream is enabled', () => {
+	it( 'reports open with no session without an enabled stream', () => {
 		const { result } = renderGraph( { streamEnabled: false } );
 		expect( result.current.sseSession ).toBeNull();
 		expect( result.current.status ).toBe( 'open' );

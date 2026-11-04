@@ -7,7 +7,7 @@ import path from 'path';
 describe( 'TabHost', () => {
 	beforeEach( resetTabs );
 
-	it( 'renders the empty state when no tabs match the host', () => {
+	it( 'renders the empty state when the host has no tabs', () => {
 		const { getByTestId } = render(
 			<TabHost
 				host="station"

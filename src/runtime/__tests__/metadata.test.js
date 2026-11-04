@@ -206,7 +206,7 @@ describe( 'dumpMetadataPayload', () => {
 		] );
 	} );
 
-	it( 'answers no hidden node named alone', () => {
+	it( 'answers nothing for a hidden node named alone', () => {
 		ownedGraph();
 		expect( dumpMetadataPayload( 'crawl-4471:plumbing' ) ).toEqual( {} );
 	} );
@@ -241,7 +241,7 @@ describe( 'dumpMetadataPayload', () => {
 		] );
 	} );
 
-	it( 'draws a patron no edge it does not route to', () => {
+	it( 'draws a patron an edge only to what it routes to', () => {
 		ownedGraph();
 		expect( dumpMetadataPayload()[ 'crawl-4471' ].targets ).toEqual( [
 			'pages-6219',

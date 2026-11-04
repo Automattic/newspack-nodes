@@ -118,7 +118,7 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::canonical_decimal( "1\n", false ) );
 	}
 
-	/** Outside a worker no partition is bound; one the loader could not write is a bug. */
+	/** Outside a worker a partition is never bound; one the loader could not write is a bug. */
 	public function test_bound_partition_reads_the_worker_partition_or_refuses_it(): void {
 		try {
 			unset( Core::$var['partition'] );
@@ -782,7 +782,7 @@ class CoreTest extends TestCase {
 		$this->assertSame( [ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 409: fleet held since quokka-dawn' ], $outcome );
 	}
 
-	/** Another process already starting the worker is no failure. */
+	/** Another process already starting the worker is not a failure. */
 	public function test_a_429_answer_is_throttled(): void {
 		$this->endpoint_answers( 429, '{"code":"spawn_throttled","message":"kea.p4 spawned less than 15s ago","data":{"status":429}}' );
 
@@ -1066,10 +1066,10 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_terminal_safe_passes_non_control_multibyte_utf8_through_byte_identical(): void {
-		// A well-formed sequence encoding no control is claimed whole, so
-		// escaping its continuation bytes cannot mangle a character in the log.
-		// U+0080-U+009F is the one block this does not cover: those encode a
-		// control the terminal acts on, and render as their codepoint.
+		// A well-formed sequence that does not encode a control is claimed
+		// whole, so escaping its continuation bytes cannot mangle a character
+		// in the log. U+0080-U+009F is the one block this does not cover: those
+		// encode a control the terminal acts on, and render as their codepoint.
 		$text = "\u{5834}\u{6240} \u{2014} caf\u{e9} \u{2713} \u{444}";
 		$this->assertSame( $text, Core::terminal_safe( $text ) );
 	}
@@ -1132,8 +1132,9 @@ class CoreTest extends TestCase {
 
 	public function test_terminal_safe_passes_a_three_byte_character_carrying_a_9b_byte_through(): void {
 		// U+265B is E2 99 9B. The threat model is a UTF-8-mode terminal, which
-		// decodes that as the chess piece and acts on no control, so the 0x9B is
-		// a continuation byte here and the C1 branch must not claim it.
+		// decodes that as the chess piece and does not act on any control, so
+		// the 0x9B is a continuation byte here and the C1 branch must not claim
+		// it.
 		$text = "moraine\u{265B}2265";
 		$this->assertSame( $text, Core::terminal_safe( $text ) );
 	}
@@ -1146,8 +1147,8 @@ class CoreTest extends TestCase {
 
 	public function test_terminal_safe_renders_a_c1_byte_left_over_from_a_truncated_sequence(): void {
 		// F0 opens a 4-byte sequence that stops after one continuation byte, so
-		// the 9F belongs to no character and renders. The lead byte is not a
-		// terminal control on any terminal and is left where it is.
+		// the 9F is not part of any character, and renders. The lead byte is
+		// not a terminal control on any terminal and is left where it is.
 		$this->assertSame( "\xF0<9F>ok", Core::terminal_safe( "\xF0\x9Fok" ) );
 	}
 
@@ -1194,7 +1195,7 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::file_footprint( $this->make_temp_dir( 'footprint-' ) . '/gone.log' ) );
 	}
 
-	/** A file that is gone raises no warning, even one `@` silences. */
+	/** A file that is gone raises no warning, not even one that `@` silences. */
 	public function test_file_footprint_raises_nothing_for_a_missing_file(): void {
 		$raised = [];
 		\set_error_handler(

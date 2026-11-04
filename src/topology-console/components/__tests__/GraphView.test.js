@@ -1218,7 +1218,7 @@ describe( 'GraphView — sidecars', () => {
 				'n1:seen:offsetlog': { class: 'Partition', counter: 61 },
 			} );
 
-		it( 'loads a picked sidecar no answer has covered yet', async () => {
+		it( 'loads a picked sidecar that an answer has not covered yet', async () => {
 			const { getByText } = renderWithCatalog(
 				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
 			);

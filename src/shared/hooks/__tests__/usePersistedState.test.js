@@ -16,7 +16,7 @@ import {
 	usePersistedFlag,
 } from '../usePersistedState';
 
-// Seeds no caller defaults to: neither 5/10/30s nor 5000/15000/30000ms.
+// Seeds a caller never defaults to: neither 5/10/30s nor 5000/15000/30000ms.
 const SECOND_OPTIONS = [
 	{ label: '0.75s', value: 0.75 },
 	{ label: '7s', value: 7 },

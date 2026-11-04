@@ -8,8 +8,8 @@
  * path template). The declared set is built by substituting the partition
  * token — `{partition}`, wherever it sits in a declared path —
  * over 0..N-1, so there is no `.p{N}` regex and no layout this class spells
- * itself. A Table partition's SQLite files go with their database when no
- * declared set names its stem; `Table_Node` names the files.
+ * itself. A Table partition's SQLite files go with their database when the
+ * declared sets do not name its stem; `Table_Node` names the files.
  *
  * Liveness-free: it reads no worker lock, lock dir, ipc dir or live-worker
  * descriptor. A dir survives because config declares it, never because a
@@ -54,12 +54,12 @@ class Log_Cleaner {
 	 * nothing declared anything.
 	 *
 	 * The offset sweep therefore runs on an empty set. Offsetlogs are declared by
-	 * topologies alone, so empty means no topology is active, so no consumer is
-	 * running — the one moment a cursor is certainly reclaimable. Skipping it
-	 * left a fleet with everything deactivated unable to reclaim an offset at
-	 * all, however long it sat. The Table sweep runs on an empty set for the same
-	 * reason: only a topology declares a SQLite Table, beside this install's
-	 * command-session store.
+	 * topologies alone, so empty means every topology is inactive, so every
+	 * consumer has stopped — the one moment a cursor is certainly reclaimable.
+	 * Skipping it left a fleet with everything deactivated unable to reclaim an
+	 * offset at all, however long it sat. The Table sweep runs on an empty set
+	 * for the same reason: only a topology declares a SQLite Table, beside this
+	 * install's command-session store.
 	 *
 	 * The log sweep does not, and the asymmetry is the point: log dirs are also
 	 * declared from PHP through `newspack_nodes/registered_log_producers`, and an
@@ -238,19 +238,19 @@ class Log_Cleaner {
 	 * retention off the active set rather than the on-disk `.tsl` glob means a
 	 * superseded-but-shipped topology's logs, offsetlogs and SQLite Tables are reclaimed once it's
 	 * deactivated — down to the last one, since the offset sweep runs on an empty
-	 * set too; no live worker's dirs are at risk, because anything spawning is
+	 * set too; every live worker's dirs are safe, because anything spawning is
 	 * by definition in the active set. The log bucket additionally unions the
 	 * PHP-registered producer templates (firehose / jobintake / … × clamped config
 	 * num_partitions) and the settings log — dirs written from PHP rather than
-	 * from a worker's node graph, which no topology need declare.
+	 * from a worker's node graph, which a topology need not declare.
 	 *
 	 * A `null` bucket is the fail-closed sentinel the caller MUST skip its sweep
-	 * on. An unresolvable config root nulls its own bucket, which no path resolves
-	 * under and which therefore comes back empty anyway. `unreadable` names each
-	 * active topology that neither resolves nor reads, and `refused` each
-	 * producer template declaring no dir under the logs root: their dirs are
-	 * missing from the buckets, the shape that deletes data, so a sweeping caller
-	 * MUST raise both before any delete.
+	 * on. An unresolvable config root nulls its own bucket, which a path never
+	 * resolves under and which therefore comes back empty anyway. `unreadable`
+	 * names each active topology that neither resolves nor reads, and `refused`
+	 * each producer template declaring no dir under the logs root: their dirs
+	 * are missing from the buckets, the shape that deletes data, so a sweeping
+	 * caller MUST raise both before any delete.
 	 *
 	 * Each non-null dir bucket is a `concrete dir name => enumerated partition
 	 * index` map (the partition comes from the resolver's enumeration loop, never
@@ -320,11 +320,11 @@ class Log_Cleaner {
 	 * a declared topology. A template carrying no partition token collapses to one
 	 * dir: `alerts.p0` is pinned across the fleet on purpose.
 	 *
-	 * A registered template that lands under no logs dir across the whole
-	 * partition range declares nothing, so that producer's live dirs are in NO
-	 * declared set while a topology keeps the set non-empty — and the sweep
-	 * would delete them. It comes back refused, keyed by template, for the
-	 * sweep to raise and the catalog to name.
+	 * A registered template that does not land under a logs dir anywhere across
+	 * the whole partition range declares nothing, so that producer's live dirs
+	 * are in NO declared set while a topology keeps the set non-empty — and the
+	 * sweep would delete them. It comes back refused, keyed by template, for
+	 * the sweep to raise and the catalog to name.
 	 *
 	 * @return array{0: array<string,int>, 1: array<string,\RuntimeException>} `concrete dir name => enumerated partition index`, then template => refusal.
 	 * @throws \RuntimeException When the `num_partitions` config read fails.

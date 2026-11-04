@@ -37,10 +37,10 @@ const COMMAND_FLAGS = [ 'multiple', 'hidden', 'action' ];
  * True when `cls` is `base` itself or extends it.
  *
  * `fans_out` and `is_interpreter` are read from the CLASS, as PHP's
- * `Classes_CI` reads them, because no schema declares either. Leaving them off
- * an entry is not a neutral omission: a consumer reading `undefined` takes the
- * branch an explicit false takes, and `draft-interpreter-node` then wires a Tee
- * single-target and drops every edge past the first.
+ * `Classes_CI` reads them, because schemas never declare either. Leaving them
+ * off an entry is not a neutral omission: a consumer reading `undefined` takes
+ * the branch an explicit false takes, and `draft-interpreter-node` then wires a
+ * Tee single-target and drops every edge past the first.
  *
  * @param {NodeClass} base The class to test against.
  * @param {unknown}   cls  A candidate from `includeNodes`, which a plugin

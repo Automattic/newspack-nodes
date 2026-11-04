@@ -155,7 +155,7 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 		expect( byVerb.accumulated[ FROM ] ).toBe( 'accumulated:in' );
 	} );
 
-	test( 'while the tab is HIDDEN no router tick posts; becoming visible resumes polling', async () => {
+	test( 'while the tab is HIDDEN a router tick never posts; becoming visible resumes polling', async () => {
 		const wire = installWire( emptyPayloads );
 		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );

@@ -1,9 +1,9 @@
 <?php
 /**
  * The `help <NodeType>` block for the REPL. `Command_Interpreter_Node`'s `help`
- * verb falls through to here when a topic names no command but resolves to a
- * node class, so an operator gets that class's `node_schema()` as text rather
- * than `no such topic`.
+ * verb falls through to here when a topic does not name a command but resolves
+ * to a node class, so an operator gets that class's `node_schema()` as text
+ * rather than `no such topic`.
  *
  * @package Newspack_Nodes
  */

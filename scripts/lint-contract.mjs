@@ -18,11 +18,11 @@
  * Six rules read PHP: a verb checking its own role, which `dispatch()` does
  * against the role the verb declares (ADR-26); a durable arm built outside the
  * Table that owns it (ADR-24); a log stamp spelled by hand (ADR-29); a class
- * taking `Fanout_Targets` without ever fanning out, which declares a target no
- * delivery reads (ADR-19); a command signed outside `Command_Auth`, whose
- * `mint_for()` is the one signed mint (ADR-15); and an index walked by hand
- * outside `Partition_Node`, where `locate_by()` and `read_many()` find and
- * read keyed records (ADR-18).
+ * taking `Fanout_Targets` without ever fanning out, which declares a target
+ * that is not read by any delivery (ADR-19); a command signed outside
+ * `Command_Auth`, whose `mint_for()` is the one signed mint (ADR-15); and an
+ * index walked by hand outside `Partition_Node`, where `locate_by()` and
+ * `read_many()` find and read keyed records (ADR-18).
  *
  * See ADR-7, AGENTS.md ("A reply is already addressed — never correlate it")
  * and docs/architecture-guide.md on the response envelope.
@@ -92,7 +92,7 @@ const RUNTIME = [
  * The runtime's own node classes, read from the `includeNodes` declaration.
  * Every bundle ships them, so resolving one of these by name is safe (ADR-16).
  *
- * Null when no substrate is in reach. A plugin that pins none — pyrobase,
+ * Null when the substrate is out of reach. A plugin that pins none — pyrobase,
  * nuclear-gyrobase, cache-cozy — cannot know the names, so the two rules that
  * need them stand down rather than the whole gate exiting: six rules running
  * beats eight not running.
@@ -120,8 +120,8 @@ if ( ! BUILTIN?.size ) {
  * A PHP source with its comments removed, so a call a docblock or a trailing
  * comment only names does not count as one. PHP's own tokenizer does the
  * stripping through `php -w`, so a `/*`, `//` or `#` inside a string, a
- * heredoc or a nowdoc stays code; `-w` also collapses whitespace, which no
- * caller here reads. A missing `php` throws rather than passing the file.
+ * heredoc or a nowdoc stays code; `-w` also collapses whitespace, which
+ * callers here never read. A missing `php` throws rather than passing the file.
  *
  * @param {string} text A file's whole text.
  * @return {string} The text with every comment removed.
@@ -239,7 +239,7 @@ const RULES = [
 			/\b(?:live_targets|send_signed)\s*\(/.test(
 				withoutComments( text )
 			),
-		why: 'a class taking Fanout_Targets that never fans out: its connect_node stores a target no delivery reads; declare what it writes in extra_targets() (ADR-19)',
+		why: 'a class taking Fanout_Targets that never fans out: its connect_node stores a target that is not read by any delivery; declare what it writes in extra_targets() (ADR-19)',
 	},
 	{
 		// The blocking operator probe signs its one synchronous POST itself.

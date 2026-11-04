@@ -27,7 +27,7 @@ describe( 'Station', () => {
 		).toBe( 'console' );
 	} );
 
-	it( 'shows the empty state when no station tabs are registered', () => {
+	it( 'shows the empty state when there are no registered station tabs', () => {
 		const { getByText } = render( <Station /> );
 		expect( getByText( /no tools registered/i ) ).not.toBeNull();
 	} );

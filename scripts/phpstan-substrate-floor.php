@@ -79,7 +79,8 @@ function declaring( $type, string $method, Scope $scope ): ?string {
  *
  * @param \PHPStan\Reflection\ClassReflection $class  Class using the trait.
  * @param string                              $method Method name.
- * @return string|null Trait FQN, or null when no substrate trait declares it.
+ * @return string|null Trait FQN, or null when the substrate's traits do not
+ *                     declare it.
  */
 function substrate_trait_declaring( $class, string $method ): ?string {
 	for ( $current = $class; null !== $current; $current = $current->getParentClass() ) {

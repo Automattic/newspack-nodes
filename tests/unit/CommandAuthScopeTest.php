@@ -128,7 +128,7 @@ class CommandAuthScopeTest extends TestCase {
 		$this->assertSame( '', Capabilities::$session_label );
 	}
 
-	/** The per-site secret is no session, so it clears a label left standing. */
+	/** The per-site secret is not a session, so it clears a label left standing. */
 	public function test_verifying_a_secret_signed_command_clears_a_stale_label(): void {
 		Capabilities::$session_label = 'Stale Desk';
 

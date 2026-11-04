@@ -88,8 +88,8 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 *
 	 * Every node is swept whatever another threw — a Consumer that has read no
 	 * segment yet must not cost its healthy peers their window — and every
-	 * failure escapes after the last. No claimable nodes, or a claimed one with
-	 * nothing recorded yet, emits nothing at all.
+	 * failure escapes after the last. A sweep that finds no claimable node, or
+	 * a claimed one with nothing recorded yet, emits nothing at all.
 	 *
 	 * @throws \Throwable What the sweep threw, combined by `Worker_Should_Stop::raise()`.
 	 */

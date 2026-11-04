@@ -34,7 +34,7 @@ const PROBE_STREAMS = {
 
 /**
  * The log a probe stream tails: `<name>.p0`, the log's dir name. Each log has
- * one partition and no worker owns the name.
+ * one partition, and workers never own the name.
  *
  * @param {string} name A PROBE_STREAMS key.
  * @return {string} The subscription, which its skipped-line notice reads too.

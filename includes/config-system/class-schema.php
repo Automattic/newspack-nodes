@@ -11,8 +11,8 @@
  * clears.
  *
  * One of the five `Config_System` files a sibling's hermetic test harness loads
- * without the substrate, so nothing here may name `Core` or any other substrate
- * class.
+ * without the substrate, so code here must never name `Core` or any other
+ * substrate class.
  *
  * @package Newspack_Nodes
  */
@@ -89,7 +89,8 @@ class Schema {
 	 * Config Audit values allowlist starts from.
 	 *
 	 * Overlay-only and display-only Fields are excluded: neither has a widget
-	 * the page saves, so registering them would expose options nothing writes.
+	 * the page saves, so registering them would expose options that are never
+	 * written.
 	 *
 	 * @return array<int,string>
 	 */
@@ -156,13 +157,14 @@ class Schema {
 	 * follows nothing.
 	 *
 	 * @param Field $field A Field whose `follows` names a key.
-	 * @throws \LogicException When $field follows no key this schema declares.
+	 * @throws \LogicException When $field does not follow a key this schema
+	 *                         declares.
 	 */
 	public function followed( Field $field ): Field {
 		$leader = '' === $field->follows ? null : $this->field_for_short( $field->follows );
 		if ( null === $leader ) {
 			throw new \LogicException(
-				\sprintf( 'config field %s follows no declared key', \esc_html( $field->key ) )
+				\sprintf( 'config field %s does not follow a declared key', \esc_html( $field->key ) )
 			);
 		}
 		return $leader;
@@ -232,8 +234,8 @@ class Schema {
 	/**
 	 * The stored WordPress options overlaid onto `$defaults` by presence
 	 * (`Options_Overlay`), then every follow resolved: the one step each
-	 * plugin's `Config` takes to its effective config, so no caller can
-	 * overlay without resolving.
+	 * plugin's `Config` takes to its effective config, so a caller can
+	 * never overlay without resolving.
 	 *
 	 * @param array<string,mixed> $defaults Every layer below the options.
 	 * @return array<string,mixed>
@@ -277,8 +279,8 @@ class Schema {
 	}
 
 	/**
-	 * Give every following key no layer set — absent, or null — the value of
-	 * the key it follows. An explicit value wins, zero included.
+	 * Give every following key that every layer left unset — absent, or null —
+	 * the value of the key it follows. An explicit value wins, zero included.
 	 *
 	 * Runs on a config already merged from EVERY layer it reads, so an option
 	 * setting only the followed key moves both. Resolving an earlier layer
@@ -372,9 +374,9 @@ class Schema {
 	 * the same min/max the `settings` verb enforces, so one save path cannot
 	 * accept what the other refuses.
 	 *
-	 * A Field that resolves to no sanitizer is skipped, and an unregistered
-	 * option is one `options.php` will not store: a setting the page can save
-	 * has to declare how its value is cleaned.
+	 * A Field that does not resolve to a sanitizer is skipped, and an
+	 * unregistered option is one `options.php` will not store: a setting the
+	 * page can save has to declare how its value is cleaned.
 	 *
 	 * @param string $group Settings group the options register under.
 	 */

@@ -3,8 +3,8 @@
  * The test shim's `sanitize_text_field()` against core's
  * `_sanitize_text_fields()` (wp-includes/formatting.php): what core strips,
  * the shim strips, and what core keeps — ESC and every other control
- * character outside `[\r\n\t]` — the shim keeps, so no test passes on a
- * strip production never makes.
+ * character outside `[\r\n\t]` — the shim keeps, so a test can never pass on a
+ * strip that production never makes.
  *
  * @package Newspack_Nodes
  */

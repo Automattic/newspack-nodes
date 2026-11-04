@@ -942,7 +942,7 @@ class WorkersCITest extends TestCase {
 	/**
 	 * A dashboard poll walks the topology catalog once: the slots, their
 	 * states, the readable graphs and the declared logs all come off one
-	 * read, and the classifier stats no lock dir the poll did not ask for.
+	 * read, and the classifier stats only the lock dirs the poll asked for.
 	 */
 	public function test_a_dashboard_poll_applies_the_topologies_filter_once(): void {
 		$base = $this->arrange_base_dir();
@@ -1132,7 +1132,8 @@ class WorkersCITest extends TestCase {
 	/**
 	 * A partition's row carries its newest fresh Partition record's growth
 	 * window — the bytes the log grew over that prober's own interval — so a
-	 * write rate divides ONE record. A partition no record names carries null.
+	 * write rate divides ONE record. A partition that is not named by any
+	 * record carries null.
 	 */
 	public function test_dump_graph_carries_each_partitions_growth_window(): void {
 		$base = $this->arrange_base_dir();
@@ -1176,9 +1177,10 @@ class WorkersCITest extends TestCase {
 	}
 
 	/**
-	 * The live segments a log no worker probes is rated from are stamped with
-	 * the moment after their stat, to the fraction of a second, so the span
-	 * between two polls is the span between the two stats.
+	 * A log that is not probed by any worker is rated from its live segments,
+	 * and those are stamped with the moment after their stat, to the fraction
+	 * of a second, so the span between two polls is the span between the two
+	 * stats.
 	 */
 	public function test_dump_graph_stamps_the_live_segments_after_their_stat(): void {
 		$this->arrange_base_dir();
@@ -1258,10 +1260,10 @@ class WorkersCITest extends TestCase {
 
 	public function test_dump_metadata_includes_request_scope_producer_logs(): void {
 		// The request-scope PRODUCER logs (firehose, jobintake — written by ELN's
-		// Log_Manager / Job_Intake, declared in NO .tsl) get NO topology catalog
-		// entry. They must still appear in the dump_graph `logs[]` so the React
-		// `firehose.p{partition}` vertex resolves to a concrete match instead of
-		// rendering the raw template. Sourced from the same
+		// Log_Manager / Job_Intake, not declared in ANY .tsl) get NO topology
+		// catalog entry. They must still appear in the dump_graph `logs[]` so
+		// the React `firehose.p{partition}` vertex resolves to a concrete match
+		// instead of rendering the raw template. Sourced from the same
 		// `registered_log_producers` filter the GC uses, × clamped config
 		// num_partitions.
 		$base = $this->arrange_base_dir();
@@ -1300,9 +1302,10 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_graph_names_a_producer_declaring_no_log_dir_and_lists_the_rest(): void {
-		// A producer template landing under no logs dir refuses the sweep; the
-		// catalog deletes nothing, so it lists every other log and names the
-		// refused template in its own row, apart from the topologies alerts read.
+		// A producer template that does not land under any logs dir refuses the
+		// sweep; the catalog deletes nothing, so it lists every other log and
+		// names the refused template in its own row, apart from the topologies
+		// alerts read.
 		$base = $this->arrange_base_dir();
 		$this->use_base_dir( $base, [ 'num_partitions' => 2 ] );
 		\add_filter(

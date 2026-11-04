@@ -5,8 +5,9 @@
  *
  * Six verbs sit over `Vault`: `list` and `get` read, `add`, `update` and
  * `delete` write, and `test` proves a spoke still answers. Every one of them
- * gates at MANAGE — no verb declares a `capability`, and `Service_CI_Node`
- * hands an undeclared verb the strictest role rather than the loosest.
+ * gates at MANAGE — none of the verbs declares a `capability`, and
+ * `Service_CI_Node` hands an undeclared verb the strictest role rather than the
+ * loosest.
  *
  * `add` and `update` declare `password` `'secret' => true`, the only secret
  * arguments in the system, so the command line a dispatch wrapper logs masks
@@ -82,7 +83,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array<string,mixed> The public server record.
-	 * @throws \RuntimeException When no entry claims that id.
+	 * @throws \RuntimeException When the id is not claimed by any entry.
 	 */
 	public static function cmd_get( array $args ): array {
 		$registry = Vault::fresh();
@@ -326,7 +327,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array<string,mixed> The removed id, as `[ 'id' => <id> ]`.
-	 * @throws \RuntimeException When no entry claims that id, or the store refuses the write.
+	 * @throws \RuntimeException When the id is not claimed by any entry, or the
+	 *                           store refuses the write.
 	 */
 	public static function cmd_delete( array $args ): array {
 		$registry = Vault::fresh();
@@ -342,7 +344,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Announce a Vault mutation, so nothing here has to act on its consequences.
+	 * Announce a Vault mutation, so this node leaves its consequences to
+	 * listeners.
 	 *
 	 * `Bootstrap` listens twice: it forgets the spoke's command session, and it
 	 * asks every broker and Vault_Group worker holding those credentials
@@ -371,7 +374,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array{id:string,status:string} The probe verdict.
-	 * @throws \RuntimeException When no entry claims that id, or the spoke does not answer usably.
+	 * @throws \RuntimeException When the id is not claimed by any entry, or the
+	 *                           spoke does not answer usably.
 	 */
 	public static function cmd_test( array $args ): array {
 		$registry = Vault::fresh();
@@ -397,8 +401,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * carry. A spoke whose substrate predates that node answers `status` with a
 	 * TM_ERROR and fails this verb — a mixed-version fleet is the normal state,
 	 * so read a failure against the spoke's substrate version before reading it
-	 * as a bad credential. Nothing the spoke sent is forwarded: no caller reads
-	 * a field off this verb, and a remote gets no say in what this site
+	 * as a bad credential. Nothing the spoke sent is forwarded: a caller never
+	 * reads a field off this verb, and a remote gets no say in what this site
 	 * renders.
 	 *
 	 * @param string              $id     Server id, which also picks the session key the command is signed under.
@@ -419,9 +423,10 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * Declare the verb surface once: the console palette, `help` and the
 	 * dispatch table `Service_CI_Node` builds all read this.
 	 *
-	 * No verb declares a `capability`, so all six gate at MANAGE. Lowering
-	 * `list` or `get` to READ would put `auth_username` in front of a role that
-	 * cannot otherwise read the vault; `public_shape()` carries the argument.
+	 * None of the verbs declares a `capability`, so all six gate at MANAGE.
+	 * Lowering `list` or `get` to READ would put `auth_username` in front of a
+	 * role that cannot otherwise read the vault; `public_shape()` carries the
+	 * argument.
 	 *
 	 * `arguments` is empty: `make_node` hands this node nothing, and the
 	 * per-verb `args` are what the console renders.

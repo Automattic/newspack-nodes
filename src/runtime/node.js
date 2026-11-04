@@ -35,7 +35,7 @@ import names from './reserved-node-names.json';
  * @property {string}  [type]     `int`, `float`, `bool`; anything else is a string.
  * @property {*}       [default]  Value taken when this position went unfilled
  *                                and some token arrived.
- * @property {boolean} [required] Throw when no token reaches this position.
+ * @property {boolean} [required] Throw when this position goes unfilled.
  */
 
 /**
@@ -81,9 +81,9 @@ const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
  * The rest of a TM_COMMAND VALUE is the signing envelope — nonce, signature,
  * session handle — and none of it says what was lost. Encoding the whole VALUE
  * put all three on stderr, and on the REST command path into the response body,
- * where no `SECRET_NAME_PATTERNS` entry matches to mask them. The command's own
- * `payload` goes with them: Tachikoma prints neither, and a credential reaches
- * a verb through it as readily as through an argument.
+ * where the `SECRET_NAME_PATTERNS` entries never match to mask them. The
+ * command's own `payload` goes with them: Tachikoma prints neither, and a
+ * credential reaches a verb through it as readily as through an argument.
  *
  * The caller redacts the WHOLE VALUE first, so a secret keyed by name at any
  * depth of `arguments` is masked as surely as a `--password=…` token. A keyed
@@ -93,8 +93,8 @@ const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
  * and ascending where PHP keeps insertion order; such a map already breaks
  * the token-array contract.
  *
- * A request's object VALUE naming no verb is summarised all the same, its verb
- * '', because a request is what carries the envelope; a response naming none
+ * A request's object VALUE without a verb is summarised all the same, its verb
+ * '', because a request is what carries the envelope; a response without one
  * prints whole.
  *
  * @param {*}       value   The redacted message VALUE.
@@ -303,7 +303,7 @@ export class Node {
 	 * message, and an outcome travels as a message of its own (ADR-13).
 	 *
 	 * @param {Array} message The 7-field positional message, mutated in place.
-	 * @throws {Error} When no sink is wired.
+	 * @throws {Error} When the node has no sink.
 	 */
 	fill( message ) {
 		if ( ! this.sink ) {
@@ -342,7 +342,7 @@ export class Node {
 	 * @param {string}          listener Listener id; node-name mode needs a registered node name.
 	 * @param {?function(*): *} cb       Closure dispatch when truthy; node-name dispatch when null.
 	 * @throws {Error} When `event` was never seeded — a typo would otherwise
-	 *                 register a listener nothing notifies.
+	 *                 register a listener that is never notified.
 	 */
 	register( event, listener, cb = null ) {
 		if ( ! ( event in this.registrations ) ) {
@@ -968,7 +968,7 @@ function serializeArgs( tokens ) {
  * goes through the same quoting. `make_node Echo echo foo bar` reads as if `echo`
  * were the name and `foo bar` the arguments; the command's actual arguments are
  * all four. Mirror of PHP Node::command_line (public there: subclass
- * dump_config overrides call it; no JS node emits verb lines).
+ * dump_config overrides call it; JS nodes never emit verb lines).
  *
  * @param {...string} tokens Tokens of the line, verb first.
  * @return {string} The quoted line, newline-terminated.

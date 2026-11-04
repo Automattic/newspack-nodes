@@ -60,8 +60,9 @@ class Command_Auth {
 	/**
 	 * Wall age at which a command in a batch is refused at its own turn,
 	 * 140s: a claim taken at the earliest first verification, MAX_FUTURE_S
-	 * before the signature, expires that very second, so no replay outlasts
-	 * its claim, and it covers a batch a 120s gateway lets run to its end.
+	 * before the signature, expires that very second, so a replay can never
+	 * outlast its claim, and it covers a batch a 120s gateway lets run to its
+	 * end.
 	 */
 	private const BATCH_MAX_AGE_S = self::NONCE_TTL_S - self::MAX_FUTURE_S;
 
@@ -70,11 +71,11 @@ class Command_Auth {
 
 	/**
 	 * Single-use claim seam. `function ( string $nonce, int $ttl ): bool` — true
-	 * when the nonce is newly claimed (first use), false on replay OR when no
-	 * store is available (fail closed). Lazily-defaulted at the call site to an
-	 * atomic `Cache_Backend::local_first()->add()`. Tests reassign to exercise
-	 * the freshness and HMAC logic without a real cache, and drive the replay
-	 * path.
+	 * when the nonce is newly claimed (first use), false on replay OR when the
+	 * store is unavailable (fail closed). Lazily-defaulted at the call site to
+	 * an atomic `Cache_Backend::local_first()->add()`. Tests reassign to
+	 * exercise the freshness and HMAC logic without a real cache, and drive the
+	 * replay path.
 	 *
 	 * @var (\Closure(string, int): bool)|null
 	 */
@@ -162,10 +163,10 @@ class Command_Auth {
 	private array $read = [];
 
 	/**
-	 * Expired session rows one mint deletes. No worker's tick purges a Table
-	 * built in code, so each mint reclaims what has expired; sessions expire
-	 * one per mint at most, so any batch above one keeps pace, and 64 clears
-	 * a backlog left while nothing minted.
+	 * Expired session rows one mint deletes. A Table built in code is not
+	 * purged by any worker's tick, so each mint reclaims what has expired;
+	 * sessions expire one per mint at most, so any batch above one keeps pace,
+	 * and 64 clears a backlog left during a stretch without mints.
 	 */
 	private const SESSION_PURGE_ROWS = 64;
 
@@ -304,13 +305,13 @@ class Command_Auth {
 	 * cannot mint a session as somebody else.
 	 *
 	 * The reply discloses the key as `secret`, the name `Core::is_secret_property()`
-	 * masks, so no redactor on either side of the wire prints it.
+	 * masks, so a redactor on either side of the wire never prints it.
 	 *
 	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
 	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
 	 *                      it off the wire clamps through bounded_ttl() first.
 	 * @param string $label The operator's name for it, as `Sessions` lists it;
-	 *                      empty for a session nothing lists.
+	 *                      empty for an unlisted session.
 	 *
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
 	 * @throws \InvalidArgumentException On a scope outside the ladder.
@@ -330,16 +331,17 @@ class Command_Auth {
 	 * the grant is what lists. It lives SESSION_TTL_S, or what the grant has
 	 * left when that is less, so it outlives neither the grant nor the index.
 	 * A grant missing its resource or user, or holding a scope outside
-	 * `Oauth_Store::SCOPES`, mints nothing: a session naming no resource is admitted at every
-	 * door. A session the grant cannot record is revoked before the refusal,
-	 * so no live key escapes the grant. The grant is read again once the
-	 * session is recorded: a revoke deletes the grant before it reads the
-	 * index, so either it sees this session or this read sees the grant gone.
+	 * `Oauth_Store::SCOPES`, mints nothing: a session that does not name a
+	 * resource is admitted at every door. A session the grant cannot record is
+	 * revoked before the refusal, so a live key can never escape the grant. The
+	 * grant is read again once the session is recorded: a revoke deletes the
+	 * grant before it reads the index, so either it sees this session or this
+	 * read sees the grant gone.
 	 *
 	 * @api The OAuth token endpoint mints through it.
 	 * @param string $grant The grant's id.
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
-	 * @throws \RuntimeException When no live grant has the id.
+	 * @throws \RuntimeException When the id does not name a live grant.
 	 * @throws \UnexpectedValueException When the grant names no resource, no
 	 *                                   user, or a scope outside
 	 *                                   `Oauth_Store::SCOPES`.
@@ -357,8 +359,8 @@ class Command_Auth {
 			throw new \RuntimeException( $gone );
 		}
 		$malformed = match ( true ) {
-			'' === $approval['resource'] => 'names no resource',
-			$approval['user'] < 1 => 'names no user',
+			'' === $approval['resource'] => 'does not name a resource',
+			$approval['user'] < 1 => 'does not name a user',
 			! \in_array( $approval['scope'], Oauth_Store::SCOPES, true ) => "names the scope {$approval['scope']}; a grant holds " . \implode( ' or ', Oauth_Store::SCOPES ),
 			default => null,
 		};
@@ -390,8 +392,8 @@ class Command_Auth {
 	/**
 	 * Drop a session so its key stops verifying immediately. The row IS the
 	 * session; an index member naming it lists nothing once it is gone. A
-	 * handle no mint could make never reaches the store, so no other row in
-	 * it, an OAuth row among them, can be deleted through here.
+	 * handle that a mint could not make never reaches the store, so another
+	 * row in it, an OAuth row among them, can never be deleted through here.
 	 *
 	 * @param string $handle Session handle.
 	 * @return bool|null True when a live row went, false when none was there,
@@ -461,9 +463,9 @@ class Command_Auth {
 	/**
 	 * The session Table writes go through: `session_store()` on the
 	 * configured backend, built in code once a process for MANY_WRITERS,
-	 * because every web process mints into it and no tick reaches it. Every
-	 * entry states its own lifetime, so the Table's own is the default a mint
-	 * asks for.
+	 * because every web process mints into it and it is not reached by any
+	 * tick. Every entry states its own lifetime, so the Table's own is the
+	 * default a mint asks for.
 	 *
 	 * @api `Sessions::revoke_all()` flushes it.
 	 * @return Table_Node The Table.
@@ -651,7 +653,7 @@ class Command_Auth {
 	 * Resolve a live session by handle: `{key, scope, user, ttl, label,
 	 * created}`, where `ttl` is the whole seconds its row has left, plus the
 	 * `grant` and `resource` an OAuth session names. Null on
-	 * a handle no mint could make, on a miss, on a row not shaped as
+	 * a handle that a mint could not make, on a miss, on a row not shaped as
 	 * `mint_session()` writes it, and on a store that will not answer, which
 	 * is logged: a verifier fails closed rather than throw.
 	 *
@@ -670,9 +672,9 @@ class Command_Auth {
 	/**
 	 * Every live session among these handles, in ONE read of the store, so a
 	 * listing costs one statement a screen rather than one a row. Each is
-	 * `load_session_record()`'s shape; a handle no mint could make never
-	 * reaches the store, and one with no live row, or a row not shaped as a
-	 * mint writes it — key, scope, label and when it was minted — is absent.
+	 * `load_session_record()`'s shape; a handle that a mint could not make
+	 * never reaches the store, and one with no live row, or a row not shaped as
+	 * a mint writes it — key, scope, label and when it was minted — is absent.
 	 * A non-empty `g` or `r` reads back as `grant` or `resource`.
 	 *
 	 * @param list<string> $handles Session handles.
@@ -726,7 +728,7 @@ class Command_Auth {
 	/**
 	 * The session Table reads go through, built once a process: on SQLite a
 	 * READER, so a verify opens the file read-only, runs no DDL and creates
-	 * nothing, and reads nothing while no mint has made the file.
+	 * nothing, and reads nothing until a mint has made the file.
 	 *
 	 * @api `Sessions::listing()` reads through it.
 	 * @return Table_Node The Table.
@@ -781,8 +783,8 @@ class Command_Auth {
 
 	/**
 	 * The session Table's name, and on SQLite its file's stem: SESSIONS_TABLE
-	 * scoped by `Cache_Backend::install_id()`, which no salt rotation moves,
-	 * because installs whose base directories meet share one `tables/`.
+	 * scoped by `Cache_Backend::install_id()`, which a salt rotation never
+	 * moves, because installs whose base directories meet share one `tables/`.
 	 *
 	 * @api The retention sweep, uninstall and `wp nodes tables list` name it.
 	 * @return string `nodes-sessions-<install>`.
@@ -810,7 +812,8 @@ class Command_Auth {
 
 	/**
 	 * Whether `$id` has the shape a mint gives every handle, which the OAuth
-	 * ids share, so a string no mint could make never reaches the store.
+	 * ids share, so a string that a mint could not make never reaches the
+	 * store.
 	 *
 	 * @api `Oauth_Store` checks its client and grant ids through it.
 	 * @param string $id The candidate.
@@ -938,8 +941,8 @@ class Command_Auth {
 	}
 
 	/**
-	 * Whether a session may be spent at `$resource`: one naming no resource
-	 * is site-wide, and one naming a resource is spent there alone.
+	 * Whether a session may be spent at `$resource`: one that does not name a
+	 * resource is site-wide, and one naming a resource is spent there alone.
 	 *
 	 * @api Every door checks a session's audience through it: the MCP door
 	 *      against its own resource, the substrate's doors against SITE_WIDE.

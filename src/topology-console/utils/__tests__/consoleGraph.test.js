@@ -47,8 +47,8 @@ describe( 'consoleGraph', () => {
 	} );
 
 	it( 'ignores a token in a verb that is not a target setter', () => {
-		// Broader, the guard fires on ordinary `<config:…>` arguments — which
-		// no runtime resolves into an edge, so nothing is being hidden.
+		// Broader, the guard fires on ordinary `<config:…>` arguments, which a
+		// runtime never resolves into an edge, so a missing list hides no edge.
 		const parsed = graphFromTsl(
 			'make_node Echo src\ncommand_node src:config set_window <config:w>',
 			null,
@@ -71,7 +71,7 @@ describe( 'consoleGraph', () => {
 		expect( () => withResolvedConfigEdges( parsed, [] ) ).not.toThrow();
 	} );
 
-	it( 'says nothing when no argument carries a token', () => {
+	it( 'says nothing when the arguments carry no token', () => {
 		const parsed = graphFromTsl(
 			'make_node Echo src\ncommand_node src:config set_x plain',
 			null,
@@ -171,7 +171,7 @@ describe( 'withConfigEdges', () => {
 		{ id: 'violet-new' },
 	];
 
-	it( 'adds a config edge where none existed', () => {
+	it( 'adds a config edge to an empty edge list', () => {
 		const out = withConfigEdges( {
 			nodes,
 			edges: [],
@@ -360,7 +360,7 @@ describe( 'withConfigEdges', () => {
 		] );
 	} );
 
-	it( 'ignores an override whose endpoint no node provides', () => {
+	it( 'ignores an override whose endpoint lacks a providing node', () => {
 		const out = withConfigEdges( {
 			nodes,
 			edges: [],

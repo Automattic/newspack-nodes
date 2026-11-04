@@ -244,7 +244,7 @@ class Topic_Node extends Node {
 	 *
 	 * Wiring the sink also materializes all N partitions, because that is the
 	 * moment the Topic can take a message and the node registry is what `ls`
-	 * walks — a partition nothing has written to yet still belongs in it.
+	 * walks — a partition that has not been written to yet still belongs in it.
 	 * Every partition is attempted whatever another threw; the failures escape
 	 * after the last, and READY is announced only when all N stand.
 	 * Registrants arriving after this get READY's cached payload.
@@ -368,7 +368,7 @@ class Topic_Node extends Node {
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the Topic.
 	 * @param array<array-key,mixed>   $args        Bound verb arguments: formatter.
-	 * @throws \RuntimeException When the name names no registered formatter.
+	 * @throws \RuntimeException When the formatter name is not registered.
 	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {

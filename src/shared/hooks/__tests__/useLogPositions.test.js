@@ -109,7 +109,7 @@ describe( 'stepPosition', () => {
 		).toBe( '4:128' );
 	} );
 
-	it( 'formats a cursor naming no generation as :<offset>', () => {
+	it( 'formats a cursor without a generation as :<offset>', () => {
 		expect(
 			stepPosition(
 				link( { 'sources:php': { offset: 6731 } } ),
@@ -307,7 +307,7 @@ describe( 'useSegmentBrowse', () => {
 	// and seeking one would point the stream at an empty subscription.
 	// The rail renders before a dir is picked, so Live/Replay are clickable
 	// then; a seek into '' would point the stream at an empty subscription.
-	it( 'seeks nothing while no subscription is selected', () => {
+	it( 'seeks nothing without a selected subscription', () => {
 		const { result, seek, setPaused } = browse( { sub: '' } );
 		act( () => result.current.sidebar.props.onFollow() );
 		act( () => result.current.sidebar.props.onReplay() );
@@ -330,8 +330,8 @@ describe( 'useSegmentBrowse', () => {
 		expect( refresh ).toHaveBeenCalledTimes( 1 );
 	} );
 
-	// A caller naming no rail still owns a `<subject>:<role>` Timer.
-	it( 'names the refresh Timer log-rail:timer when no railName is given', () => {
+	// A caller without a rail name still owns a `<subject>:<role>` Timer.
+	it( 'names the refresh Timer log-rail:timer without a railName', () => {
 		let host;
 		act( () => {
 			host = mountExospine( () => {} );
@@ -439,7 +439,7 @@ describe( 'useLogStatusSegments', () => {
 		);
 	} );
 
-	it( 'asks about the dir it is on, and nothing while none is selected', async () => {
+	it( 'asks about the dir it is on, and nothing while the selection is empty', async () => {
 		const asked = [];
 		installFakeCommandWire( ( m ) => {
 			if ( 'dump_log' === m[ VALUE ]?.name ) {

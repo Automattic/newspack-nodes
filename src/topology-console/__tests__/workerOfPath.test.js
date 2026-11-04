@@ -30,7 +30,7 @@ describe( 'workerOfPath', () => {
 		} );
 	} );
 
-	it( 'answers null when the first segment names no worker', () => {
+	it( 'answers null when the first segment does not name a worker', () => {
 		expect( workerOfPath( '_http/kea-7713.p3' ) ).toBeNull();
 		expect( workerOfPath( 'kea-7713.p03/summarizer' ) ).toBeNull();
 		expect( workerOfPath( '' ) ).toBeNull();

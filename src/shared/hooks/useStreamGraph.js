@@ -21,7 +21,7 @@
  * A graph rides only while the tab is visible AND the user hasn't paused.
  * Pause takes the SAME path as the visibility gate — it is just "inactive" —
  * and parks the graph's views: they leave their Tees but keep their claim, so
- * no other graph seeks or forgets their stamps, and Play resumes where it
+ * another graph never seeks or forgets their stamps, and Play resumes where it
  * stopped. Pause outranks a refocus: a paused graph stays parked through
  * hide → show. An unmount detaches the views and `forget`s their
  * subscriptions, so a later graph on them tails.
@@ -434,7 +434,7 @@ export function useSteppedRead( { graph, ci, command, scope } ) {
  * slice. A refusal at mount, a session that expired while the tab slept, a dir
  * that appeared after the picker loaded and a Reset Graph rebuild then all
  * recover on the next tick, with no loader and no retry of their own — a
- * refusal is an ANSWER, so nothing re-asks it.
+ * refusal is an ANSWER, so it is never re-asked.
  *
  * @param {Object}        o         Options.
  * @param {Object}        o.graph   The `useStreamGraph` handle choosing from

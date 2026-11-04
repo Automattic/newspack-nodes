@@ -854,8 +854,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	/**
-	 * A secret given by POSITION is refused before the wrapper runs, so no
-	 * wrapper ever renders it: the wrapper masks named secrets alone.
+	 * A secret given by POSITION is refused before the wrapper runs, so a
+	 * wrapper never renders it: the wrapper masks named secrets alone.
 	 */
 	public function test_around_dispatch_never_sees_a_secret_given_by_position(): void {
 		$seen = [];
@@ -1074,8 +1074,8 @@ class CommandInterpreterTest extends TestCase {
 	public function test_make_node_unregisters_the_node_when_arguments_throws(): void {
 		// name() registers before arguments() can reject; without the rollback a
 		// failed make_node leaves a sink-less orphan in the graph that every
-		// later `ls` shows and no message can leave. Table is a real class whose
-		// arguments() throws (namespace is required).
+		// later `ls` shows and that a message can never leave. Table is a real
+		// class whose arguments() throws (namespace is required).
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -1244,7 +1244,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_old_debug_state_verb_name_no_longer_resolves(): void {
 		// The verb is `trace`; the reply strings report the `debug_state`
-		// node property, but no verb answers to `debug_state`.
+		// node property, but none of the verbs answers to `debug_state`.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -2549,7 +2549,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_dump_config_glob_filters_by_node_name(): void {
 		// Tachikoma: `dump_config [<regex glob>]` dumps only nodes whose name
-		// matches the glob (regex). No glob dumps everything.
+		// matches the glob (regex). Without a glob, it dumps everything.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -2829,8 +2829,9 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_make_node_unknown_class_raises(): void {
-		// Class shell-name resolves to no registered namespace — the cmd should
-		// surface `unknown class: <type>` and NOT auto-create anything.
+		// The class shell-name does not resolve to any registered namespace —
+		// the cmd should surface `unknown class: <type>` and NOT auto-create
+		// anything.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 

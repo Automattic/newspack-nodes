@@ -24,7 +24,7 @@ h2 { font-size:15px; margin:0 0 10px; }
 </style>
 <div class="sheet">
 <h1>A stream spends a php-fpm child, and the child count is the budget</h1>
-<p class="sub">Ten workers per site by default. Each open stream holds one for its whole life, each node worker holds one for its ~595 seconds, and pages, cron and the loopback share whatever is left. Past ten, the host queues each request and refuses it with 429 when no worker frees in time.</p>
+<p class="sub">Ten workers per site by default. Each open stream holds one for its whole life, each node worker holds one for its ~595 seconds, and pages, cron and the loopback share whatever is left. Past ten, the host queues each request and refuses it with 429 unless a worker frees in time.</p>
 
 <div class="card">
   <h2>Ten children, three claimants</h2>
@@ -44,7 +44,7 @@ h2 { font-size:15px; margin:0 0 10px; }
         <div class="slot sse">stream</div><div class="slot sse">stream</div><div class="slot sse">stream</div><div class="slot sse">stream</div><div class="slot sse">stream</div><div class="slot sse">stream</div>
         <div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div>
       </div>
-      <div class="verdict"><b>Nothing spare.</b> The next reader queues, and is refused with 429 when no child frees in time. Four children are spent before a dashboard connects.</div>
+      <div class="verdict"><b>Nothing spare.</b> The next reader queues, and is refused with 429 unless a child frees in time. Four children are spent before a dashboard connects.</div>
     </div>
     <div class="arow">
       <div class="lbl">Six streams, one reserved<span>a spoke's <span class="mono">sse_reserved_slots = 1</span></span></div>

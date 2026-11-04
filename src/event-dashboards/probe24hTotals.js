@@ -14,7 +14,7 @@ import { bucketTotals } from './nodes/probe-stream-view-node';
 /**
  * Total the messages and bytes every reader in the map consumed.
  *
- * A reader naming no source is skipped, as the charts skip it.
+ * A reader without a source is skipped, as the charts skip it.
  *
  * @param {?Object<string,{source?:string,buckets?:Array<import('./nodes/probe-stream-view-node').Bucket>}>} consumers The `topicprobe:view` consumers map, keyed by reader id; a missing map counts as empty.
  * @return {{msgs:number,bytes:number}} Messages and bytes consumed over the retained window, each rounded to an integer.

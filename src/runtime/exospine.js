@@ -36,7 +36,7 @@ const SHELL_GROUP_SUFFIX = ':shell';
  *
  * @param {string} group The group, such as `url`.
  * @return {string} The Tap's node name.
- * @throws {TypeError} When the group is missing or no string.
+ * @throws {TypeError} When the group is missing or not a string.
  */
 export function shellGroup( group ) {
 	if ( 'string' !== typeof group || '' === group ) {
@@ -99,8 +99,9 @@ function groupsTargetedBy( nodes ) {
  * the reply here with TO peeled to `<receiver>`. `_output` gets a copy only
  * while `debug_ui` is on, which is what keeps button traffic out of the
  * transcript by default. The reply then goes on down the remainder; a bare
- * `_ui`, the address of a button that reads no reply, ends it here. An error
- * ending here prints whatever `debug_ui` says, since no receiver can show it.
+ * `_ui`, the address of a button that does not read a reply, ends it here. An
+ * error ending here prints whatever `debug_ui` says, since there is no receiver
+ * to show it.
  *
  * @param {CallbackNode} ui      The `_ui` node, whose sink is the interpreter.
  * @param {Array}        message The reply, TO already peeled by the Router.
@@ -323,8 +324,8 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	};
 
 	/**
-	 * Record `groups` as this mount's claim, remove the Tap of every group no
-	 * mount claims any longer, and stand every claimed Tap on the live
+	 * Record `groups` as this mount's claim, remove the Tap of every group
+	 * whose last claim is gone, and stand every claimed Tap on the live
 	 * interpreter.
 	 *
 	 * A Tap another mount raised is shared, and re-pointed rather than
@@ -410,7 +411,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	 * unbatched second heartbeat the graph exists not to have.
 	 *
 	 * A node the rebuild removes unregisters itself (TimerNode.removeNode →
-	 * stopTimer), so no stale TIMER registration outlives its node.
+	 * stopTimer), so a stale TIMER registration never outlives its node.
 	 */
 	const teardownBackbone = () => {
 		Core.node( names.CONSOLE_TAP )?.removeNode();
@@ -445,8 +446,8 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	 *
 	 * An owner leaving while other mounts stay hands ownership, and with it
 	 * the Reset Graph rebuild, to the next non-passenger mount; the backbone
-	 * stays up for them. The last mount out tears it down, as nobody else
-	 * would, and the Router self-arms a 1s timer the moment it is
+	 * stays up for them. The last mount out tears it down because it is the
+	 * only one left, and the Router self-arms a 1s timer the moment it is
 	 * constructed.
 	 *
 	 * The caller pairs it with the mount (a useEffect cleanup), because the

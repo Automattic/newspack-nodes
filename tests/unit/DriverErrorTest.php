@@ -70,7 +70,7 @@ final class DriverErrorTest extends TestCase {
 		$this->assertSame( $shaped, Driver_Error::fatal( $fatal ) );
 	}
 
-	/** A wpdb's refusal is shaped by its own errno; no refusal reads empty. */
+	/** A wpdb's refusal is shaped by its own errno; a refusal never reads empty. */
 	public function test_of_wpdb_shapes_a_handles_last_error(): void {
 		$db = new \stdClass();
 		$db->last_error      = "Duplicate entry 'weka-7746@kea.test' for key 'user_email'";

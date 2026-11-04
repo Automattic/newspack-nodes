@@ -324,11 +324,11 @@ class Table_Node extends Node {
 	 * Store the message's KEY→VALUE write-through, then pass the message on.
 	 *
 	 * A TM_REQUEST is answered instead of forwarded: it is a question for this
-	 * node, not traffic in transit. An INSERT whose KEY no string request could
-	 * name — empty, or holding whitespace — is refused and dropped. Everything
-	 * else stores when it carries a KEY and forwards either way, so a table
-	 * splices into a live path without diverting it. An empty VALUE deletes the
-	 * entry rather than storing an empty one.
+	 * node, not traffic in transit. An INSERT whose KEY a string request could
+	 * not name — empty, or holding whitespace — is refused and dropped.
+	 * Everything else stores when it carries a KEY and forwards either way, so
+	 * a table splices into a live path without diverting it. An empty VALUE
+	 * deletes the entry rather than storing an empty one.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @throws \RuntimeException With no wired sink to forward through.
@@ -775,11 +775,11 @@ class Table_Node extends Node {
 	/**
 	 * `GET <key>`: what the store holds for the key, one message when it holds
 	 * one, then the count. An array answers TM_STRUCT; anything else answers
-	 * its string under TM_BYTESTREAM. A request naming no key, or more than
-	 * one, is refused.
+	 * its string under TM_BYTESTREAM. A request that does not name exactly one
+	 * key is refused.
 	 *
 	 * A read failed only when the key went unread: the cache did not answer and
-	 * no backing looked. It answers one error instead.
+	 * the key was not looked up in any backing. It answers one error instead.
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @param list<string>     $words   The key.
@@ -885,8 +885,8 @@ class Table_Node extends Node {
 	 * arm and build the stored key by hand, which puts the key
 	 * convention and the backend choice in every caller.
 	 *
-	 * Fails soft when no backend answers, as every read here does. The table,
-	 * not the call, sets the TTL — one table, one lifetime.
+	 * Fails soft when the backends do not answer, as every read here does. The
+	 * table, not the call, sets the TTL — one table, one lifetime.
 	 *
 	 * @api Non-graph writers store table values without a live worker.
 	 * @param string $key   Key within the table's namespace.
@@ -905,8 +905,8 @@ class Table_Node extends Node {
 	 * as long as the thing they record. The same path the `ADD` request takes.
 	 *
 	 * With `$purge`, a durable Table deletes up to that many expired rows and
-	 * members in the same write, as a command session's mint does, since no
-	 * worker's tick purges a Table built in code.
+	 * members in the same write, as a command session's mint does, since a
+	 * Table built in code is not purged by any worker's tick.
 	 *
 	 * @api Non-graph writers claiming a key, a command session's mint among them.
 	 * @param string $key   Key within the table's namespace.
@@ -989,8 +989,8 @@ class Table_Node extends Node {
 	 *
 	 * @api Dashboards / REST / CLI read table values without a live worker.
 	 * @param string $key Key within the table's namespace.
-	 * @return mixed The stored VALUE, or null when no tier holds it — a host with
-	 *               no cache backend at all included.
+	 * @return mixed The stored VALUE, or null when it is not in any tier — a
+	 *               host with no cache backend at all included.
 	 */
 	public function lookup( string $key ): mixed {
 		return $this->read_one( $key )['value'];
@@ -999,9 +999,9 @@ class Table_Node extends Node {
 	/**
 	 * One key's read: a HIT answers from the arm, and anything else falls
 	 * through to the backing. It failed when the arm did not answer, none
-	 * selected or READ_ERROR, and no backing looked, so `GET` tells a broken
-	 * read from an absent key; a READ_ERROR is logged, since null reads as
-	 * "empty table" downstream.
+	 * selected or READ_ERROR, and the key was not looked up in any backing, so
+	 * `GET` tells a broken read from an absent key; a READ_ERROR is logged,
+	 * since null reads as "empty table" downstream.
 	 *
 	 * @param string $key Key within the table's namespace.
 	 * @return array{found: bool, value: mixed, failed: bool} The value, null
@@ -1080,7 +1080,7 @@ class Table_Node extends Node {
 	 * Each live entry among `$keys` with the life it has left, in one read of
 	 * a durable backend: the `{ value, ttl? }` a backing answers (ADR-18), so
 	 * one copy of an entry's expiry, the one in the store, answers every reader. A key
-	 * no live entry holds is absent; nothing falls through to a backing.
+	 * without a live entry is absent; nothing falls through to a backing.
 	 *
 	 * @api Readers whose entry's remaining life is part of the answer.
 	 * @param list<string> $keys Keys within the table's namespace.
@@ -1124,10 +1124,10 @@ class Table_Node extends Node {
 
 	/**
 	 * Delete up to `$limit` expired rows now, counted as one PURGE: how a
-	 * durable Table no worker's tick reaches reclaims its rows, as a command
-	 * session's mint does for the sessions it outlives.
+	 * durable Table that is not reached by any worker's tick reclaims its rows,
+	 * as a command session's mint does for the sessions it outlives.
 	 *
-	 * @api Code-built durable Tables, which no Router tick purges.
+	 * @api Code-built durable Tables, which are not purged by any Router tick.
 	 * @param int $limit Most rows to delete.
 	 * @return int Rows deleted; 0 when the store refused, which is logged.
 	 * @throws \RuntimeException On a mount or a volatile backend.
@@ -1144,7 +1144,7 @@ class Table_Node extends Node {
 	 * @api Non-graph writers drop table entries without a live worker.
 	 * @param string $key Key within the table's namespace.
 	 * @return bool|null True when the entry was there to delete, false when it
-	 *                   was absent, null when no backend answered.
+	 *                   was absent, null when the backends did not answer.
 	 */
 	public function forget( string $key ): ?bool {
 		$entry_key = $this->key( $key );
@@ -1196,7 +1196,8 @@ class Table_Node extends Node {
 	/**
 	 * One partition of a declared Table, named `stem()`, sinking into `$sink`:
 	 * how a request graph mounts a Table outside any topology load. The table
-	 * and partition are set here because a web request binds no partition.
+	 * and partition are set here because a web request does not bind a
+	 * partition.
 	 *
 	 * @api Request graphs mounting a declared Table's partition.
 	 * @param string                                             $table     The declared Table.
@@ -1376,8 +1377,8 @@ class Table_Node extends Node {
 
 	/**
 	 * One Table's WAL checkpoint, unless a purge this tick spent the deadline
-	 * (read off `Core::$now`, which the purge refreshed), or at once when no
-	 * purge was due and the tick set no deadline. One that runs dates the
+	 * (read off `Core::$now`, which the purge refreshed), or at once when the
+	 * tick had no purge due and set no deadline. One that runs dates the
 	 * next from `$now`. It is counted as CHECKPOINT: `asked` the WAL's
 	 * frames, `answered` the frames written back. A partial one is ordinary
 	 * and the next carries on; WAL_STALL_CHECKPOINTS of them in a row, with
@@ -1386,7 +1387,7 @@ class Table_Node extends Node {
 	 * @param Sqlite_Arm $arm   The Table's arm.
 	 * @param int        $now   The tick, in epoch seconds.
 	 * @param ?float     $until The tick's deadline, shared by every Table, or
-	 *                          null when no purge was due.
+	 *                          null when the tick had no purge due.
 	 */
 	private function checkpoint_wal( Sqlite_Arm $arm, int $now, ?float $until ): void {
 		if ( null !== $until && Core::$now >= $until ) {
@@ -1439,15 +1440,15 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `reset_stats`: zero the counters, answering them as they stood, so no
-	 * call lands between the read and the reset.
+	 * `reset_stats`: zero the counters, answering them as they stood, so a
+	 * call can never land between the read and the reset.
 	 *
 	 * The reset zeroes what `stats()` reports and nothing a window still
 	 * owes: the calls since the last probe sweep, and since a traced Table's
 	 * last trace line, carry across it as a negative baseline, so the next
 	 * `probe_stats()` and the next trace line report them beside the calls
 	 * after. Each verb's window max survives too, and the probe window keeps
-	 * the instant it opened, so `tablestats.p0` loses no call to a reset.
+	 * the instant it opened, so `tablestats.p0` never loses a call to a reset.
 	 *
 	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
 	 * @throws \RuntimeException On a mounted Table, which serves reads only.
@@ -1603,7 +1604,8 @@ class Table_Node extends Node {
 	 * guessed partition would open another partition's file.
 	 *
 	 * @return int The partition.
-	 * @throws \LogicException When the Table is unmounted and nothing bound one.
+	 * @throws \LogicException When the Table is unmounted and has no bound
+	 *                         partition.
 	 */
 	private function file_partition(): int {
 		if ( null !== $this->partition ) {
@@ -1823,9 +1825,9 @@ class Table_Node extends Node {
 	 *
 	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
 	 * `$access` says who writes it: ONE_WRITER, the default, as a worker
-	 * would; MANY_WRITERS, every process building it, which no Router tick
-	 * reaches, so COMMIT checkpoints its WAL and a flush empties it in place;
-	 * or READER, which opens the file read-only, creates nothing, serves
+	 * would; MANY_WRITERS, every process building it, which is not reached by
+	 * any Router tick, so COMMIT checkpoints its WAL and a flush empties it in
+	 * place; or READER, which opens the file read-only, creates nothing, serves
 	 * reads alone and, as MANY_WRITERS does, refuses a process running as
 	 * root.
 	 *

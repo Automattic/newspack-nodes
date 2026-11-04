@@ -548,7 +548,7 @@ describe( 'FetcherNode — queued asks', () => {
 	 * refusal (a graph rebuild mid-flight) left the row's spinner turning and
 	 * its button disabled for the life of the page.
 	 */
-	it( 'gives up on an ask nothing ever answered, so nobody waits for ever', () => {
+	it( 'gives up on an unanswered ask, so nobody waits for ever', () => {
 		const { f } = mount();
 		const at = jest.spyOn( Core, 'now' );
 		at.mockReturnValue( 1771000000 );
@@ -593,7 +593,7 @@ describe( 'FetcherNode — queued asks', () => {
 		expect( settled ).toEqual( [ 'wombat-4471' ] );
 	} );
 
-	it( '`settled` is an event: no field holds it, and a late listener hears nothing', () => {
+	it( '`settled` is an event: it is not held in any field, and a late listener hears nothing', () => {
 		const { f } = mount();
 		f.send( [ 'quokka-3390' ], 'quokka-3390' );
 		f.fill( newMessage() );
@@ -818,7 +818,7 @@ describe( 'FetcherNode — withdraw', () => {
 		return { f, sent };
 	};
 
-	it( 'withdraws every standing ask, so none is asked any more', () => {
+	it( 'withdraws every standing ask, so it asks none of them any more', () => {
 		const { f, sent } = mount();
 		f.send( [ 'kakapo-3317' ], 'kakapo-3317' );
 		f.send( [ 'takahe-0912' ], 'takahe-0912' );

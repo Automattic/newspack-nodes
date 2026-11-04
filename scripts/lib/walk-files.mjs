@@ -13,7 +13,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Directories no gate descends into. */
+/** Directories that every gate skips. */
 const SKIP_DIRS = new Set( [
 	'node_modules',
 	'vendor',

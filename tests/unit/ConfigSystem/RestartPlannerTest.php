@@ -187,8 +187,8 @@ class RestartPlannerTest extends TestCase {
 
 	public function test_plan_propagates_a_failure_to_resolve_the_base_directory(): void {
 		// The option row is already written: a save whose signal never landed
-		// must say so rather than report a recycle no worker will see. A null
-		// byte is what Config::ensure_path() refuses outright.
+		// must say so rather than report a recycle the workers will never see.
+		// A null byte is what Config::ensure_path() refuses outright.
 		$conf = $this->make_temp_dir( 'plan-conf-' ) . '/bad-base-dir.php';
 		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => \"/tmp/kea\\0-7713\" ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );

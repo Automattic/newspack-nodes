@@ -39,7 +39,7 @@
 <div class="lane card" data-lane="3"><h3><span class="mono">spawn()</span></h3><p>Three refusals, then the answer, then the worker.</p></div>
 <div class="lane card" data-lane="4"><h3>Worker</h3><p>Built by whatever answers <span class="mono">newspack_nodes/<wbr>spawn_worker</span>.</p></div>
 
-<div class="hop" data-arrow="0,1" data-cap="POST /workers/spawn  { type, partition, nonce }" data-span="1,3"><span class="n">1</span>Form-encoded (<span class="mono">application/x-www-form-urlencoded</span>) or JSON (<span class="mono">application/json</span>). All three fields are required, so a missing one answers <span class="red">400 rest_missing_callback_param</span> before any callback; a <span class="mono">type</span> no ACTIVE topology declares fails the route's <span class="mono">validate_callback</span> the same early way.</div>
+<div class="hop" data-arrow="0,1" data-cap="POST /workers/spawn  { type, partition, nonce }" data-span="1,3"><span class="n">1</span>Form-encoded (<span class="mono">application/x-www-form-urlencoded</span>) or JSON (<span class="mono">application/json</span>). All three fields are required, so a missing one answers <span class="red">400 rest_missing_callback_param</span> before any callback; a <span class="mono">type</span> absent from every ACTIVE topology fails the route's <span class="mono">validate_callback</span> the same early way.</div>
 
 <div class="hop deny" data-arrow="1,2" data-cap="permission" data-span="2,4"><span class="n">2</span>Fleet gate first: a multisite subsite gets <span class="mono">403 newspack_nodes_not_fleet_site</span>. An EMPTY <span class="mono">nonce</span> answers <span class="mono">403 invalid_token</span> with <span class="mono">Missing spawn token</span>.</div>
 

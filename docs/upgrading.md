@@ -6,6 +6,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Three refusals say their negative outright.** A removal naming nothing
+  refuses `<verb> '<arg>'… names a <noun> this <holder> does not declare`,
+  where it said `names no <noun> this <holder> declares`; an unresolved
+  topology reads `unknown topology '<name>': it does not resolve to a .tsl
+  file`, where it said `no .tsl resolves`; and `add_source` refuses `… names
+  a source that spokes cannot stream`, where it said `names a source no spoke
+  can stream`. A test or a caller matching the old words changes them.
 - **`Table_Client::move_members()` answers `[ member, value ]` pairs.** It
   answered the members alone. Read a member as `$pair[0]`, or destructure
   `foreach ( $moved as [ $member, $value ] )`. A frontier of `pending` and
@@ -121,7 +128,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   active readable topology declares a keyed Table whose backend resolves to
   `wpdb`. On a site whose sessions moved to
   SQLite and that declares no wpdb Table of its own, drop both tables, which
-  also clears the old sessions no purge reaches again:
+  also clears the old sessions that a purge will never reach again:
   `DROP TABLE {base_prefix}newspack_nodes_table,
   {base_prefix}newspack_nodes_members`. The `newspack_nodes_wpdb_schema`
   option may go too (`wp option delete newspack_nodes_wpdb_schema`) but need
@@ -132,7 +139,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   Partition, Topic or Log whose topology passes `<config:min_lifetime>` and
   `<config:lifetime>` keeps up to a day of segments where it kept 12 hours,
   under the same `max_segments` ceiling. A site that sets `min_lifetime` in a
-  config file or as an option, and sets no `lifetime`, now gets `lifetime`
+  config file or as an option, and does not set `lifetime`, now gets `lifetime`
   equal to that value: a `min_lifetime` of 3600 makes the age rule prune
   segments past an hour, and a `min_lifetime` of 0 turns age pruning off.
   Such a site sets `lifetime` explicitly, to 86400, to keep its old age rule.
@@ -150,8 +157,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `remote_lifetime` explicitly. A hub on the defaults pushes 900 for both, as
   before. `remote_lifetime` declares no literal default either.
 
-- **`Config::load_config_defaults()` is removed.** Read what a key holds with
-  no option row through `Config::blank_value( $key )`: the config files' value
+- **`Config::load_config_defaults()` is removed.** Read what a key holds without
+  an option row through `Config::blank_value( $key )`: the config files' value
   when they set it, else, for a key following another, the followed key's
   effective value. A caller indexing the old array calls `blank_value()` per
   key and raises its `version_at_least()` floor to this release.
@@ -193,7 +200,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   so a test that drained the queue after `fire()` reads the stream straight
   after `fire()`, and a reconnect within a second of the last attempt waits
   for the next tick past `SSE_In_Node`'s backoff. None of the sibling plugins
-  calls them, so no consumer floor moves.
+  calls them, so every consumer floor stays where it is.
 
 - **`Service_CI_Node::slice_verb()` is removed, and `sliceView()` takes no
   `json` flag.** A slice verb's reply is its struct, encoded once by the wire.
@@ -206,7 +213,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   that read a string. A PHP test that `json_decode()`s a slice verb's reply
   reads the array directly. A consumer still calling `slice_verb()` fatals on
   its first schema read on this release, so the consumer's updated release
-  deploys with it. Passing shapes as handlers calls no new API, so its
+  deploys with it. Passing shapes as handlers does not call any new API, so its
   `version_at_least()` floor stays where it is.
 
 - **A Row_Table's `retained_by` is a list of `[ table, column, own ]`
@@ -244,12 +251,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `SSCAN`, `TOUCH` or `MSET`.** A Table refuses each as an unknown verb, and
   `MSET` with `only ADD and SADD take a structure`; a mount answers `GET`
   alone, one key per request. What replaces each:
-  - `get_multi()`: no many-key read remains. Ask `GET <key>` once per key, or
+  - `get_multi()`: the wire has no many-key read left. Ask `GET <key>` once per key, or
     call `Table_Node::lookup()` in process.
-  - `members()`, `all_members()`: no set read remains on the wire. In process,
+  - `members()`, `all_members()`: the wire has no set read left. In process,
     `Table_Node::members_of()` reads up to `Table_Node::MAX_MEMBERS_LIMIT`
     members of a set, with no paging past it.
-  - `set_multi()`: no overwriting write remains on the wire. `ADD`
+  - `set_multi()`: the wire has no overwriting write left. `ADD`
     (`Table_Client::add_multi()`) writes only keys that are absent; in
     process, `Table_Node::store()` overwrites one key.
   - `touch()`: nothing moves a key's expiry any more.
@@ -301,9 +308,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `add_source` naming a declared source with another target is refused, and
   an identical repeat is a no-op. `remove_source <source> <target>` takes a
   declared source back. A line the load refuses — a second target, a
-  removal naming no declared source, a source no spoke can stream or one
+  removal of an undeclared source, a source that a spoke cannot stream or one
   taking a slot the broker keeps — makes the analyzer read the whole
-  topology as unreadable: no worker spawns for it, and `wp nodes doctor`
+  topology as unreadable: a worker never spawns for it, and `wp nodes doctor`
   reports it critical, rather than a worker refusing it on every respawn.
   `wp nodes activate` still writes the option before the spawn pass
   raises, so fix the line and activate again. A memberless
@@ -341,7 +348,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `Remote_Broker_Node::fold_source()` is the one source rule, which the
   runtime verbs, `sources_of()` and the browser's `foldSource()` apply.
 
-- **A source refusal names no class, and every removal speaks one family.**
+- **A source refusal does not name a class, and every removal speaks one family.**
   `add_source` refuses `add_source '<source>' names a source no spoke can
   stream`, `… names a slot the node keeps for its own` and `… already goes
   to '<target>', not '<other>'`, where each opened with `Remote_Source: `.
@@ -395,7 +402,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   whose `getPrevious()` is that failure, where it was raised as it came and
   `getPrevious()` answered the inner stop. A reader that walked
   `getPrevious()` past a stop to find the failure finds it one step sooner.
-  A chain ending in no failure still combines to a plain, non-bare stop, so
+  A chain that ends without a failure still combines to a plain, non-bare stop, so
   nothing commits past the record it stopped on.
 
 - **Every log stamp is spelled with `:`, and every broker pair with `=`.** A
@@ -419,7 +426,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `sources/php:php-errors:partition` is `sources:php=php-errors:partition`.
   The old spellings resolve to nothing: a `/` stamp is refused as an invalid
   subscription, and a `:` pair reads as one source with no target, which
-  `make_node` refuses. No directory moves. A glob's `*` now stops at `:` as
+  `make_node` refuses. Every directory stays where it is. A glob's `*` now stops at `:` as
   well as `/`, so `o*` no longer reaches `offsets:…`. A log dir may take a
   group's name (`offsets` alone is a `logs` dir); one whose name holds a `:`
   has no stamp, so it lists as an unavailable row and its probe records
@@ -479,7 +486,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **Upgrade every spoke and its hubs together: the stream wire changed.** A
   log or source stream on `/messages/stream` sends raw blocks as `msg`
   events carrying the TM_BATCH bit (see [API.md → Raw blocks](API.md#raw-blocks)),
-  and a hub drops a per-record frame from a log stream as no raw block, so an old spoke
+  and a hub drops a per-record frame from a log stream because it is not a raw block, so an old spoke
   feeds a new hub nothing, and a new spoke an old hub nothing. `raw-logs
   read_block` answers a header and a TM_BATCH instead of `{ source, messages,
   cursor, at_eof, unparseable_lines }`. A client of either reads the blocks
@@ -507,8 +514,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `hidden` check `Node::hidden( $schema )`. The console's `withOwnedNodes()`
   and `ownedOf()` are gone.
 
-- **`topologies get` ships no `owned`, and `classes dump` no per-class
-  `owns`.** A client reading either drops the read: no canvas draws an owned
+- **`topologies get` does not ship `owned`, and `classes dump` does not ship a per-class
+  `owns`.** A client reading either drops the read: a canvas never draws an owned
   node, and `node_schema()['owns']` stays for the analyzer alone, whose
   `Topology_Analyzer::owned_nodes()` is private; ask `declares_node()`.
   `Crawler_Node` declares no `extra_targets()`.
@@ -521,7 +528,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   deletes the override.
 
 - **`wp nodes tables flush` is gone.** WP-CLI refuses it as an unknown
-  command. A `sqlite` Table no active topology declares is deleted by the
+  command. A `sqlite` Table that is not declared by any active topology is deleted by the
   retention sweep, at once with `wp nodes gc --force`; to empty a declared
   one, deactivate its topologies first:
   `wp nodes stop && wp nodes deactivate <topology> && wp nodes gc --force && wp nodes activate <topology> && wp nodes start`.
@@ -572,7 +579,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   - `routeTo` is `onMessage( message, stamp )`, which answers true for a
     record it took. A `RemoteLinkNode` subclass that answered null from
     `targetsFor()` declares no pairs instead.
-  - Three behaviours change. A record whose FROM names no stamp is dropped,
+  - Three behaviours change. A record whose FROM does not name a stamp is dropped,
     where it reached every graph. A directed `TM_RESPONSE` or `TM_ERROR`
     keeps its TO, as `HttpOut` reads a reply, where it went to every graph
     carrying its stamp. A canvas-wired `RemoteLink` with a target and no
@@ -671,7 +678,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **Dashboard commands pass `<group>:shell`, not `_shell`; `egressPath` takes
   the group first.** `egressPath( ci )` becomes `egressPath( group, ci )`,
-  returning `<group>:shell/_http/<ci>`, and throws when no group is named.
+  returning `<group>:shell/_http/<ci>`, and throws when given no group.
   Every hook that sends names the surface its commands belong to:
   `useCommandOnce( { group, ci, command } )`;
   `useCatalogSlice( { scope, group, ci, … } )`;
@@ -684,7 +691,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `mountExospine` claims `<group>:shell` for every node its build registers
   whose target opens with it, keeps the Tap standing while any mount claims
   it, and removes it with the last, so a command a node addresses to a group
-  no mounted node targets answers `NOT_AVAILABLE`. A message filled by hand
+  that is not targeted by any mounted node answers `NOT_AVAILABLE`. A message filled by hand
   leaves through a node targeting the path, as event-logger-nodes' rules
   editor's dump does through its `rules:fetch` Fetcher. `connect <group>:shell` watches one
   group's traffic; `connect _shell` now shows only the interactive session's.
@@ -704,7 +711,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   subclass that kept each TO overrides `targetsFor()` to answer null, as
   `RemoteIpcNode` does.
 - **`useStreamGraph`'s `openAt` reads as the link reads a seek.** Omitted
-  states no seed; `null` tails, and is refused on a stamp another graph on
+  means no seed; `null` tails, and is refused on a stamp another graph on
   the page holds. A first ride that passed `openAt: null` to mean "no seed"
   omits it. `SseInNode#dropSeeds()` is gone; `forget( drop )` drops a dir's
   seed and read position together.
@@ -750,7 +757,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   before a hub runs the new line, because an older spoke refuses a `sources/`
   subscription as invalid. A consumer reading `remote_partition` off a
   `Remote_Source` row of `Topology_Analyzer::graph_for()` reads `pairs` instead.
-- **A line naming no partition runs once per fleet (ADR-33).** A
+- **A line without a partition token runs once per fleet (ADR-33).** A
   `Remote_Source` pair whose source carries no partition token builds nothing
   off partition 0 of a multi-partition topology, and a `Consumer`, `Tail` or
   `File_Tail` reading a fixed source idles there. A `Consumer` of a fixed log
@@ -761,7 +768,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `Core::owns( $written, Core::bound_partition() )` of the source as written,
   and a durable reader of your own names that argument in
   `source_argument()`. A per-partition source beside an offsetlog or
-  dead-letter dir naming no partition fails to load, whatever the reader.
+  dead-letter dir without a partition token fails to load, whatever the reader.
 - **A `sources/<name>` a topology reads must resolve, or that topology fails
   to load.** A `File_Tail` of a name the log-source registry lacks fails its
   build, and a broker's subscription to a name its spoke lacks is refused,
@@ -826,13 +833,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `offsets/Kea-1`, answers `400 sse_subscription_invalid` with its
   `invalid subscription: <sub>` message rather than failing after the
   event-stream headers.
-- **`/messages/stream` refuses a `positions` entry that names no place.** An
+- **`/messages/stream` refuses a `positions` entry that does not name a place.** An
   entry that is not a seek word (`start`, `recent`, `end`), a number,
   `segment:offset`, a `{ segment, offset }` pair or `skip` answers
   `400 sse_positions_invalid` where it replayed the log from its start. A
   client building `positions` by hand fixes the entry the message names.
-- **`aggregator probe` answers `worst_distance: null`** when no reader of the
-  spoke can measure its distance, where it answered 0. A caller doing
+- **`aggregator probe` answers `worst_distance: null`** when every reader of
+  the spoke fails to measure its distance, where it answered 0. A caller doing
   arithmetic on it reads the null first.
 - **The Partition Viewer and the Log Viewer are one tab, the Log Viewer.** It
   lists partition dirs and `sources/<name>` registry sources in one picker, at
@@ -865,7 +872,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   Vault group in place of one entry: put the entry in a group, through the
   Vault tab or `vault update <id> --group=<group>`, and name the group. Each
   fetch's VALUE must be an absolute http(s) url, so rewrite a `/path` VALUE as
-  the entry's url plus that path. A url on no group entry's origin is fetched
+  the entry's url plus that path. A url outside every group entry's origin is fetched
   with no `Authorization`, so a topology that leant on `url outside vault
   origin` to fence its fetches to one host filters them upstream. A url on two
   entries' origin is refused naming both. Match the TM_ERROR
@@ -922,10 +929,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   own pass-through. A send minted straight from a slice's receiver reaches its
   view only when the Fetcher asked the same question; mint it from a receiver
   of its own. Ask a question at once with `fetcher.askNow( args )` rather than
-  `send( args, path, true )` followed by a trigger, and pass no path when the
+  `send( args, path, true )` followed by a trigger, and do not pass a path when the
   arguments identify the question.
 - **`Cache_Backend::move_salt()` is public.** It rotates the cache salt
-  without asking the fleet to restart, for a process no worker serves, such as
+  without asking the fleet to restart, for a process that is not served by any worker, such as
   a consumer's test suite flushing its own keys between tests. `rotate_salt()`
   is unchanged. A consumer that calls `move_salt()` needs this release.
 - **The TLS posture moved from `HTTP_Out_Node` to `Vault`.**
@@ -1038,7 +1045,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `_output/<pid>`. A consumer reading a REPL command's FROM, or minting a
   command whose reply a `wp nodes cli` session must receive, uses
   `CLI::reply_head( $pid ) . '/<reply-node>'`; a reply addressed the old way
-  reaches no session. `HTTP_Filter_Node`'s constructor takes the prefix it
+  never reaches a session. `HTTP_Filter_Node`'s constructor takes the prefix it
   gates on,
   `new HTTP_Filter_Node( HTTP_Filter_Node::head( Node_Names::SSE, $handle ) )`,
   where it took the handle alone, and passes a broadcast only to its target.
@@ -1097,12 +1104,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   session, so every key minted by 2.79.0 stops verifying: a dashboard re-auths
   on its own, and an MCP client needs a fresh `wp nodes session issue`. The
   listing reads an index in the session Table, not the `newspack_nodes_sessions`
-  option, which nothing reads now; `wp option delete newspack_nodes_sessions`
+  option, which is no longer read; `wp option delete newspack_nodes_sessions`
   removes it.
 - **`Sessions::all()` and `Sessions::handles_labelled()` are gone.** Read
   `Sessions::listing()`, whose rows carry the `handle`; filter it by `label`
   for a label's handles. `Sessions::OPTION` and `Sessions::MAX_ROWS` are gone
-  with the option: no count caps the labelled sessions.
+  with the option: the number of labelled sessions is uncapped.
 - **`load_session_record()` answers `ttl`, not `expires`.** Read
   `$record['ttl']`, the whole seconds the session's row has left, where you
   subtracted the clock from `expires`. `key`, `scope` and `user` are unchanged;
@@ -1118,7 +1125,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A `wpdb` Table keys its rows by the bare key.** Its `namespace` column
   already scopes each row, so a row a `wpdb` Table wrote as `{namespace}:{key}`
   is unreachable and expires on its TTL. Command sessions were already stored
-  under the bare handle and survive; no stock topology in any Newspack plugin
+  under the bare handle and survive; none of the stock topologies in any Newspack plugin
   declares a `wpdb` Table.
 - **`dispatch()` gates every verb by the role its schema declares (ADR-26).**
   A `:config` verb on your node that declares no `capability` now demands
@@ -1129,8 +1136,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   handler: `Service_CI_Node::require_manage_options()` is gone, and calling it
   is an `Error`. Nothing reads `Command_Interpreter_Node::$required_capability`
   any more; assigning it is a dynamic property.
-- **Tests that dispatch as a REST request must log a user in.** Where no user
-  is current, `Capabilities::require_verb()` reads the session's scope alone,
+- **Tests that dispatch as a REST request must log a user in.** Where there is no
+  current user, `Capabilities::require_verb()` reads the session's scope alone,
   so an unscoped command runs at MANAGE whatever the capability map says. A
   test asserting a refusal from missing capabilities sets a nonzero current
   user id, as the substrate's `VerbHarness::fire()` does (`REQUEST_USER`). A
@@ -1185,7 +1192,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   together, and deploy them together.** The binder below hands every
   schema-declared verb its arguments by name, and the two consumers' released
   handlers read tokens, so there is no order in which updating one plugin at a
-  time works, and no compat path bridges it. A host that updates only one of
+  time works, and there is no compat path to bridge it. A host that updates only one of
   the three sees these fail until the other two land:
   - nodes alone — event-logger-nodes 0.110.0's Performance verbs (`overview`,
     `urls`, `dump_url`, `url_breakdown`, `search_requests`, `grep_requests`,
@@ -1317,14 +1324,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   Raise your `version_at_least()` floor to 2.75.0, because a mount no longer
   creates the file.
 - **A mount no longer creates a `sqlite` Table's file, and refuses root.** A
-  partition whose worker has not written still reads as empty, but no file
-  appears on disk until the worker writes it; a test that mounted in order to
+  partition whose worker has not written still reads as empty, but its file
+  does not appear on disk until the worker writes it; a test that mounted in order to
   create one seeds the file through a writer first. A mount in a process
   running as root raises a plain `\RuntimeException`, not `Table_Unavailable`,
   so a caller degrading on `Table_Unavailable` fails loud: run the reader as
   the workers' user.
 - **A Table no longer answers `SCAN`,** and `Table_Client::scan()`,
-  `Cache_Backend::scan()` and `Table_Node::MAX_SCAN` are gone. No consumer
+  `Cache_Backend::scan()` and `Table_Node::MAX_SCAN` are gone. None of the consumers
   called them. Name the keys you read: `GET`, `MGET` or
   `Table_Client::get_multi()`. A `SCAN` request draws
   `TM_ERROR "SCAN: unknown verb"`.
@@ -1395,7 +1402,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`Table_Node::backed_by()` takes one closure, and `replace_absent()` is
   gone.** A table no longer remembers an absence the backing answered: drop
   the second argument, and call nothing in place of `replace_absent()`,
-  since no marker is ever written for it to replace. PHP ignores the extra
+  since a marker is never written for it to replace. PHP ignores the extra
   argument rather than refusing it, so PHPStan is what names a call still
   passing one. Then run `wp nodes memcache flush` once. A marker an older
   substrate stored reads back as its own string until it expires, and the
@@ -1499,10 +1506,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   TM_ERROR rather than an empty graph.
 - **A topology with any failing line fails the load** instead of booting a
   partial graph. That covers a `make_node` the interpreter refuses, a `cmd`
-  or `command_node` whose verb throws or whose path names no node
+  or `command_node` whose verb throws or whose path does not name a node
   (`NOT_AVAILABLE: <path> <verb>`), a Shell refusal such as a `usage:` line
   or a bad `var`, a quote left open at end of file, and an `include` that
-  names no registered topology, will not open, or cycles. Every line still
+  does not name a registered topology, will not open, or cycles. Every line still
   runs; the failures escape together after the last, one as itself and
   several as `Failures`, and the worker releases its slot without
   respawning. Before upgrading, load each of your topologies in a test —
@@ -1527,8 +1534,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`Bootstrap::node_dirs()` and `node_partitions()` answer from the
   readable active topologies.** A topology that will not read no longer
   fails the call when a readable one declares the node; when none does,
-  every unreadable active topology raises, an active name no `.tsl`
-  resolves included, where that name returned an empty answer.
+  every unreadable active topology raises, an active name with no matching
+  `.tsl` included, where that name returned an empty answer.
 - **A log producer template declaring no dir refuses the retention sweep
   out loud.** A template registered through
   `newspack_nodes/registered_log_producers` that resolves under no
@@ -1604,7 +1611,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   connection ends, so a failed reopen falls back to its own backoff. An
   `sse_retry_ms` of 0 no longer sends a `retry` of 0 at open; it sends none.
 - **An idle `/messages/stream` or `/log/stream` connection now closes after
-  five seconds of no `msg` event, not fifteen.** `sse_idle_timeout` defaults
+  five seconds without a `msg` event, not fifteen.** `sse_idle_timeout` defaults
   to 5. A site that already sets the key in a config file or as a
   `newspack_nodes_sse_idle_timeout` option keeps its own value; only the
   code-level default changed.
@@ -1674,7 +1681,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   is absent or unreadable; read its boundary off `segments` as a partition's.
   `useLogStatusSegments` answers `source: { segments }` with no `bytes`, and
   `browseControl()` reads `segments` alone, so a source row carrying only
-  `bytes` follows rather than replays. A row naming no log —
+  `bytes` follows rather than replays. A row that does not name a log —
   an active topology that will not read, a dir named outside the stamp grammar —
   carries `label`, `available: false` and `error` but no `key`; offer it
   disabled, never as a pick.
@@ -1688,7 +1695,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## 2.65.5
 
-- **The Router publishes no `NOT_AVAILABLE` state.** `send_error()` fired
+- **The Router does not publish a `NOT_AVAILABLE` state.** `send_error()` fired
   `set_state( 'NOT_AVAILABLE', … )` with a flat `NODE … TYPE … FROM … TO … ID …
   KEY …` payload; both engines have dropped it, and `NOT_AVAILABLE` is gone from
   each Router's declared `registrations`. Nothing in the tree registered for it.
@@ -1725,7 +1732,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **`Header` is shared surface, imported from
   `@newspack-nodes/shared/components/Header`.** It was
-  `topology-console/components/Header`, which no consumer should have been
+  `topology-console/components/Header`, which a consumer should never have been
   reaching across in the first place. `HeaderControls` moved with it. A
   standalone dashboard can now mount the same header the station does.
 - **`Header`'s `subtitle` has no default.** It rendered `Topology Console` for
@@ -1935,7 +1942,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
   **A `Remote_Source`** drops any addressed line, with a target (`addressed
   while target is set`) or without (`addressed with no target`); the relay
-  consults no allowlist. The stock shape declares its destination with
+  does not consult an allowlist. The stock shape declares its destination with
   `connect_node spoke-<id> remote-job-rewrite`; a relay that sees no drops has
   nothing to change.
 
@@ -2026,7 +2033,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **[`Partition_Node::locate_by()`](../includes/class-partition-node.php)'s key set is REQUIRED.** The signature is
   `locate_by( \Closure $extract, array $wanted )`; the `= []` default is gone.
-  A call naming no key set raises `ArgumentCountError` where it used to return
+  A call without a key set raises `ArgumentCountError` where it used to return
   an empty table. Nothing in the family reached the one-argument form — the only
   caller is event-logger-nodes' [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-flame-builder-node.php), whose floor of 2.56.0 is
   past the 2.41.0 that added the parameter — so the default's degrade window had
@@ -2086,7 +2093,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## 2.44.0
 
-- **A `Fetcher` mints no new ask while one is outstanding.** An ask goes onto the
+- **A `Fetcher` never mints a new ask while one is outstanding.** An ask goes onto the
   node's `outbox` when it is sent and leaves when a reply settles it, and the
   trigger reads the outbox before minting. A dashboard that drove a Fetcher on a
   fixed refresh no longer queues identical asks behind a slow verb. Two valves
@@ -2504,7 +2511,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   ```
 
   Returning `false` DECLINES the job: the handler never runs, nothing is counted,
-  and no batch is settled. That is how a plugin refuses work addressed to another
+  and a batch is never settled. That is how a plugin refuses work addressed to another
   host without the worker opening a request context for it. A listener that returns
   nothing fails open (jobs still run) but **overwrites a decline** made at an earlier
   priority, so return the value you were given — and keep any routing check in the
@@ -2525,7 +2532,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **`Jobstats_Record::KEY` is `Jobstats_Record::IDENTITY`** (`KEY` → `IDENTITY` in the
   `jobstats-record.js` mirror). The field always held `handler:id`, never a partition
-  key. Index 0 is unchanged, so no record on disk moves — rename references only.
+  key. Index 0 is unchanged, so every record on disk stays where it is — rename references only.
 
 - **Producers emit `{handler, id, parameters}`.** Presentation only; consumers read by
   key, so nothing to do unless you byte-compare log lines.
@@ -2613,7 +2620,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   ```
 
   Anything that sends through a Shell must hold its reference or sink into it;
-  the Shell stays unnamed, so no message can reach it by routing. Outbound
+  the Shell stays unnamed, so a message can never reach it by routing. Outbound
   per-send work — the equivalent of the console's reply-path guard — belongs in
   an unnamed node between the Shell and its sink, not in the caller. Nothing in
   any sibling plugin used either API.
@@ -2812,8 +2819,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   count all stay as they are. Two operator notes:
   - Plugin activation and the `admin_init` self-heal both schedule the new
     event, so nothing stops being revived. But nothing unschedules the OLD
-    event either, so an install that carried it keeps firing a hook no code
-    listens to, once a minute, forever. Clear it once with
+    event either, so an install that carried it keeps firing a hook that has no
+    listener, once a minute, forever. Clear it once with
     `wp cron event delete newspack_nodes/supervisor`.
   - `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` is deliberately UNCHANGED at
     `supervisor`. It is the label newspack-event-logger-nodes files this pass's
@@ -3038,7 +3045,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `alerts.p0` with a Consumer for push delivery, and journal a condition of your
   own with `Alerts::journal_event( $key, $text, $severity )`. `Log_Cleaner` spares
   the directory through the `newspack_nodes/registered_log_producers` filter, so
-  it survives on an install where no topology declares it.
+  it survives on an install whose topologies never declare it.
 
 ## 0.48.0
 

@@ -508,9 +508,9 @@ class SpawnControllerTest extends TestCase {
 	}
 
 	/**
-	 * The controller tags the process and names no worker itself: a spawn
-	 * whose `spawn_worker` then loses the lock race never becomes one, so the
-	 * announcement belongs to the worker that acquires.
+	 * The controller tags the process and does not name a worker itself: a
+	 * spawn whose `spawn_worker` then loses the lock race never becomes one, so
+	 * the announcement belongs to the worker that acquires.
 	 */
 	public function test_spawn_tags_the_process_but_announces_no_worker_itself(): void {
 		$this->with_topology( [

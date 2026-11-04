@@ -165,7 +165,7 @@ class JobDelayTest extends TestCase {
 		$this->assertSame( 1, Job_Delay::sweep( $now + 60.0 + Job_Delay::RETRY_AFTER_S + 30.0 ), 'the failed job was re-parked, not lost' );
 	}
 
-	/** ADR-12: failing sweeps commit gracefully, so no crawl ever sacrifices a held job. */
+	/** ADR-12: failing sweeps commit gracefully, so a crawl never sacrifices a held job. */
 	public function test_five_failing_sweeps_lose_nothing_and_dead_letter_nothing(): void {
 		$now = \microtime( true );
 		[ $warm, $failing ] = $this->keys_on_distinct_partitions();

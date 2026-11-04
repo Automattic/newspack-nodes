@@ -57,22 +57,22 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  * ModalShell — the backdrop, panel, header and dismiss wiring every dialog in
  * the console and the debug overlay reuses.
  *
- * It renders through the shared `ModalPortal`, so no ancestor's overflow or
- * stacking context can clip it and the fixed backdrop dims the whole page,
- * overlay panel included. That host is what re-establishes the skin classes
- * out at body level, and it is shared because two spellings of one contract
- * drift.
+ * It renders through the shared `ModalPortal`, so an ancestor's overflow or
+ * stacking context can never clip it and the fixed backdrop dims the whole
+ * page, overlay panel included. That host is what re-establishes the skin
+ * classes out at body level, and it is shared because two spellings of one
+ * contract drift.
  *
  * Rendered inside a debug-overlay panel big enough to hold it, the dialog
  * belongs to that panel rather than the viewport: it centers on the panel in
  * both axes and hands the panel's box down as `--nodes-modal-max-w` /
  * `--nodes-modal-max-h`, which the stylesheet narrows its standing width and
- * height caps with, so no edge escapes the overlay. That cap is what makes the
- * vertical anchor safe — a dialog taller than the panel scrolls in its own
- * body instead of stranding its head above the fixed backdrop. The measurement
- * is all that crosses: the geometry stays in CSS. Anywhere else — no panel, a
- * panel the dialog does not render inside, or one under MIN_ANCHOR_W /
- * MIN_ANCHOR_H — it centers on the viewport as it always has.
+ * height caps with, so an edge never escapes the overlay. That cap is what
+ * makes the vertical anchor safe — a dialog taller than the panel scrolls in
+ * its own body instead of stranding its head above the fixed backdrop. The
+ * measurement is all that crosses: the geometry stays in CSS. Anywhere else —
+ * no panel, a panel the dialog does not render inside, or one under
+ * MIN_ANCHOR_W / MIN_ANCHOR_H — it centers on the viewport as it always has.
  *
  * The dialog panel carries two class families: `topology-modal*` for the
  * console's geometry, `newspack-nodes-modal*` for the canonical shared paint.

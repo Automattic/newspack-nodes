@@ -210,7 +210,7 @@ class SettingsSyncNodeTest extends TestCase {
 			$node->interpreter()->dispatch( 'remove_setting', [ 'gannet_option', 'settings', 'tern_remote' ] );
 			$this->fail( 'an undeclared mapping was removed' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( "remove_setting 'gannet_option' 'settings' 'tern_remote' names no setting this node declares", $e->getMessage() );
+			$this->assertSame( "remove_setting 'gannet_option' 'settings' 'tern_remote' names a setting this node does not declare", $e->getMessage() );
 		}
 		$this->assertCount( 1, $this->read_private( $node, 'registry' )['gannet_option'] );
 	}

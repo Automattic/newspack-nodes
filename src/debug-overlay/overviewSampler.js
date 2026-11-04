@@ -62,9 +62,10 @@ export function startOverviewSampler() {
 
 /**
  * Release one reference taken by `startOverviewSampler()`, clearing the shared
- * interval once the last holder lets go. Safe to call when no reference is
- * held: the count floors at zero, where a count left negative would carry into
- * the next start and leave its interval running with nobody holding it.
+ * interval once the last holder lets go. Safe to call with every reference
+ * already released: the count floors at zero, where a count left negative would
+ * carry into the next start and leave its interval running after every holder
+ * has let go.
  *
  * @return {void}
  */

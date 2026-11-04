@@ -392,7 +392,7 @@ describe( 'a rotation of three slides the drawn stack left three slots', () => {
 	} );
 } );
 
-describe( 'a log no worker reads slides as one a worker reads', () => {
+describe( 'an unread log slides as one a worker reads', () => {
 	const unread = ( segmentIds, ts ) => ( {
 		...snapshot( segmentIds, ts, TAIL, { segment: 0, offset: 0 } ),
 		consumers: [],

@@ -45,8 +45,8 @@ class Sessions {
 	/**
 	 * Revoke the session `$id` names, so its key stops verifying at once, or
 	 * else the OAuth connection: its grant and every session it minted. A
-	 * session a grant minted takes its grant first too, so no refresh mints
-	 * another.
+	 * session a grant minted takes its grant first too, so a refresh never
+	 * mints another.
 	 *
 	 * A store that did not answer is refused, because the key may still
 	 * verify. An id that named neither is refused too, and the refusal
@@ -56,7 +56,8 @@ class Sessions {
 	 * skips it.
 	 *
 	 * @param string $id Session handle or grant id.
-	 * @throws \RuntimeException When the store did not answer, or no session or grant held the id.
+	 * @throws \RuntimeException When the store did not answer, or the id named
+	 *                           neither a session nor a grant.
 	 * @throws Session_Store_Unavailable When the store will not open or answer a read.
 	 */
 	public static function revoke( string $id ): void {
@@ -120,9 +121,9 @@ class Sessions {
 	 *
 	 * The label goes through `clean_label()` first. An empty one — the
 	 * automatic `/auth` mints, several per dashboard load — mints a working
-	 * session that nothing lists, so the ones an operator issued on purpose
+	 * session that is never listed, so the ones an operator issued on purpose
 	 * are not buried. A session the index refuses is revoked before the
-	 * refusal, so no live key goes unlisted.
+	 * refusal, so every live key is listed.
 	 *
 	 * @param string $label Operator's name for the session.
 	 * @param string $scope Capability ceiling, one of `Capabilities::READ|TUNE|MANAGE`.

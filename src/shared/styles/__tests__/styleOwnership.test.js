@@ -708,7 +708,7 @@ describe( 'canonical appearance ownership', () => {
 		// `.wp-core-ui .button` sets `display: inline-block` and is two classes
 		// deep, so any single-class component rule laying a button out would
 		// silently do nothing — the contents stay one run of inline text. The
-		// shared layer wins that once so no component re-fights it,
+		// shared layer wins that once so a component never re-fights it,
 		// and specificity is invisible in the rule that needs it, so it is
 		// pinned here.
 		const sheet = compile( UI_ENTRY );
@@ -1676,7 +1676,7 @@ describe( 'canonical appearance ownership', () => {
 		// above a reader scrolled into history. Browser scroll anchoring does
 		// the SAME correction for the growing spacer, and the two stack: every
 		// new row would move the reader by two, so the page slides up. jsdom
-		// does not implement anchoring, so no behavioural test can catch this —
+		// lacks anchoring, so behavioural tests cannot catch this —
 		// the declaration is the only guard.
 		expect(
 			declarationsForSelector(
@@ -2417,8 +2417,8 @@ describe( 'canonical appearance ownership', () => {
 		);
 	} );
 
-	// Both table paths stripe with one formula, and no row is painted the
-	// table's own surface — that renders as no stripe at all.
+	// Both table paths stripe with one formula, and a row is never painted
+	// the table's own surface — that renders as no stripe at all.
 	it( 'stripes plain tables and ARIA grids identically', () => {
 		const ui = compile( UI_ENTRY );
 		const base = declarationsForSelector(

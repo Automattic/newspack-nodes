@@ -20,7 +20,7 @@ class MakeNodeDedupTest extends TestCase {
 	}
 
 	public function test_identical_make_node_returns_the_existing_node_without_throwing(): void {
-		// Distinct from defaults: a Grep with a pattern no other fixture uses.
+		// Distinct from defaults: a Grep with a pattern unused by any other fixture.
 		$first  = $this->ci->make_node( 'Grep', 'wombat-grep', 'zebra-pattern' );
 		$second = $this->ci->make_node( 'Grep', 'wombat-grep', 'zebra-pattern' );
 

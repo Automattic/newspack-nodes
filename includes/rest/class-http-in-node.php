@@ -11,8 +11,9 @@
  * on what the routing did, and only the object that wrote the body knows whether
  * a status is still available to send.
  *
- * Routing is uniform: every message goes through Router, and no branch sorts
- * local work from IPC, because a worker's input `Partition` Node IS the IPC hop.
+ * Routing is uniform: every message goes through Router, and nothing branches
+ * to sort local work from IPC, because a worker's input `Partition` Node IS the
+ * IPC hop.
  *
  * Each incoming message is stamped with the `_output` boundary name. A client
  * sends a bare reply path — `_output`, `_sse:{session}/{node}`, or an empty
@@ -211,10 +212,10 @@ class HTTP_In_Node extends Node {
 	 * before the status is decided, so a failed write never answers 202.
 	 *
 	 * The reply decides the status. A synchronous reply walks back to `fill()`,
-	 * which has already sent 200 or 401; when nothing writes back, the work
-	 * routed onward and this answers 202, its replies due on the client's open
-	 * SSE stream. A request-scope graph missing `_router` or `_output` answers
-	 * 500 through `emit_error()` instead.
+	 * which has already sent 200 or 401; when the request gets no synchronous
+	 * reply, the work routed onward and this answers 202, its replies due on
+	 * the client's open SSE stream. A request-scope graph missing `_router` or
+	 * `_output` answers 500 through `emit_error()` instead.
 	 *
 	 * @param \WP_REST_Request $request Request whose body is the JSONL batch.
 	 * @throws \InvalidArgumentException When the body carries no parseable Message.
@@ -269,9 +270,9 @@ class HTTP_In_Node extends Node {
 
 	/**
 	 * Land what the batch wrote into a Partition — a worker's IPC input above
-	 * all. A request runs no event loop, so no Partition's flush timer fires,
-	 * and the explicit flush is the only one: every Partition is attempted, and
-	 * every failure escapes after the last.
+	 * all. A request runs no event loop, so a Partition's flush timer never
+	 * fires, and the explicit flush is the only one: every Partition is
+	 * attempted, and every failure escapes after the last.
 	 *
 	 * @throws \Throwable What the flushes threw, combined by `Worker_Should_Stop::raise()`.
 	 */
@@ -334,7 +335,8 @@ class HTTP_In_Node extends Node {
 	 *
 	 * @param string $body Raw request body.
 	 * @return array<int,array<int,mixed>> The batch, in the order posted.
-	 * @throws \InvalidArgumentException When no line parses to a Message.
+	 * @throws \InvalidArgumentException When every line fails to parse to a
+	 *                                   Message.
 	 */
 	private function messages_from_body( string $body ): array {
 		$messages = [];
@@ -358,8 +360,8 @@ class HTTP_In_Node extends Node {
 	 * This door owns only the naming. `Bootstrap::mount_request_graph()`
 	 * builds `_router` and `_command_interpreter` and fires
 	 * `newspack_nodes/request_graph_ready` for the service CIs, shared with every
-	 * other command door so no door ends up with a different verb surface behind
-	 * it.
+	 * other command door so a door never ends up with a different verb surface
+	 * behind it.
 	 *
 	 * @return Command_Interpreter_Node The base interpreter the batch fills.
 	 */
@@ -470,7 +472,7 @@ class HTTP_In_Node extends Node {
 
 	/**
 	 * Hidden from the palette and target-less: this Node exists only as the
-	 * `_output` boundary of a `/command` request, so nothing builds one through
+	 * `_output` boundary of a `/command` request, so it is never built through
 	 * `make_node` and it has nowhere to forward.
 	 *
 	 * @return array<string,mixed>

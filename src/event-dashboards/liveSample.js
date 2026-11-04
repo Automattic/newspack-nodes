@@ -22,7 +22,8 @@ export const LIVE_WINDOW_S = 60;
  * The stream head: the newest sample timestamp any reader in the map reports.
  *
  * @param {?Object<string,{latest?:{ts?:number}}>} consumers The `topicprobe:view` consumers map; a missing map counts as empty.
- * @return {number} Epoch seconds of the newest dated sample; -Infinity when none is dated.
+ * @return {number} Epoch seconds of the newest dated sample; -Infinity without
+ *                  a dated sample.
  */
 export function streamHead( consumers ) {
 	let head = -Infinity;
@@ -49,7 +50,7 @@ export function streamHead( consumers ) {
  * @param {?Object<string,{source?:string,latest?:Object<string,number>}>} consumers The `topicprobe:view` consumers or partitions map; a missing map counts as empty.
  * @param {number}                                                         headS     The stream head, from `streamHead()`.
  * @param {string}                                                         field     The `latest` field to sum: `msgRate`, `backlog`, `cacheSize`, `endBytes` or `diskBytes`.
- * @return {number} The summed field; 0 when no reader is live. A reader whose
+ * @return {number} The summed field; 0 without a live reader. A reader whose
  *   field is null, unmeasured, adds nothing.
  */
 export function liveTotal( consumers, headS, field ) {

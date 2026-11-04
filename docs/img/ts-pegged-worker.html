@@ -67,7 +67,7 @@
       </tbody>
     </table>
     <p class="read"><span class="tag bad">stuck</span><b>A row that PERSISTS across runs with a <span class="mono">COUNT</span> that never advances.</b> A cURL-multi handle that never completes, on an SSE or HTTP egress node.</p>
-    <p class="read"><span class="tag ok">routine</span><span class="mono">COUNT</span> is per-registration, not cumulative: <span class="mono">unregister_curl_easy()</span> drops the tally when no registration points at the node, <span class="mono">register_curl_easy()</span> re-seeds it at zero, and a node holding no handle has no row. A zero or an absent row reads as "recently re-registered".</p>
+    <p class="read"><span class="tag ok">routine</span><span class="mono">COUNT</span> is the messages the node has filled in its life, not a per-handle tally: the row goes with the node's last handle and returns with its next, at the same count. An absent row means the node holds no handle.</p>
     <p class="read"><span class="tag blue">valve</span><span class="mono">SSE_In_Node::disarm()</span> is Remote_Source's backpressure valve, edge-triggered at a high water mark of four 1 MiB blocks and a low one of two; it pauses the transfer and leaves the handle registered, so a hub under backpressure keeps its row, whose <span class="mono">COUNT</span> stops climbing while the valve is shut.</p>
     <p class="read"><span class="mono">list_handles</span> reads the Event_Framework's registered cURL handles and <span class="mono">list_timers</span> the node registry, which is why a hitchhiker gets a row at all; both measure live state rather than a cached snapshot.</p>
   </div>
@@ -88,7 +88,7 @@
     <p class="read">The cooperative stop lands on whatever message is in flight. <span class="mono">Worker_Base::execute()</span> prints the same <span class="mono">stopped mid-job (pump)</span> line for both outcomes, so the log settles neither.</p>
     <div class="split">
       <div class="dup"><h4>Arrives twice: plain <span class="mono">Worker_Should_Stop</span></h4>The cursor stands where it was and the successor replays. A duplicate means the node that finished the message never raised the clean subtype — it carries no <span class="mono">Deferred_Clean_Stop</span> bracket, or the chain writes durably with no snapshot node to speak for it and wants <span class="mono">cmd &lt;reader&gt;:config assume_clean_shutdown 1</span>.</div>
-      <div class="loss"><h4>Vanishes: <span class="mono">Worker_Should_Stop_Clean</span></h4>Commits the cursor past the message. A loss is the opposite error: the clean subtype was raised for a record nothing had forced to disk.</div>
+      <div class="loss"><h4>Vanishes: <span class="mono">Worker_Should_Stop_Clean</span></h4>Commits the cursor past the message. A loss is the opposite error: the clean subtype was raised for a record never forced to disk.</div>
     </div>
   </div>
   <div class="card">

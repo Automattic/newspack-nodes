@@ -706,8 +706,8 @@ class WorkerBaseTest extends TestCase {
 	/**
 	 * A listener that throws fails the run it announced as a load failure
 	 * does: the slot is released and the throw escapes, rather than leaving the
-	 * lock held until stale, and no successor is spawned, because a listener
-	 * that throws once throws again in every successor.
+	 * lock held until stale, and a successor is never spawned, because a
+	 * listener that throws once throws again in every successor.
 	 */
 	public function test_a_throwing_identity_listener_releases_the_lock_and_escapes_without_respawn(): void {
 		$posts = [];

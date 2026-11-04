@@ -18,8 +18,8 @@
  * Stamped nodes are copies. The baseline graph is memoized upstream and read by
  * the hull membership too, so a mutation would outlive this render: a node an
  * include no longer provides would keep the stale `origin` and stay locked. A
- * node in no include keeps its identity, and an empty membership returns the
- * graph itself, so the memo downstream skips its work.
+ * node outside every include keeps its identity, and an empty membership
+ * returns the graph itself, so the memo downstream skips its work.
  *
  * A node several includes provide carries every one of them, in membership
  * order. Cluster drag and cluster layout both select on that list, so such a

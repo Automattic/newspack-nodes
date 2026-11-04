@@ -250,7 +250,7 @@ class SessionsCINodeTest extends TestCase {
 			],
 			$this->fire( 'list' )['connections']
 		);
-		$this->assertSame( [], $this->fire( 'list' )['sessions'], 'a grant is no labelled session' );
+		$this->assertSame( [], $this->fire( 'list' )['sessions'], 'a grant is not a labelled session' );
 	}
 
 	/** Revoking a connection ends the grant and every session it minted. */

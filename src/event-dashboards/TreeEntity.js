@@ -37,8 +37,8 @@ import {
  *                           `buildTopologySections`, its `workers`
  *                           array already narrowed to the rows this
  *                           branch owns. Dead partitions are among
- *                           them, and a row that no consumer probe
- *                           reached carries no `read_rate`, which
+ *                           them, and a row that a consumer probe
+ *                           never reached carries no `read_rate`, which
  *                           reads as 0 B/s.
  */
 
@@ -51,8 +51,8 @@ import {
  * order the worker rows arrive in.
  *
  * The rate comes off the worker row itself. The model's `byteRates` map is
- * keyed by READER id, which no tree entity carries, so reading the rate there
- * would mean rebuilding a key the row already answers.
+ * keyed by READER id, which a tree entity never carries, so reading the rate
+ * there would mean rebuilding a key the row already answers.
  *
  * A pill flags its own trouble through three modifier classes the stylesheet
  * colors: `stopped` strikes a non-live rate through, a backlog past 1 MB adds `warning`,
@@ -135,8 +135,9 @@ const NodeRow = memo( function NodeRow( { entity } ) {
  *                                                           any reader reported a
  *                                                           position. The flag is OR'd
  *                                                           across the partitions, so a
- *                                                           partition no consumer reads
- *                                                           still draws gray bars.
+ *                                                           partition without a
+ *                                                           consumer still
+ *                                                           draws gray bars.
  * @property {Object<string,number>}        writeRates       Bytes written per second.
  * @property {number}                       segmentSize      Fleet-wide segment size in
  *                                                           bytes, scaling the bars of
@@ -347,7 +348,7 @@ function joinDepartures( state, offered ) {
  * on a bar that is not drawn.
  *
  * This component owns the motion baseline too, because the cursor belongs to
- * this topology and no earlier stage of the graph holds THIS tree's widths.
+ * this topology and earlier stages of the graph never hold THIS tree's widths.
  * It advances once per poll, keyed by `prevSegments`, so a re-render between
  * polls plans against the same baseline as the poll's own render.
  *

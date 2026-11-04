@@ -81,7 +81,7 @@
     <p>Any dashboard can mount the debug overlay. It reads the page's own node table and draws every live node, edge and counter, with a REPL for <span class="mono">connect</span> and <span class="mono">remove</span>. It renders nothing until <span class="mono">?nodes-debug=1</span> turns it on.</p>
   </div>
   <div class="callout" style="width:340px">
-    <h4>Why no node holds the whole model</h4>
+    <h4>Why the model is split across nodes</h4>
     <p>One node that fetches everything has counters that never move and edges a debugger cannot read, so the overlay has nothing to draw. One verb per Fetcher, one reply per view node, one node per widget.</p>
   </div>
 </div>

@@ -80,7 +80,7 @@ class FleetNodeTest extends TestCase {
 		return "{$this->tmp}/locks/ledger-workers.p0.lock.d";
 	}
 
-	/** Touch the reload watermark with an explicit mtime, so no test leans on wall-clock. */
+	/** Touch the reload watermark with an explicit mtime, so a test never leans on the wall clock. */
 	private function signal_reload( int $mtime ): void {
 		$flag = $this->own_lock_dir() . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG;
 		\file_put_contents( $flag, (string) $mtime );
@@ -552,7 +552,7 @@ class FleetNodeTest extends TestCase {
 		$this->make_lock( 'ledger-workers.p0' );
 		$fleet = $this->mount_fleet();
 		\update_option( 'newspack_nodes_lifetime', 8135 );
-		$this->assertSame( 8135, Config::value( 'lifetime' ), 'seed the cache with a value no default shares' );
+		$this->assertSame( 8135, Config::value( 'lifetime' ), 'seed the cache with a value that differs from every default' );
 
 		$resets = 0;
 		\add_action( Config::RESET_ACTION, static function () use ( &$resets ): void {

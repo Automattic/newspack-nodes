@@ -70,7 +70,7 @@ class HTTP_Filter_Node extends Node {
 	 * a gated reply from a delivered one.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
-	 * @throws \RuntimeException When no sink is wired.
+	 * @throws \RuntimeException When the node has no sink.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();

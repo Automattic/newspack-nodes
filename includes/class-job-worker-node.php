@@ -287,7 +287,7 @@ class Job_Worker_Node extends Node {
 			$this->settle_batch( $batch, $outcome );
 		}
 		if ( $declined ) {
-			// No handler ran, so nothing to count and no caches to flush for.
+			// Declined: the handler never ran, so nothing to count or flush.
 			return;
 		}
 		++$this->jobs_executed;

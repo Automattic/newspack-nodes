@@ -308,7 +308,7 @@ it( 'two sources render the picker', () => {
 	).not.toBeNull();
 } );
 
-it( 'no rows renders no picker; the empty label is what speaks for them', () => {
+it( 'without rows it renders no picker; the empty label is what speaks for them', () => {
 	const { container } = render(
 		<LogStreamViewer { ...BASE } pickerOptions={ null } />
 	);

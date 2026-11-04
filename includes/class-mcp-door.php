@@ -200,7 +200,7 @@ abstract class Mcp_Door {
 	 * token array. Every scalar argument becomes `--key=value`, in the order
 	 * the agent gave it, and a list becomes one `--key=` a member, which is how
 	 * a variadic arg binds by name. The verb binds each against its declared
-	 * args, so no order here has to match the verb's.
+	 * args, so the order here never has to match the verb's.
 	 *
 	 * @param mixed $arguments The tool's arguments object.
 	 * @return list<string>

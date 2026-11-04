@@ -293,7 +293,7 @@ msgstr ""
 #. translators: %s: the resource the request named.
 #: includes/admin/class-oauth-consent.php:304
 #, php-format
-msgid "This site serves no resource %s."
+msgid "This site does not serve the resource %s."
 msgstr ""
 
 #. translators: %s: the scopes OAuth grants, comma-separated.

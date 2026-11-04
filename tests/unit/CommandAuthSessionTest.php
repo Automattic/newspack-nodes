@@ -29,7 +29,7 @@ class CommandAuthSessionTest extends TestCase {
 	private const RESOURCE = 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/mcp';
 	private const ELSEWHERE = 'https://kea.example/wp-json/newspack-event-logger-nodes/v1/other';
 
-	/** A resource a grant names that no substrate door is. */
+	/** A resource that a grant names but that is not a substrate door. */
 	private const KEA_MCP = 'https://kea.example/wp-json/kea/v1/mcp';
 
 	/** The approving user, distinct from the current user these tests log in. */
@@ -843,9 +843,9 @@ class CommandAuthSessionTest extends TestCase {
 	}
 
 	/**
-	 * A grant session belongs to the resource it was issued for, and no
-	 * substrate door is that resource: its key signs nothing here, and the
-	 * refusal reads exactly as a wrong key's does, so it is no oracle.
+	 * A grant session belongs to the resource it was issued for, and that
+	 * resource is not a substrate door: its key signs nothing here, and the
+	 * refusal reads exactly as a wrong key's does, so it is not an oracle.
 	 */
 	#[DataProvider( 'substrate_verifiers' )]
 	public function test_a_grant_session_is_refused_at_a_substrate_verifier_as_a_wrong_key_is( \Closure $verifier ): void {
@@ -885,7 +885,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertSame( [ 'key', 'scope', 'user', 'ttl', 'label', 'created' ], \array_keys( $record ) );
 	}
 
-	/** No grant session outlives its grant, nor the index revoking the grant reaches. */
+	/** A grant session outlives neither its grant nor the index entry that lets revoking the grant reach it. */
 	public function test_a_grant_sessions_life_is_clamped_to_what_its_grant_has_left(): void {
 		Core::$clock = static fn (): float => 1790000000.0;
 		$grant       = self::open_grant();
@@ -1007,11 +1007,11 @@ class CommandAuthSessionTest extends TestCase {
 			return $row;
 		};
 		return [
-			'no resource'               => [ $without( 'resource' ), 'names no resource' ],
-			'an empty resource'         => [ [ 'resource' => '' ] + $row, 'names no resource' ],
-			'no user'                   => [ $without( 'user' ), 'names no user' ],
-			'user 0'                    => [ [ 'user' => 0 ] + $row, 'names no user' ],
-			'a user as a string'        => [ [ 'user' => '7746' ] + $row, 'names no user' ],
+			'no resource'               => [ $without( 'resource' ), 'does not name a resource' ],
+			'an empty resource'         => [ [ 'resource' => '' ] + $row, 'does not name a resource' ],
+			'no user'                   => [ $without( 'user' ), 'does not name a user' ],
+			'user 0'                    => [ [ 'user' => 0 ] + $row, 'does not name a user' ],
+			'a user as a string'        => [ [ 'user' => '7746' ] + $row, 'does not name a user' ],
 			'manage'                    => [ [ 'scope' => Capabilities::MANAGE ] + $row, 'names the scope manage; a grant holds read or tune' ],
 			'a scope outside the ladder' => [ [ 'scope' => 'kea-7746' ] + $row, 'names the scope kea-7746; a grant holds read or tune' ],
 		];
@@ -1019,7 +1019,8 @@ class CommandAuthSessionTest extends TestCase {
 
 	/**
 	 * A grant row missing what the session needs refuses before anything is
-	 * written: a session naming no resource would be admitted at every door.
+	 * written: a session that does not name a resource would be admitted at
+	 * every door.
 	 *
 	 * @param array<string,mixed> $row     The grant row as stored.
 	 * @param string              $refusal What the refusal says of it.

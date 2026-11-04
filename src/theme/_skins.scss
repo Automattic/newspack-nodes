@@ -643,8 +643,8 @@ $skins: $with-variant;
 	}
 }
 
-// CRT's data greens and their label inks, light and dark alternating so no
-// two neighbours draw alike. No other skin defines them, so a data mark
+// CRT's data greens and their label inks, light and dark alternating so two
+// neighbours never draw alike. No other skin defines them, so a data mark
 // painted `var(--phosphor-N, <its color>)` keeps its color there.
 $phosphor: (
 	(#7dffa0, #010a05),

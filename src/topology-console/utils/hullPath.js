@@ -191,7 +191,7 @@ export function hullsUnder( hulls, point ) {
  *                                                                       order, bottom first.
  * @param {{x:number,y:number}}                                 point    The press, in canvas units.
  * @param {?string}                                             selected Include name of the selected hull.
- * @return {?string} The include the press selects, or null where no hull reaches.
+ * @return {?string} The include the press selects, or null outside every hull.
  */
 export function hullAt( hulls, point, selected ) {
 	const under = hullsUnder( hulls, point );

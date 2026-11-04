@@ -10,7 +10,7 @@
 
 /**
  * One registered tab. `getTabs()` returns these with `order` and `slug`
- * already resolved, so no reader repeats the defaulting.
+ * already resolved, so a reader never repeats the defaulting.
  *
  * @typedef {Object} TabDescriptor
  * @property {string}                             id          Unique key; registering it again shadows whatever held it.

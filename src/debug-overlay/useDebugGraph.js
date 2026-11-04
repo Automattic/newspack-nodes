@@ -24,9 +24,11 @@ import names from '../runtime/reserved-node-names.json';
  * fill it into the Shell's gate themselves.
  *
  * @param {boolean}                _active          Forwarded to `useGraphSource`, which never reads
- *                                                  it: the subscription is inert on its own when no
- *                                                  `_metadata` node is mounted. It holds the first
- *                                                  position, so `shell` keeps the second.
+ *                                                  it: the subscription is
+ *                                                  inert on its own without a
+ *                                                  mounted `_metadata` node. It
+ *                                                  holds the first position, so
+ *                                                  `shell` keeps the second.
  * @param {Object}                 shell            Shell instance owned by DebugOverlay; sink wired
  *                                                  to the local interpreter. Its `prefix` and
  *                                                  `replyFrom` scope an invoke to the current cwd.
@@ -44,8 +46,9 @@ import names from '../runtime/reserved-node-names.json';
  *                                                  REPL shows; see `useGraphHandlers`.
  * @return {{ graph: { nodes: Array, edges: Array }, ready: boolean, handlers: Object, pendingDrop: ?Object, commitDrop: (node: { name: string, args: string }) => void, cancelDrop: () => void }} The live graph,
  *   readiness flag, gesture handlers, and the palette-drop staging trio: `pendingDrop` is
- *   the staged `{ shellName, defaultName, argSchema, x, y }` payload (null when no drop is
- *   pending), `commitDrop({ name, args })` makes the node, `cancelDrop()` discards it.
+ *   the staged `{ shellName, defaultName, argSchema, x, y }` payload (null
+ *   unless a drop is pending), `commitDrop({ name, args })` makes the node,
+ *   `cancelDrop()` discards it.
  */
 export function useDebugGraph(
 	_active,

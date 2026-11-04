@@ -50,7 +50,7 @@ class Tee_Node extends Node {
 	 * by `Worker_Should_Stop::raise()` (ADR-14).
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
-	 * @throws \RuntimeException When no sink is wired.
+	 * @throws \RuntimeException When the node has no sink.
 	 * @throws \Throwable Every target failure, combined, raised after the loop.
 	 */
 	public function fill( array $message ): void {

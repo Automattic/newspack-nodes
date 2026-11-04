@@ -246,12 +246,12 @@ abstract class Cache_Backend {
 
 	/**
 	 * The install as `site()` reads it, with `DB_HOST` beside, and without
-	 * the salt, so no rotation moves it: a durable store a co-tenant could
+	 * the salt, so a rotation never moves it: a durable store a co-tenant could
 	 * share takes its name from it, as the SQLite command-session store
 	 * under a shared base directory does. `DB_HOST` parts two sites that name
-	 * one database and prefix on separate servers, as Local sites do. No
-	 * path enters it: sides that share a database, prefix and host share one
-	 * install's options, and WP Cloud's web tier names `ABSPATH` as the
+	 * one database and prefix on separate servers, as Local sites do. A
+	 * path never enters it: sides that share a database, prefix and host share
+	 * one install's options, and WP Cloud's web tier names `ABSPATH` as the
 	 * versioned core it resolves to while WP-CLI names the docroot link, so
 	 * a path would part one install's web requests from its WP-CLI and move
 	 * the store on every core update.
@@ -273,7 +273,7 @@ abstract class Cache_Backend {
 
 	/**
 	 * `DB_NAME` and the network's base prefix, joined: what tells co-tenants
-	 * apart. The blog's prefix stands in only when no base prefix is set.
+	 * apart. The blog's prefix stands in only when the base prefix is not set.
 	 *
 	 * @return string `{db}:{prefix}`, or '' when neither is known.
 	 */
@@ -414,9 +414,10 @@ abstract class Cache_Backend {
 	 * The seed asks every live worker to restart, as a rotation does, since a
 	 * worker running before it holds the unsalted scope. Activation and the
 	 * admin_init self-heal seed before anything resolves the runtime base, so
-	 * a configured base that does not exist — where no worker can hold a lock
-	 * — is logged under `Bootstrap::RUNTIME_UNAVAILABLE` and the seed stands.
-	 * A base that exists can hold live lock dirs, so any refusal of it throws.
+	 * a configured base that does not exist — where a worker can never hold a
+	 * lock — is logged under `Bootstrap::RUNTIME_UNAVAILABLE` and the seed
+	 * stands. A base that exists can hold live lock dirs, so any refusal of it
+	 * throws.
 	 *
 	 * @api Called by `Bootstrap::activate()`.
 	 * @return string The salt in force afterwards.
@@ -441,7 +442,7 @@ abstract class Cache_Backend {
 	/**
 	 * The install's cache salt. Empty until something rotates it.
 	 *
-	 * @return string The stored salt, or '' when no option holds one.
+	 * @return string The stored salt, or '' when the option does not hold one.
 	 */
 	public static function salt(): string {
 		if ( null !== self::$salt ) {
@@ -452,7 +453,7 @@ abstract class Cache_Backend {
 
 	/**
 	 * Rotate the salt: every memcached and APCu key on this install is
-	 * orphaned at once, and no co-tenant's is touched. THE flush of the
+	 * orphaned at once, and every co-tenant's is left alone. THE flush of the
 	 * volatile arms — plugins do not keep their own. A durable arm's key
 	 * carries no salt, so its rows stay; `Table_Node::flush()` empties those.
 	 *
@@ -484,17 +485,17 @@ abstract class Cache_Backend {
 
 	/**
 	 * Store a fresh salt and drop the scope memoized from the old one. A write
-	 * the database refused moves nothing, so no process holds a salt the
-	 * others never see.
+	 * the database refused moves nothing, so a process can never hold a salt
+	 * that the others do not see.
 	 *
 	 * This is `rotate_salt()` without the restart: every other process keeps
-	 * its old scope until it respawns. Call it only where no worker serves the
-	 * install, as a consumer's test suite flushing its own keys does.
+	 * its old scope until it respawns. Call it only where the install has no
+	 * worker serving it, as a consumer's test suite flushing its own keys does.
 	 *
 	 * @api
 	 * @return string The new salt.
 	 * @throws \RuntimeException When the option write is refused.
-	 * @throws \Random\RandomException When no entropy source is available.
+	 * @throws \Random\RandomException When the host has no entropy source.
 	 */
 	public static function move_salt(): string {
 		$salt = \bin2hex( \random_bytes( 9 ) );

@@ -320,12 +320,13 @@ final class Table_Client {
 	}
 
 	/**
-	 * The keys a write's TM_RESPONSE names; none, and failed, when no response
-	 * came.
+	 * The keys a write's TM_RESPONSE names; none, and failed, when the response
+	 * never came.
 	 *
 	 * @param string                 $verb    The verb the response names.
 	 * @param list<array<int,mixed>> $replies What the ask collected.
-	 * @param bool                   $failed  Set true when no response came.
+	 * @param bool                   $failed  Set true when the response never
+	 *                                        came.
 	 * @return list<string>
 	 */
 	private function written( string $verb, array $replies, bool &$failed = false ): array {
@@ -378,7 +379,7 @@ final class Table_Client {
 		if ( ! isset( $this->tables[ $from ] ) ) {
 			return false;
 		}
-		Core::print_less_often( 'Table_Client: dropped a reply no ask awaits', " — {$from} to {$this->asker->name()}" );
+		Core::print_less_often( 'Table_Client: dropped a reply that is not awaited by any ask', " — {$from} to {$this->asker->name()}" );
 		return true;
 	}
 }

@@ -44,7 +44,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	public const NULL_KIND = 'null';
 
 	/**
-	 * The sibling kinds no reader may take, shared by every broker:
+	 * The sibling kinds that a reader may not take, shared by every broker:
 	 * `fold_source()` judges a source statically against this base, so one
 	 * TSL line parses alike in the analyzer and at runtime, whichever broker it
 	 * names.
@@ -333,9 +333,9 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Retract each reader no source claims any more, its cursor handed off
-	 * and its dirs left on disk, and hand each survivor the target, dirs and
-	 * names of the source that claims it.
+	 * Retract each reader that is no longer claimed by any source, its cursor
+	 * handed off and its dirs left on disk, and hand each survivor the target,
+	 * dirs and names of the source that claims it.
 	 */
 	private function reconcile_readers(): void {
 		foreach ( $this->readers() as $stamp => $child ) {
@@ -423,10 +423,11 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @param int|null                                 $partition  The partition `{partition}` resolves at; null where none is bound.
 	 * @return list<array{source:string,target:string}>
 	 * @throws \InvalidArgumentException When the source already goes elsewhere,
-	 *                                   a removal names no declared source, no
-	 *                                   spoke can stream it, its reader would
-	 *                                   take a kept slot, or it names
-	 *                                   `{partition}` where none is bound.
+	 *                                   a removal does not name a declared
+	 *                                   source, a spoke could never stream it,
+	 *                                   its reader would take a kept slot, or
+	 *                                   it names `{partition}` where none is
+	 *                                   bound.
 	 */
 	public static function fold_source( array $declared, string $verb, string $remote_log, string $local_node, ?int $partition ): array {
 		$written = [ 'source' => $remote_log, 'target' => $local_node ];
@@ -453,7 +454,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$source = Core::resolve_partition_template( $remote_log, $partition ?? 0 );
 		$glob   = Log_Discovery::is_glob( $source );
 		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::fits_a_dir_name( $source ) ) ) {
-			$refuse( 'names a source no spoke can stream' );
+			$refuse( 'names a source that spokes cannot stream' );
 		}
 		if ( ! $glob && self::is_reserved( $source ) ) {
 			$refuse( 'names a slot the node keeps for its own' );
@@ -479,7 +480,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * when none does. A spoke names the stamps it sends, and a stamp names a
 	 * sibling slot and a directory here, so the one builder refuses four,
 	 * rate-limited: a stamp outside the stream name grammar, one naming a slot
-	 * the broker keeps, one no source claims, and a glob's past `MAX_READERS`.
+	 * the broker keeps, one that is not claimed by any source, and a glob's
+	 * past `MAX_READERS`.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */
@@ -501,7 +503,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		}
 		$source = $this->source_for( $stamp );
 		if ( null === $source ) {
-			$this->print_less_often( 'dropping a line no source claims: ', $stamp );
+			$this->print_less_often( 'dropping a line that is not claimed by any source: ', $stamp );
 			return null;
 		}
 		if ( Log_Discovery::is_glob( $source['source'] ) && ! $this->claim_glob_stamp( $stamp ) ) {
@@ -724,7 +726,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		// A spoke restart or key rotation drops every session at once, leaving
 		// every broker past its retry gate and asking together. A phase on the
 		// absolute clock spreads first boot and mass re-auth alike, and
-		// survives both because no session loss resets it.
+		// survives both because a session loss never resets it.
 		if ( 1 < ( $now - $this->session_phase() ) % self::HEARTBEAT_INTERVAL ) {
 			return;
 		}
@@ -797,8 +799,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/**
 	 * The two names a reader of this broker reports under on the probe log:
 	 * SOURCE, the spoke's log as `Log_Discovery::remote_for()` names it, and
-	 * READER, `reader_id()`, blank outside a worker, where the broker is bound
-	 * to no topology or partition.
+	 * READER, `reader_id()`, blank outside a worker, where the broker is not
+	 * bound to a topology or partition.
 	 *
 	 * @param string $stamp The reader's stamp.
 	 * @return array{0:string,1:string} The SOURCE, then the READER.
@@ -927,7 +929,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		}
 	}
 
-	/** Seconds the cache keeps a snapshot no broker rewrites. */
+	/** Seconds the cache keeps a snapshot after the broker last rewrites it. */
 	protected function status_ttl(): int {
 		return 300;
 	}
@@ -983,8 +985,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/**
 	 * When the spoke last proved, by word on a live channel, that it has
 	 * nothing more to send than it sent, or the hub kept it quiet; null when
-	 * no channel says so. A pushed stream's heartbeat does, and keeps its
-	 * readers' backlog current while it stays quiet. A pulling broker has
+	 * the channels do not say so. A pushed stream's heartbeat does, and keeps
+	 * its readers' backlog current while it stays quiet. A pulling broker has
 	 * none: its fetches say it.
 	 */
 	public function heard_at(): ?float {

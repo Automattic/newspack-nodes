@@ -181,7 +181,8 @@ class NodeTest extends TestCase {
 	 * $command->arguments`, so the signing envelope never reaches the audit
 	 * line. Encoding the whole VALUE put the HMAC signature and the session
 	 * handle on stderr, and on the REST command path into the response body,
-	 * where no SECRET_NAME_PATTERNS entry matches to mask them.
+	 * where their keys match none of the SECRET_NAME_PATTERNS entries, so they
+	 * stay unmasked.
 	 */
 	public function test_drop_message_prints_a_command_without_its_envelope(): void {
 		$buf = '';
@@ -208,8 +209,9 @@ class NodeTest extends TestCase {
 	}
 
 	/**
-	 * A TM_COMMAND VALUE naming no verb is still a command: it prints as an
-	 * empty verb and its arguments, never as its signing envelope or payload.
+	 * A TM_COMMAND VALUE that does not name a verb is still a command: it
+	 * prints as an empty verb and its arguments, never as its signing envelope
+	 * or payload.
 	 */
 	public function test_drop_message_summarises_a_nameless_command(): void {
 		$buf = '';
@@ -942,7 +944,7 @@ class NodeTest extends TestCase {
 		// dump_node() reflects EVERY property, so a node holding a credential
 		// (an Application Password, a bearer token) would print it raw to the
 		// REPL / logs — a disclosure vector. The base redacts secret-named
-		// properties for every node, so no node author has to remember to.
+		// properties for every node, so a node author never has to remember to.
 		// Non-secret look-alikes (username, an `authorize` flag) must survive,
 		// and an empty secret stays empty so the operator sees it's unset.
 		$node = new class() extends Node {
@@ -1157,7 +1159,7 @@ class NodeTest extends TestCase {
 		$this->assertSame( 3, $n->debug_state() );
 	}
 
-	// ── target() getter when no arg ──────────────────────────────────────
+	// ── target() getter without an argument ──────────────────────────────
 
 	public function test_target_getter_returns_current_value_when_called_without_arg(): void {
 		$n = new Capture_Sink_Node();
@@ -1194,7 +1196,7 @@ class NodeTest extends TestCase {
 			$this->assertSame( 'hollow-9313 takes no target: Null declares has_target false', $e->getMessage() );
 		}
 		$this->assertSame( '', $sink->target() );
-		$this->assertSame( '', $sink->target( '' ), 'clearing names no target' );
+		$this->assertSame( '', $sink->target( '' ), 'clearing leaves no target' );
 	}
 
 	/**

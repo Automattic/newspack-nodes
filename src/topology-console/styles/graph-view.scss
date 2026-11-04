@@ -905,7 +905,7 @@
 	}
 }
 
-// The active card's ring, drawn outside the card so no dimming reaches it.
+// The active card's ring, drawn outside the card so dimming never reaches it.
 .topology-node-focus {
 	fill: none;
 	stroke: var(--oxide);

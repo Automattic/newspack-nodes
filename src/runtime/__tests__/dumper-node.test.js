@@ -562,7 +562,7 @@ describe( 'Dumper — flood coalescing (connected-to-firehose crash fix)', () =>
 		);
 	} );
 
-	it( 'defers the publish to the animation-frame scheduler when none is injected', async () => {
+	it( 'defers the publish to the animation-frame scheduler by default', async () => {
 		const dumper = new DumperNode();
 		let renders = 0;
 		dumper.register( 'transcript', 'test/raf', () => {
@@ -616,7 +616,7 @@ describe( 'Dumper — no-arg ctor + public-property dep', () => {
 		expect( t[ 0 ].text ).toMatch( /^Message \{/ );
 	} );
 
-	it( 'still renders the transcript when no debugLevelRef is supplied', () => {
+	it( 'still renders the transcript without a debugLevelRef', () => {
 		const dumper = new DumperNode();
 		dumper._schedule = ( cb ) => cb();
 		dumper.fill( msg( TM_BYTESTREAM, 'hello' ) );
@@ -642,7 +642,7 @@ describe( 'formatMessageEnvelope', () => {
 	} );
 
 	it.each( [ 1e13, 'abc' ] )(
-		'renders the TIMESTAMP %s raw when it makes no date',
+		'renders the TIMESTAMP %s raw when it does not make a date',
 		( ts ) => {
 			expect( envelopeAt( ts ) ).toContain( `timestamp: ${ ts }\n` );
 		}

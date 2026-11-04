@@ -625,7 +625,7 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 		);
 	} );
 
-	test( 'claims nothing for a target naming no group', () => {
+	test( 'claims nothing for a target without a group', () => {
 		mountExospine(
 			targeting(
 				`${ names.HTTP }/wombat-ci`,

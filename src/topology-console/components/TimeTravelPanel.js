@@ -118,8 +118,8 @@ function Ruler( { frames, selectedFrameId, offFrame } ) {
 
 /**
  * One transport-bar button. A gated-off button renders disabled rather than
- * hidden, so the five glyphs hold their positions as the gating changes and no
- * button slides under the pointer between two clicks.
+ * hidden, so the five glyphs hold their positions as the gating changes and a
+ * button never slides under the pointer between two clicks.
  *
  * @param {Object}     props          Component props.
  * @param {string}     props.label    Accessible name, also the tooltip.
@@ -192,7 +192,9 @@ function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
  * @param {Array<{id:number,size:number}>}         [props.frames]        Offsetlog keyframes, oldest to newest by id; `id` is an offsetlog segment id, `size` its byte count.
  * @param {?{segment:number,offset:number}}        [props.cursor]        Read position in the SOURCE partition — displayed only, never used to pick a keyframe.
  * @param {boolean}                                [props.paused]        Consumer-reported pause signal. While false the consumer follows the head and only Pause is live.
- * @param {?number}                                [props.atFrameSignal] Consumer-reported keyframe id the cursor is at-or-just-past; null when no frames are retained.
+ * @param {?number}                                [props.atFrameSignal]
+ *                                                                       Consumer-reported keyframe id the cursor is at-or-just-past; null when
+ *                                                                       there are no retained frames.
  * @param {boolean}                                [props.onFrameSignal] Consumer-reported flag: the cursor sits exactly on that keyframe rather than past it.
  * @param {(verb: string, args: string[]) => void} [props.onTransport]   Drives the consumer's `:config` verbs through the inspector's invoke path.
  * @return {import('react').ReactElement} The Time Travel panel.

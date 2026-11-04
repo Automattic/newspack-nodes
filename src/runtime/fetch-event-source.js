@@ -11,7 +11,7 @@
  * with native string search. A listener may return a promise, and nothing
  * more is read until it settles, so a listener that yields to the page keeps
  * its events in order, and a body read no faster than its events are handled
- * backs the server off through TCP, which no `EventSource` can.
+ * backs the server off through TCP, which an `EventSource` cannot.
  *
  * It reconnects nothing itself. A stream that ends or breaks reads as
  * CONNECTING and fires `error`, and a refused one as CLOSED, as an

@@ -15,8 +15,8 @@
  * answer any part of it. Here the counts reply never touches the top table.
  *
  * Each Fetcher stamps FROM with its receiver Tee and the service CI replies
- * TO=FROM, so the address is the correlation and no slice needs an operation
- * id or a promise registry (ADR-7).
+ * TO=FROM, so the address is the correlation and a slice never needs an
+ * operation id or a promise registry (ADR-7).
  *
  * `useBatchedPoll` owns everything that is not a slice: the exospine mount that
  * brings the `insights:shell` Tap and the `_http` HttpOut, the fan-out Tee, the

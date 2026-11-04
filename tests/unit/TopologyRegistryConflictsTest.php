@@ -274,8 +274,8 @@ class TopologyRegistryConflictsTest extends TestCase {
 	 * class does: it resolves the TSL token to an FQCN and asks the type
 	 * system. String-comparing the token against 'Partition' / 'Topic' /
 	 * 'Consumer' / 'Remote_Source' would let a plugin that SUBCLASSES Partition
-	 * write a real log no conflict check sees and the GC does not know is
-	 * declared.
+	 * write a real log that every conflict check misses and that the GC does
+	 * not know is declared.
 	 */
 	public function test_a_partition_subclass_is_a_writer_in_the_write_set(): void {
 		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-partition-node.php';

@@ -10,10 +10,11 @@ use Newspack_Nodes\Tests\TestCase;
 
 /**
  * The dir each stamp names under the runtime base. A stamp under `offsets` or
- * `deadletter` names a dir directly under its group when the rest holds no
- * `:`, and a broker reader's `<root>/<kind>` dir when it does: no name a dir
- * may take holds `:`, so the rule reads no disk. `tests/fixtures/stamp-dirs.json`
- * holds every row; a null dir is a stamp the stream's guard refuses.
+ * `deadletter` names a dir directly under its group when the rest does not hold
+ * a `:`, and a broker reader's `<root>/<kind>` dir when it does: a dir's name
+ * can never hold `:`, so the rule never reads the disk.
+ * `tests/fixtures/stamp-dirs.json` holds every row; a null dir is a stamp the
+ * stream's guard refuses.
  */
 #[CoversClass( Log_Discovery::class )]
 final class LogStampDirTest extends TestCase {
@@ -45,7 +46,7 @@ final class LogStampDirTest extends TestCase {
 		return \array_filter( self::rows(), static fn ( array $row ): bool => null !== $row[1] );
 	}
 
-	/** @return array<string,array{string}> Label => a stamp naming no dir. */
+	/** @return array<string,array{string}> Label => a stamp that does not name a dir. */
 	public static function refused(): array {
 		return \array_map( static fn ( array $row ): array => [ $row[0] ], \array_filter( self::rows(), static fn ( array $row ): bool => null === $row[1] ) );
 	}
@@ -79,14 +80,14 @@ final class LogStampDirTest extends TestCase {
 		$this->assertNull( Log_Discovery::dir_of( 'offsets:hub.tundra-41:firehose.p9', $this->tmp ) );
 	}
 
-	/** The shape alone decides, so resolving a stamp reads no listing. */
+	/** The shape alone decides, so resolving a stamp never reads a listing. */
 	public function test_dir_of_globs_nothing(): void {
 		\mkdir( "{$this->tmp}/offsets/hub.tundra-41/firehose.p3", 0755, true );
 		\file_put_contents( "{$this->tmp}/offsets/hub.tundra-41/firehose.p3/7.log", '' );
 		Log_Discovery::$glob = fn (): array|false => $this->fail( 'dir_of() reads no listing' );
 		try {
 			$this->assertSame( "{$this->tmp}/offsets/hub.tundra-41/firehose.p3", Log_Discovery::dir_of( 'offsets:hub.tundra-41:firehose.p3', $this->tmp ) );
-			$this->assertSame( "{$this->tmp}/offsets/hub.tundra-41", Log_Discovery::dir_of( 'offsets:hub.tundra-41', $this->tmp ), 'a root is a flat name, which no shape tells from a cursor' );
+			$this->assertSame( "{$this->tmp}/offsets/hub.tundra-41", Log_Discovery::dir_of( 'offsets:hub.tundra-41', $this->tmp ), 'a root is a flat name, which a shape cannot tell from a cursor' );
 		} finally {
 			Log_Discovery::$glob = null;
 		}

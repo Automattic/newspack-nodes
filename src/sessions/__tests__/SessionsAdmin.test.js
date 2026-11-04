@@ -388,7 +388,7 @@ it( 'lists no state column: every listed session is live', () => {
 	] );
 } );
 
-it( 'says so when no session has been issued', () => {
+it( 'says so when there are no issued sessions', () => {
 	useSessionsGraph.mockImplementation( ( opts = {} ) => {
 		graphOpts = opts;
 		return {
@@ -511,7 +511,7 @@ it( 'names a connection whose client registration lapsed with a dash', () => {
 	).toBe( '—' );
 } );
 
-it( 'says so when no connection has been approved', () => {
+it( 'says so when there are no approved connections', () => {
 	useSessionsGraph.mockImplementation( () => ( {
 		sessions: SESSIONS,
 		connections: [],

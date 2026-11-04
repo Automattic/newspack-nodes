@@ -779,7 +779,7 @@ describe( 'Overview — remaining interactions', () => {
 		);
 	} );
 
-	it( 'ignores a pointer move when no drag is in progress', () => {
+	it( 'ignores a pointer move outside a drag', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
@@ -793,7 +793,7 @@ describe( 'Overview — remaining interactions', () => {
 		rafSpy.mockRestore();
 	} );
 
-	it( 'ignores a pointer-up when no drag is in progress', () => {
+	it( 'ignores a pointer-up outside a drag', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
@@ -851,7 +851,7 @@ describe( 'Overview — remaining interactions', () => {
 				return 1;
 			} );
 		const { container } = render( <Overview /> );
-		// Grab a name that matches no rendered row → from index is -1.
+		// Grab a name absent from the rendered rows → from index is -1.
 		act( () =>
 			rowProps( 'alpha' ).onGripPointerDown( 'ghost', {
 				preventDefault: jest.fn(),

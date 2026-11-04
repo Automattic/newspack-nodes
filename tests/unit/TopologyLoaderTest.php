@@ -245,7 +245,7 @@ class TopologyLoaderTest extends TestCase {
 			$raised = $e;
 		}
 
-		$this->assertNotNull( $raised, 'a command no node answers must fail the load' );
+		$this->assertNotNull( $raised, 'a command without an answering node must fail the load' );
 		$this->assertStringContainsString( 'absent-5517:config', $raised->getMessage() );
 		$this->assertStringContainsString( 'set_line_mode', $raised->getMessage() );
 		$this->assertNotNull( Core::node( 'after-5517' ), 'the lines after it still ran' );

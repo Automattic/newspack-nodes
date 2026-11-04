@@ -104,7 +104,7 @@ describe( 'useTimeChart constants', () => {
 		const count = declared.size;
 		expect( count ).toBeGreaterThan( 0 );
 		// The last token, then back to the first: neither a gap nor a
-		// token no skin declares, which would drop that rank to PALETTE.
+		// token absent from every skin, which would drop that rank to PALETTE.
 		expect( chartColor( count - 1 ) ).toMatch( `var(--chart-${ count },` );
 		expect( chartColor( count ) ).toMatch( 'var(--chart-1,' );
 	} );
@@ -447,7 +447,7 @@ describe( 'setupTooltip', () => {
 			expect( onSlotClick ).not.toHaveBeenCalled();
 		} );
 
-		it( 'ignores a plain click when no onSlotClick is given', () => {
+		it( 'ignores a plain click without an onSlotClick', () => {
 			const g = bind( undefined );
 			expect( () => g.handlers.click( clickAt( 290 ) ) ).not.toThrow();
 		} );

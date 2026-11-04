@@ -3,9 +3,9 @@
  *
  * A resettable field is a wrapper `[data-nn-reset="<mark name>"]` holding its
  * control or controls and a `[data-nn-reset-toggle]` button. The wrapper's
- * value is the exact hidden-input name a Save must post, so no plugin's option
- * prefix is compiled in here: newspack-nodes builds this module once and every
- * settings admin offering per-field reset — nodes, event-logger-nodes,
+ * value is the exact hidden-input name a Save must post, so a plugin's option
+ * prefix is never compiled in here: newspack-nodes builds this module once and
+ * every settings admin offering per-field reset — nodes, event-logger-nodes,
  * pyrobase — enqueues that one bundle by URL through `Field_Reset_Assets`.
  *
  * Arming the toggle snapshots the controls, clears them, marks the toggle and

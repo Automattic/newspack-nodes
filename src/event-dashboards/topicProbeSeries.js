@@ -203,10 +203,10 @@ export const maxOf = ( points ) =>
  *
  * Whether a group splits per worker is for the caller to say, because it
  * depends on the key, not the metric: a job identity or an Overview source
- * names no worker, so two workers' buckets of it chart apart as
+ * does not name a worker, so two workers' buckets of it chart apart as
  * `<key> · <worker>`, while a Table charts whole, because its level counts
  * once, as its newest reading across rows, and its rates add. A bucket
- * naming no worker keeps the bare key. An entry lists each row's
+ * without a worker keeps the bare key. An entry lists each row's
  * buckets in turn, so the group key is worked out once per row.
  *
  * @param {?Object<string,{buckets?:Array<import('./nodes/probe-stream-view-node').Bucket>}>} entries          Probe-stream entries keyed by identity — `topicprobe:view` consumers, `jobstats:view` handlers, `tablestats:view` Tables.

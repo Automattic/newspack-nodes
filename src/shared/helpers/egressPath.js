@@ -21,7 +21,7 @@ import { shellGroup } from '../../runtime/exospine';
  *                       reaches the server with an empty TO for
  *                       `_command_interpreter` to run itself.
  * @return {string} `<group>:shell/_http`, or `<group>:shell/_http/<ci>`.
- * @throws {TypeError} When the group is missing or no string.
+ * @throws {TypeError} When the group is missing or not a string.
  */
 export function egressPath( group, ci = '' ) {
 	const egress = `${ shellGroup( group ) }/${ names.HTTP }`;

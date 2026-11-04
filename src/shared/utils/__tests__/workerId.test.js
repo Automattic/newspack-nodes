@@ -66,7 +66,7 @@ describe( 'workerOfFrom', () => {
 			'',
 		],
 		[
-			'a cli reply trail names no worker',
+			'a cli reply trail does not name a worker',
 			'jobstats.p0/_output/_cli:4471',
 			'',
 		],

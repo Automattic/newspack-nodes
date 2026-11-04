@@ -14,11 +14,11 @@ import names from '../../runtime/reserved-node-names.json';
  * The source is the viewed graph and never `Core.nodes`, which at a remote
  * worker cwd holds only the browser's own scaffolding (SseIn, HttpOut and the
  * rest) rather than the worker's nodes. `_command_interpreter` leads for two
- * reasons: `parseMetadata` hides the backbone, so no graph carries it, and the
- * modal preselects the first entry, which is the destination a command wants.
- * Every other node contributes its own id, plus its `<id>:config` interpreter
- * ONLY when `node.has_config` reports one registered — most nodes have none,
- * so synthesizing that address for all of them offers dead targets.
+ * reasons: `parseMetadata` hides the backbone, so graphs never carry it, and
+ * the modal preselects the first entry, which is the destination a command
+ * wants. Every other node contributes its own id, plus its `<id>:config`
+ * interpreter ONLY when `node.has_config` reports one registered — most nodes
+ * have none, so synthesizing that address for all of them offers dead targets.
  *
  * @param {Array<{id?: string, has_config?: boolean}>} nodes The graph on screen.
  * @return {string[]} Compose target ids: `_command_interpreter`, then the rest

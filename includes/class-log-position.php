@@ -35,7 +35,7 @@ final class Log_Position {
 	/**
 	 * The whole grammar of a place: an optional segment, an offset and an
 	 * optional length, each a canonical decimal, so a sign, padding or another
-	 * base names no position.
+	 * base does not name a position.
 	 */
 	private const GRAMMAR = '/^(0|[1-9][0-9]*)?:(0|[1-9][0-9]*)(?::(0|[1-9][0-9]*))?$/D';
 
@@ -55,9 +55,9 @@ final class Log_Position {
 
 	/**
 	 * Read a position, or a breadcrumb with its length, through one anchored
-	 * match. A number past `PHP_INT_MAX` names no position either. Null for
-	 * anything else, a word included: the caller that speaks the words looks
-	 * them up in `WORDS`, and each caller states its own refusal.
+	 * match. A number past `PHP_INT_MAX` does not name a position either. Null
+	 * for anything else, a word included: the caller that speaks the words
+	 * looks them up in `WORDS`, and each caller states its own refusal.
 	 *
 	 * @param string $position A position or breadcrumb, as `format()` writes it.
 	 * @return array{segment?:int,offset:int,length?:int}|null The place, or null.
@@ -84,7 +84,8 @@ final class Log_Position {
 
 	/**
 	 * The word a sentinel resolves from, so a seek travels as the word a
-	 * remote reader resolves for itself; null for a number no word names.
+	 * remote reader resolves for itself; null for a number that is not named by
+	 * any word.
 	 *
 	 * @param int $sentinel A seek sentinel.
 	 * @return string|null A key of `WORDS`, or null.

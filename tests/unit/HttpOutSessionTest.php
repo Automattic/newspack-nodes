@@ -224,7 +224,7 @@ class HttpOutSessionTest extends TestCase {
 		$this->assertCount( 1, $captured, 'only the handshake left; the command waits' );
 	}
 
-	/** A refusal whose body names no code still logs its status, and no more. */
+	/** A refusal whose body does not name a code still logs its status, and no more. */
 	public function test_a_codeless_refusal_logs_the_bare_status(): void {
 		$this->seed_vault( self::SPOKE, [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];

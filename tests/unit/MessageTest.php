@@ -73,7 +73,7 @@ class MessageTest extends TestCase {
 	}
 
 	public function test_a_raw_block_is_its_own_type(): void {
-		// Raw log bytes: no flag the record types use, so no gate mistakes them.
+		// Raw log bytes: a flag the record types never use, so a gate never mistakes them.
 		$this->assertSame( 2048, Message::TM_BATCH );
 		$this->assertSame( [ 'TM_BATCH' ], Message::type_labels( Message::TM_BATCH ) );
 	}
@@ -197,10 +197,10 @@ class MessageTest extends TestCase {
 	/**
 	 * A message that was MINTED but never typed is a different failure from a
 	 * naked array with no TYPE at all — the first is a bug in our own code, the
-	 * second is garbage. TM_UNTYPED is a free HIGH bit so it matches no gate: an
-	 * untyped message is inert, where a -1 sentinel would match every type check
-	 * in the system (every bit set) and be treated as a command AND an EOF AND an
-	 * error, all at once.
+	 * second is garbage. TM_UNTYPED is a free HIGH bit so it never matches a
+	 * gate: an untyped message is inert, where a -1 sentinel would match every
+	 * type check in the system (every bit set) and be treated as a command AND
+	 * an EOF AND an error, all at once.
 	 */
 	public function test_untyped_matches_no_type_gate(): void {
 		$type = Message::new_message()[ Message::TYPE ];

@@ -652,8 +652,8 @@ export class ShellNode extends Node {
 	 * anything that is not REPL input passes through rather than being dropped.
 	 * Port of PHP `Shell_Node::fill()`.
 	 *
-	 * The Shell stays unnamed and unroutable, so no message can ARRIVE here by
-	 * routing: a caller either holds this reference or sinks into it.
+	 * The Shell stays unnamed and unroutable, so a message can never ARRIVE
+	 * here by routing: a caller either holds this reference or sinks into it.
 	 *
 	 * Every statement runs whatever an earlier one threw, and what any threw
 	 * escapes after the last, as PHP's `attempt_each()` + `raise()` do.
@@ -805,7 +805,7 @@ export class ShellNode extends Node {
 				this.refuse( `debug_level: unknown node: ${ names.OUTPUT }\n` );
 				return null;
 			}
-			// No argument toggles; PHP's `debug_level` does the same.
+			// A bare `debug_level` toggles, as PHP's does.
 			const toggled = dumper.debugLevelRef.current > 0 ? 0 : 1;
 			dumper.setDebugLevel( null !== level ? level : toggled );
 			this.stdout( `debug_level: ${ dumper.debugLevelRef.current }\n` );
@@ -1184,7 +1184,8 @@ export class ShellNode extends Node {
 	 *
 	 * @param {string} ns  Namespace, the part before the colon.
 	 * @param {string} key Key within that namespace.
-	 * @return {string} The resolved value, or '' when nothing owns the key.
+	 * @return {string} The resolved value, or '' when the token is
+	 *         unresolvable.
 	 */
 	resolveConfigToken( ns, key ) {
 		if ( 'config' !== ns ) {
@@ -1307,8 +1308,8 @@ export class ShellNode extends Node {
 	/**
 	 * Seal a minted Message: OR TM_NOREPLY onto a TM_COMMAND when want_reply is
 	 * off (a no-op otherwise), then `markLocal()` it, which sets LOCAL and signs
-	 * the command. Every mint branch returns through here, so nothing leaves
-	 * the Shell unsigned — the minter signs, never the ingress (ADR-15).
+	 * the command. Every mint branch returns through here, so every Message the
+	 * Shell mints leaves signed — the minter signs, never the ingress (ADR-15).
 	 * Mirrors PHP Shell_Node::stamp_noreply plus the `Command_Auth::sign()` PHP
 	 * makes in `fill()`.
 	 *

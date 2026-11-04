@@ -34,7 +34,7 @@ class CommandEndpointScopeTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/** `read` filtered to a capability no default resolves to. */
+	/** `read` filtered to a capability distinct from every default. */
 	private function relax_read(): void {
 		add_filter(
 			'newspack_nodes/capability_map',

@@ -36,8 +36,8 @@ const TOPOLOGY_TOKEN = '<topology>';
  *
  * ONE substituter. An offsetlog is a reader's cursor and
  * the reader is the FLEET, so a reader template carries `<topology>` too:
- * binding the partition alone leaves `firehose.<topology>.p0`, which matches
- * no live `firehose.combined.p0` and costs every segment bar its cursor.
+ * binding the partition alone leaves `firehose.<topology>.p0`, which cannot
+ * match a live `firehose.combined.p0` and costs every segment bar its cursor.
  *
  * @param {string}        template            Path template.
  * @param {Object}        bindings            What to bind.
@@ -158,7 +158,7 @@ const concreteLogForPartition = ( vertex, partition ) =>
 
 /**
  * Contract every `tee` out of an edge list, so each pair of edges through a
- * tee becomes one direct edge, repeated until no edge touches a tee.
+ * tee becomes one direct edge, repeated until the edges touch no tee.
  *
  * A Tee is fan-out plumbing rather than work a reader tracks, so the tree
  * draws what a branch actually feeds. Both readers of a `.tsl` graph have to
@@ -369,8 +369,8 @@ function collectLogPartitions( logName, ctx ) {
  * otherwise leave that vertex pointing at itself, taking its in-degree-0 root
  * status with it and leaving the topology with no root to draw.
  *
- * A node that names no log — a `consumer` with an empty `reads` — has no
- * vertex, so it and every edge touching it drop out with it.
+ * A node that does not name a log — a `consumer` with an empty `reads` — has
+ * no vertex, so it and every edge touching it drop out with it.
  *
  * @param {Object} graphTopo `{ nodes:[{name,kind,reads?,writes?}], edges:[[from,to]] }`.
  * @return {{outAdj:Map<string,Set<string>>,inDegree:Map<string,number>,isLog:Map<string,boolean>}} The vertex
@@ -516,8 +516,9 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		 * A handler fed by two logs — a `job-router` reading both `firehose` and
 		 * `jobintake` — carries one row per source, and each row belongs under the
 		 * log that feeds it. The nearest log ancestor on the path, bound to the
-		 * row's own partition, is that test. A row naming no source stays on every
-		 * branch, as does every row when no log sits above the handler at all.
+		 * row's own partition, is that test. A row without a source stays on
+		 * every branch, as does every row when there is no log above the
+		 * handler at all.
 		 *
 		 * @param {string}      handler The vertex name, which is also the handler name.
 		 * @param {Set<string>} path    The vertices from the root down to this one's parent.

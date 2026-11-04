@@ -16,8 +16,8 @@
  * `MAX_BODY_BYTES`, sent as `application/json`, `headers` an optional list of
  * `Name: value` lines sent after it, a `Content-Type` among them replacing
  * the JSON one, `proxy` an optional `<scheme>://<host>:<port>` the fetch goes
- * through, its scheme one of `PROXY_SCHEMES`, which no `no_proxy` variable
- * bypasses, and `connect_timeout` the optional whole seconds, from 1 to
+ * through, its scheme one of `PROXY_SCHEMES`, which a `no_proxy` variable
+ * never bypasses, and `connect_timeout` the optional whole seconds, from 1 to
  * `REQUEST_TIMEOUT`, the connection may take within the transfer's own
  * timeout. Any other method, a body on a GET or a DELETE, a body over the
  * cap, a header line holding CR or LF, holding no value, naming one of
@@ -34,28 +34,29 @@
  * its lowercased name, its first value trimmed and cut to
  * `Curl_Transfer::MAX_HEADER_BYTES`. A name that is not a header token, one of
  * `Vault::FRAMING_HEADERS`, `Set-Cookie`, `Authorization`, or the header the
- * vault's credential for the origin rides in is refused, so no answer carries
- * a cookie or a credential.
+ * vault's credential for the origin rides in is refused, so an answer never
+ * carries a cookie or a credential.
  *
  * Under a vault group each fetch looks for the group's entry on the url's
- * origin, its scheme, host and port: none fetches with no credential, one
- * sends the header line `Vault::credential_header()` answers for it, and two
- * or more refuse. The credential thus starts on its own origin. A redirect
- * may take the fetch elsewhere only while the credential rides in
- * `Authorization`, which libcurl drops when a redirect changes host, port or
- * scheme. A credential in any other header follows no redirect, and neither
- * does a request carrying header lines of its own, any of which may be a
- * credential, nor a DELETE, whose method libcurl would carry along: a 3xx
- * naming a Location answers a TM_ERROR `redirect not followed: credential in
- * <header> <url>`, `credential in request headers` or `a DELETE`, never a
- * value. A proxy beside either kind of credential is taken only over https.
+ * origin, its scheme, host and port: with none it fetches without a
+ * credential, with one it sends the header line `Vault::credential_header()`
+ * answers for it, and with two or more it refuses. The credential thus starts
+ * on its own origin. A redirect may take the fetch elsewhere only while the
+ * credential rides in `Authorization`, which libcurl drops when a redirect
+ * changes host, port or scheme. A credential in any other header follows no
+ * redirect, and neither does a request carrying header lines of its own, any of
+ * which may be a credential, nor a DELETE, whose method libcurl would carry
+ * along: a 3xx naming a Location answers a TM_ERROR
+ * `redirect not followed: credential in <header> <url>`,
+ * `credential in request headers` or `a DELETE`, never a value. A proxy beside
+ * either kind of credential is taken only over https.
  *
  * With `follow_redirects( false )` a fetch follows no redirect: a 3xx naming
  * a Location answers a TM_RESPONSE copy whose VALUE is that absolute url, and
  * a 3xx naming none answers a TM_ERROR as a status of 400 or more does.
  *
  * A TM_STRUCT whose url a response chose names `public_only` true and
- * reaches public addresses alone, through no proxy: public_of() judges the
+ * reaches public addresses alone, without a proxy: public_of() judges the
  * host, a check before sending (PHP 8.4) or a pinned lookup judges the
  * address it connects to, and the node follows each redirect itself under
  * the same guard.
@@ -591,8 +592,8 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * Start the transfer on the shared multi, holding the input message with
 	 * the handle, because the output is a copy of it. A dispatch that yields no
 	 * handle emits its TM_ERROR at once. A fetch carrying a credential under
-	 * `vault_require_ssl` takes https alone, its redirects too, and no
-	 * redirect to another host, port or scheme carries the credential.
+	 * `vault_require_ssl` takes https alone, its redirects too, and a
+	 * redirect to another host, port or scheme never carries the credential.
 	 *
 	 * @param array{message:array<int,mixed>,request:array<array-key,mixed>,hops:int,home:string,public:bool,prereq:bool,pin:list<string>} $context The input message, the request, its hops so far, the first url's origin, whether it is public-only, whether libcurl checks its connection before sending, and the address its host is pinned to.
 	 * @param string                         $url        The url.

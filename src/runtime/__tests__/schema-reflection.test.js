@@ -268,7 +268,7 @@ describe( 'SchemaReflection — the positional walk `arguments =` runs', () => {
 
 /**
  * `truthy` reads the true half of PHP `Command_Args::BOOL_WORDS`: one list,
- * so no browser node re-spells it and takes `true`/`1` while refusing
+ * so browser nodes never re-spell it and take `true`/`1` while refusing
  * `yes`/`on`.
  *
  * These cases must stay identical to tests/unit/AgeSieveTest.php's providers.

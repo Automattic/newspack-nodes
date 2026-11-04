@@ -4,7 +4,7 @@
  * on-disk state tree, and every option row carrying the plugin's prefix.
  *
  * Plain functions rather than a class. The classmap autoloader maps classes
- * only, so nothing loads this file on a normal request — `uninstall.php`
+ * only, so this file is never loaded on a normal request — `uninstall.php`
  * requires it by path.
  *
  * @package Newspack_Nodes
@@ -57,7 +57,7 @@ function delete_prefixed_options( $wpdb, string $prefix ): int {
  * locks and offsets. Leaving a tree behind for an operator to remove is the
  * cheaper mistake.
  *
- * @return string Configured base directory, or '' when nothing configures one.
+ * @return string Configured base directory, or '' when it is not configured.
  */
 function runtime_base_directory(): string {
 	$opt = \function_exists( 'get_option' ) ? \get_option( 'newspack_nodes_base_directory' ) : false;

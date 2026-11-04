@@ -35,7 +35,7 @@
   </div>
 
   <div class="n">2</div>
-  <div class="st"><b><span class="mono">messages_from_body()</span>.</b> Blank lines are skipped; every other line must decode to a 7-element positional array, and <span class="mono">Message::unpacked()</span> throws on the first that does not, or when no line parses. This runs before any status or byte is written, WordPress wraps no route callback in a <span class="mono">try</span>, and the substrate installs no exception handler.</div>
+  <div class="st"><b><span class="mono">messages_from_body()</span>.</b> Blank lines are skipped; every other line must decode to a 7-element positional array, and <span class="mono">Message::unpacked()</span> throws on the first that does not, and an all-blank body is refused too. This runs before any status or byte is written, WordPress does not wrap a route callback in a <span class="mono">try</span>, and the substrate installs no exception handler.</div>
   <div class="out">
     <div class="o deny"><span class="code">—</span>WordPress's uncaught-exception response: the critical-error page, or a stack trace under <span class="mono">WP_DEBUG_DISPLAY</span>. Not a packed Message; a client that unpacks every body has to survive it <span class="t">HTML</span></div>
   </div>
@@ -43,7 +43,7 @@
   <div class="n">3</div>
   <div class="st"><b><span class="mono">ensure_request_graph()</span></b> builds <span class="mono">_router</span> and the base interpreter and fires <span class="mono">newspack_nodes/request_graph_ready</span>; then an <span class="mono">instanceof</span> guard checks that <span class="mono">_router</span> is a <span class="mono">Router_Node</span> and <span class="mono">_output</span> an <span class="mono">HTTP_In_Node</span>.</div>
   <div class="out">
-    <div class="o deny"><span class="code">500</span><span class="mono">[288, ts, "_command", &lt;from&gt;, &lt;id&gt;, "", "request-scope graph not initialized (missing _router or _output)"]</span>, TYPE 288 = TM_RESPONSE|TM_ERROR, <span class="mono">Content-Type: application/json</span>. A bootstrap misconfiguration; no application error takes this path <span class="t">packed Message</span></div>
+    <div class="o deny"><span class="code">500</span><span class="mono">[288, ts, "_command", &lt;from&gt;, &lt;id&gt;, "", "request-scope graph not initialized (missing _router or _output)"]</span>, TYPE 288 = TM_RESPONSE|TM_ERROR, <span class="mono">Content-Type: application/json</span>. A bootstrap misconfiguration; an application error never takes this path <span class="t">packed Message</span></div>
   </div>
 
   <div class="n">4</div>

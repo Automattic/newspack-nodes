@@ -109,7 +109,7 @@ describe( 'Heartbeat node', () => {
 			}
 		);
 
-		it( 'emits nothing when no slot has been acquired', () => {
+		it( 'emits nothing before a slot is acquired', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_sse/workers';

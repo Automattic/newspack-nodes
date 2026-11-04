@@ -24,7 +24,7 @@ const NONE = [];
 const NO_ROWS = new Map();
 
 /**
- * The open grids up to a depth, the shared empty list when none is left.
+ * The open grids up to a depth; the shared empty list below depth 1.
  *
  * @param {string[]} open  The owners of the open grids, outermost first.
  * @param {number}   depth How many to keep.
@@ -84,7 +84,8 @@ function upTo( open, depth ) {
  * @param {Function}               [props.onRenameNode]       (id, next) — returns false when the name is already taken.
  * @param {Function}               [props.onUpdateArgs]       (id, args) — writes constructor args back to the draft.
  * @param {Function}               [props.onUpdateVerbs]      (id, invocations) — writes verb calls back to the draft.
- * @param {Function}               [props.onSelectionChange]  (selectedId|null) — mirrors the NODE selection outward; null whenever no node is selected.
+ * @param {Function}               [props.onSelectionChange]  (selectedId|null)
+ *                                                            — mirrors the NODE selection outward; null without a selected node.
  * @param {?string}                [props.selection]          Controlled NODE selection, letting a consumer re-point it after a rename or clear it. A non-null value also clears the edge selection; null does not, because null is the node selection's own empty value and exactly what an edge selection leaves behind. The hull selection is never touched. `undefined` leaves GraphView self-controlled.
  * @param {boolean}                [props.inspectorCollapsed] Collapse the inspector to a slim expand-rail. Consumer-owned state, mirroring the palette. Default false.
  * @param {Function}               [props.onInspectorToggle]  () — the collapse/expand chevron was clicked; the consumer flips its own `inspectorCollapsed`.
@@ -197,7 +198,7 @@ export default function GraphView( {
 		}
 	}, [ ownerShown ] );
 	const shownSidecar = ! editMode && ownerShown ? sidecar : null;
-	// The grids hang from a canvas card, so none outlives it.
+	// The grids hang from a canvas card, so they close when it leaves.
 	const rooted = useMemo(
 		() => ( nodeIds.has( stack[ 0 ] ) ? stack : NONE ),
 		[ nodeIds, stack ]
@@ -270,7 +271,7 @@ export default function GraphView( {
 		);
 		return gone < 0 ? rooted : upTo( rooted, gone );
 	}, [ rooted, sidecarsOf, lists ] );
-	// What no grid shows is closed, so it cannot come back when its row does.
+	// A grid dropped from `grids` is closed, so it cannot return with its row.
 	useEffect( () => {
 		if ( grids !== stack ) {
 			setStack( grids );
@@ -296,7 +297,7 @@ export default function GraphView( {
 
 	// @longform A sparkline point is a dump_metadata POLL REPLY, never the
 	// canvas graph: an optimistic patch or a catalog republish rebuilds that,
-	// and sampling a rebuild files a rate no counter moved to earn.
+	// and sampling a rebuild files a rate the counters never moved to earn.
 	const snapshot = usePublishedGraph( 'snapshot' );
 	const { rateRef, rateVersion } = useGraphRates( snapshot, resetKey );
 	// One derivation for both scopes, off the per-node rate histories.

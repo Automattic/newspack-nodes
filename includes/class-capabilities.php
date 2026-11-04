@@ -119,8 +119,8 @@ class Capabilities {
 	 * TM_COMMAND|TM_ERROR.
 	 *
 	 * Where a WordPress user is logged in, that is `can()`: the user's
-	 * capability, under whatever ceiling the command's session installed. In a
-	 * worker no user is logged in, so the ceiling alone decides, and a command
+	 * capability, under whatever ceiling the command's session installed. A
+	 * worker has no logged-in user, so the ceiling alone decides, and a command
 	 * carrying none — the site's own signature, a process's own line — runs at
 	 * MANAGE, the authority that loaded the topology.
 	 *
@@ -185,8 +185,8 @@ class Capabilities {
 	/**
 	 * Whether the operator's `allowed_users` list admits the logged-in user.
 	 * Checked AFTER the capability, so a demoted account loses authority at once
-	 * and nobody has to edit the list; an empty list — the shipped default —
-	 * narrows nobody.
+	 * and the list never has to be edited; an empty list — the shipped
+	 * default — narrows nobody.
 	 *
 	 * The list can only narrow an AUTHENTICATED actor. With no login there is
 	 * nothing to match, so the list does not apply and the capability check is
@@ -202,7 +202,8 @@ class Capabilities {
 	 * raises on a broken capability map is a different contract and still
 	 * propagates.
 	 *
-	 * @return bool True when no list applies or the current login is on it.
+	 * @return bool True when the list does not apply or the current login is on
+	 *              it.
 	 */
 	private static function allowed_by_operator_list(): bool {
 		$login = \function_exists( 'wp_get_current_user' )
@@ -251,7 +252,8 @@ class Capabilities {
 	 *
 	 * @param string $role One of READ|TUNE|MANAGE.
 	 * @return string The capability `current_user_can()` is asked for.
-	 * @throws \InvalidArgumentException When the map names no capability for the role.
+	 * @throws \InvalidArgumentException When the map does not name a capability
+	 *                                   for the role.
 	 */
 	public static function cap_for( string $role ): string {
 		$defaults = Roles::defaults();

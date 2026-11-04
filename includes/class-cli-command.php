@@ -282,8 +282,9 @@ class CLI_Command {
 	 * The stdin stream and the readline policy it implies, derived ONCE.
 	 *
 	 * A test may point the `$stdin` seam at a closure that opens a FRESH stream
-	 * per call, so a second derivation would probe a resource nobody drains and
-	 * leave the graph and the reader disagreeing about prompts and readline.
+	 * per call, so a second derivation would probe a resource that is never
+	 * drained and leave the graph and the reader disagreeing about prompts and
+	 * readline.
 	 *
 	 * @return array{0:resource,1:bool,2:bool} `[ stdin, is_tty, has_readline ]`.
 	 */

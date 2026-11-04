@@ -122,7 +122,7 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Insert one row where no live row holds its key, dropping an expired one.
+	 * Insert one row where its key has no live row, dropping an expired one.
 	 *
 	 * @param string $key     Key.
 	 * @param string $bytes   Tagged bytes.
@@ -290,8 +290,8 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * batch came back full.
 	 *
 	 * @param int $now Epoch second.
-	 * @return int Seconds; 0 when no row waits, or when the store refused,
-	 *             which is logged.
+	 * @return int Seconds; 0 when the table holds no expired row, or when the
+	 *             store refused, which is logged.
 	 */
 	public function purge_lag( int $now ): int {
 		$expired = $this->attempt( fn (): ?int => $this->oldest_expiry( $now ), false );
@@ -307,7 +307,7 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * the arm keeps it in.
 	 *
 	 * @param int $now Epoch second.
-	 * @return int|null Null when no row has expired.
+	 * @return int|null Null when the table holds no expired row.
 	 */
 	abstract protected function oldest_expiry( int $now ): ?int;
 
@@ -424,9 +424,9 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * Each set's live members in member order, or null for a set holding more
 	 * than `$limit`: each set is read by an exact set-key seek of `$limit + 1`
 	 * rows, and the row past the limit tells a full set from one over it, whose
-	 * rows are dropped undecoded before the next set is read. A row no
-	 * serializer wrote fails the read, as it fails a keyed read. A limit below 1
-	 * reads nothing, and a failed read is logged.
+	 * rows are dropped undecoded before the next set is read. A row that was
+	 * not written by any serializer here fails the read, as it fails a keyed
+	 * read. A limit below 1 reads nothing, and a failed read is logged.
 	 *
 	 * @param list<string> $set_keys Set keys.
 	 * @param int          $limit    Most members a set may hold and be answered.
@@ -684,7 +684,8 @@ abstract class Durable_Arm extends Cache_Backend {
 	 *
 	 * @param string $row The tagged bytes `encode()` wrote; its size joins bytes().
 	 * @return mixed The value.
-	 * @throws \UnexpectedValueException On a row no serializer here wrote.
+	 * @throws \UnexpectedValueException On a row that was not written by any
+	 *                                   serializer here.
 	 */
 	private function decode( string $row ): mixed {
 		$this->bytes += \strlen( $row );

@@ -4,8 +4,8 @@
  *
  * Forwards a message whose VALUE matches a PCRE and drops every other one, so
  * one branch of a graph carries only the traffic a reader asked for. The
- * `Tee → Dumper → Grep → Stderr` debug tap the docs describe is that shape; no
- * shipped topology wires one.
+ * `Tee → Dumper → Grep → Stderr` debug tap the docs describe is that shape;
+ * none of the shipped topologies wires one.
  *
  * The pattern is the sole criterion; there is no type gate. A TM_COMMAND or a
  * TM_EOF whose VALUE misses the pattern drops with the data, so keep control

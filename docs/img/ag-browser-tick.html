@@ -80,7 +80,7 @@
   </div>
   <div class="card">
     <h3>The browser signs synchronously</h3>
-    <p>With <span class="mono">@noble/hashes</span> rather than <span class="mono">crypto.subtle</span>: awaiting a promise would make the Shell's dispatch async and move every graph mutation a microtask later. <span class="mono">useNodeFill( name )</span> resolves its node at CALL time and discards the message while no node holds the name, since a UI handler can fire before its graph exists.</p>
+    <p>With <span class="mono">@noble/hashes</span> rather than <span class="mono">crypto.subtle</span>: awaiting a promise would make the Shell's dispatch async and move every graph mutation a microtask later. <span class="mono">useNodeFill( name )</span> resolves its node at CALL time and discards the message unless a node holds the name, since a UI handler can fire before its graph exists.</p>
   </div>
 </div>
 </div>

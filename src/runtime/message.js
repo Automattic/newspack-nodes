@@ -3,9 +3,9 @@
  * bitmask, and the JSON codec that puts it on the wire.
  *
  * Index through the constants below. There is no object form and no hash form
- * (ADR-2): the array in memory IS the array on the wire, so no boundary pays
- * for a key-to-index translation and a forwarding path indexes rather than
- * hashes.
+ * (ADR-2): the array in memory IS the array on the wire, so a boundary
+ * never pays for a key-to-index translation, and a forwarding path indexes
+ * rather than hashes.
  *
  * `includes/class-message.php` decides the layout. Every index, flag and label
  * here mirrors it, and `__tests__/message.test.js` pins them, so a drift
@@ -154,9 +154,9 @@ export function payloadOf( value, fallback = null ) {
 }
 
 /**
- * Names of every flag set in `type`, in TYPE_NAMES order. Empty when no known
- * flag matches — the caller names that case (the drop audit says TYPE_UNKNOWN,
- * the Dumper prints the unmatched bits in hex). Mirror of PHP
+ * Names of every flag set in `type`, in TYPE_NAMES order. Empty when `type`
+ * sets no known flag — the caller names that case (the drop audit says
+ * TYPE_UNKNOWN, the Dumper prints the unmatched bits in hex). Mirror of PHP
  * Message::type_labels().
  *
  * @param {number} type The TYPE bitmask.

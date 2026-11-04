@@ -150,7 +150,7 @@ export function absorbTrailingArgs( args, count ) {
  *
  * @param {Array} ctorArgs Positional arg values; null reads as none.
  * @param {Array} spec     Schema arg list (each entry may carry `default`).
- * @return {string} Space-joined args, empty when no slot survives.
+ * @return {string} Space-joined args, empty when every slot drops out.
  */
 export function serializeCtorArgs( ctorArgs, spec ) {
 	return positionalTokens( ctorArgs, spec ).map( emitDraftArg ).join( ' ' );

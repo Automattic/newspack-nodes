@@ -1641,7 +1641,7 @@ export default function SchematicCanvas( {
 		onSelect,
 		onOpenSidecars,
 	};
-	// One identity for the canvas's life, so no handler re-renders a card.
+	// One identity for the canvas's life, so a handler never re-renders a card.
 	const cardEvents = useMemo(
 		() => ( {
 			select: ( ev, id ) => {
@@ -1663,7 +1663,7 @@ export default function SchematicCanvas( {
 			hover: ( id ) => gestures.current.setHovered( id ),
 			port: ( ev, id ) =>
 				gestures.current.handlePortPointerDown( id, ev ),
-			// The "…" owns its press: no select, drag or wire starts under it.
+			// The "…" owns its press: nothing selects, drags or wires under it.
 			hold: ( ev ) => ev.stopPropagation(),
 			sidecars: ( ev, id ) => {
 				ev.stopPropagation();

@@ -11,10 +11,10 @@ import {
  * defaults and the same hidden backbone a remote reply carries, so one canvas
  * draws either.
  *
- * The graph belongs to the BROWSER, its reserved scaffolding included, and no worker
- * graph holds that scaffolding. So this is what a local canvas paints from
- * until a reply lands (`useGraphSource`'s `coreFallback`), never a stand-in
- * for a worker's `dump_metadata`.
+ * The graph belongs to the BROWSER, its reserved scaffolding included, and a
+ * worker graph never holds that scaffolding. So this is what a local canvas
+ * paints from until a reply lands (`useGraphSource`'s `coreFallback`), never a
+ * stand-in for a worker's `dump_metadata`.
  *
  * @return {import('../../runtime/metadata-node').MetadataGraph} The live
  *   graph: nodes, edges, the `_output` reply path and the router's profiling

@@ -51,12 +51,12 @@
   <div class="src"><b>The dead-letter dirs</b>Every quarantine <span class="mono">Log_Discovery::groups()</span> lists under <span class="mono">deadletter</span>, a broker reader's <span class="mono">&lt;root&gt;/&lt;stamp&gt;</span> included.</div>
   <div class="ar">→</div>
   <div class="key"><span class="k">deadletter_by_reader</span>reader → records still quarantined<br><span class="k">deadletter_segments</span>quarantined segments across every reader</div>
-  <div class="cav">A reader is its stamp less <span class="mono">deadletter:</span>, or its dir name where no stamp names it. A requeued or removed record does not count, and a dir holding no segment is omitted.</div>
+  <div class="cav">A reader is its stamp less <span class="mono">deadletter:</span>, or its dir name when it has no stamp. A requeued or removed record does not count, and a dir holding no segment is omitted.</div>
 
   <div class="src"><b>Config and the clock</b>Read through the substrate config at call time.</div>
   <div class="ar">→</div>
   <div class="key"><span class="k">num_partitions</span> <span class="k">max_segments</span> <span class="k">segment_size</span> <span class="k">timestamp</span> <span class="k">heartbeat_interval_s</span></div>
-  <div class="cav"><span class="mono">num_partitions</span> is the raw value cast to int, where <span class="mono">status get</span>'s is clamped into <span class="mono">[1, MAX_PARTITIONS]</span>. <span class="mono">max_segments</span> is the disk ceiling: the hard cap, or 2 × <span class="mono">num_segments</span> when none is set. <span class="mono">heartbeat_interval_s</span> is 10.</div>
+  <div class="cav"><span class="mono">num_partitions</span> is the raw value cast to int, where <span class="mono">status get</span>'s is clamped into <span class="mono">[1, MAX_PARTITIONS]</span>. <span class="mono">max_segments</span> is the disk ceiling: the hard cap, or 2 × <span class="mono">num_segments</span> when it is unset. <span class="mono">heartbeat_interval_s</span> is 10.</div>
 
   <div class="src"><b>The active topologies' <span class="mono">.tsl</span></b><span class="mono">Topology_Analyzer::graph_for()</span> per active name.</div>
   <div class="ar">→</div>

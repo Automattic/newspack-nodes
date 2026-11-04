@@ -422,7 +422,8 @@ class LruCacheTest extends TestCase {
 	/**
 	 * A callback that throws mid-loop must not leave the bucket behind for
 	 * `get_state()` to checkpoint: a poisoned entry would be restored by the
-	 * respawned worker and throw again, a crash loop no restart clears.
+	 * respawned worker and throw again, a crash loop that restarting can never
+	 * clear.
 	 */
 	public function test_a_throwing_evict_callback_leaves_the_bucket_gone(): void {
 		Core::$now = 4000000.0;
@@ -477,8 +478,8 @@ class LruCacheTest extends TestCase {
 	}
 
 	/**
-	 * The grid fixes the PHASE, but a boundary crossed while no worker was
-	 * alive still has to be repaid, so get_state() carries `next_window`.
+	 * The grid fixes the PHASE, but a boundary crossed while every worker
+	 * was down still has to be repaid, so get_state() carries `next_window`.
 	 * Re-derived from each generation's own start instead, it would skip every
 	 * window the gap covered — with 30s generations against a 200s window that
 	 * is most of them, and the catch-up loop would never fire in the restart
@@ -610,9 +611,9 @@ class LruCacheTest extends TestCase {
 	}
 
 	/**
-	 * A restored cache repays the windows its OWNER clock crossed while no
-	 * process held it, and none its owner clock has not reached, whatever
-	 * the wall read at either end.
+	 * A restored cache repays the windows its OWNER clock crossed while it
+	 * was not held by any process, and only windows its owner clock has
+	 * reached, whatever the wall read at either end.
 	 */
 	public function test_a_restored_cache_repays_the_windows_of_its_owner_clock(): void {
 		$evicted  = [];

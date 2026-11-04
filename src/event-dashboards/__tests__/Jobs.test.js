@@ -285,7 +285,7 @@ describe( 'Jobs', () => {
 		expect( table.classList.contains( 'wp-list-table' ) ).toBe( false );
 	} );
 
-	it( 'shows an empty state when no jobs have run', () => {
+	it( 'shows an empty state before any job has run', () => {
 		useNodeField.mockReturnValue( { handlers: {} } );
 		const { container, queryByRole } = render( <Jobs /> );
 		expect( queryByRole( 'table' ) ).toBeNull();
@@ -363,7 +363,7 @@ describe( 'Jobs', () => {
 		expect( latency ).not.toHaveProperty( 'formatValue' );
 		// Each jobs.pN backlog is its own debt, so the column sums them.
 		expect( backlog.stacked ).toBe( true );
-		// Each series says how it charts; the panel names no metric.
+		// Each series says how it charts; the panel does not name a metric.
 		for ( const panel of [ runs, errors, backlog, latency ] ) {
 			expect( panel ).not.toHaveProperty( 'metric' );
 			expect( panel ).not.toHaveProperty( 'totalLabel' );

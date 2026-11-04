@@ -23,9 +23,10 @@ namespace Newspack_Nodes;
  * Cooperative, not enforced: nothing stops a process that never asks. A holder
  * that stops refreshing its heartbeat for `stale_timeout` seconds is stolen
  * from, and that is the entire recovery story for a worker lost to an OOM
- * kill, a container restart or a SIGKILL — no reaper runs, the next acquirer
- * cleans up. Every acquire path builds a fresh directory rather than adopting
- * the one it displaces, so no flag or heartbeat survives a handover.
+ * kill, a container restart or a SIGKILL — there is no reaper; the next
+ * acquirer cleans up. Every acquire path builds a fresh directory rather than
+ * adopting the one it displaces, so a flag or a heartbeat never survives a
+ * handover.
  *
  * A Node so a Timer can sink `KEY='heartbeat'` messages into it inside a drain
  * loop, keeping a held lock fresh without the holder polling:
@@ -270,13 +271,13 @@ class Lock_Node extends Node {
 	 *
 	 * The `.stealing.` aside is deleted recursively, whatever it holds. It is
 	 * garbage the moment the rename lands: the lock it held was stale, and
-	 * its pid-and-uniqid name is reachable by no other process. It never goes
-	 * through `force_release_at()`, because a file this class never wrote — an
-	 * older flag name, an NFS `.nfs*` placeholder — would make that throw and
-	 * abort the acquire. Deleting it here rather than leaving it to a reaper is
-	 * what covers every lock: a Partition's `write.lock.d` and pyrobase's DDL
-	 * lock live outside `locks/`, where no sweep looks. Only a process killed
-	 * between the rename and the delete leaks one, and
+	 * its pid-and-uniqid name is not reachable by any other process. It never
+	 * goes through `force_release_at()`, because a file this class never
+	 * wrote — an older flag name, an NFS `.nfs*` placeholder — would make that
+	 * throw and abort the acquire. Deleting it here rather than leaving it to a
+	 * reaper is what covers every lock: a Partition's `write.lock.d` and
+	 * pyrobase's DDL lock live outside `locks/`, where the sweeps never look.
+	 * Only a process killed between the rename and the delete leaks one, and
 	 * `Spawn_Coordinator::reap_steal_scratch_dirs()` collects that inside
 	 * `locks/`.
 	 *
@@ -480,7 +481,7 @@ class Lock_Node extends Node {
 	/**
 	 * Write one signal file into a lock dir the caller does not hold. The three
 	 * flags differ only in name, diagnostic and contents, and share one rule: a
-	 * missing dir means no worker holds the slot, so there is nobody to signal
+	 * missing dir means the slot is unheld, so there is nobody to signal
 	 * and the answer is false — also when the holder released it between the
 	 * check and the write.
 	 *
@@ -492,13 +493,14 @@ class Lock_Node extends Node {
 	 * slot rather than one process, and harmless for a restart or a reload,
 	 * which cost the successor one recycle or one config re-read. A second
 	 * failure, or a write refused as root, throws, because the caller would
-	 * otherwise report a signal no worker will ever read.
+	 * otherwise report a signal that a worker will never read.
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 * @param string $flag     Flag filename constant.
 	 * @param string $what     Label `Config::write_denied()` logs the refused write under.
 	 * @param string $contents The signal itself.
-	 * @return bool True when the flag landed; false when no lock dir exists.
+	 * @return bool True when the flag landed; false when the lock dir does not
+	 *              exist.
 	 * @throws \RuntimeException When the write is refused as root or fails twice, naming the dir and flag.
 	 */
 	private static function write_flag_at( string $lock_dir, string $flag, string $what, string $contents ): bool {
@@ -610,8 +612,8 @@ class Lock_Node extends Node {
 	 *
 	 * Three unrelated situations end a worker through this one channel —
 	 * `restart requested`, `lock heartbeat gone` and `lock stolen by pid N` —
-	 * and an operator reading a bare `restart requested` off a worker nobody
-	 * restarted cannot tell which, so each says what happened.
+	 * and an operator reading a bare `restart requested` off a worker that
+	 * was not restarted cannot tell which, so each says what happened.
 	 *
 	 * Every stat clears the cache first: a long-running worker otherwise never
 	 * sees a flag another process wrote.
@@ -688,10 +690,11 @@ class Lock_Node extends Node {
 
 	/**
 	 * Hidden from the palette: PHP builds this node directly — `Worker_Base` for
-	 * a slot, `Partition_Node::allow_large_writes()` for a write lock — and no
-	 * topology line names it, so it declares no arguments and no verbs. The
-	 * HELD / STOLEN / RELEASED states it publishes are deliberately undeclared
-	 * too: they surface through `dump_node` and trace, and nothing subscribes.
+	 * a slot, `Partition_Node::allow_large_writes()` for a write lock — and a
+	 * topology line never names it, so it declares no arguments and no verbs.
+	 * The HELD / STOLEN / RELEASED states it publishes are deliberately
+	 * undeclared too: they surface through `dump_node` and trace, and nothing
+	 * subscribes.
 	 *
 	 * @return array<string,mixed>
 	 */

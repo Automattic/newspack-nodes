@@ -141,7 +141,7 @@ const formatRtt = ( rtt ) => {
 
 /**
  * The status modifier for one RTT reading: `error` above 500ms, `warning`
- * above 200ms, `success` below, and `muted` when the spoke has answered no
+ * above 200ms, `success` below, and `muted` when the spoke has not answered a
  * round trip yet. It modifies the shared `newspack-nodes-status` class, so the
  * design system sets the colours rather than this dashboard.
  *
@@ -287,8 +287,8 @@ function attemptLabel( idle, connected ) {
 
 /**
  * One partition's health, coarser than its connection state: a partition
- * that is connected but has answered no round trip is `degraded` rather than
- * `ok` — the socket is up and the round trip is not.
+ * that is connected but has not answered a round trip is `degraded` rather
+ * than `ok` — the socket is up and the round trip is not.
  *
  * @param {Object} status That partition's status snapshot.
  * @return {string} One of ok|degraded|idle|connecting|down.
@@ -308,8 +308,8 @@ const HEALTH_RANK = [ 'ok', 'idle', 'connecting', 'degraded', 'down' ];
 const STATE_RANK = [ 'connected', 'idle', 'connecting', 'disconnected' ];
 
 /**
- * The worst of several readings by a best-first rank, and the rank's worst
- * when there are none, so a spoke reporting no partition reads as down.
+ * The worst of several readings by a best-first rank, and the rank's worst when
+ * there are none, so a spoke that has not reported a partition reads as down.
  *
  * @param {Array<string>} values The readings.
  * @param {Array<string>} rank   Every reading, best first.
@@ -439,7 +439,7 @@ function PartitionLine( { label, status, now } ) {
 /**
  * Fleet roll-up panel: the on-demand deep-probe result for one spoke — its
  * worker count in each state `wp nodes status` reports, worst consumer distance
- * (unknown when no reader can measure one), dead-letter total. The
+ * (unknown when the readers cannot measure one), dead-letter total. The
  * polled slices carry connection health only, so this line is the one place
  * the fleet behind a spoke shows, and it appears once a Probe click has
  * answered. A refused probe shows its error instead, full text in the title.
@@ -514,7 +514,7 @@ function FleetRollup( { answer } ) {
  * null until its spoke first reports one, and a null lag reads as unknown
  * rather than as caught up. A multi-partition card prefixes each reader with
  * the worker partition reading it. Nothing renders for a broker whose readers
- * have reported no position yet.
+ * have not reported a position yet.
  *
  * @param {Object}        props         Component props.
  * @param {Array<Object>} props.readers The server row's `readers`: `stamp`,

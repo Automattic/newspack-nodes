@@ -71,12 +71,13 @@ class Log_Sources {
 	 * under: `sources:<name>`, its name as the label, and whether a Tail
 	 * would find bytes there now. A source whose segments will not list
 	 * takes an unavailable row carrying `error`, and an active topology that
-	 * will not read takes one labelled for the topology and keyed by no
-	 * stamp, because it names no log; one failure never blanks the picker.
-	 * Every source is offered its listing, and a stop among the failures
-	 * escapes carrying the rest, which is `Worker_Should_Stop`'s rule. A file
-	 * two names reach is listed once, under the first; both still resolve. A
-	 * source gated on a capability the caller lacks is left out (ADR-39).
+	 * will not read takes one labelled for the topology and keyed without
+	 * a stamp, because it does not name a log; one failure never blanks the
+	 * picker. Every source is offered its listing, and a stop among the
+	 * failures escapes carrying the rest, which is `Worker_Should_Stop`'s rule.
+	 * A file two names reach is listed once, under the first; both still
+	 * resolve. A source gated on a capability the caller lacks is left out
+	 * (ADR-39).
 	 *
 	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 * @throws Worker_Should_Stop When a stop is among the failures, carrying the rest.
@@ -114,7 +115,7 @@ class Log_Sources {
 
 	/**
 	 * The unavailable picker row for what could not be read, keyed by the
-	 * stamp it names, or by none when it names no log.
+	 * stamp it names, or by none when it does not name a log.
 	 *
 	 * @param string            $label Source, topology or dir name.
 	 * @param \Throwable|string $error What reading it threw, or why it was refused.
@@ -179,7 +180,8 @@ class Log_Sources {
 	 *
 	 * @param string $stamp A dir stamp or `sources:<name>`.
 	 * @return array{segments:list<array{id:int,size:int}>,total_size:int}
-	 * @throws \InvalidArgumentException On a stamp no dir or registry entry carries.
+	 * @throws \InvalidArgumentException On a stamp that is not carried by any
+	 *                                   dir or registry entry.
 	 */
 	public static function footprint( string $stamp ): array {
 		[ $group, $name ] = Log_Discovery::split( $stamp );
@@ -256,13 +258,13 @@ class Log_Sources {
 	 * source also takes `:<offset>`, the cursor a stream states while it has
 	 * not seen the file's generation, and reads at that offset in whichever
 	 * file the path holds; a segmented log refuses it, because segment 0 is a
-	 * real segment and no other can stand in. A malformed position throws before any log is
-	 * opened. The reader arrives armed, so every exit after it opens runs
-	 * `remove_node()` in the `finally`: a reader left armed with no sink fires
-	 * forever inside the worker's drain loop.
+	 * real segment and another can never stand in. A malformed position throws
+	 * before any log is opened. The reader arrives armed, so every exit after
+	 * it opens runs `remove_node()` in the `finally`: a reader left armed with
+	 * no sink fires forever inside the worker's drain loop.
 	 *
 	 * The `cursor` returned is the POST-step position, exactly where the next
-	 * step resumes. No record there is a result, not a refusal: `message` is
+	 * step resumes. An absent record is a result, not a refusal: `message` is
 	 * null, and `at_eof` says whether the reader stopped at the end or only
 	 * consumed a line that would not unpack, with the cursor past it. `Tail_Node extends Consumer_Node`, so a dir and
 	 * both registry modes drive identically; segment rolls, torn records and
@@ -272,7 +274,8 @@ class Log_Sources {
 	 * @param string $position Magic token, or `[<segment>]:<offset>[:<length>]`.
 	 * @return array{source:string,message:array<array-key,mixed>|null,cursor:array{segment:int,offset:int},at_eof:bool}
 	 * @throws \InvalidArgumentException On a malformed position, a segment-less one on a
-	 *                                   segmented log, or a stamp nothing carries.
+	 *                                   segmented log, or a stamp that is not
+	 *                                   carried by any dir or registry entry.
 	 */
 	public static function read( string $log, string $position ): array {
 		return self::positioned( $log, $position, 'read_message', false, static function ( Consumer_Node $reader ) use ( $log ): array {
@@ -325,7 +328,8 @@ class Log_Sources {
 	 * @param \Closure(Consumer_Node): T   $read         Reads from the reader.
 	 * @return T
 	 * @throws \InvalidArgumentException On a malformed position, a segment-less one on a
-	 *                                   segmented log, or a stamp nothing carries.
+	 *                                   segmented log, or a stamp that is not
+	 *                                   carried by any dir or registry entry.
 	 */
 	private static function positioned( string $log, string $position, string $verb, bool $multi_writer, \Closure $read ): mixed {
 		// A word rides through to next_offset(), which speaks it.
@@ -357,11 +361,12 @@ class Log_Sources {
 	 * `read()`, the single-step read, opens its reader here; the stream
 	 * resolves through `SSE_Out_Node::resolve_subscription()`, and both reach
 	 * `Log_Discovery::dir_of()` and `entry()`, so a name means one log
-	 * wherever it is read. No sidecar is built; the caller sets the cursor.
+	 * wherever it is read. It builds no sidecar; the caller sets the cursor.
 	 *
 	 * @param string $log A dir stamp or `sources:<name>`.
 	 * @return Consumer_Node The reader, stamped `$log`.
-	 * @throws \InvalidArgumentException On a stamp no dir or registry entry carries.
+	 * @throws \InvalidArgumentException On a stamp that is not carried by any
+	 *                                   dir or registry entry.
 	 */
 	public static function open_reader( string $log ): Consumer_Node {
 		[ $group, $name ] = Log_Discovery::split( $log );
@@ -380,7 +385,8 @@ class Log_Sources {
 	 *
 	 * @param string $stamp A dir stamp.
 	 * @return string The absolute dir.
-	 * @throws \InvalidArgumentException On a stamp the guard refuses or no dir carries.
+	 * @throws \InvalidArgumentException On a stamp that the guard refuses or
+	 *                                   that is not carried by any dir.
 	 */
 	private static function dir( string $stamp ): string {
 		return Log_Discovery::dir_of( $stamp, Config::get_base_directory() )

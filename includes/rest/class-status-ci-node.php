@@ -66,7 +66,7 @@ class Status_CI_Node extends Service_CI_Node {
 		return [
 			'status'          => 'ok',
 			'runtime_version' => \defined( 'NEWSPACK_NODES_VERSION' ) ? \NEWSPACK_NODES_VERSION : 'unknown',
-			// The ONE clamped accessor; raw reports a count nobody runs.
+			// The ONE clamped accessor; the raw option may be out of range.
 			'num_partitions'  => Bootstrap::global_num_partitions(),
 			'topologies'      => \array_keys( Bootstrap::get_topologies() ),
 			'cache_available' => $cache_available,

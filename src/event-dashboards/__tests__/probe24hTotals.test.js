@@ -73,7 +73,7 @@ it( 'sums co-readers in separate workers whole, overlapping windows and all', ()
 	expect( t.bytes ).toBe( 7200 );
 } );
 
-it( 'skips a reader that names no source, which no chart plots either', () => {
+it( 'skips a reader without a source, which the charts never plot either', () => {
 	const t = probe24hTotals( {
 		r1: consumer( '', [ pt( 15, 30, 1500 ) ] ),
 		r2: consumer( 'a', [ pt( 15, 7, 70 ) ] ),

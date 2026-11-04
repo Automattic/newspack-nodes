@@ -296,7 +296,7 @@ class Fleet_Node extends Timer_Node {
 
 	/**
 	 * Hidden from the palette and the console: `build_scaffolding()` mounts this
-	 * node as `_fleet` in every worker, so no topology and no operator ever
+	 * node as `_fleet` in every worker, so a topology or an operator never
 	 * names it. The two arguments are `required` because ADR-11 refuses a
 	 * missing one at construction, and a fleet scanning a derived path would
 	 * quietly revive nothing.

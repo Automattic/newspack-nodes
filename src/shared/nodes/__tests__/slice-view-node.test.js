@@ -276,7 +276,7 @@ describe( 'SliceViewNode control seam', () => {
 		} );
 	} );
 
-	test( 'controls are ignored entirely when no driver is declared', () => {
+	test( 'controls are ignored entirely without a declared driver', () => {
 		const v = new DrivenView();
 		v.name = 'counts:view';
 		v.fill( reply( { sources: { releases: 7331 } } ) );

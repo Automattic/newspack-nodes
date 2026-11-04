@@ -88,7 +88,7 @@ class ConfigTest extends TestCase {
 
 	public function test_load_config_has_base_directory(): void {
 		// `base_directory` comes from the config file (or the hardcoded
-		// `/tmp/newspack-nodes` fallback when no file exists).
+		// `/tmp/newspack-nodes` fallback when the file is missing).
 		$config = Config::load_config();
 		$this->assertArrayHasKey( 'base_directory', $config );
 		$this->assertNotEmpty( $config['base_directory'] );
@@ -107,7 +107,7 @@ class ConfigTest extends TestCase {
 
 	public function test_memcache_servers_wp_option_override_applies(): void {
 		// The admin sanitizer stores the typed (array) shape, so the raw
-		// overlay yields an array and no read-time coercion is needed.
+		// overlay yields an array and needs no read-time coercion.
 		\update_option( 'newspack_nodes_memcache_servers', [ 'test-host:11211' ] );
 		Config::reset();
 		$this->assertSame( [ 'test-host:11211' ], Config::load_config()['memcache_servers'] );

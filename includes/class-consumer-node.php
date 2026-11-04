@@ -102,7 +102,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	private bool $raw_blocks = false;
 
 	/**
-	 * The segment and offset no read crosses; null to read to the log's end.
+	 * The segment and offset that a read never crosses; null to read to the
+	 * log's end.
 	 *
 	 * @var array{0:int,1:int}|null
 	 */
@@ -152,7 +153,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * `source_file`); both are checked against the runtime base directory. A
 	 * reader whose worker does not own the source as written idles there,
 	 * building no source (ADR-33); otherwise the source Partition plus the
-	 * offsetlog and dead-letter sidecars are materialized. No I/O runs here —
+	 * offsetlog and dead-letter sidecars are materialized. This runs no I/O —
 	 * the first poll loads the durable cursor and restores the snapshot state.
 	 *
 	 * A replay REPLACES the source unconditionally, and each sidecar whenever its
@@ -187,7 +188,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$source->arguments( [ $this->source_dir ] );
 		$source->sink( $this->sink );
 		$source->patron( $this );
-		// A read view: no verb reaches the writer's cap or its lock.
+		// A read view: a verb never reaches the writer's cap or its lock.
 		$source->without_config();
 		$this->retract_sibling( 'source' );
 		$this->source = $source;
@@ -225,9 +226,10 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * `null` means "do not treat this stream as idle" and is reserved for bytes
 	 * still waiting — hanging up on a consumer with unread backlog would starve
 	 * it on every reconnect. A source with NO segments is not that case: it is
-	 * idle from when it was first seen empty, so a consumer tailing a log nobody
-	 * has written cannot veto a peer's idle exit, and an SSE stream over one
-	 * still heartbeats for its timeout instead of closing on the first tick.
+	 * idle from when it was first seen empty, so a consumer tailing a log that
+	 * has never been written cannot veto a peer's idle exit, and an SSE stream
+	 * over one still heartbeats for its timeout instead of closing on the first
+	 * tick.
 	 *
 	 * A reader idle off worker p0 has been idle since it was built; any other
 	 * answers `caught_up_since()`.
@@ -395,7 +397,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 
 	/**
 	 * A raw block as the two messages that carry it. First its header, typed
-	 * `TM_INFO|TM_BATCH` so nothing reads it as an ordinary TM_INFO, of flat
+	 * `TM_INFO|TM_BATCH` so it is never read as an ordinary TM_INFO, of flat
 	 * pairs: `OFFSET <segment:offset>` where the block begins, `DISTANCE
 	 * <bytes>` what the log holds from there, and `RESET 1` when a deleted
 	 * segment rewound it. Then the bytes, a TM_BATCH ID'd with that OFFSET,
@@ -1021,7 +1023,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 
 	/**
 	 * Drop the state carried for a snapshot node this reader no longer names,
-	 * so it rides no later frame.
+	 * so a later frame never carries it.
 	 *
 	 * @param string $name The removed snapshot node.
 	 */

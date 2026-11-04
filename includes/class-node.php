@@ -185,7 +185,7 @@ class Node {
 	/**
 	 * The wired sink, or a loud refusal — a node with no sink cannot emit.
 	 *
-	 * @throws \RuntimeException When no sink is wired.
+	 * @throws \RuntimeException When the node has no sink.
 	 */
 	protected function require_sink(): Node {
 		return $this->sink ?? throw new \RuntimeException( 'fill requires a wired sink' );
@@ -199,7 +199,7 @@ class Node {
 	 * taken, and every owned sibling renamed to match. Re-setting the name the
 	 * node already answers to is a no-op rather than a collision with itself.
 	 * An empty name is refused because `remove_node()` is how a node leaves the
-	 * registry, and one that stayed registered under no name is unreachable.
+	 * registry, and one that stayed registered without a name is unreachable.
 	 *
 	 * @param string|null $name New name; omit the argument entirely to read.
 	 * @return string The name the node answers to.
@@ -249,7 +249,7 @@ class Node {
 	 *
 	 * Pre-checking rather than unwinding is sound only because the registry is
 	 * a per-process array mutated synchronously (`Core::register_node()`), so
-	 * nothing can take a name between the check and the cascade. Give it an
+	 * a name can never be taken between the check and the cascade. Give it an
 	 * out-of-process source and this becomes TOCTOU and the unwind returns.
 	 *
 	 * @param string $name Name the node is about to take.
@@ -284,7 +284,7 @@ class Node {
 	 *
 	 * An OCCUPIED slot is refused rather than overwritten: overwriting strands
 	 * the displaced node, still registered and still holding whatever handle it
-	 * opened, but reached by no cascade. A publisher that means to REPLACE
+	 * opened, but not reached by any cascade. A publisher that means to REPLACE
 	 * empties the slot with `retract_sibling()` first.
 	 *
 	 * @param string $kind    What the builder built; the slot key.
@@ -313,8 +313,8 @@ class Node {
 	 * from a schema-arg replay, so a re-keyed suffix cannot leave a sibling
 	 * answering to a superseded name. One live exception: `Raw_Logs_CI_Node`
 	 * spells `{name}:status` inline for a probe it builds, reads and tears down
-	 * inside a single verb call, which no rename can reach. A no-op while the
-	 * patron is unnamed, which is what lets a builder publish from a
+	 * inside a single verb call, which a rename can never reach. A no-op while
+	 * the patron is unnamed, which is what lets a builder publish from a
 	 * constructor.
 	 */
 	protected function set_sibling_names(): void {
@@ -380,8 +380,8 @@ class Node {
 	/**
 	 * Multi-modal listener: store either a closure (with callable) or a Node name string.
 	 *
-	 * The entry lives in the emitter's table, so nothing here follows the
-	 * listener's rename. A node listening with a closure under its OWN name
+	 * The entry lives in the emitter's table, so the listener's rename is
+	 * never followed here. A node listening with a closure under its OWN name
 	 * goes through `subscribe()`, which does; `Timer_Node` moves its
 	 * name-dispatched TIMER hitchhike itself, in its own `name()`.
 	 *
@@ -532,10 +532,10 @@ class Node {
 	 * The rest of a TM_COMMAND VALUE is the signing envelope — nonce,
 	 * signature, session handle — and none of it says what was lost. Encoding
 	 * the whole VALUE put all three on stderr, and on the REST command path
-	 * into the response body, where no `SECRET_NAME_PATTERNS` entry matches to
-	 * mask them. The command's own `payload` goes with them: Tachikoma prints
-	 * neither, and a credential reaches a verb through it as readily as through
-	 * an argument.
+	 * into the response body, where the `SECRET_NAME_PATTERNS` entries do not
+	 * match to mask them. The command's own `payload` goes with them: Tachikoma
+	 * prints neither, and a credential reaches a verb through it as readily as
+	 * through an argument.
 	 *
 	 * The caller redacts the WHOLE VALUE first, so a secret keyed by name at
 	 * any depth of `arguments` is masked as surely as a `--password=…` token.
@@ -543,9 +543,9 @@ class Node {
 	 * map yields its values, and a non-scalar yields ''. `commandSummary()` in
 	 * `src/runtime/node.js` prints the same line.
 	 *
-	 * A request's array VALUE naming no verb is summarised all the same, its
-	 * verb '', because a request is what carries the envelope; a response
-	 * naming none prints whole.
+	 * A request's array VALUE that does not name a verb is summarised all the
+	 * same, its verb '', because a request is what carries the envelope; a
+	 * response naming none prints whole.
 	 *
 	 * @param mixed $value   The redacted message VALUE.
 	 * @param bool  $request Whether the message is a request, not a reply.
@@ -808,9 +808,10 @@ class Node {
 	/**
 	 * Build this node with no `{name}:config` interpreter, so none of its
 	 * verbs is reachable by command. A builder calls it before `name()`, for a
-	 * node no caller may configure: a reader's view of a log it does not
-	 * write, or a node a request builds and drops. Refused once named, because
-	 * the interpreter is registered by then and an address may already hold it.
+	 * node that is not configurable by any caller: a reader's view of a log it
+	 * does not write, or a node a request builds and drops. Refused once named,
+	 * because the interpreter is registered by then and an address may already
+	 * hold it.
 	 *
 	 * @return self
 	 * @throws \RuntimeException When the node is already named.
@@ -830,7 +831,8 @@ class Node {
 	/**
 	 * The name the sibling in $kind's slot answers to. Anything ADDRESSING a
 	 * sibling reads it here rather than spelling the suffix again, so a
-	 * re-keyed slot cannot leave a message routed at a name nothing holds.
+	 * re-keyed slot cannot leave a message routed at a name that is not
+	 * registered.
 	 *
 	 * @param string $kind What the builder built, resolved through `sibling_suffix()`.
 	 * @return string The sibling's registered name.
@@ -1049,7 +1051,7 @@ class Node {
 	 * publish as occupied. A sibling that refused before tearing down is still
 	 * registered and still names this node its publisher, so it keeps the slot
 	 * for a later retraction: dropping it would strand a live, registered node
-	 * no cascade reaches.
+	 * that is not reached by any cascade.
 	 *
 	 * @param string $kind The kind the slot was published under.
 	 * @throws \Throwable What the sibling's teardown threw.

@@ -442,7 +442,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	/** @return array<string,array{string,string}> Label => a source line the load refuses, then its refusal. */
 	public static function refused_source_lines(): array {
 		return [
-			'a source no spoke can stream' => [ 'add_source .. orphan-4', "add_source '..' names a source no spoke can stream" ],
+			'a source that spokes cannot stream' => [ 'add_source .. orphan-4', "add_source '..' names a source that spokes cannot stream" ],
 			'a source with no target'      => [ 'add_source sources:php', 'missing required argument: local_node' ],
 		];
 	}
@@ -590,7 +590,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( [], Topology_Analyzer::expand( [ 'vicuna-echo' ] )['edges'] );
 	}
 
-	/** The analyzer refuses the connect a load would refuse, so no reader draws it. */
+	/** The analyzer refuses the connect a load would refuse, so a reader never draws it. */
 	public function test_a_connect_onto_a_broker_fails_the_topology(): void {
 		$this->write_tsl( 'vicuna-wired', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl\nconnect_node pull:okapi tapir-sink-8\n" );
 

@@ -709,7 +709,7 @@ describe( 'ReplFooter', () => {
 			expect( findInput( container ).value ).toBe( 'connect_node x' );
 		} );
 
-		it( 'does nothing when no candidate matches the token', () => {
+		it( 'does nothing when the token matches no candidate', () => {
 			const onShowCandidates = jest.fn();
 			const { container, rerender, onComplete } = renderWithCompletion( {
 				onShowCandidates,
@@ -748,7 +748,7 @@ describe( 'ReplFooter', () => {
 			expect( findInput( container ).value ).toBe( 'dump_node echo' );
 		} );
 
-		it( 'Tab is a no-op when no onComplete is supplied', () => {
+		it( 'Tab is a no-op without an onComplete', () => {
 			const { container } = render( <ReplFooter { ...baseProps } /> );
 			const input = findInput( container );
 			fireEvent.change( input, { target: { value: 'x' } } );

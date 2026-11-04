@@ -53,7 +53,8 @@ const RAW_LOGS_CI = 'raw-logs';
 
 /**
  * How often the rail re-catalogs, in milliseconds. Segments rotate and grow
- * under a dashboard left open, so a rail nobody refreshes lists the past.
+ * under a dashboard left open, so a rail that is never refreshed lists the
+ * past.
  */
 const SEGMENTS_REFRESH_MS = 10000;
 
@@ -235,7 +236,8 @@ export function useLogStatusSegments( { sub, scope, graph } ) {
  * @param {Object}                    o.source              The source row (`{segments}`).
  * @param {() => void}                [o.refresh]           Re-catalog the rail, for a source whose
  *                                                          segment list is not itself polled. Omit
- *                                                          it and no rail timer is armed.
+ *                                                          it and the hook arms
+ *                                                          no rail timer.
  * @param {string}                    [o.railName]          Timer node name for the refresh tick;
  *                                                          only a rail with a `refresh` arms one.
  * @param {string}                    o.mode                Displayed 'live' | 'replay' (the view's mode).

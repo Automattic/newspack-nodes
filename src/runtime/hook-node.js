@@ -15,8 +15,8 @@ import { Node } from './node';
  *
  * The required constructor argument keeps it off the text path. `makeNode`
  * instantiates with `new NodeClass()` (ADR-11) and the class is absent from
- * `includeNodes`, so no TSL line and no palette entry can name it; a caller
- * imports it from the runtime package and constructs it directly.
+ * `includeNodes`, so a TSL line or a palette entry can never name it; a
+ * caller imports it from the runtime package and constructs it directly.
  */
 export class HookNode extends Node {
 	/**

@@ -16,7 +16,7 @@
  *      spelling, and `secure` cannot undeclare — `insecure` declares a THIRD
  *      state, not the absence of a line — so `replaceInvocations` and
  *      `clearSecureLevel` are methods, not verbs: a spelling for either would
- *      put words in the grammar no topology can contain.
+ *      put words in the grammar that a topology cannot contain.
  *      `replaceFrontmatter` is the weaker case, and says so: `var <name> =`
  *      DOES delete, so replacing a whole map is expressible as a diff. It
  *      stays because the settings panel already holds the map, not because
@@ -168,8 +168,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * The expansion is seeded FIRST, because that is when an `include` happens:
 	 * its nodes exist by the time the file's own `connect_node` names one. The
 	 * file's edge operations then fold over the expansion through the nodes'
-	 * own `connectNode`/`disconnectNode`, so nothing beside the parser
-	 * re-implements that ordering.
+	 * own `connectNode`/`disconnectNode`, so only the parser implements
+	 * that ordering.
 	 *
 	 * @param {string} tsl                   Topology source.
 	 * @param {Object} [baseline]            `topologies expand` result.
@@ -470,7 +470,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Drop an include, and with it every node no remaining include supplies.
+	 * Drop an include, and every node the remaining includes do not supply.
 	 *
 	 * A borrowed node left behind would be saved back as the file's own, so a
 	 * node whose origins are now all gone is removed outright.
@@ -591,7 +591,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 				edges.push( `connect_node ${ name } ${ t }` );
 			}
 		}
-		// Declarations for a name no node carries still belong to the file.
+		// Declarations for a name without a node still belong to the file.
 		for ( const [ orphan, list ] of this._invocations ) {
 			if ( this.childRegistry.node( orphan ) ) {
 				continue;

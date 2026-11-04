@@ -5,8 +5,8 @@
  * `should_continue()` owns every cooperative-stop trigger — lock lost, lock dir
  * gone, operator stop, lock flagged or stolen, max-runtime, memory watermark, DB
  * liveness and the on-demand idle window — and the heartbeat rides along, so a
- * process that asks whether to keep running also proves it is alive. No node
- * implements its own restart.
+ * process that asks whether to keep running also proves it is alive. A node
+ * never implements its own restart.
  *
  * A consumer supplies the two things that genuinely differ — where its lock dir
  * lives, and what to call itself in a stop message — and inherits the policy.
@@ -46,7 +46,7 @@ trait Cooperative_Stop {
 
 	/**
 	 * DB-liveness seam. Lazily-defaulted to `$wpdb->check_connection( false )`
-	 * (duck-typed; passes when no $wpdb is loaded). Tests reassign to drive
+	 * (duck-typed; passes when $wpdb is not loaded). Tests reassign to drive
 	 * consecutive failures without a real dead connection.
 	 * Signature: `function (): bool`.
 	 *

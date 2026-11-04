@@ -226,12 +226,13 @@ class Worker_Base {
 	 * Fire `newspack_nodes/worker_identified` from the process that holds the
 	 * slot, which is when a spawn becomes the worker rather than a request that
 	 * may yet lose the lock race. Only a process `Spawn_Controller` tagged as
-	 * this worker announces: `wp nodes run` sets no tag, so nothing else in
-	 * that process names the worker either, and neither does this.
+	 * this worker announces: `wp nodes run` sets no tag, so the rest of
+	 * that process never names the worker either, and neither does this.
 	 *
 	 * `execute()` calls it inside the topology load path, so a listener's
 	 * `RuntimeException` ends the run as a malformed `.tsl` does: the lock is
-	 * released, the throw escapes, and no successor is spawned to throw again.
+	 * released, the throw escapes, and a successor is never spawned to throw
+	 * again.
 	 */
 	private function announce_identity(): void {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- compared, never output; set by Spawn_Controller after HMAC auth.

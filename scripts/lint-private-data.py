@@ -180,7 +180,7 @@ def range_entries(spec, patterns):
 	base, sep, head = spec.partition('..')
 	if not sep or not base or not head:
 		fail(f'--range wants <base>..<head>, not {spec}')
-	# A base that is no commit (git's empty tree) means all of head's history.
+	# A base that is not a commit (the empty tree) means all of head's history.
 	is_commit = subprocess.run(
 		['git', 'rev-parse', '-q', '--verify', f'{base}^{{commit}}'],
 		stdout=subprocess.DEVNULL,

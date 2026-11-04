@@ -50,7 +50,7 @@ describe( 'CommandResultNode', () => {
 	} );
 
 	// `result` is an event: the reply goes to the listeners and nowhere else,
-	// so no field holds it and a listener registering later hears nothing.
+	// so it is not kept in any field, and a late listener hears nothing.
 	it( 'holds no reply, so a late listener hears nothing', () => {
 		const node = new CommandResultNode();
 		replyWith( node, { restarted_fleets: [ 'zebra-3318' ] } );

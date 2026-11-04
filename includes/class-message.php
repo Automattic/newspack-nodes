@@ -272,8 +272,8 @@ class Message {
 	}
 
 	/**
-	 * Names of every flag set in $type, in TYPE_NAMES order. Empty when no
-	 * known flag matches — the caller names that case (the drop audit says
+	 * Names of every flag set in $type, in TYPE_NAMES order. Empty when $type
+	 * sets no known flag — the caller names that case (the drop audit says
 	 * TYPE_UNKNOWN, the Dumper prints `TM_UNKNOWN(0x…)`).
 	 *
 	 * @param int $type The TYPE bitmask.

@@ -10,11 +10,11 @@
  * token in plaintext. The one exception is the grace row: for sixty seconds
  * after a rotation it holds the answer a retried refresh is given again.
  *
- * A grant lives thirty days from approval and no use extends it: each refresh
- * token it issues lives exactly as long as the grant has left. A rotation's
- * grace row is its claim, written before the spent token's row is deleted,
- * so of two refreshes racing one token the second answers the first's pair.
- * Presenting a spent refresh token after the grace revokes the grant and
+ * A grant lives thirty days from approval and using it never extends it: each
+ * refresh token it issues lives exactly as long as the grant has left. A
+ * rotation's grace row is its claim, written before the spent token's row is
+ * deleted, so of two refreshes racing one token the second answers the first's
+ * pair. Presenting a spent refresh token after the grace revokes the grant and
  * every session it minted. The grants are listed through the `oauth:grants`
  * set (ADR-24); `Table_Node` offers no member removal outside a graph, so a
  * revoked grant's member lapses with the grant and the listing skips it.
@@ -130,8 +130,8 @@ final class Oauth_Store {
 	}
 
 	/**
-	 * A registered client, or null for an id no registration made or one
-	 * that has lapsed.
+	 * A registered client, or null for an id that was never registered or
+	 * one that has lapsed.
 	 *
 	 * @param string $id Client id.
 	 * @return array{name:string,redirect_uris:list<string>,created:int}|null
@@ -182,7 +182,8 @@ final class Oauth_Store {
 
 	/**
 	 * Open a grant for thirty days and issue its first refresh token, then
-	 * list it. A failure before the listing leaves only rows no one can name.
+	 * list it. A failure before the listing leaves only rows that cannot be
+	 * named.
 	 *
 	 * @param array{client:string,user:int,scope:string,resource:string,name:string} $grant The approval.
 	 * @return array{grant:string,refresh:string} The grant id and its refresh token.
@@ -268,11 +269,13 @@ final class Oauth_Store {
 	}
 
 	/**
-	 * End a grant and every session it minted. The grant goes first, so no
-	 * refresh rotates while its sessions are revoked, and a session minted
-	 * meanwhile finds the grant gone when `mint_grant_session()` reads it again.
+	 * End a grant and every session it minted. The grant goes first, so a
+	 * refresh can never rotate while its sessions are revoked, and a session
+	 * minted meanwhile finds the grant gone when `mint_grant_session()` reads
+	 * it again.
 	 *
-	 * @param string $grant Grant id; one no grant could have is ignored.
+	 * @param string $grant Grant id; one that a grant could not have is
+	 *                      ignored.
 	 * @throws Session_Store_Unavailable When the store does not answer.
 	 */
 	public static function revoke_grant( string $grant ): void {
@@ -347,8 +350,9 @@ final class Oauth_Store {
 	 * @param string      $client   The client presenting the token.
 	 * @param string|null $resource The resource the request names, if any.
 	 * @return array<array-key,mixed>|null The winner's token response, or null.
-	 * @throws Session_Store_Unavailable When no claim was held, so the store
-	 *                                   refused it, or the store does not answer.
+	 * @throws Session_Store_Unavailable When the claim was not held, so the
+	 *                                   store refused it, or the store does not
+	 *                                   answer.
 	 */
 	private static function yield_claim( string $hash, string $handle, string $failure, string $client, ?string $resource ): ?array {
 		$grace  = "oauth:grace:{$hash}";
@@ -446,7 +450,7 @@ final class Oauth_Store {
 	}
 
 	/**
-	 * Store a row where no live one holds its key.
+	 * Store a row where its key has no live one.
 	 *
 	 * @param string                 $key Row key.
 	 * @param array<array-key,mixed> $row Row.
@@ -467,7 +471,8 @@ final class Oauth_Store {
 	 *
 	 * @param string $grant  Grant id.
 	 * @param string $handle Session handle.
-	 * @return bool False when no live grant has the id, and nothing was recorded.
+	 * @return bool False when the id does not name a live grant, and nothing
+	 *              was recorded.
 	 * @throws Session_Store_Unavailable When the store does not answer or refuses the member.
 	 */
 	public static function bind_session( string $grant, string $handle ): bool {
@@ -496,8 +501,8 @@ final class Oauth_Store {
 	}
 
 	/**
-	 * A row keyed `oauth:<kind>:<id>`, or null; an id no mint could make
-	 * never reaches the store.
+	 * A row keyed `oauth:<kind>:<id>`, or null; an id that a mint could not
+	 * make never reaches the store.
 	 *
 	 * @param string $kind `client` or `grant`.
 	 * @param string $id   The id.

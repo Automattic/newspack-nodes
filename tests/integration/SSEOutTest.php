@@ -312,7 +312,7 @@ class SSEOutTest extends TestCase {
 	}
 
 	public function test_stream_emits_heartbeat_events_during_idle(): void {
-		// Empty firehose dir so no data lines compete with heartbeats — any
+		// Empty firehose dir so data lines never compete with heartbeats — any
 		// `heartbeat` event in the captured output came from the drain loop
 		// itself, not from a forwarded message.
 		$base = $this->make_temp_dir( 'msg-stream-heartbeat-' );

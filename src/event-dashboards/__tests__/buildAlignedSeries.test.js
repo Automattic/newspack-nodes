@@ -4,7 +4,8 @@
  * the axis under `maxPoints`), then fill each bucket per the metric's mode:
  * LEVEL gauges (backlog/cacheSize) HOLD the last value across empty buckets
  * (0 before the first sample); RATE metrics zero-fill and re-divide the bucket's
- * summed work by its summed weight, so no phase-offset sawtooth appears. No DOM.
+ * summed work by its summed weight, so a phase-offset sawtooth never appears.
+ * No DOM.
  */
 
 import { buildAlignedSeries } from '../buildAlignedSeries';
@@ -19,7 +20,7 @@ const withMode = ( series, mode ) =>
 	);
 
 describe( 'buildAlignedSeries', () => {
-	it( 'returns empty when no series have points', () => {
+	it( 'returns empty when the series have no points', () => {
 		expect( buildAlignedSeries( withMode( {}, HOLD ), 100 ) ).toEqual( {
 			series: [],
 			dates: [],
@@ -270,7 +271,7 @@ describe( 'buildAlignedSeries', () => {
 		expect( out.series[ 0 ].values[ 0 ].value ).toBe( 10 );
 	} );
 
-	it( 'defaults to RATE behavior (zero-fill + re-divide) when no mode is given', () => {
+	it( 'defaults to RATE behavior (zero-fill + re-divide) without a mode', () => {
 		const out = buildAlignedSeries(
 			{
 				a: {

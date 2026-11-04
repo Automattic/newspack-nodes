@@ -140,10 +140,10 @@ class Spawn_Coordinator {
 	 * Remove `$dir` when its newest child is older than `$stale_age_s`, symlink-safe
 	 * and contained under base_dir.
 	 *
-	 * A directory yielding no readable child mtime survives, because nothing dates
-	 * it — an empty lock dir is a mid-acquire one. A symlink or a plain file at
-	 * `$dir` is unlinked outright rather than walked, so the recursion can never
-	 * follow a link out of base_dir.
+	 * A directory yielding no readable child mtime survives, because without
+	 * one its age is unknown — an empty lock dir is a mid-acquire one. A
+	 * symlink or a plain file at `$dir` is unlinked outright rather than
+	 * walked, so the recursion can never follow a link out of base_dir.
 	 *
 	 * @param string $dir          Candidate stale directory.
 	 * @param int    $stale_age_s  Threshold in seconds.
@@ -327,7 +327,7 @@ class Spawn_Coordinator {
 
 	/**
 	 * The IPC channel of the worker `$worker_id` names; null when the id will
-	 * not parse, or names no worker that is running or wakeable.
+	 * not parse, or does not name a running or wakeable worker.
 	 *
 	 * THE resolution every door into a worker's IPC takes — an attached cli and
 	 * a request-scope Partition mount — so none re-derives the lock test or the
@@ -435,7 +435,7 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * True when no lock dir stands for `$worker` — absent, not merely stale. A
+	 * True when `$worker` has no lock dir — absent, not merely stale. A
 	 * STALE lock is a crash, and the ordinary spawn scan owns crash recovery.
 	 *
 	 * @param array<array-key,mixed> $worker Worker descriptor.
@@ -493,7 +493,8 @@ class Spawn_Coordinator {
 	/**
 	 * Reap ipc dirs for workers no longer in the fleet. A live worker's lock dir
 	 * defers its own removal, so a worker mid-recycle keeps its IPC, and a dir
-	 * whose name `CLI::parse_worker_id()` refuses belongs to no worker and stays.
+	 * whose name `CLI::parse_worker_id()` refuses does not belong to a worker
+	 * and stays.
 	 */
 	public function cleanup_orphan_ipc(): void {
 		$active = [];
@@ -703,7 +704,7 @@ class Spawn_Coordinator {
 		if ( [] === $due ) {
 			return [ 0, [], [] ]; // Nothing to POST: don't pay for the conflict walk.
 		}
-		// The endpoint records neither refusal, so no throttle stops these.
+		// The endpoint records neither refusal, so these pass every throttle.
 		if ( ! Bootstrap::fleet_site() || self::hold() > 0 ) {
 			return [ 0, [], [] ];
 		}
@@ -853,7 +854,8 @@ class Spawn_Coordinator {
 	 * tier admit_spawn wrote — a throttle window must never straddle tiers.
 	 *
 	 * @param string $key `{type}|{partition}`.
-	 * @return float|null Recorded timestamp, or null when no tier holds one.
+	 * @return float|null Recorded timestamp, or null when the tiers do not hold
+	 *                    one.
 	 */
 	protected function load_spawn_ts( string $key ): ?float {
 		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
@@ -941,8 +943,8 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * The `locks/` directory of a runtime tree. THE writer of that name, so no
-	 * caller joins it by hand.
+	 * The `locks/` directory of a runtime tree. THE writer of that name, so a
+	 * caller never joins it by hand.
 	 *
 	 * @param string $base_dir Runtime state root.
 	 * @return string Absolute path, which need not exist.

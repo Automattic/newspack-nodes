@@ -191,7 +191,8 @@ class Settings_Sync_Node extends Timer_Node {
 	 * The value to push for $local: its stored option, except that a
 	 * substrate-declared option absent or blank pushes what a blank there
 	 * yields (`Config::blank_value()`), since a spoke's typed `set` refuses ''.
-	 * Any other option, declared by no substrate Field, passes through.
+	 * Any other option, which is not declared by any substrate Field, passes
+	 * through.
 	 *
 	 * @param string $local Registered local WP-option name.
 	 * @throws \RuntimeException When a blank declared option resolves to null, which encodes as nothing.
@@ -271,7 +272,7 @@ class Settings_Sync_Node extends Timer_Node {
 	 * @param string $to     Path the push is addressed TO.
 	 * @param string $remote Option name on the spoke.
 	 * @return string "ok\n".
-	 * @throws \InvalidArgumentException When no such mapping is registered.
+	 * @throws \InvalidArgumentException When that mapping is not registered.
 	 */
 	public function remove_setting( string $local, string $to, string $remote ): string {
 		$spec = [
@@ -362,7 +363,7 @@ class Settings_Sync_Node extends Timer_Node {
 				],
 				[
 					'name'        => 'remove_setting',
-					'description' => 'Undo one add_setting: <local_option> <TO> <remote_option>, as add_setting took them. Refused when none matches.',
+					'description' => 'Undo one add_setting: <local_option> <TO> <remote_option>, as add_setting took them. Refused unless one matches.',
 					'args'        => $setting_args,
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_remove_setting( $interpreter, $args ),
 					'action'      => true,

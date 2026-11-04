@@ -165,10 +165,10 @@ class Bootstrap {
 	 * resolved through `Core::resolve_partition_template()` for that worker's
 	 * partition — the one place `{partition}` is expanded — so a template that
 	 * puts the token anywhere but a `.p<N>` suffix still resolves. A source
-	 * naming no partition maps to the one worker `Core::owns()` gives it, p0,
-	 * because every other worker's copy idles (ADR-33). A partition nothing
-	 * tails is simply absent from the map, which is why no exclusion rule is
-	 * needed for offsetlogs, deadletter dirs or scratch.
+	 * that does not name a partition maps to the one worker `Core::owns()`
+	 * gives it, p0, because every other worker's copy idles (ADR-33). A
+	 * partition that is never tailed is simply absent from the map, which is
+	 * why offsetlogs, deadletter dirs and scratch need no exclusion rule.
 	 *
 	 * Cached in APCu (`local_first`, memcached only as its fallback) because the
 	 * derivation globs the user dir and every stock dir and parses every `.tsl`,
@@ -324,7 +324,7 @@ class Bootstrap {
 	/**
 	 * Re-arm (init, on a cron run) the reconcile event a run that
 	 * loaded without the substrate dropped: WordPress cannot reschedule an
-	 * event whose schedule nothing registered. The scheduled check comes
+	 * event whose schedule was never registered. The scheduled check comes
 	 * first, so a healthy run costs one lookup in the loaded cron option.
 	 */
 	public static function rearm_reconcile_cron(): void {
@@ -396,7 +396,9 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return array<int,string> Partition index => directory.
-	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active `.tsl` will not read.
+	 * @throws \Throwable When the base directory is unusable, or `$node` is not
+	 *                    declared in any readable topology and an active `.tsl`
+	 *                    will not read.
 	 */
 	public static function node_dirs( string $node ): array {
 		$dirs = [];
@@ -418,7 +420,9 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return list<int> Partition indices, ascending.
-	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active `.tsl` will not read.
+	 * @throws \Throwable When the base directory is unusable, or `$node` is not
+	 *                    declared in any readable topology and an active `.tsl`
+	 *                    will not read.
 	 */
 	public static function node_partitions( string $node ): array {
 		$seen = [];
@@ -443,7 +447,9 @@ class Bootstrap {
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
 	 * @param list<string> $names Table names as their topologies declare them.
-	 * @return array<string,array<int,string>> Name => partition => mounted node name; `[]` for a name no active topology declares.
+	 * @return array<string,array<int,string>> Name => partition => mounted node
+	 *         name; `[]` for a name that is not declared by any active
+	 *         topology.
 	 * @throws \InvalidArgumentException On a name that cannot name a file.
 	 * @throws \RuntimeException With no request graph.
 	 * @throws Table_Unavailable When a backend cannot open, raised as thrown;
@@ -494,8 +500,14 @@ class Bootstrap {
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
 	 * @param string ...$names Table names as their topologies declare them.
-	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>> Name => partition => the Table; `[]` for a name no active topology declares as a keyed Table.
-	 * @throws \Throwable When two active topologies declare one differently, a TTL is not a whole number of at least 1 second, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active `.tsl` will not read.
+	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>>
+	 *         Name => partition => the Table; `[]` for a name that is not
+	 *         declared as a keyed Table by any active topology.
+	 * @throws \Throwable When two active topologies declare one differently, a
+	 *                    TTL is not a whole number of at least 1 second, a
+	 *                    token that does not resolve, the base directory is
+	 *                    unusable, or a name is not declared in any readable
+	 *                    topology and an active `.tsl` will not read.
 	 */
 	public static function node_tables( string ...$names ): array {
 		$unresolved = \array_diff( $names, \array_keys( self::$node_tables ) );
@@ -535,7 +547,7 @@ class Bootstrap {
 	 * and its SQLite file per partition, across every ACTIVE topology
 	 * declaring it, each with `partitions_of()` its entry. A reader finds its
 	 * table by schema, never by name. An active `.tsl` that will not read
-	 * fails the lookup only when no readable topology declares one
+	 * fails the lookup only when the readable topologies do not declare one
 	 * (`may_declare()`). Whether each file exists is for the reader to find.
 	 * One read of the active set serves the lookup, and a schema resolves
 	 * once until `forget_node_tables()`.
@@ -544,11 +556,11 @@ class Bootstrap {
 	 *
 	 * @param class-string<Row_Schema> $schema The schema the table holds.
 	 * @return array{name: string, files: array<int,string>} Files by partition.
-	 * @throws Table_Unavailable When no active topology declares one.
-	 * @throws \RuntimeException When no readable topology declares one and an
-	 *                           active `.tsl` will not read; when they declare
-	 *                           several, naming each; or when two declare its
-	 *                           name differently.
+	 * @throws Table_Unavailable When the active topologies do not declare one.
+	 * @throws \RuntimeException When the readable topologies do not declare one
+	 *                           and an active `.tsl` will not read; when they
+	 *                           declare several, naming each; or when two
+	 *                           declare its name differently.
 	 * @throws \InvalidArgumentException As row_tables_of().
 	 */
 	public static function row_table( string $schema ): array {
@@ -585,7 +597,8 @@ class Bootstrap {
 	 * @param class-string<Row_Schema> $schema        The schema the tables hold.
 	 * @param string                   ...$topologies Topology names.
 	 * @return list<string>
-	 * @throws \InvalidArgumentException When `$schema` names no `*_Row_Schema`.
+	 * @throws \InvalidArgumentException When `$schema` does not name a
+	 *                                   `*_Row_Schema`.
 	 * @throws \RuntimeException As `Topology_Analyzer::declared_tables()`.
 	 */
 	public static function row_tables_of( string $schema, string ...$topologies ): array {
@@ -606,12 +619,12 @@ class Bootstrap {
 	 * The word a `.tsl` names `$schema` by: its short name less `_Row_Schema`.
 	 *
 	 * @param string $schema A Row_Schema class.
-	 * @throws \InvalidArgumentException When it names no `*_Row_Schema`.
+	 * @throws \InvalidArgumentException When it does not name a `*_Row_Schema`.
 	 */
 	private static function schema_word( string $schema ): string {
 		$short = \substr( \strrchr( '\\' . $schema, '\\' ) ?: '', 1 );
 		if ( ! \str_ends_with( $short, '_Row_Schema' ) || ! \is_a( $schema, Row_Schema::class, true ) ) {
-			throw new \InvalidArgumentException( \esc_html( "{$schema} names no Row_Schema" ) );
+			throw new \InvalidArgumentException( \esc_html( "{$schema} does not name a Row_Schema" ) );
 		}
 		return \substr( $short, 0, -\strlen( '_Row_Schema' ) );
 	}
@@ -643,8 +656,9 @@ class Bootstrap {
 	 * Anything but a list of names — the empty default included — activates
 	 * nothing, so an install spawns no workers until an operator opts one in. A
 	 * selected name the catalog does not carry is synthesized from its `.tsl`
-	 * frontmatter, and left out only when no `.tsl` resolves, so a topology
-	 * registered after the catalog is published still spawns.
+	 * frontmatter, and left out only when the name does not resolve to any
+	 * `.tsl`, so a topology registered after the catalog is published still
+	 * spawns.
 	 *
 	 * This is the CONFIGURED set: what spawns, what holds lock dirs, how many
 	 * partitions each carries. None of that reads a graph, so an entry whose
@@ -680,10 +694,10 @@ class Bootstrap {
 			\array_combine( $names, $names ),
 			static function ( string $name ) use ( $entries ): void {
 				if ( ! isset( $entries[ $name ] ) ) {
-					throw new Topology_Missing( \esc_html( "unknown topology '$name': no .tsl resolves" ) );
+					throw new Topology_Missing( \esc_html( "unknown topology '$name': it does not resolve to a .tsl file" ) );
 				}
 				Topology_Analyzer::graph_for( $name );
-				// The graph reads no owner's line; the write set reads each.
+				// Only the write set reads each owner's line, not the graph.
 				Topology_Analyzer::write_set( $name );
 			}
 		);
@@ -697,7 +711,7 @@ class Bootstrap {
 	 *
 	 * @param array<string,array<array-key,mixed>> $readable Topology name => entry.
 	 * @param string                               ...$names Table names as their topologies declare them.
-	 * @return array<string,array<int,Resolved_Table>> Name => partition => the Table; `[]` for a name none declares.
+	 * @return array<string,array<int,Resolved_Table>> Name => partition => the Table; `[]` for an undeclared name.
 	 * @throws \Throwable When those topologies declare one differently, or a TTL is not a whole number of at least 1 second.
 	 */
 	public static function tables_of( array $readable, string ...$names ): array {
@@ -751,15 +765,16 @@ class Bootstrap {
 
 	/**
 	 * The readable active topologies declaring `$node`, name => entry. One
-	 * that will not read costs only its own share of the answer; when no
-	 * readable one declares the node, every `.tsl` that will not read
+	 * that will not read costs only its own share of the answer; when the
+	 * readable ones do not declare the node, every `.tsl` that will not read
 	 * raises (`may_declare()`), because the node may be exactly what it
 	 * declares.
 	 *
 	 * @param string                                                                       $node   Node name as its topology declares it.
 	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies(), read once by the caller.
 	 * @return array<string,array<array-key,mixed>>
-	 * @throws \Throwable Every active `.tsl` that will not read, combined, when no readable one declares `$node`.
+	 * @throws \Throwable Every active `.tsl` that will not read, combined, when
+	 *                    the readable ones do not declare `$node`.
 	 */
 	private static function declaring( string $node, array $active ): array {
 		[ $readable, $unreadable ] = $active;
@@ -776,8 +791,9 @@ class Bootstrap {
 
 	/**
 	 * The unreadable topologies a lookup answers for: each whose `.tsl` will
-	 * not read, which may declare what is asked. A name no `.tsl` resolves
-	 * (`Topology_Missing`) declares nothing, so no lookup raises it.
+	 * not read, which may declare what is asked. A name that does not
+	 * resolve to any `.tsl` (`Topology_Missing`) declares nothing, so a lookup
+	 * never raises it.
 	 *
 	 * @param array<string,\Throwable> $unreadable What each unreadable active name threw.
 	 * @return array<string,\Throwable>
@@ -798,7 +814,7 @@ class Bootstrap {
 
 	/**
 	 * The names the `topologies` config key selects, deduplicated, in order,
-	 * whether or not a `.tsl` resolves for each: no graph is read to answer.
+	 * whether or not a `.tsl` resolves for each: the answer reads no graph.
 	 *
 	 * @return list<non-empty-string>
 	 */
@@ -889,13 +905,13 @@ class Bootstrap {
 	 * The global `num_partitions` option, clamped to the range a worker will
 	 * actually consume: `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
 	 *
-	 * THE accessor for that option, so no producer spells the clamp its own way
-	 * or omits the upper bound. Unbounded, an option above the cap has
-	 * `Job_Intake` / `Log_Manager` writing `firehose.p16`+ that no worker
-	 * consumes and `Log_Cleaner` sweeping as orphans — live-data deletion past
-	 * both of the GC's fail-closed gates. Writing beyond the cap is never right:
-	 * `partitions_of()` bounds the workers by the same constant, so a partition
-	 * past it has no reader.
+	 * THE accessor for that option, so a producer can never spell the clamp its
+	 * own way or omit the upper bound. Unbounded, an option above the cap has
+	 * `Job_Intake` / `Log_Manager` writing `firehose.p16`+ that is not
+	 * consumed by any worker and `Log_Cleaner` sweeping as orphans — live-data
+	 * deletion past both of the GC's fail-closed gates. Writing beyond the cap
+	 * is never right: `partitions_of()` bounds the workers by the same
+	 * constant, so a partition past it has no reader.
 	 *
 	 * @return int The clamped partition count.
 	 */
@@ -960,8 +976,8 @@ class Bootstrap {
 			return; // Subsite: the fleet is network-global and runs on the main site.
 		}
 		// @longform Wiring resolves the base and throws when it is unusable.
-		// This is a cron callback and the last revival path once no worker is
-		// alive, so it reports once and returns, as the REST and self-heal
+		// This is a cron callback and the last revival path once every worker
+		// is dead, so it reports once and returns, as the REST and self-heal
 		// entry points do.
 		if ( ! self::runtime_base_is_available() ) {
 			return;
@@ -1414,7 +1430,7 @@ class Bootstrap {
 	 * @throws \Throwable The endpoint's refusal of the wake, after the mount.
 	 */
 	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
-		// Parsed first, so no other node's name answers the idempotency test.
+		// Parsed first, so only a worker id can pass the idempotency test.
 		if ( null === CLI::parse_worker_id( $worker_id ) ) {
 			return false;
 		}
@@ -1574,10 +1590,11 @@ class Bootstrap {
 	}
 
 	/**
-	 * Advertise the segment geometry of partitions built in PHP, which no TSL
-	 * statement declares and the static scan therefore cannot see. Job_Intake's
-	 * feed runs at FEED_SEGMENT_SIZE against Partition's 64 MiB default, so
-	 * without the override a dashboard draws a full segment as a sliver.
+	 * Advertise the segment geometry of partitions built in PHP, which are not
+	 * declared by any TSL statement and the static scan therefore cannot see.
+	 * Job_Intake's feed runs at FEED_SEGMENT_SIZE against Partition's 64 MiB
+	 * default, so without the override a dashboard draws a full segment as a
+	 * sliver.
 	 *
 	 * @param array<string,int> $overrides basename => segment size in bytes.
 	 * @return array<string,int>

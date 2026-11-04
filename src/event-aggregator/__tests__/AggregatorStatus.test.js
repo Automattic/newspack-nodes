@@ -59,7 +59,7 @@ const SAMPLE_SERVERS = [
 	},
 ];
 
-// One server carrying BOTH post-close states, so no single code path can
+// One server carrying BOTH post-close states, so a single code path cannot
 // satisfy the idle and the failed expectations at once: p0 closed at EOF and
 // is due back, p1 died of a transport error and is not coming back on its own.
 const IDLE_CLOCK = 1748970000;
@@ -285,7 +285,7 @@ describe( 'AggregatorStatus', () => {
 		expect( container.textContent ).toContain( 'p1' );
 	} );
 
-	it( 'lists no readers for a broker the probe log names none of', () => {
+	it( 'lists no readers for a broker when the probe log does not name any', () => {
 		registerSlices( {
 			summary: { serverNow: 2000, loading: false },
 			servers: {
@@ -854,7 +854,7 @@ describe( 'AggregatorStatus', () => {
 		} );
 		const { container } = mount();
 		// Keyed by vault_id (what the card probes), NOT `id` — an answer
-		// naming server.id would reach no card at all.
+		// naming server.id would not reach any card.
 		clickProbe( container, 0 );
 		answerProbe( 'server1-vault-cred', {
 			result: {
@@ -1181,7 +1181,7 @@ describe( 'AggregatorStatus', () => {
 		);
 	} );
 
-	it( 'shows a spoke URL that names no host as stored', () => {
+	it( 'shows a spoke URL without a host as stored', () => {
 		registerSlices( {
 			servers: {
 				servers: [

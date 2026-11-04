@@ -3,10 +3,10 @@
  * The operator's control surface over the worker fleet: what is running, how to
  * stop, start and restart it, and which topologies it spawns.
  *
- * No supervisor process exists to interrogate, so every verb reads the evidence
- * the fleet itself writes — the `.lock.d` directories under `locks/`, the
- * persisted deploy hold, and the Topic_Probe log carrying consumer positions
- * (`CLI::consumer_rows()`).
+ * There is no supervisor process to interrogate, so every verb reads the
+ * evidence the fleet itself writes — the `.lock.d` directories under `locks/`,
+ * the persisted deploy hold, and the Topic_Probe log carrying consumer
+ * positions (`CLI::consumer_rows()`).
  *
  * @package Newspack_Nodes
  */
@@ -718,11 +718,12 @@ class Worker_CLI_Command {
 	 * Sweep orphan log and offsetlog dirs and Table files now, instead of
 	 * waiting for the sweep job.
 	 *
-	 * A dir or Table is an orphan when no ACTIVE topology declares it — so
-	 * deactivating a topology is what orphans its data, not stopping its workers. The fleet
-	 * sweep already runs this every window, but spares any orphan written
-	 * within the last hour so a mid-deploy blip cannot eat live data. `--force`
-	 * drops that wait to zero: use it to reclaim a topology you just tore down.
+	 * A dir or Table is an orphan when the ACTIVE topologies do not declare
+	 * it — so deactivating a topology is what orphans its data, not stopping
+	 * its workers. The fleet sweep already runs this every window, but spares
+	 * any orphan written within the last hour so a mid-deploy blip cannot eat
+	 * live data. `--force` drops that wait to zero: use it to reclaim a
+	 * topology you just tore down.
 	 *
 	 * ## OPTIONS
 	 *
@@ -816,8 +817,8 @@ class Worker_CLI_Command {
 	 * Restart every partition of one fleet by topology name — the handler wired to
 	 * `newspack_nodes/restart_fleet`, which the `topologies` service verb fires.
 	 *
-	 * Best-effort: a name no active topology carries restarts nothing, because an
-	 * action handler has no caller to report a refusal to.
+	 * Best-effort: a name that is not carried by any active topology restarts
+	 * nothing, because an action handler has no caller to report a refusal to.
 	 *
 	 * @param string $name Topology name.
 	 */

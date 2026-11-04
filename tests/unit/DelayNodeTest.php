@@ -280,7 +280,7 @@ class DelayNodeTest extends TestCase {
 		$this->assertSame( [ 'f-due' ], $received, 'the held entry is due again on the next sweep' );
 	}
 
-	/** ADR-12: failing passes commit gracefully, so no crawl ever sacrifices a held entry. */
+	/** ADR-12: failing passes commit gracefully, so a crawl never sacrifices a held entry. */
 	public function test_five_failing_sweeps_lose_nothing_and_dead_letter_nothing(): void {
 		$this->capture_stderr();
 		$delay    = $this->delay();
@@ -393,9 +393,9 @@ class DelayNodeTest extends TestCase {
 	}
 
 	/**
-	 * The hard cap prunes by segment count, so no park, between sweeps or in
-	 * one, may leave the reader more unread segments than it keeps: what a
-	 * pass keeps is delivered, oldest first, and what it cannot keep drops
+	 * The hard cap prunes by segment count, so a park, between sweeps or in
+	 * one, can never leave the reader more unread segments than it keeps: what
+	 * a pass keeps is delivered, oldest first, and what it cannot keep drops
 	 * loud, naming its KEY.
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'queue_loads' )]
@@ -524,7 +524,7 @@ class DelayNodeTest extends TestCase {
 
 	public function test_a_dir_naming_no_partition_is_refused(): void {
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'offsets_dir names no {partition}' );
+		$this->expectExceptionMessage( 'offsets_dir does not contain {partition}' );
 		$this->ci->make_node(
 			'Delay',
 			self::NAME,

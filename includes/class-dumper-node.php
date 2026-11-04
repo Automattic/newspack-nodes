@@ -211,9 +211,10 @@ class Dumper_Node extends Node {
 
 	/**
 	 * Render a TM-flag bitmask for display, joining the matched names with ` | `.
-	 * A bitmask no name matches — 0 among them — reads `TM_UNKNOWN(0x<hex>)`.
-	 * Public because the dead-letter `dl_show` verb renders through it too. The
-	 * names come from `Message::type_labels()`, the one flags-to-names map.
+	 * A bitmask that does not match any name — 0 among them — reads
+	 * `TM_UNKNOWN(0x<hex>)`. Public because the dead-letter `dl_show` verb
+	 * renders through it too. The names come from `Message::type_labels()`, the
+	 * one flags-to-names map.
 	 *
 	 * @param int $type The TYPE bitmask.
 	 */
@@ -276,9 +277,9 @@ class Dumper_Node extends Node {
 	 * there. FROM is X-Forwarded-For — the IPC Consumer stamps the worker id at
 	 * the HEAD and everything after it is whatever the worker wrote, so only the
 	 * head is ours to trust. An empty `path` trusts every sender: bare mode wires
-	 * no Consumer, so nothing remote reaches this Dumper there — but `cd /` and
-	 * `cd ..` empty an attached session's path while its Consumer keeps
-	 * delivering.
+	 * no Consumer, so a remote message never reaches this Dumper there — but
+	 * `cd /` and `cd ..` empty an attached session's path while its Consumer
+	 * keeps delivering.
 	 *
 	 * @param array<int,mixed> $message The response Message.
 	 * @return bool True when the sender may write the prompt.

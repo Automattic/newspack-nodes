@@ -49,9 +49,10 @@ use Newspack_Nodes\Worker_Base;
  * The `workers` service interpreter: fleet liveness, the dashboard envelope,
  * the orphan diagnostic, restart, and SSE slot heartbeats.
  *
- * Every collector is static and reads state fresh, because no caller shares a
- * process with the workers it reports on — a REST request, `Alerts::evaluate()`
- * on the WP-Cron tick and a REPL session each start from disk and cache.
+ * Every collector is static and reads state fresh, because a caller never
+ * shares a process with the workers it reports on — a REST request,
+ * `Alerts::evaluate()` on the WP-Cron tick and a REPL session each start from
+ * disk and cache.
  */
 class Workers_CI_Node extends Service_CI_Node {
 
@@ -123,9 +124,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * and `refused_producers` names it and why.
 	 *
 	 * `logs_at` is the instant right after `enumerate_logs()` stats the
-	 * partition dirs, to the fraction of a second: the clock a log no worker
-	 * probes is rated against, so the span between two polls is the span
-	 * between their stats.
+	 * partition dirs, to the fraction of a second: the clock a log is rated
+	 * against when it is not probed by any worker, so the span between two
+	 * polls is the span between their stats.
 	 *
 	 * Every read runs off the one active set the caller hands in, and its
 	 * readable split: the slots, their states and the declared logs, so a
@@ -376,7 +377,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @param string                               $path         Resolved path of the Log, with no segment suffix.
 	 * @param string                               $name         Catalog name; the path's basename.
 	 * @param int                                  $segment_size Rotation size the Log declares, in bytes.
-	 * @param array{grown:int,elapsed_ms:int}|null $probe        Its growth window, or null where no worker sweeps it.
+	 * @param array{grown:int,elapsed_ms:int}|null $probe        Its growth
+	 *        window, or null where it is not swept by any worker.
 	 * @return array{name:string,partitions:array<int,mixed>,segment_size:int}
 	 */
 	private static function build_log_sink_entry( string $path, string $name, int $segment_size, ?array $probe ): array {
@@ -444,8 +446,9 @@ class Workers_CI_Node extends Service_CI_Node {
 			}
 		}
 		/**
-		 * Segment sizes for partitions no topology declares. A Partition built
-		 * in PHP — Job_Intake's `jobfeed`, at FEED_SEGMENT_SIZE — has no
+		 * Segment sizes for partitions that are not declared by any topology. A
+		 * Partition built in PHP — Job_Intake's `jobfeed`, at
+		 * FEED_SEGMENT_SIZE — has no
 		 * `make_node Partition|Topic|Log … <literal size>` statement to read a
 		 * size off, so without this the catalog reports the fleet default and
 		 * the segment bar draws a full 1 MiB segment against an assumed 64 MiB.
@@ -466,11 +469,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * The dir list is the GC's declared set, which the caller reads from
 	 * `Log_Cleaner::declared_log_partitions()` — one source of truth with the
 	 * retention sweep. That set covers every on-disk topology's resolved
-	 * per-partition log dirs PLUS the logs no `.tsl` declares: the PHP
-	 * producers' firehose and jobintake, and the settings log. Sourcing the
-	 * catalog from the set the GC retains is what makes a log a topology only
-	 * CONSUMES resolve to a concrete entry showing its segments, rather than
-	 * to "No segments". A dir that does not exist stats to empty segments.
+	 * per-partition log dirs PLUS the logs that are not declared by any `.tsl`:
+	 * the PHP producers' firehose and jobintake, and the settings log. Sourcing
+	 * the catalog from the set the GC retains is what makes a log a topology
+	 * only CONSUMES resolve to a concrete entry showing its segments, rather
+	 * than to "No segments". A dir that does not exist stats to empty segments.
 	 *
 	 * The partition is the resolver's enumeration index, never parsed back out
 	 * of a name: the dashboard joins `logs[]` to `consumers[]` on
@@ -478,9 +481,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * partition 0 alone.
 	 *
 	 * Each partition carries its `probe`: the growth window of its newest
-	 * fresh Partition record, `{ grown, elapsed_ms }`, or null where no worker
-	 * sweeps it. The dashboard's write rate divides that ONE record, so it
-	 * runs on the prober's clock and never on this poll's.
+	 * fresh Partition record, `{ grown, elapsed_ms }`, or null where it is not
+	 * swept by any worker. The dashboard's write rate divides that ONE record,
+	 * so it runs on the prober's clock and never on this poll's.
 	 *
 	 * @param string                                          $log_base               Absolute `{base}/logs` dir.
 	 * @param int                                             $default_segment_size   Fleet-wide segment size in bytes.
@@ -544,8 +547,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * array to 1.
 	 *
 	 * Written out branch by branch because static analysis refuses a cast from
-	 * `mixed` at this level. The trailing 0 covers the one type no branch names,
-	 * a resource, for which no config value has a meaningful int.
+	 * `mixed` at this level. The trailing 0 covers the one type that is not
+	 * named by any branch, a resource, which has no meaningful int as a config
+	 * value.
 	 *
 	 * @param mixed $v Raw value.
 	 * @return int
@@ -751,12 +755,12 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * `restart` verb handler — request a graceful restart of matching workers.
 	 *
-	 * Naming no type — or the literal `all` — matches every worker, and an
-	 * absent `partition` binds null, which asks the CLI for every partition
-	 * (-1). It declares no default, because the console pre-fills one and
-	 * `-1` is not a whole number. It is declared `int`, so `--partition=abc`
-	 * refuses rather than collapsing to p0, restarting the wrong fleet and
-	 * reporting success.
+	 * Leaving out the type — or naming the literal `all` — matches every
+	 * worker, and an absent `partition` binds null, which asks the CLI for
+	 * every partition (-1). It declares no default, because the console
+	 * pre-fills one and `-1` is not a whole number. It is declared `int`, so
+	 * `--partition=abc` refuses rather than collapsing to p0, restarting the
+	 * wrong fleet and reporting success.
 	 *
 	 * @param Workers_CI_Node        $self The dispatching node, carrying `$cli`.
 	 * @param array<array-key,mixed> $args Bound verb arguments: the types list, and partition.

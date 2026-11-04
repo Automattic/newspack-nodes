@@ -16,7 +16,7 @@ import { useEffect, useRef } from '@wordpress/element';
  * integer-rounded, which `same()` absorbs. The clamp earns its place because
  * `clientWidth` already excludes the scrollbar gutter, so a padded panel
  * mid-animation measures narrower than its own padding — layout calls that 0,
- * and a negative matches no observation.
+ * and a negative never matches an observation.
  *
  * @param {Element} el The observed element.
  * @return {{w: number, h: number}} Content width and height.
@@ -49,7 +49,7 @@ const same = ( a, b ) => Math.abs( a.w - b.w ) < 1 && Math.abs( a.h - b.h ) < 1;
 
 /**
  * The observed element: a ref holding it, or a resolver reaching it through
- * the DOM — a sibling or an ancestor no component holds a ref to.
+ * the DOM — a sibling or an ancestor the components hold no ref to.
  *
  * @typedef {{current: ?Element}|(() => ?Element)} ElementSource
  */

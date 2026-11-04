@@ -233,7 +233,8 @@ class TTY_In_Node extends Stdin_Node {
 	}
 
 	/**
-	 * Write the prompt for the non-readline path, where nothing redraws it.
+	 * Write the prompt for the non-readline path, which has no readline to
+	 * redraw it.
 	 *
 	 * The flag makes this idempotent: `emit_line()` clears it as each line is
 	 * delivered and `drain_once()` calls back here, so the operator gets exactly
@@ -411,8 +412,8 @@ class TTY_In_Node extends Stdin_Node {
 
 	/**
 	 * Schema behind `help TTY_In`. `Hidden` keeps it out of the console palette:
-	 * `wp nodes cli` builds this node in PHP, handing it a Shell and a writer no
-	 * topology line can name.
+	 * `wp nodes cli` builds this node in PHP, handing it a Shell and a writer
+	 * that a topology line cannot name.
 	 *
 	 * @return array<string,mixed>
 	 */

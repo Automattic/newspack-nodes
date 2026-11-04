@@ -32,7 +32,7 @@
   <span class="v manage">manage</span> declared manage, or declared nothing
   <span class="v help">help</span> injected by the base, answered at read
 </div>
-<p style="font-size:12px;color:#50575E;margin:-6px 0 14px">Every CI answers <span class="mono">help</span>, which the base injects; it returns that interpreter's own verb names, sorted. No substrate CI declares it in its schema, and it is one of the read-only builtins, so <span class="mono">dispatch()</span> answers it at read on every service CI, as the base interpreter does.</p>
+<p style="font-size:12px;color:#50575E;margin:-6px 0 14px">Every CI answers <span class="mono">help</span>, which the base injects; it returns that interpreter's own verb names, sorted. None of the substrate CIs declares it in its schema, and it is one of the read-only builtins, so <span class="mono">dispatch()</span> answers it at read on every service CI, as the base interpreter does.</p>
 
 <div class="mx">
   <div class="ci">classes<span class="cls">Classes_CI_Node</span></div>
@@ -74,7 +74,7 @@
 <div class="two">
   <div class="card">
     <h3>Gated at dispatch, never in a handler</h3>
-    <p><span class="mono">dispatch()</span> reads the role the schema declares under the verb NAME — a service CI's own schema, or for a <span class="mono">:config</span> interpreter its patron's schema — and manage for a name the schema does not declare, so a table replaced after construction is still gated at the declaration's role. Where no user is logged in, as in a worker, the session's scope alone decides.</p>
+    <p><span class="mono">dispatch()</span> reads the role the schema declares under the verb NAME — a service CI's own schema, or for a <span class="mono">:config</span> interpreter its patron's schema — and manage for a name the schema does not declare, so a table replaced after construction is still gated at the declaration's role. Without a logged-in user, as in a worker, the session's scope alone decides.</p>
     <p style="margin:0">A refusal THROWS <span class="mono">permission denied: &lt;role&gt; capability required</span>, and <span class="mono">interpret()</span> wraps it as <span class="mono">TM_COMMAND|TM_ERROR</span>. A scoped session lowers the ceiling for one command and can only subtract.</p>
   </div>
   <div class="card">

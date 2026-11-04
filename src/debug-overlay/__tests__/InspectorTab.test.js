@@ -74,7 +74,7 @@ describe( 'measureTabBarHeight', () => {
 		expect( measureTabBarHeight( null ) ).toBe( 0 );
 	} );
 
-	it( 'returns 0 when no tab bar precedes the inspector content', () => {
+	it( 'returns 0 without a tab bar before the inspector content', () => {
 		const panel = document.createElement( 'div' );
 		const content = document.createElement( 'div' );
 		content.className = 'nodes-tab-host__tab-content';
@@ -436,11 +436,7 @@ describe( 'InspectorTab interactions', () => {
 			'',
 			/no_such_verb/,
 		],
-		[
-			'a fire-and-forget send no node answers',
-			'nowhere-7',
-			/NOT_AVAILABLE/,
-		],
+		[ 'an unanswered fire-and-forget send', 'nowhere-7', /NOT_AVAILABLE/ ],
 	] )( 'a compose of %s hands its refusal back', ( label, to, refused ) => {
 		renderInspector();
 		let refusal;
@@ -504,7 +500,7 @@ describe( 'InspectorTab interactions', () => {
 	} );
 
 	/**
-	 * The overlay drives the BROWSER graph, and no JS class declares a
+	 * The overlay drives the BROWSER graph, and JS classes never declare a
 	 * `vault_id` arg — so `CtorField`'s vault picker can never fire here. The
 	 * catalog only reached a PHP class at `/_http`, whose node dies with the
 	 * request. It cost a node named `vault:list`, which collided with the

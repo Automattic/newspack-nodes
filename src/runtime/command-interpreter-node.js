@@ -188,7 +188,7 @@ const HELP = {
  * `Command_Interpreter_Node`.
  *
  * A verb that returns answers TM_RESPONSE and a verb that throws answers
- * TM_ERROR, which is why no verb carries a try/catch of its own. A TM_PING or
+ * TM_ERROR, which is why verbs carry no try/catch of their own. A TM_PING or
  * TM_EOF with an empty TO bounces back along FROM; everything else reaches
  * the sink untouched.
  *
@@ -296,7 +296,7 @@ export class CommandInterpreterNode extends Node {
 	 * Route a verb's result back to whoever asked, as TM_COMMAND|kind.
 	 *
 	 * An empty result sends nothing. A TM_NOREPLY request gets no message at
-	 * all, so no TM_ERROR can carry its failure: the refusal throws to
+	 * all, so a TM_ERROR cannot carry its failure: the refusal throws to
 	 * whatever filled the command, as PHP's `interpret()` does, and a broken
 	 * line fails the load instead of building half a graph.
 	 *
@@ -402,7 +402,7 @@ export class CommandInterpreterNode extends Node {
 		this._wireConfig( node );
 		// The sink dump_config may omit: the one make_node wired.
 		if ( ( this.debugState ?? 0 ) > 0 ) {
-			// Trace level is stamped from outside; no class declares it.
+			// Trace level is stamped from outside; classes never declare it.
 			/** @type {{ debugState?: number }} */ ( node ).debugState =
 				this.debugState;
 		}
@@ -426,7 +426,7 @@ export class CommandInterpreterNode extends Node {
 	 * sinks, so a reply goes back TO its asker. A verb declaring `args` has
 	 * its tokens bound by `bindCommandArgs()` before its handler runs, as
 	 * PHP's `dispatch()` binds them (ADR-25); one declaring none gets its
-	 * tokens. A node declaring no verb gets no `:config`.
+	 * tokens. A node without a declared verb gets no `:config`.
 	 *
 	 * @param {Node} node A named node.
 	 */
@@ -720,7 +720,7 @@ export class CommandInterpreterNode extends Node {
 			throw new Error( `unknown node: ${ name }` );
 		}
 		let target = parts.slice( 1 ).join( ' ' );
-		// No target defaults to the issuing message's FROM.
+		// A missing target defaults to the issuing message's FROM.
 		if ( '' === target ) {
 			target = ( envelope && envelope[ FROM ] ) || '';
 			if ( '' === target ) {
@@ -754,7 +754,7 @@ export class CommandInterpreterNode extends Node {
 			throw new Error( `unknown node: ${ name }` );
 		}
 		let target = parts.slice( 1 ).join( ' ' );
-		// For a Tee, no target removes the issuing FROM from the fan-out.
+		// On a Tee, a missing target drops the issuing FROM from the fan-out.
 		if ( '' === target && Array.isArray( src.target ) ) {
 			target = ( envelope && envelope[ FROM ] ) || '';
 			if ( '' === target ) {
@@ -1100,7 +1100,8 @@ export class CommandInterpreterNode extends Node {
 	 *
 	 * @param {string[]} args     Verb tokens: node name, then the keys to keep.
 	 * @param {Object}   registry Name table the node lives in.
-	 * @return {string} The dump, or 'no node specified' when no name is given.
+	 * @return {string} The dump, or 'no node specified' when the name is
+	 *                  missing.
 	 */
 	static _cmdDumpNode( args, registry ) {
 		const parts = args;
@@ -1257,8 +1258,8 @@ export class CommandInterpreterNode extends Node {
 	/**
 	 * `trace [<node> [<level>]]` — toggle or set a debug_state level.
 	 *
-	 * No argument toggles this interpreter; a bare number sets it; `*` applies
-	 * one level to every node in the table.
+	 * Without an argument it toggles this interpreter; a bare number sets it;
+	 * `*` applies one level to every node in the table.
 	 *
 	 * @param {string[]} args Verb tokens: node name, `*`, or a level.
 	 * @return {string} The resulting state line.
@@ -1719,7 +1720,7 @@ export class CommandInterpreterNode extends Node {
 
 	/**
 	 * Keyed rows for `list_timers`, one per Timer node; `next_ms` is always
-	 * null, since nothing here records when a timer next fires.
+	 * null, since this runtime does not record when a timer next fires.
 	 *
 	 * @param {Object} [registry] Name table to walk; Core's by default.
 	 * @return {Array<Object>} The rows.
@@ -1996,10 +1997,10 @@ export class CommandInterpreterNode extends Node {
 }
 
 /**
- * Process-wide fallback gate, read when an instance sets no `authorize` of its
- * own. Null leaves the LOCAL taint check in force, which is what a browser tab
- * wants: a Shell mints every command in-process and stamps LOCAL, and nothing
- * arriving over the wire carries it (ADR-15).
+ * Process-wide fallback gate, read when an instance does not set an `authorize`
+ * of its own. Null leaves the LOCAL taint check in force, which is what a
+ * browser tab wants: a Shell mints every command in-process and stamps LOCAL,
+ * and nothing arriving over the wire carries it (ADR-15).
  *
  * The seam is static so a host can tighten every interpreter in the bundle at
  * once, including the ones a dashboard builds later.

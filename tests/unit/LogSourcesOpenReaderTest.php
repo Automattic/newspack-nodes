@@ -203,7 +203,7 @@ final class LogSourcesOpenReaderTest extends TestCase {
 	}
 
 	public function test_a_bad_position_throws_before_any_log_is_resolved(): void {
-		Log_Sources::$builtin_sources = fn (): array => $this->fail( 'a bad position resolves no log' );
+		Log_Sources::$builtin_sources = fn (): array => $this->fail( 'a bad position does not resolve to a log' );
 
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)' );

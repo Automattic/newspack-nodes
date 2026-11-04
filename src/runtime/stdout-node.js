@@ -55,8 +55,9 @@ function coerceString( v ) {
 export class StdoutNode extends Node {
 	/**
 	 * Take ownership of the output stream. Both consoles hand over the Dumper's
-	 * `appendText`, and tests hand over a collector. No stream writes nowhere
-	 * rather than throwing, so a node mounted ahead of its host stays harmless.
+	 * `appendText`, and tests hand over a collector. Without a stream the node
+	 * writes nowhere rather than throwing, so a node mounted ahead of its host
+	 * stays harmless.
 	 *
 	 * @param {?{write?: (text: string) => void}} stdout Stream to write to.
 	 */

@@ -142,7 +142,7 @@
   </div>
   <div class="card">
     <h3>The gate observes and moves nothing</h3>
-    <p><span class="mono">gate:consumer</span> tails the same <span class="mono">ingest.p0</span> under its own <span class="mono">offsets/gate.p0</span>, so it never advances the summarizer's cursor. <span class="mono">gate</span> runs <span class="mono">Publisher_Matcher</span> on each item to ask whether it concerns a Newspack client: the URL domain, then an exact name or alias, then the domain stem, and only when all three are inconclusive an LLM entity extraction, none when no token resolves. The decision record lands in <span class="mono">gate-decisions.jsonl</span>; nothing is filtered out of the digest. DONE and the RESET fence end at <span class="mono">gate</span>, which drops every message that is not a <span class="mono">TM_STRUCT</span>.</p>
+    <p><span class="mono">gate:consumer</span> tails the same <span class="mono">ingest.p0</span> under its own <span class="mono">offsets/gate.p0</span>, so it never advances the summarizer's cursor. <span class="mono">gate</span> runs <span class="mono">Publisher_Matcher</span> on each item to ask whether it concerns a Newspack client: the URL domain, then an exact name or alias, then the domain stem, and only when all three are inconclusive an LLM entity extraction, which is skipped unless a token resolves. The decision record lands in <span class="mono">gate-decisions.jsonl</span>; nothing is filtered out of the digest. DONE and the RESET fence end at <span class="mono">gate</span>, which drops every message that is not a <span class="mono">TM_STRUCT</span>.</p>
   </div>
 </div>
 </div>

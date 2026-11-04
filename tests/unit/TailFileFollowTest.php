@@ -192,7 +192,7 @@ class TailFileFollowTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$t   = $this->follow( $path );
 		$t->sink( $cap );
-		// No 'segment' key names no generation: the offset is in the current file.
+		// A cursor without a 'segment' key does not name a generation: the offset is in the current file.
 		$t->next_offset( [ 'offset' => 11 ] );
 		$this->pump( $t );
 
@@ -881,8 +881,8 @@ class TailFileFollowTest extends TestCase {
 	}
 
 	/**
-	 * Off p0, the dead-letter verbs reach no quarantine: p0's own, in the same
-	 * dir, is neither redelivered from nor purged.
+	 * Off p0, the dead-letter verbs do not reach any quarantine: p0's own, in
+	 * the same dir, is neither redelivered from nor purged.
 	 */
 	public function test_off_partition_zero_the_dead_letter_verbs_touch_nothing_of_p0(): void {
 		$path                         = $this->tmp . '/php-errors-3310.log';

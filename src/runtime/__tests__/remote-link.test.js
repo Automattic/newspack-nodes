@@ -353,7 +353,7 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.sseIn.seekMap() ).toEqual( { 'raw-logs': SEEK_END } );
 	} );
 
-	it( 'opens every stream on /messages/stream; no link carries an endpoint', () => {
+	it( 'opens every stream on /messages/stream; links carry no endpoint', () => {
 		const { link } = makeLink( 'sources:php' );
 		link.connect();
 		expect( FakeEventSource.last.url ).toContain(
@@ -539,7 +539,7 @@ describe( 'RemoteLinkNode', () => {
 		expect( seen ).toEqual( [ 'SLOT 3' ] );
 	} );
 
-	it( 'defaults the shared `_http` client from the localized global when none is injected and args carry no baseUrl/nonce', () => {
+	it( 'defaults the shared `_http` client from the localized global without an injected client or a baseUrl/nonce argument', () => {
 		window.NewspackNodesData = {
 			restUrl: 'https://example.test/wp-json/',
 			nonce: 'GLOBALNONCE',
@@ -744,7 +744,7 @@ describe( 'sources — the routes one link carries', () => {
 		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '1:0:9' ] );
 	} );
 
-	it( 'drops a record no source claims, saying so, and builds no Tee', async () => {
+	it( 'drops a record without a claiming source, saying so, and builds no Tee', async () => {
 		expectConsoleWarn(
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM from: kea.p7/x'
 		);
@@ -756,7 +756,7 @@ describe( 'sources — the routes one link carries', () => {
 		expect( Core.node( '_stream:kea.p7' ) ).toBeNull();
 	} );
 
-	it( 'drops a record whose FROM names no stamp', async () => {
+	it( 'drops a record whose FROM does not name a stamp', async () => {
 		expectConsoleWarn(
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM'
 		);
@@ -767,7 +767,7 @@ describe( 'sources — the routes one link carries', () => {
 		expect( delivered ).toEqual( {} );
 	} );
 
-	it( 'drops a broker reader’s stamp, which no glob claims', async () => {
+	it( 'drops a broker reader’s stamp, which a glob never claims', async () => {
 		expectConsoleWarn(
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM from: offsets:hub.tw0:firehose.p0/x'
 		);
@@ -1331,7 +1331,7 @@ describe( 'sources — the routes one link carries', () => {
 		} );
 	} );
 
-	it( 'forget drops the place and count of a dir no source claims, so a later view tails', async () => {
+	it( 'forget drops the place and count of a dir without a claiming source, so a later view tails', async () => {
 		const { link } = makeShared();
 		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		link.attachView( 'topicprobe.p0', 'backlog:stream' );
@@ -1765,12 +1765,12 @@ describe( 'sources — the routes one link carries', () => {
 				'cmd _stream:config remove_source egret.p4 kite-2290:stream'
 			)
 		).toThrow(
-			"remove_source 'egret.p4' 'kite-2290:stream' names no source this node declares"
+			"remove_source 'egret.p4' 'kite-2290:stream' names a source this node does not declare"
 		);
 		expect( () =>
 			link.removeSource( 'ibis.p2', 'heron-6612:stream' )
 		).toThrow(
-			"remove_source 'ibis.p2' 'heron-6612:stream' names no source this node declares"
+			"remove_source 'ibis.p2' 'heron-6612:stream' names a source this node does not declare"
 		);
 		typeLine(
 			shell,
@@ -1806,7 +1806,7 @@ describe( 'sources — the routes one link carries', () => {
 		}
 	);
 
-	it( 'a :config refuses {partition}, which no browser binds', () => {
+	it( 'a :config refuses {partition}, which a browser never binds', () => {
 		const link = new CommandInterpreterNode().makeNode(
 			'RemoteLink',
 			'okapi-link-5502'

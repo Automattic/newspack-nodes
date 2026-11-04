@@ -18,7 +18,7 @@
 </style>
 <div class="sheet">
 <h1>One entry point, and an ownership boundary in both directions</h1>
-<p class="sub">Every node is reached through <span class="mono">fill( array $message ): void</span> and nothing else. The message is handed over BY VALUE, so the caller keeps nothing; and <span class="mono">fill()</span> returns nothing, so the caller learns nothing. Nodes compose because no node can reach back through a <span class="mono">fill()</span> call.</p>
+<p class="sub">Every node is reached through <span class="mono">fill( array $message ): void</span> and nothing else. The message is handed over BY VALUE, so the caller keeps nothing; and <span class="mono">fill()</span> returns nothing, so the caller learns nothing. Nodes compose because a node cannot reach back through a <span class="mono">fill()</span> call.</p>
 
 <div class="dirs">
   <div class="dir">

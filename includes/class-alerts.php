@@ -13,7 +13,7 @@
  * transition into the substrate's `alerts.p0` partition; a producer outside
  * that pass — `Job_Worker_Node`'s batch completion — writes its row through
  * `journal_event()`. Thresholds come from `Config::value()` at evaluation
- * time, and no long-lived worker reads them, so raising one applies on the
+ * time, and a long-lived worker never reads them, so raising one applies on the
  * next reconcile pass without a restart.
  *
  * @package Newspack_Nodes
@@ -154,9 +154,9 @@ class Alerts {
 	 * Journal one row into `alerts.p0`: the firehose entry shape (`n`, `k`, `m`,
 	 * `ts`) plus `severity`, with `k` fixed at `alert` — the keyword ELN's
 	 * request builder routes to its alerts partition — and `n` a constant 1,
-	 * because an alert row belongs to no request sequence. KEY is the caller's
-	 * stable per-condition key, so consumers can dedupe. Used by `emit()`'s
-	 * transition rows and by producers outside the reconcile pass
+	 * because an alert row does not belong to a request sequence. KEY is the
+	 * caller's stable per-condition key, so consumers can dedupe. Used by
+	 * `emit()`'s transition rows and by producers outside the reconcile pass
 	 * (`Job_Worker_Node` batch completion); a failed write propagates to each.
 	 *
 	 * @api Cross-class journal entry point.
@@ -241,7 +241,7 @@ class Alerts {
 				'key'      => "topology_unreadable:{$type}",
 				'family'   => self::FAMILY_WORKER_LIVENESS,
 				'severity' => self::SEVERITY_CRITICAL,
-				'message'  => "Topology {$type} will not read, so none of its workers can run: " . Core::as_string( $reason ),
+				'message'  => "Topology {$type} will not read, so its workers cannot run: " . Core::as_string( $reason ),
 				'type'     => $type,
 			];
 		}
@@ -256,7 +256,7 @@ class Alerts {
 		$lag_threshold = Core::num_int( Config::value( 'alert_lag_threshold' ) );
 		foreach ( $held ? [] : Core::arr( $meta['consumers'] ?? [] ) as $consumer ) {
 			$consumer = Core::arr( $consumer );
-			// Null is a lag no one can measure yet: never 0.
+			// Null is a lag that cannot be measured yet: never 0.
 			if ( null === $consumer['distance'] ) {
 				continue;
 			}

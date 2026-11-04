@@ -141,7 +141,7 @@ test( 'siblingNameOf names a sibling {patron}:{suffix}', () => {
 	);
 } );
 
-// `target` is string|string[]; ONE reader, so no caller invents its own.
+// `target` is string|string[]; ONE reader, so a caller never invents its own.
 describe( 'targetsOf', () => {
 	it( 'reads both shapes as a list, dropping the unset one', () => {
 		expect( targetsOf( { target: 'zulu' } ) ).toEqual( [ 'zulu' ] );

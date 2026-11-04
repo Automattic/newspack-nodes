@@ -244,7 +244,7 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( [ 'present-55.log' ], \array_keys( Log_Sources::registry() ) );
 	}
 
-	/** A Log whose basename the source grammar refuses names no source; its neighbour still does. */
+	/** A Log whose basename the source grammar refuses does not name a source; its neighbour still does. */
 	public function test_log_node_whose_name_the_grammar_refuses_is_skipped(): void {
 		Log_Sources::$builtin_sources = static fn (): array => [];
 		$this->activate_topology(

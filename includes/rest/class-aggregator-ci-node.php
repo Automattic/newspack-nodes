@@ -81,7 +81,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array<string,mixed> Compact per-spoke roll-up.
-	 * @throws \RuntimeException When `<id>` names no Vault entry, or the spoke call fails.
+	 * @throws \RuntimeException When `<id>` does not name a Vault entry, or the
+	 *                           spoke call fails.
 	 */
 	public static function cmd_probe( array $args ): array {
 		$id     = Core::as_string( $args['id'] );
@@ -95,8 +96,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	/**
 	 * Reduce a spoke's `dump_graph` reply to named fields only: the count of
 	 * its workers in each `CLI::WORKER_STATES` word, the largest consumer
-	 * distance in bytes behind its source, null when no reader's distance can
-	 * be measured, and the dead-letter segment total.
+	 * distance in bytes behind its source, null when the readers' distances
+	 * cannot be measured, and the dead-letter segment total.
 	 * A worker in any other state fails the probe naming it.
 	 *
 	 * The whitelist is the point. `dump_graph` answers the spoke's whole

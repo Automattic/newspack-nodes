@@ -69,13 +69,13 @@
     <div class="step" style="flex:.7"><b><span class="n">6</span>orphan-IPC reaping</b></div>
     <div class="step" style="flex:1.6"><b><span class="n">7–9</span>alerts, job-delay, periodic</b><span class="mono">Alerts::emit()</span>, the delayed-jobs sweep, then every subscriber; <span class="mono">not_before</span> granularity is therefore a minute.</div>
   </div>
-  <p style="margin-top:10px">No step can cost the others their window; every failure is then written to stderr, one <span class="mono">&lt;step&gt;: &lt;cause&gt;</span> line each behind the <span class="mono">reconcile[&lt;pid&gt;]</span> process label, <span class="mono">after_reconcile</span> fires, and the callback returns. Housekeeping depends on no live worker at all: retention and orphan reaping run while the fleet is down, which is when disk most needs reclaiming.</p>
+  <p style="margin-top:10px">One step can never cost the others their window; every failure is then written to stderr, one <span class="mono">&lt;step&gt;: &lt;cause&gt;</span> line each behind the <span class="mono">reconcile[&lt;pid&gt;]</span> process label, <span class="mono">after_reconcile</span> fires, and the callback returns. Housekeeping does not depend on any live worker: retention and orphan reaping run while the fleet is down, which is when disk most needs reclaiming.</p>
 </div>
 
 <div class="two">
   <div class="callout">
     <h4>Rejected: a dedicated supervisor process as the middle tier</h4>
-    <p>It is not a supervisor in the OS sense: it can neither signal a worker, reap it, nor restart it in place. All it does is poll lock-dir mtimes and POST to an HTTP endpoint, and polling is work the pollees do for each other. Revival must not depend on a single process; peer scanning honors that more completely while giving back a permanently resident PHP-FPM child. Self-respawn alone was rejected too, since nothing catches a worker that dies before it can respawn, and an OS-level supervisor is unavailable on the platform.</p>
+    <p>It is not a supervisor in the OS sense: it can neither signal a worker, reap it, nor restart it in place. All it does is poll lock-dir mtimes and POST to an HTTP endpoint, and polling is work the pollees do for each other. Revival must not depend on a single process; peer scanning honors that more completely while giving back a permanently resident PHP-FPM child. Self-respawn alone was rejected too, since a worker that dies before it can respawn goes uncaught, and an OS-level supervisor is unavailable on the platform.</p>
   </div>
   <div class="ok">
     <h4>What N independent spawners buy</h4>

@@ -448,8 +448,8 @@ function CreateSessionModal( {
 /**
  * The one-time credential disclosure, rendered in place of the create dialog
  * once a session is issued. Closing is final: the listing never carries the
- * secret and no verb hands it back, so a lost credential is re-issued rather
- * than recovered.
+ * secret and the verbs never hand it back, so a lost credential is re-issued
+ * rather than recovered.
  *
  * Handle and secret are shown joined by a dot, so one copy carries both. The
  * wire keeps them apart — the handle names the session in the `auth` envelope,

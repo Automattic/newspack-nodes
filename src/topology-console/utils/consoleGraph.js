@@ -78,9 +78,9 @@ export function withResolvedConfigEdges( graph, edges ) {
  *
  * The last step of composing a document with its expansion: a `set_*target`
  * verb produces an edge, and a `<ns:key>` token in one has to be resolved
- * against the server's answer before it names anything. An endpoint no node
- * provides is skipped, so a setter pointing at a node the composed graph lacks
- * draws nothing rather than a dangling edge.
+ * against the server's answer before it names anything. An endpoint without a
+ * providing node is skipped, so a setter pointing at a node the composed graph
+ * lacks draws nothing rather than a dangling edge.
  *
  * @param {Object} graph Graph carrying `configOverrides` + `resolvedConfigEdges`.
  * @return {Object} The graph with config edges folded in.

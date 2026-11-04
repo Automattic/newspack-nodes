@@ -339,7 +339,7 @@ class CliTest extends TestCase {
 		$this->assertSame(
 			[ [ 'foo.bar.p41', 'foo.bar', 41 ] ],
 			array_map( fn( $w ) => [ $w['id'], $w['type'], $w['partition'] ], $workers ),
-			'a dotted type lists; a padded or non-numeric partition names no worker'
+			'a dotted type lists; a padded or non-numeric partition does not name a worker'
 		);
 	}
 
@@ -426,7 +426,7 @@ class CliTest extends TestCase {
 	public function test_attach_to_worker_throws_when_lock_dir_missing(): void {
 		// Worker isn't registered (no lock dir under `{base}/locks/`). cli
 		// must hard-fail with a useful message instead of silently creating
-		// ghost IPC partitions that nobody reads/writes. Without this,
+		// ghost IPC partitions that are never read or written. Without this,
 		// `wp nodes cli typoed-name.p0` looks like it works but every
 		// command is silently swallowed.
 		$cli = new CLI( $this->tmp );
@@ -471,7 +471,8 @@ class CliTest extends TestCase {
 	 * `marmot-ondemand.p007` is not the worker `marmot-ondemand.p7`. The ipc
 	 * tree the caller then attaches to is spelled with the padding, so waking
 	 * p7 posts a spawn for a worker nobody is listening to and hands back a
-	 * path no worker reads. The wake matches on the id the fleet spells.
+	 * path that is not read by any worker. The wake matches on the id the fleet
+	 * spells.
 	 */
 	public function test_attach_refuses_a_zero_padded_id_instead_of_waking_another_partition(): void {
 		$posts                           = [];
@@ -708,8 +709,8 @@ class CliTest extends TestCase {
 
 		$this->assertSame( 650, $rows[0]['distance'] );
 		$this->assertSame( 250, $rows[0]['cursor_offset'] );
-		$this->assertSame( 0, $rows[0]['msgs'], 'nobody reading means no rate' );
-		$this->assertSame( 0, $rows[0]['bytes_read'], 'nobody reading reads no bytes' );
+		$this->assertSame( 0, $rows[0]['msgs'], 'without a reader there is no rate' );
+		$this->assertSame( 0, $rows[0]['bytes_read'], 'without a reader no bytes are read' );
 	}
 
 	public function test_consumer_rows_carries_the_bytes_a_reader_read_and_the_window_they_cover(): void {
@@ -1004,7 +1005,7 @@ class CliTest extends TestCase {
 		$this->assertArrayNotHasKey( 'distant.p0', $index, '600 KiB back is past it' );
 	}
 
-	/** Append Partition records, which name no reader, until $bytes are written. */
+	/** Append Partition records, which do not name a reader, until $bytes are written. */
 	private function seed_probe_filler( int $bytes ): void {
 		$path    = "{$this->tmp}/logs/topicprobe.p0/0.log";
 		$message                   = Message::new_message();
@@ -1042,7 +1043,7 @@ class CliTest extends TestCase {
 		$this->assertSame( 31, $row['msgs'] );
 	}
 
-	/** A Partition record names no reader, so it is not a Consumer row. */
+	/** A Partition record does not name a reader, so it is not a Consumer row. */
 	public function test_consumer_rows_skip_a_partition_record(): void {
 		$this->seed_probe_record( [ 'reader' => '', 'source' => 'ledger.p4', 'end_segment' => 6, 'end_size' => 3371 ] );
 		$this->seed_probe_record( [ 'reader' => 'jobs.ledger.p4', 'source' => 'ledger.p4' ] );

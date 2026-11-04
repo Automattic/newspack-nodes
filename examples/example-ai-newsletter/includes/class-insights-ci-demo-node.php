@@ -27,10 +27,10 @@ use Newspack_Nodes\Config;
  * `counts`, `top` and `accumulated` each return a single slice rather than one
  * blob, so the dashboard runs one Fetcher per panel. Each Fetcher stamps FROM with
  * its own receiver Tee and every reply comes back TO=FROM, so a slice lands on the
- * panel that asked for it — the address IS the correlation (ADR-7), and no panel
- * waits on another's data. The split costs no extra requests: the browser's `_http`
- * HttpOut buffers while the Router holds it locked for a tick, so the tick's three
- * commands leave as one POST.
+ * panel that asked for it — the address IS the correlation (ADR-7), and a panel
+ * never waits on another's data. The split costs no extra requests: the
+ * browser's `_http` HttpOut buffers while the Router holds it locked for a
+ * tick, so the tick's three commands leave as one POST.
  *
  * `mount_insights_ci()` names this node `insights-demo`, the mount every Fetcher
  * addresses as `insights:shell/_http/insights-demo`.

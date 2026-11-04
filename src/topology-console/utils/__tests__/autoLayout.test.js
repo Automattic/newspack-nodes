@@ -579,7 +579,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 	// `_metadata` on top, then the echo pair, then `performance:command` — and
 	// the edgeless cards stack a row apart below the band at its first
 	// column, an empty row clear of it. The tees' wires to `_output` skip a
-	// column, so no half step opens before it.
+	// column, so a half step never opens before it.
 	const graphAExpected3 = {
 		_completion: { x: 60, y: 740 },
 		_cwd: { x: 540, y: 80 },
@@ -985,10 +985,10 @@ describe( 'autoLayout', () => {
 		);
 	} );
 
-	it( 'stacks a sink no sweep seats on the edge of its column nearer its feeder', () => {
-		// a feeds nothing, left of the column holding the most cards, so no
-		// sweep gives it a row; e, which feeds it, sits above i, which feeds
-		// d, so a stacks above d and e's wire to it crosses none of i's.
+	it( 'stacks a sink the sweeps never seat on the edge of its column nearer its feeder', () => {
+		// a feeds nothing, left of the column holding the most cards, so a
+		// sweep never gives it a row; e, which feeds it, sits above i, which
+		// feeds d, so a stacks above d and e's wire to it crosses none of i's.
 		const { at, edges } = laidOut( 'd>g e>a e>c i>c i>d i>g i>h' );
 		expect( at.a.y ).toBeLessThan( at.d.y );
 		expect(
@@ -998,7 +998,7 @@ describe( 'autoLayout', () => {
 		).toEqual( [] );
 	} );
 
-	it( 'stacks the sinks no sweep seats above in the order of their feeders', () => {
+	it( 'stacks the sinks the sweeps never seat above in the order of their feeders', () => {
 		// a and b feed nothing and both stack above d; e, feeding a, sits
 		// above f, feeding b, so a stacks above b and their wires stay apart.
 		const { at, edges } = laidOut(
@@ -1013,7 +1013,7 @@ describe( 'autoLayout', () => {
 		).toEqual( [] );
 	} );
 
-	it( 'stacks the sinks no sweep seats on one edge in the order of their feeders', () => {
+	it( 'stacks the sinks the sweeps never seat on one edge in the order of their feeders', () => {
 		// d and k feed nothing and stack together on the edge of their
 		// column away from g; b, feeding d, sits above a, feeding k, so d
 		// stacks above k and their wires stay apart.
@@ -1471,8 +1471,8 @@ describe( 'snapToGrid', () => {
 
 describe( 'autoLayout — disconnected components', () => {
 	// A hub fan-out beside two components that share no node with it. The
-	// widest column anchors the row assignment, so nothing seeds a row for
-	// the outsiders; the spread pass then carried `undefined` into NaN and
+	// widest column anchors the row assignment, so the outsiders get no seeded
+	// row; the spread pass then carried `undefined` into NaN and
 	// those cards rendered at y=NaN — invisible, with no error anywhere.
 	const SPOKES = [
 		'settings:pub01',
@@ -1650,7 +1650,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		}
 	} );
 
-	it( 'packs blocks no wire joins into stacks of their own', () => {
+	it( 'packs blocks without a joining wire into stacks of their own', () => {
 		// The same eight publications with nothing shared between them: eight
 		// blocks, which the packer spreads across stacks rather than running
 		// one column the height of the sheet.
@@ -2178,7 +2178,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( 'nudges no card into the rows of another band feeding its hub', () => {
 		// Four bands feed one hub; clearing their hub wires keeps each band
-		// in the rows between its neighbours, so no two share a row.
+		// in the rows between its neighbours, so two never share a row.
 		const pairs = (
 			'b0l0n0>b0l1n0 b0l0n0>b0l1n1 b0l1n1>b0l2n0 b0l2n0>hub ' +
 			'b1l0n1>b1l1n0 b1l0n0>b1l1n0 b1l0n1>b1l1n1 b1l0n0>b1l1n1 ' +
@@ -2257,7 +2257,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	] )(
 		'keeps a source near the one node it feeds, its wire clear (seed %s)',
 		( seed, source, fed ) => {
-			// Where no seat within a row keeps the wire off every card, the
+			// Where every seat within a row runs the wire over a card, the
 			// cheapest clear one is still close.
 			const graph = seedGraph( seed );
 			const g = gridOf( graph );
@@ -2811,9 +2811,9 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	it( "runs a consumer band's source wire back to its hub clear of the band", () => {
 		// k4src feeds hub0 and a node in the band hub0 feeds, so its wire runs
 		// back across that band. No seat right of its band's first column
-		// clears the middle tier, so it keeps that column, and no row opened
-		// there clears every card: its wire to hub0 passes none, and the one
-		// forward passes one. Pin which: a count alone passes just as well
+		// clears the middle tier, so it keeps that column, and a row opened
+		// there never clears every card: its wire to hub0 passes none, and the
+		// one forward passes one. Pin which: a count alone passes just as well
 		// when the wire goes missing, or crosses another.
 		const graph = seedGraph( 'c71271' );
 		const { nodes } = autoLayout( graph );
@@ -2938,7 +2938,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'keeps a chain off the wire of a source that skips down it', () => {
-		// s sits beside a1 and also feeds a4: no seat keeps s→a4 off the
+		// s sits beside a1 and also feeds a4: every seat runs s→a4 over the
 		// chain, so the chain has to step aside, as it does for any wire.
 		const graph = chain( [
 			[ 's', 'a1' ],
@@ -2961,7 +2961,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'keeps a sink fed only by a source level with it', () => {
-		// zz has no feeder but x, so no sweep can seat it from x while x has
+		// zz has no feeder but x, so a sweep cannot seat it from x while x has
 		// no row, and it would drop to the bottom of its column.
 		const edges = [];
 		for ( let i = 0; i < 6; i++ ) {
@@ -2994,7 +2994,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( 'seats a source right of the widest column beside what it feeds', () => {
 		// x feeds only w0, so it takes column 2, right of the six-card column
-		// the rows spring from, and no sweep seeds it: stacked under its
+		// the rows spring from, and a sweep never seeds it: stacked under its
 		// column's p cards it would sit rows from w0, and a re-spread to seat
 		// it would move n0 after w0 had centred on it.
 		const edges = [];
@@ -3096,7 +3096,7 @@ describe( 'autoLayout — hub bands', () => {
 			Y_STEP / 2
 		);
 
-		// Each slice gets its own band: no two in one stack share a row.
+		// Each slice gets its own band: two in one stack never share a row.
 		const stacks = {};
 		for ( const s of [ ...POLL_SLICES, ...VIEW_SLICES ] ) {
 			const poll = POLL_SLICES.includes( s );
@@ -3500,7 +3500,7 @@ describe( 'autoLayout — hub bands', () => {
 	// The debug sheet as a log-viewer realm draws it: two polled slices, so
 	// the widest fan-in is two and nothing is a hub. Each chain takes a column
 	// per node, on rows of its own.
-	it( 'bands a hubless sheet: no chain stretches to the far column', () => {
+	it( 'bands a hubless sheet: a chain never stretches to the far column', () => {
 		const edges = [
 			{ from: 'log-viewer:stream', to: 'log-viewer:view' },
 			{ from: '_heartbeat', to: '_http' },
@@ -3600,7 +3600,7 @@ describe( 'autoLayout — hub bands', () => {
 			);
 			return [ Math.min( ...ys ), Math.max( ...ys ) ];
 		} );
-		// A slice spans two rows at most, and no slice starts inside another.
+		// A slice spans two rows at most and never starts inside another.
 		for ( const [ lo, hi ] of spans ) {
 			expect( hi - lo ).toBeLessThanOrEqual( 1.5 * Y_STEP );
 		}
@@ -3723,7 +3723,7 @@ describe( 'autoLayout — hub bands', () => {
 			return [ Math.min( ...ys ), Math.max( ...ys ) ];
 		} );
 
-		// A slice spans two rows at most, and no slice starts inside another.
+		// A slice spans two rows at most and never starts inside another.
 		for ( const [ lo, hi ] of spans ) {
 			expect( hi - lo ).toBeLessThanOrEqual( 1.5 * Y_STEP );
 		}
@@ -3992,7 +3992,7 @@ describe( 'autoLayout — a seat measures the half step its own move closes', ()
 		],
 	] )( 'steps no chain head onto a card of the next column', ( wires ) => {
 		// A head steps a step short of its follower's column, wherever its
-		// follower steps, so no card reaches past its own column's half step.
+		// follower steps, so a card never passes its own column's half step.
 		const { at } = laidOut( wires );
 		const ids = Object.keys( at );
 		const overlapping = ids.flatMap( ( a ) =>

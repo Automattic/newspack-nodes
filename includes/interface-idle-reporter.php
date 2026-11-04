@@ -35,8 +35,8 @@ interface Idle_Reporter {
 	 * `Worker_Base::should_continue()` folds every reporter in the graph, so one
 	 * null forbids the whole worker's exit. Answer null when the question is
 	 * unanswerable, and a timestamp when the node is merely empty: a reader
-	 * tailing a log nobody writes is idle, and reporting null there would hold
-	 * the process resident through every recycle.
+	 * tailing a log that is never written is idle, and reporting null there
+	 * would hold the process resident through every recycle.
 	 *
 	 * That scan runs at most once a second, so a `stat` is affordable here.
 	 *

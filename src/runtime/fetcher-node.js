@@ -21,7 +21,7 @@ const RETRY_AFTER_S = 15;
  *
  * A write is never re-asked — an unanswered one may already have applied — but
  * it must not sit here for ever either: a consumer reads the outbox to know
- * what it is still waiting for, and an ask nothing ever answers leaves a
+ * what it is still waiting for, and an ask that is never answered leaves a
  * spinner turning and a button disabled for the life of the page.
  */
 const ASK_EXPIRY_S = 120;
@@ -322,8 +322,8 @@ export class FetcherNode extends Node {
 
 	/**
 	 * Put one ask on the wire, addressed so its reply comes back naming it, and
-	 * stamp when it went — the stamp is part of the send, so no caller can put
-	 * an ask on the wire without starting its window. `markLocal()` taints the
+	 * stamp when it went — the stamp is part of the send, so every ask a
+	 * caller puts on the wire starts its window. `markLocal()` taints the
 	 * message LOCAL and signs it here, because the node that MINTS a command is
 	 * what signs it (ADR-15).
 	 *

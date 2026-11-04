@@ -385,7 +385,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertSame( [ 'heron-4471' ], $group->display_targets() );
 	}
 
-	/** A source no partition but 0 reads is still recorded, so a p0 rebuild and the dump keep it. */
+	/** A source that only partition 0 reads is still recorded, so a p0 rebuild and the dump keep it. */
 	public function test_a_group_records_a_source_its_partition_does_not_read(): void {
 		Core::$var['partition'] = '3';
 		$offsets = Config::get_offsets_directory();

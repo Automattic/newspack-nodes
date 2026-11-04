@@ -91,8 +91,8 @@ class Community_Source_Demo_Node extends Node {
 	 * The `requests` entry names the TICK `handler`, and draws the Inspector's
 	 * TICK button and the REQUESTS row of `help Community_Source_Demo`.
 	 * `accepts_fill` stays true because the request itself arrives at `fill()`,
-	 * and no `commands` entry is declared, since a runtime trigger never becomes
-	 * a TM_COMMAND verb.
+	 * and the node declares no `commands` entry, since a runtime trigger never
+	 * becomes a TM_COMMAND verb.
 	 *
 	 * @return array<string,mixed> The base schema with this node's entries merged over it.
 	 */

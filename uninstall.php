@@ -7,9 +7,10 @@
  * WordPress defines WP_UNINSTALL_PLUGIN and runs this on plugin DELETE only,
  * never on deactivate, so deactivating and reactivating keeps every setting.
  *
- * The plugin's own entry point never ran here and no autoloader is
- * registered, so this file requires the classmap that resolves `Roles`, and
- * the cleanup helpers by path — plain functions a classmap cannot map.
+ * The plugin's own entry point never ran here and nothing has
+ * registered an autoloader, so this file requires the classmap that resolves
+ * `Roles`, and the cleanup helpers by path — plain functions a classmap cannot
+ * map.
  *
  * @package Newspack_Nodes
  */

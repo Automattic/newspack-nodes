@@ -57,7 +57,7 @@ class LayoutsCITest extends TestCase {
 		$this->assertNotEmpty( $schema['description'] );
 	}
 
-	/** No file reads as one saying auto: the canvas lays itself out. */
+	/** A missing file reads as one that says auto: the canvas lays itself out. */
 	public function test_get_answers_auto_when_file_missing(): void {
 		$result = VerbHarness::fire(
 			new Layouts_CI_Node(),
@@ -308,7 +308,7 @@ class LayoutsCITest extends TestCase {
 		$this->assertCount( 4, $result['positions'] );
 	}
 
-	/** A map placing no node is auto: saving one removes the file. */
+	/** A map that does not place any node is auto: saving one removes the file. */
 	public function test_save_of_an_empty_map_removes_the_layout(): void {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents( "{$this->base_dir}/layouts/empty-3309.layout", '{"positions":{"kea":[1.5,2.5]}}' );
@@ -319,7 +319,7 @@ class LayoutsCITest extends TestCase {
 		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/empty-3309.layout" );
 	}
 
-	/** A map whose every entry fails validation places no node either. */
+	/** A map whose every entry fails validation does not place any node either. */
 	public function test_save_of_a_map_left_empty_by_validation_removes_the_layout(): void {
 		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'dropped-3310', '{"bad node!":[1,2]}' ] );
 

@@ -115,7 +115,7 @@ class ShellIncludeTest extends TestCase {
 	}
 
 	public function test_include_resolves_a_topology_name_through_the_registry(): void {
-		// Distinct from every default: a class + name no other fixture uses.
+		// Distinct from every default: a class and name unused by any other fixture.
 		$this->write_tsl( 'wombat-base', "make_node Echo wombat-echo\n" );
 
 		$lines = $this->run_script( "include wombat-base\nmake_node Echo caller-echo\n" );

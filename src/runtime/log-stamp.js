@@ -113,7 +113,7 @@ function isStamp( stamp ) {
 /**
  * The registry name a `sources:` stamp carries, as PHP
  * `Log_Discovery::source_name()` reads it; null for any other stamp, or for
- * a string no stamp names.
+ * a string that is not the name of any stamp.
  *
  * @param {string} stamp A stamp.
  * @return {?string} The name after the prefix, or null.
@@ -166,7 +166,7 @@ const GLOBS = new Map();
 
 /**
  * Whether a subscription brings records stamped `stamp`: its own name
- * exactly, or a glob whose `*` matches within one stamp part, so no glob
+ * exactly, or a glob whose `*` matches within one stamp part, so a glob never
  * carries a broker reader's stamp. Every other character is literal, as in
  * PHP `Log_Discovery::carries()`, which
  * `tests/fixtures/subscription-carries.json` holds it to.

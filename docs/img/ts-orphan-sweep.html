@@ -14,8 +14,8 @@
 .callout .mono, .ok .mono { overflow-wrap:anywhere; }
 </style>
 <div class="sheet">
-<h1>The orphan sweep deletes only what no active topology declares, spares the last hour, and refuses to run on a set it could not build</h1>
-<p class="sub"><span class="mono">Log_Cleaner</span> runs in the minute reconcile pass and on <span class="mono">wp nodes gc</span>. A directory is an orphan only when nothing ACTIVE declares it, so deactivating a topology orphans its log and offsetlog directories and its SQLite Tables' files, and stopping its workers does not.</p>
+<h1>The orphan sweep deletes only what is not declared by any active topology, spares the last hour, and refuses to run on a set it could not build</h1>
+<p class="sub"><span class="mono">Log_Cleaner</span> runs in the minute reconcile pass and on <span class="mono">wp nodes gc</span>. A directory is an orphan only when it is not declared by any ACTIVE topology, so deactivating a topology orphans its log and offsetlog directories and its SQLite Tables' files, and stopping its workers does not.</p>
 
 <div class="grid">
 <div>
@@ -24,7 +24,7 @@
   <div class="step"><span class="n">2</span><span><b>Pick the buckets: first-level directories under two roots, and Table files.</b>
     <span class="buckets">
       <span class="bk"><b>logs/</b><br>Swept only on a NON-empty set: an empty log set can mean the producer filter has not run yet, and sweeping then would delete a live firehose.</span>
-      <span class="bk"><b>offsets/</b><br>Swept even on an empty set: only topologies declare offsetlogs, so empty means none is active and no consumer holds a cursor.</span>
+      <span class="bk"><b>offsets/</b><br>Swept even on an empty set: only topologies declare offsetlogs, so empty means every offsetlog is inactive and every cursor is orphaned.</span>
       <span class="bk"><b>tables/*.sqlite</b><br>Swept even on an empty set: only topologies declare a SQLite Table. A database goes with its <span class="mono">-wal</span> and <span class="mono">-shm</span>, journals first.</span>
     </span></span></div>
   <div class="dn">↓</div>
@@ -40,16 +40,16 @@
 <div class="side">
   <div class="callout">
     <h4>Two degraded inputs skip the sweeps</h4>
-    <p>An active topology that will not read: a name in the <span class="mono">topologies</span> config no <span class="mono">.tsl</span> resolves, or a <span class="mono">.tsl</span> whose include tree fails. <span class="mono">Bootstrap::active_topologies()</span> names each, and the sweep raises it before any delete: <span class="mono">wp nodes gc</span> fails naming it, the reconcile pass raises it from its <span class="mono">retention</span> step, and <span class="mono">dump_cleanup</span> raises it too. <span class="mono">dump_graph</span>'s <span class="mono">logs[]</span> still lists every readable topology's logs and names the broken one under <span class="mono">unreadable</span>.</p>
-    <p>A producer template landing under no directory beneath the logs root is quieter: one rate-limited <span class="mono">Log_Cleaner: skipping sweep: …</span> line on stderr, while <span class="mono">wp nodes gc</span> still prints <span class="mono">Success</span>, <span class="mono">dump_cleanup</span> returns an EMPTY <span class="mono">expected_basenames</span> with every directory listed as an orphan, and <span class="mono">dump_graph</span>'s <span class="mono">logs[]</span> comes back empty. Read that as the GC refusing to run, never as a list to act on.</p>
+    <p>An active topology that will not read: a <span class="mono">topologies</span> config name that does not resolve to a <span class="mono">.tsl</span>, or a <span class="mono">.tsl</span> whose include tree fails. <span class="mono">Bootstrap::active_topologies()</span> names each, and the sweep raises it before any delete: <span class="mono">wp nodes gc</span> fails naming it, the reconcile pass raises it from its <span class="mono">retention</span> step, and <span class="mono">dump_cleanup</span> raises it too. <span class="mono">dump_graph</span>'s <span class="mono">logs[]</span> still lists every readable topology's logs and names the broken one under <span class="mono">unreadable</span>.</p>
+    <p>A producer template that does not land under any directory beneath the logs root is quieter: one rate-limited <span class="mono">Log_Cleaner: skipping sweep: …</span> line on stderr, while <span class="mono">wp nodes gc</span> still prints <span class="mono">Success</span>, <span class="mono">dump_cleanup</span> returns an EMPTY <span class="mono">expected_basenames</span> with every directory listed as an orphan, and <span class="mono">dump_graph</span>'s <span class="mono">logs[]</span> comes back empty. Read that as the GC refusing to run, never as a list to act on.</p>
   </div>
   <div class="callout">
     <h4>Victim: <span class="mono">--force</span> and the delayed-jobs cursor</h4>
-    <p><span class="mono">offsets/jobdelay-sweep.p0</span> is created by PHP and declared by no <span class="mono">.tsl</span>; the producer filter protects <span class="mono">logs/jobdelay.p0/</span> alone. Each sweep's checkpoint keeps it inside the hour, but <span class="mono">--force</span> removes it, and the next sweep starts at the head of <span class="mono">jobdelay.p0</span> and re-delivers every entry the log retains: delayed jobs and in-flight retry backoffs run again. Renaming the reader id by hand does the same.</p>
+    <p><span class="mono">offsets/jobdelay-sweep.p0</span> is created by PHP and is not declared in any <span class="mono">.tsl</span>; the producer filter protects <span class="mono">logs/jobdelay.p0/</span> alone. Each sweep's checkpoint keeps it inside the hour, but <span class="mono">--force</span> removes it, and the next sweep starts at the head of <span class="mono">jobdelay.p0</span> and re-delivers every entry the log retains: delayed jobs and in-flight retry backoffs run again. Renaming the reader id by hand does the same.</p>
   </div>
   <div class="callout">
     <h4>Victim: a Topic wider than 8 partitions</h4>
-    <p><span class="mono">Topic_Node</span> clamps <span class="mono">num_partitions</span> to at least 1 and no maximum, so a literal 32 writes 32 directories, while <span class="mono">Topology_Analyzer::declared_partition_count()</span> stops the declared count at 8. <span class="mono">Log_Cleaner::declared_log_dirs()</span> never hears of <span class="mono">foo.p8</span> and up, which are deleted once their hour of grace passes, and <span class="mono">resolved_node_dirs()</span> carries the same cap, so <span class="mono">Bootstrap::node_dirs()</span> hands a reader the first 8 alone. The <span class="mono">dir_template cannot expand to num_partitions</span> error fires only when a template produces FEWER directories. The <span class="mono">num_partitions</span> setting is bounded 1..8 for this reason; hold a hand-written <span class="mono">.tsl</span> literal to it.</p>
+    <p><span class="mono">Topic_Node</span> clamps <span class="mono">num_partitions</span> to at least 1 and sets no maximum, so a literal 32 writes 32 directories, while <span class="mono">Topology_Analyzer::declared_partition_count()</span> stops the declared count at 8. <span class="mono">Log_Cleaner::declared_log_dirs()</span> never hears of <span class="mono">foo.p8</span> and up, which are deleted once their hour of grace passes, and <span class="mono">resolved_node_dirs()</span> carries the same cap, so <span class="mono">Bootstrap::node_dirs()</span> hands a reader the first 8 alone. The <span class="mono">dir_template cannot expand to num_partitions</span> error fires only when a template produces FEWER directories. The <span class="mono">num_partitions</span> setting is bounded 1..8 for this reason; hold a hand-written <span class="mono">.tsl</span> literal to it.</p>
   </div>
 </div>
 </div>

@@ -679,8 +679,8 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * Run the handshake when this spoke has no session yet.
 	 *
 	 * A minter that cannot sign calls this rather than simply skipping its push.
-	 * Every minter refuses to queue without a session, so nothing else would ask
-	 * for one and both sides would sit still.
+	 * Every minter refuses to queue without a session, so without this call a
+	 * session would never be asked for, and both sides would sit still.
 	 */
 	public function ensure_session(): void {
 		if ( ! Command_Auth::has_session( $this->vault_id ) ) {

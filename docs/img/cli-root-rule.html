@@ -23,7 +23,7 @@
 </style>
 <div class="sheet">
 <h1>What each verb does when root runs it</h1>
-<p class="sub">Workers run as the web user and own every lock, IPC and segment file. Root is refused by two verbs and fails every write that flags a worker, so no root run reports a signal it never sent; <span class="mono">memcache flush</span> alone warns and carries on. The exception is <span class="mono">ingest</span>, which writes as root and leaves the damage for later.</p>
+<p class="sub">Workers run as the web user and own every lock, IPC and segment file. Root is refused by two verbs and fails every write that flags a worker, so a root run never reports a signal it did not send; <span class="mono">memcache flush</span> alone warns and carries on. The exception is <span class="mono">ingest</span>, which writes as root and leaves the damage for later.</p>
 
 <div class="tree">
   <svg viewBox="0 0 1052 130">
@@ -51,7 +51,7 @@
     <h3>Fail on the refused write</h3>
     <div class="verbs"><span>stop</span><span>restart</span><span>a settings save</span></div>
     <div class="line">refused to write {base}/locks/job-worker.p0.lock.d/stop as root</div>
-    <p>Every lock dir is offered its flag, then every refusal escapes together, naming each dir and flag, and the command exits non-zero. <span class="mono">stop</span> has already set the hold, so the fleet stays held with its workers still running; a settings save has already written its option row, and the error says no worker heard of it.</p>
+    <p>Every lock dir is offered its flag, then every refusal escapes together, naming each dir and flag, and the command exits non-zero. <span class="mono">stop</span> has already set the hold, so the fleet stays held with its workers still running; a settings save has already written its option row, and the error says the save reached no worker.</p>
   </div>
 
   <div class="branch card">

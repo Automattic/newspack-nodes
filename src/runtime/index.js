@@ -9,7 +9,7 @@
  * the rest off the list: adding a name here promises to keep it working for
  * every consumer pinned to a substrate tag.
  *
- * knip counts this file as an entry, so an export nothing imports raises no
+ * knip counts this file as an entry, so an unimported export raises no
  * finding. Removing a name needs a manual sweep of the sibling plugins.
  *
  * Node classes ship as classes. A consumer subclasses `Node`, hands its own

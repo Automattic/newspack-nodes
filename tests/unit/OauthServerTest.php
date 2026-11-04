@@ -302,7 +302,7 @@ final class OauthServerTest extends TestCase {
 		$this->assertSame( 201, Oauth_Server::register( $metadata, '198.51.100.7' )['status'], 'the budget is per address' );
 	}
 
-	/** Like the MCP door, a door no cache can meter is refused, never left open. */
+	/** Like the MCP door, a door that cannot be metered by any cache is refused, never left open. */
 	public function test_an_unmetered_registration_is_refused(): void {
 		Core::$memd = null;
 

@@ -1,17 +1,17 @@
 /**
- * The unnamed node every console send passes on its way to the `_shell` Tap
- * and the interpreter behind it: the Shell's statements, the invoke gesture's
- * mints and the Compose modal's messages alike. It carries the two
- * outbound-only concerns that belong to the message rather than to the React
- * caller: refusing a send addressed at a worker while no SSE session is up to
- * carry the reply back, and announcing each message it forwards, which is how
- * the Reset Graph chip sees every structural edit whoever minted it.
+ * The unnamed node every console send passes on its way to the `_shell` Tap and
+ * the interpreter behind it: the Shell's statements, the invoke gesture's mints
+ * and the Compose modal's messages alike. It carries the two outbound-only
+ * concerns that belong to the message rather than to the React caller: refusing
+ * a send addressed at a worker while there is no SSE session to carry the reply
+ * back, and announcing each message it forwards, which is how the Reset Graph
+ * chip sees every structural edit whoever minted it.
  *
  * Both are message-level, so they belong downstream of the mint rather than in
  * the caller — and both would be wrong on anything a message could be
  * ADDRESSED to. Namelessness is what enforces that: the gate never enters the
- * registry, so no TO path resolves to it and a host holding the reference is
- * the only way in (ADR-7).
+ * registry, so a TO path never resolves to it, and a host holding the
+ * reference is the only way in (ADR-7).
  *
  * The hooks arrive as callbacks the host assigns, not as imports, because the
  * SSE predicate and the dirty tap belong to the console and reaching back for
@@ -24,8 +24,8 @@ import { Node } from '../../runtime/node';
 import { TO, VALUE } from '../../runtime/message';
 
 /**
- * Why a send at a worker was refused while no SSE session is up: the one text
- * the console's gate refusal and the Inspector's gestures both report.
+ * Why a send at a worker was refused while there is no SSE session: the one
+ * text the console's gate refusal and the Inspector's gestures both report.
  *
  * @return {string} The refusal, translated when called.
  */
@@ -118,8 +118,8 @@ export class OutgoingGateNode extends Node {
 	 * Declare the gate's shape for anything reflecting on the class: no
 	 * positional arguments, no verbs, and no output port, because it forwards
 	 * to its `sink` and stamps no target. `Hidden` states the exclusion the
-	 * palette already gets from the class's absence from `includeNodes` — a
-	 * node nothing can address is a node no TSL line should be able to name.
+	 * palette already gets from the class's absence from `includeNodes` — an
+	 * unaddressable node is a node a TSL line should never be able to name.
 	 *
 	 * @return {Object} The node schema.
 	 */

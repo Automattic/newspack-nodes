@@ -290,7 +290,7 @@ with it.
 
 ## The version gap
 
-![A timeline in three rows across substrate releases 2.41.0, 2.55.0 and 2.57.0. The substrate row shows locate_by's signature gaining an optional $wanted, the key set that bounds its index walk, defaulting to an empty array at 2.41.0, a bridge that reads nothing, and losing the default at 2.55.0. The consumer row shows event-logger-nodes' pin lagging until its next bump, then declaring version_at_least 2.56.0. The stale-call row shows a one-argument caller getting an empty result inside the window and an ArgumentCountError past it, with an arrow from the consumer's floor back to the retirement: the family's only caller has its floor past 2.41.0, so no build can reach the one-argument form and the bridge is out; inside the window the batch read invoked the backing bare, so a throw there was a 500. Two cards below cover the floor mechanism, its method_exists guard and check-substrate-floor.sh as a lower bound, and the degrade-then-retire rule for a new parameter.](img/st-version-gap.png)
+![A timeline in three rows across substrate releases 2.41.0, 2.55.0 and 2.57.0. The substrate row shows locate_by's signature gaining an optional $wanted, the key set that bounds its index walk, defaulting to an empty array at 2.41.0, a bridge that reads nothing, and losing the default at 2.55.0. The consumer row shows event-logger-nodes' pin lagging until its next bump, then declaring version_at_least 2.56.0. The stale-call row shows a one-argument caller getting an empty result inside the window and an ArgumentCountError past it, with an arrow from the consumer's floor back to the retirement: the family's only caller has its floor past 2.41.0, so a build can never reach the one-argument form and the bridge is out; inside the window the batch read invoked the backing bare, so a throw there was a 500. Two cards below cover the floor mechanism, its method_exists guard and check-substrate-floor.sh as a lower bound, and the degrade-then-retire rule for a new parameter.](img/st-version-gap.png)
 
 The substrate ships before its consumers, by necessity: a consumer pins a
 substrate tag, so the tag has to exist first. The window where a host runs the
@@ -321,11 +321,11 @@ A change to a name above lands in [upgrading.md](upgrading.md) in the same
 commit as its CHANGELOG entry. What the list buys is a reference: a consumer
 builds against prose instead of against the substrate's source.
 
-It buys neither stillness nor an alias. No file in the tree carries
+It buys neither stillness nor an alias. The tree carries no
 `@deprecated`: a hook, a CLI verb or a TSL node type is renamed or removed
 with no alias and no shim, and its upgrading.md entry says so outright. The
 three fail differently. A removed CLI target is refused by name and a renamed
-TSL node type resolves no class at load; the hook is the quiet one — a
+TSL node type fails to resolve a class at load; the hook is the quiet one — a
 subscriber still on the old name is never called, and nothing says so.
 
 A constructor argument or a route's required capability moves the same way, in
@@ -339,6 +339,6 @@ free, and earns a CHANGELOG line rather than an upgrading.md entry.
 The numbering is semantic-versioning-shaped: patch is fixes, minor is additive,
 and a major is a break too broad to migrate one entry at a time: a rule that
 reaches every caller at once, such as the signature every command sent to
-`/command` carries, which no per-name note can cover. A minor may still move a
+`/command` carries, which a per-name note cannot cover. A minor may still move a
 frozen name, which is why the thing to read is upgrading.md, not the version
 number.

@@ -56,12 +56,12 @@ const NO_USER_NODES = new Set();
  * and the Compose modal through the Shell's tokenizer — so arguments arrive
  * as a token array; any other shape reads as no arguments.
  *
- * Three forms name no node. The wiring verbs are not in either set, and
+ * Three forms do not name a node. The wiring verbs are not in either set, and
  * their first token is a node that already exists — connecting two nodes
  * creates neither. `remove_node -a <regex>` removes by pattern rather than by
  * name. `remove_node` also takes further names after the first, and only the
- * first comes back; the rest stay in the console-minted set, where they match
- * no live node and so cannot hold the chip on.
+ * first comes back; the rest stay in the console-minted set, where they do not
+ * match a live node and so cannot hold the chip on.
  *
  * @param {string}   verb The dispatched verb.
  * @param {string[]} args Its arguments.

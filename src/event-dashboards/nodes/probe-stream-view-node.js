@@ -26,7 +26,7 @@ export const BUCKET_S = 180;
 
 /**
  * One row's samples of one key over one `BUCKET_S` window; the row is the
- * worker that swept them, or `''` for a FROM naming no worker.
+ * worker that swept them, or `''` for a FROM without a worker.
  *
  * @typedef {{start:number,worker:string,f:Object<string,Tally>}} Bucket
  */
@@ -34,7 +34,7 @@ export const BUCKET_S = 180;
 /**
  * The buckets a snapshot has handed out. A fold copies one of these before
  * changing it, so a published snapshot never changes under React, while a
- * bucket no snapshot has seen folds in place.
+ * bucket the snapshots have never seen folds in place.
  *
  * @type {WeakSet<Bucket>}
  */
@@ -109,7 +109,8 @@ function copyTallies( f ) {
  *
  * @param {Array<Bucket>} buckets One key's buckets.
  * @param {Array<string>} fields  The fields to total.
- * @return {Object<string,{sum:number,max:number}>} Per field; 0 and 0 for a field no bucket carries.
+ * @return {Object<string,{sum:number,max:number}>} Per field; 0 and 0 for a
+ *         field the buckets never carry.
  */
 export function bucketTotals( buckets, fields ) {
 	const out = Object.fromEntries(
@@ -437,8 +438,8 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * An entry's buckets, each row's in turn and in no order within it: a
-	 * fresh array of buckets no later fold changes, each marked published.
+	 * An entry's buckets, each row's in turn and in no order within it: a fresh
+	 * array of buckets that a later fold never changes, each marked published.
 	 *
 	 * @param {Object} c The entry.
 	 * @return {Array<Bucket>} Its buckets.
@@ -467,7 +468,7 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * Cancel a pending trailing flush before teardown, so no publish fires
+	 * Cancel a pending trailing flush before teardown, so a publish never fires
 	 * into an unmounted tree, then hand off to the base.
 	 *
 	 * @return {void}

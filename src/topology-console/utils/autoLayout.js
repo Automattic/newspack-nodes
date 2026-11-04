@@ -27,10 +27,10 @@
  * on the row nearest the canvas's middle, clear of every hub's column and of
  * any card beside it showing an unwired port; failing both, the same rooms a
  * stack may still grow into, down to the square's height; and opens a stack
- * only when none fits. So a small block sits by the fan it fits beside, not in
- * the corner under it, nor in the column a hub's fan-in converges on, and
- * widens the canvas no sooner than it would have stacked. An edgeless node is a
- * block of one.
+ * only when it fits none of them. So a small block sits by the fan it fits
+ * beside, not in the corner under it, nor in the column a hub's fan-in
+ * converges on, and widens the canvas no sooner than it would have stacked. An
+ * edgeless node is a block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
  * source starts in column 0, a true sink seats two columns past its deepest
@@ -50,7 +50,7 @@
  * rows such a wire is drawn across. A source whose successors all sit in one
  * column, two or more columns on, has a column to choose, so its wires take
  * no placeholder: `seatSources` seats it inside its band, moving right only
- * where no card of the middle tier sits between it and what it feeds, and
+ * where the middle tier has no card between it and what it feeds, and
  * otherwise keeping its band's first column on a row the band cuts open for
  * it; then again once its block is laid out. Where that column lies left of
  * the anchor, it waits there for the row spread, so it straddles a card
@@ -96,7 +96,7 @@
  * the first of them sits, the cards between them moved past it. Left of the
  * anchor, a card with a wire running past the next column seats level with
  * it, so the long wire runs flat past the cards it crosses and the short one
- * bends; a card with none, alone in fanning into targets no late source
+ * bends; a card with none, alone in fanning into targets a late source never
  * feeds, seats between the first two of them.
  */
 
@@ -196,8 +196,8 @@ export function snapClusterDelta( origin, dx, dy ) {
  * the left-most column.
  *
  * Hand it only the nodes currently on the canvas: an entry left behind by a
- * deleted node would tuck new cards underneath a card nobody can see. An empty
- * or missing map yields the origin cell.
+ * deleted node would tuck new cards underneath a card that is not on the
+ * canvas. An empty or missing map yields the origin cell.
  *
  * @param {?Object<string,{x: number, y: number}>} positions Node id to position.
  * @return {{x: number, y: number}} The new node's position.
@@ -328,7 +328,7 @@ const HUB_MIN_FAN_IN = 4;
 const HUB_MEDIAN_FACTOR = 3;
 
 /**
- * The slot of a card no band bounds: every row.
+ * The slot of a card without a bounding band: every row.
  *
  * @type {Readonly<[number, number]>}
  */
@@ -344,7 +344,7 @@ const SLICE_MIN = 3;
 const SLICE_MAX = 8;
 
 /**
- * Longest path to every node, walking `next` from the nodes nothing enters.
+ * Longest path to every node, walking `next` from nodes without inbound wires.
  *
  * Kahn's algorithm over `next`, so a node's value counts the edges on the
  * longest chain reaching it. Swapping the two arguments walks the graph the
@@ -582,7 +582,8 @@ function* rowsOutward( from, limit = Infinity ) {
  * @param {number}                   from    The row to search out from.
  * @param {( r: number ) => boolean} ok      Whether a row will do.
  * @param {number}                   [limit] Half-row steps to try each way.
- * @return {number|undefined} The row, or undefined when none within the limit does.
+ * @return {number|undefined} The row, or undefined when every row within the
+ *                            limit fails `ok`.
  */
 const nearestRow = ( from, ok, limit = Infinity ) => {
 	for ( const r of rowsOutward( from, limit ) ) {
@@ -806,7 +807,7 @@ const wireRows = ( run, left, fromRow, toRow ) =>
 
 /**
  * The rows `wireRows` gives a wire over a card, from the rise fractions
- * `riseOver` gives for the card's column, which no row moves.
+ * `riseOver` gives for the card's column, which a row never moves.
  *
  * @param {[number, number]} rise    The fractions at the card's two edges.
  * @param {number}           fromRow The source's row.
@@ -896,7 +897,7 @@ const cardsByColumn = ( ids, col ) => {
  *
  * A nudge carries the card `followerOf` names for the mover — the card only
  * it feeds, from the column before — onto the same row wherever that row is
- * clear for it, and on down the chain, so no nudge bends a chain.
+ * clear for it, and on down the chain, so a nudge never bends a chain.
  *
  * @param {Array<string>}                                ids               The cards to move.
  * @param {Array<[string, string]>}                      wires             The through wires, as `[from, to]`.
@@ -1075,11 +1076,11 @@ const clearWires = (
  * it feeds that is not a hub, and right of any hub it feeds from further left, so
  * no wire of its runs backward but one into a hub. The candidates are its
  * current seat and each column in that range, at rows within `SEAT_ROWS` of
- * the midpoint of what it feeds. A seat is clear when no card sits within a row of
- * it in its column, no other wire's span covers it, each of its own wires
+ * the midpoint of what it feeds. A seat is clear when its column holds no card
+ * within a row of it, every other wire's span misses it, each of its own wires
  * passes no card in the columns between, and it is not PARKED: right of the
- * column its band gave it, no card feeding none of what it feeds sits between
- * the seat and that midpoint, so a source never moves right to tuck behind
+ * column its band gave it, every card between the seat and that midpoint
+ * shares a target with it, so a source never moves right to tuck behind
  * the middle tier with its wire rising back past a card. A seat costs the
  * rows it sits off that midpoint plus a quarter per column of wire beyond the
  * shortest, and the cheapest clear one wins, the largest fans choosing first.
@@ -1497,7 +1498,7 @@ const componentsOf = ( ids, succ, pred ) => {
 
 /**
  * The id of a long wire's placeholder in one column it crosses, led by a NUL
- * no node id carries, so it never names a card.
+ * that node ids never carry, so it never names a card.
  *
  * @param {string} from The wire's source.
  * @param {string} to   The wire's sink.
@@ -1605,13 +1606,12 @@ const soleFollower = ( succ, pred, col ) => ( id ) => {
  * Bring each chain a stretched sink dragged right back beside its feeders.
  *
  * A card sits in the column right after the cards feeding it. One that feeds
- * others and sits further right, every card it feeds fed by it alone and
- * seated in the column after it, moves left with all of them until it is
- * there, each keeping its row, wherever no other card sits within a row of
- * where one lands. A late source chooses its own column, so it holds no card
- * back, and a pinned card holds the column its pin asks for. A sink stays
- * where it sits unless its feeder moves: its column is the seat the
- * layering gives it.
+ * others and sits further right, every card it feeds fed by it alone and seated
+ * in the column after it, moves left with all of them until it is there, each
+ * keeping its row, wherever every other card sits more than a row from where
+ * one lands. A late source chooses its own column, so it holds no card back,
+ * and a pinned card holds the column its pin asks for. A sink stays where it
+ * sits unless its feeder moves: its column is the seat the layering gives it.
  *
  * @param {Array<string>}                                                            ids    The seated cards.
  * @param {{succ: Object<string,Array<string>>, pred: Object<string,Array<string>>}} inBand The band's own wires.
@@ -1744,8 +1744,9 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 	}
 	// @longform The two furthest seats among each feeder's successors, so a
 	// sink reads one number per feeder rather than re-walking every sibling:
-	// one feeder of k sinks costs O(k), not O(k²), and no argument list grows
-	// with the fan-out. The runner-up covers the sink that IS the furthest.
+	// one feeder of k sinks costs O(k), not O(k²), and an argument list
+	// never grows with the fan-out. The runner-up covers the sink that IS the
+	// furthest.
 	/** @type {Object<string,{first: number, firstId: ?string, second: number}>} */
 	const furthest = {};
 	for ( const p of ids ) {
@@ -1770,7 +1771,7 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		if ( isSource( id ) ) {
 			col[ id ] = 0;
 		} else if ( isSink( id ) ) {
-			// Seats read off `depth`, so no column depends on the id order.
+			// Seats read off `depth`, so the id order never sets a column.
 			let peer = -Infinity;
 			for ( const p of pred[ id ] ) {
 				const f = furthest[ p ];
@@ -2003,8 +2004,8 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		}
 	}
 	// @longform The fans as the late sources wait: the cards each card fans
-	// into, and the cards fanning into what no other card fans into and no
-	// late source feeds, whose seat would take the row the fan leaves.
+	// into, and the cards that alone fan into targets a late source never
+	// feeds, whose seat would take the row the fan leaves.
 	const waiting = { ...sweptCol, ...waits };
 	/** @type {Map<string, Array<string>>} */
 	const fans = new Map();
@@ -2407,10 +2408,10 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
  * A band is one weakly-connected component of the graph minus its backbone.
  * Each band picks the hub it is wired to that has the fewest feeder bands —
  * the publication's own hub over the fleet-wide one — and the bands that
- * picked one hub form its group, with the hub beside them. A hub no band
- * picked, because every band wired to it had a closer hub, attaches to the
+ * picked one hub form its group, with the hub beside them. A hub that went
+ * unpicked, because every band wired to it had a closer hub, attaches to the
  * group holding most of its feeders; a bridge, whose every neighbour is a
- * hub, follows the first of them. A band wired to no hub is a block of its own.
+ * hub, follows the first of them. A hubless band is a block of its own.
  * Blocks a wire joins are then one block: each is packed on its own, so a wire
  * crossing between two of them has nothing holding its direction.
  *
@@ -2466,7 +2467,7 @@ const blocksOf = ( ids, succ, pred, hubs ) => {
 		block( home ).bands.push( band );
 		groupOfHub[ home ] = home;
 	} );
-	// A hub nobody picked goes where most of its feeder bands went.
+	// An unpicked hub goes where most of its feeder bands went.
 	for ( const h of backbone ) {
 		if ( groupOfHub[ h ] || ! hubs.has( h ) ) {
 			continue;
@@ -2773,7 +2774,7 @@ const overLabel = ( w, id ) => `${ wireLabel( w ) } over ${ id }`;
  * Each card's half column with every chain's head stepped into the half step
  * before its follower's column: a card that alone feeds its one successor
  * sits a column's step before that column, so a half step opening between
- * their columns opens before the chain, not inside it, and no card reaches
+ * their columns opens before the chain, not inside it, and a card never reaches
  * past its own column's half step. A card stays where its step would run a
  * wire over a card the block drawn column by column keeps clear.
  *
@@ -2892,14 +2893,14 @@ const drawingCost = ( at, succ, index ) =>
  * the stacks leave inside the canvas, in the leftmost columns that fit and on
  * the row nearest the canvas's middle, then for the first of those two rooms as
  * deep as a stack may grow — the square's height, which a run's last block may
- * pass — and opens a stack only when none fits, so a small block sits beside
- * the rows a tall block's feeders leave before it widens the canvas or drops
- * into the corner under the tall block, and opens no stack where it would have
- * stacked. Room needs no card in the column either side to show it an unwired
- * port, nor a wire to run through that column, across its rows, and every wire
- * of a block lands inside it, so the room it takes crosses nothing. A small
- * graph fills one stack. Blocks pack in half columns, by the width each draws:
- * a card takes two, and each half step a block opens takes one more.
+ * pass — and opens a stack only when it fits none of them, so a small block
+ * sits beside the rows a tall block's feeders leave before it widens the canvas
+ * or drops into the corner under the tall block, and opens no stack where it
+ * would have stacked. Room needs no card in the column either side to show it
+ * an unwired port, nor a wire to run through that column, across its rows, and
+ * every wire of a block lands inside it, so the room it takes crosses nothing.
+ * A small graph fills one stack. Blocks pack in half columns, by the width each
+ * draws: a card takes two, and each half step a block opens takes one more.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -3608,10 +3609,10 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// each column it covers holds, above it or below, in the leftmost columns
 	// `within` admits that fit, nearest the canvas's middle row. Every column
 	// it covers must already hold something, so it never lands in the gap
-	// column between two stacks, and no hub may own one, where a card would
+	// column between two stacks, and a hub may not own one, where a card would
 	// read as one more wire into the hub. The column either side must show it
-	// no unwired port and no wire across its rows, so no card beside it reads
-	// as wired to it.
+	// no unwired port and no wire across its rows, so a card beside it never
+	// reads as wired to it.
 	const roomFor = ( b, width, within, grow ) => {
 		const mid = ( rows - 1 ) / 2;
 		const span = [ 0, b.height - 1 ];
@@ -3895,7 +3896,7 @@ const countCrossings = ( segs, visit ) => {
 		for ( let h = g; h < groups.length; h++ ) {
 			const b = segs[ groups[ h ][ 0 ] ];
 			const lo = b.p.x;
-			// Groups run in order of left end, so no later one shares a span.
+			// Groups run by left end, so a later one never shares a span.
 			if ( lo >= a.q.x ) {
 				break;
 			}

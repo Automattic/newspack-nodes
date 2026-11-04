@@ -113,8 +113,8 @@ afterEach( () => {
 } );
 
 describe( 'useCommandOnce', () => {
-	// The hook takes the CI mount and builds the egress path, so no call site
-	// spells it, and names its own nodes after the verb.
+	// The hook takes the CI mount and builds the egress path, so a call site
+	// never spells it, and names its own nodes after the verb.
 	it( 'builds its egress path and node names from the group and CI mount', async () => {
 		renderSave();
 		await act( async () => {} );
@@ -155,7 +155,7 @@ describe( 'useCommandOnce', () => {
 	} );
 
 	// No default group: a one-shot names the surface its command belongs to.
-	it( 'refuses a send naming no group', () => {
+	it( 'refuses a send without a group', () => {
 		console.error = () => {};
 		expect( () =>
 			renderHook( () =>
@@ -781,7 +781,7 @@ describe( 'useCommandOnce', () => {
 	} );
 
 	// A read is the opposite: opening one topology and then another must not
-	// fetch the first, whose answer nobody wants any more.
+	// fetch the first, whose answer is no longer wanted.
 	// @longform Three admin screens each kept a `busy` flag per row, flipped on
 	// the click and cleared by the answer — a re-derivation of the outbox this
 	// hook already keeps, in the one place that cannot get it wrong. The screen
@@ -985,7 +985,7 @@ describe( 'useCommandOnce', () => {
 	// A Reset Graph rebuilds the result node, whose `seq` starts again at 1
 	// while the hook's watermark survives in a ref. Reading the restart as
 	// "already seen" would swallow every reply until the count caught up — and
-	// on a promise nobody ever settles.
+	// on a promise that never settles.
 	it( 'keeps answering after a rebuild restarts the reply count', async () => {
 		const onDone = jest.fn();
 		const { result } = mount( {

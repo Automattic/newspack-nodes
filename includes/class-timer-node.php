@@ -13,8 +13,8 @@ namespace Newspack_Nodes;
 /**
  * Fires on a cadence, in one of two scheduling modes.
  *
- * An interval below the Router's tick takes an own `Event_Framework` slot. No
- * interval, or one at least as long as that tick, registers the node on
+ * An interval below the Router's tick takes an own `Event_Framework` slot. A
+ * missing interval, or one at least as long as that tick, registers the node on
  * `_router`'s TIMER channel instead and rides the tick the graph already pays
  * for, `fire_cb()` throttling down to the cadence the node asked for.
  * `set_timer()` picks between the two, `timer_mode()` reports which is live,
@@ -109,9 +109,9 @@ class Timer_Node extends Node {
 	 * Start disarmed: no slot, no Router registration, `interval_ms` 0.
 	 *
 	 * Arming belongs to `set_timer()`, never to a constructor. Topic and
-	 * Partition build in request scope, where no drain loop runs (ADR-5), so a
-	 * constructor-armed timer registers a slot that never fires and nothing says
-	 * so.
+	 * Partition build in request scope, where a drain loop never runs (ADR-5),
+	 * so a constructor-armed timer registers a slot that never fires and
+	 * nothing says so.
 	 */
 	public function __construct() {
 		parent::__construct();
@@ -211,10 +211,10 @@ class Timer_Node extends Node {
 	 * A timer with no target sinking straight into a `Command_Interpreter_Node`
 	 * emits nothing: that pairing is a bare `make_node Timer` at the REPL, where
 	 * `make_node` sinks the new node into the interpreter, and every tick would
-	 * print a line nobody asked for. It still notifies, so a FIRE subscriber
-	 * works either way.
+	 * print a line that was never asked for. It still notifies, so a FIRE
+	 * subscriber works either way.
 	 *
-	 * @throws \RuntimeException When the node has to emit and no sink is wired.
+	 * @throws \RuntimeException When the node has to emit and has no sink.
 	 */
 	protected function fire(): void {
 		if ( '' !== $this->target || ! ( $this->sink instanceof Command_Interpreter_Node ) ) {
@@ -337,9 +337,9 @@ class Timer_Node extends Node {
 	}
 
 	/**
-	 * The Router's own tick cadence, or `Router_Node::DEFAULT_TICK_MS` when no
-	 * Router is mounted or its tick is not yet armed — a REPL or request-scope
-	 * graph still has to resolve a mode.
+	 * The Router's own tick cadence, or `Router_Node::DEFAULT_TICK_MS` when the
+	 * graph has no Router mounted or its tick is not yet armed — a REPL or
+	 * request-scope graph still has to resolve a mode.
 	 *
 	 * The hitchhike threshold and the fire throttle both compare against THIS
 	 * rather than a hardcoded 1000. A Router ticking slower than the default

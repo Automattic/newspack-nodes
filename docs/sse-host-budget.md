@@ -50,7 +50,7 @@ it.
 
 ## The arithmetic
 
-![Three rows of ten php-fpm children. With one node worker running, six streams and the worker leave about three children for pages, cron and the loopback; with four workers running, six streams and four workers leave none, so the next reader queues, and is refused with 429 when no child frees in time; with one slot reserved, browsers claim five and the sixth waits for the hub's pull. A bar chart below gives cache reads per second by open streams, 30 at one, 180 at the default six, 1,920 at the schema maximum of 64, from ten 100 ms ticks a second times the three reads in check(). A side card explains the per-identity share of three, and a note says six is a budget, not a target.](img/sse-host-arithmetic.png)
+![Three rows of ten php-fpm children. With one node worker running, six streams and the worker leave about three children for pages, cron and the loopback; with four workers running, six streams and four workers leave none, so the next reader queues, and is refused with 429 unless a child frees in time; with one slot reserved, browsers claim five and the sixth waits for the hub's pull. A bar chart below gives cache reads per second by open streams, 30 at one, 180 at the default six, 1,920 at the schema maximum of 64, from ten 100 ms ticks a second times the three reads in check(). A side card explains the per-identity share of three, and a note says six is a budget, not a target.](img/sse-host-arithmetic.png)
 
 The post's sizing goal is "always under 10 CPUs", and a stream spends more
 than a child. A worker holds a php-fpm child for its whole ~595-second life,
@@ -91,13 +91,13 @@ to the default `Settings_Schema` declares
 rather than to zero. Read unguarded, an operator's blank entry would collapse
 the host cap to 1. `SSE_Out_Node` reads the other three straight through
 [`Config::value()`](../includes/class-config.php) with a zero fallback, so a blank `sse_idle_timeout` or
-`sse_max_lifetime` stops that close outright and a blank `sse_retry_ms` advertises no `retry`, leaving
+`sse_max_lifetime` stops that close outright and a blank `sse_retry_ms` does not advertise a `retry`, leaving
 the client on its own backoff.
 
 [`Bootstrap::register_rest_routes()`](../includes/class-bootstrap.php) installs the pool's four seams on
 `SSE_Out_Node` in the pass that registers the two routes, so a stream and its
 meter arrive together. Nothing else installs them, and with them left null
-`acquire` hands back an unmetered sentinel lease no cap binds.
+`acquire` hands back an unmetered sentinel lease that is not bound by any cap.
 
 ## What the client sees on a refusal or a lost slot
 
@@ -143,7 +143,7 @@ spoke will refuse the hub's pull, and the hub's view of that spoke goes stale
 until a slot frees.
 
 A hub that pulls with [`HTTP_Source_Node`](../includes/class-http-source-node.php) holds no slot at all: it
-fetches blocks over `/command`, which the pool never counts, and sends no `workers heartbeat`.
+fetches blocks over `/command`, which the pool never counts, and never sends a `workers heartbeat`.
 
 `sse_reserved_slots` holds slots back from browsers so a pull always finds one.
 It ships at 0, and a spoke sets 1. The reservation comes **out of**

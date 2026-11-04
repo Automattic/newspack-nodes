@@ -2,7 +2,7 @@
 #
 # Tests for scripts/pre-push, the shared hook, and this plugin's
 # pre-push.local. Each case runs the hook in a throwaway repository with npm,
-# node, python3 and docker stubbed, so no case reaches a container or the
+# node, python3 and docker stubbed, so a case never reaches a container or the
 # network. The hook-driven cases run again under /bin/bash when that is
 # another bash than PATH's, as macOS's 3.2 is.
 
@@ -56,7 +56,7 @@ if [[ -z "${HOOK_BASH:-}" ]]; then
 		|| bad "deferrable and AGENTS.md's list differ: $( diff <( echo "$declared" ) <( echo "$documented" ) | tr '\n' ' ' )"
 fi
 
-# A repository carrying the hook and a stub .local naming no real container.
+# A repository carrying the hook and a stub .local naming a fake container.
 # It sits four levels below $tmp, which the hook therefore reads as dndocker.
 repo="$tmp/dn/a/b/repo"
 mkdir -p "$repo/scripts" "$tmp/bin"
@@ -334,7 +334,7 @@ out="$( STUB_FAILING='run-coverage' STUB_LINES=5 push class-x.php )"; rc=$?
 	&& pass "a failing coverage suite shows its last 3 lines and names its mktemp log" \
 	|| bad "the coverage failure lost its tail or log: $out"
 
-# (G) a name no gate answers to fails the push before any gate runs.
+# (G) a name that does not match any gate fails the push before any gate runs.
 write_local 'DEFERRED_GATES=( lint:phpp )'
 out="$( push class-x.php )"; rc=$?
 [[ "$rc" -ne 0 ]] && pass "a push deferring lint:phpp fails" || bad "a push deferring lint:phpp passed: $out"
@@ -342,7 +342,7 @@ grep -q 'pre-push.local defers unknown gate lint:phpp' <<<"$out" \
 	&& pass "with the unknown-gate message" || bad "no unknown-gate message: $out"
 [[ -s "$calls" ]] && bad "after a gate ran: $( tr '\n' ' ' < "$calls" )" || pass "before any gate runs"
 
-# (H) a .local naming no list runs every gate.
+# (H) a .local without a list runs every gate.
 write_local
 out="$( push "${every_kind[@]}" )"; rc=$?
 [[ "$rc" -eq 0 ]] && ! grep -q 'deferred by' <<<"$out" \

@@ -163,8 +163,8 @@ class SessionsTest extends TestCase {
 	}
 
 	/**
-	 * A kept name carries no C0 or C1 control character and no DEL, so no
-	 * label or client name can drive the terminal that lists it.
+	 * A kept name carries no C0 or C1 control character and no DEL, so a
+	 * label or client name can never drive the terminal that lists it.
 	 */
 	public function test_a_kept_name_holds_no_control_character(): void {
 		$this->assertSame( 'Kea[2K 2J Desk', Sessions::clean_label( "Kea\x1b[2K \xC2\x9B2J Desk\x7F" ) );
@@ -209,7 +209,7 @@ class SessionsTest extends TestCase {
 		$this->assertNull( Command_Auth::load_session_record( $session['handle'] ) );
 	}
 
-	/** Revoking a grant's session ends the grant, so no refresh mints another. */
+	/** Revoking a grant's session ends the grant, so a refresh can never mint another. */
 	public function test_revoking_a_grant_session_revokes_its_grant(): void {
 		$grant  = Oauth_Store::open_grant(
 			[
@@ -314,7 +314,7 @@ class SessionsTest extends TestCase {
 		$this->assertSame( [], Sessions::listing() );
 	}
 
-	/** A session the index refused is revoked before the refusal: no live key goes unlisted. */
+	/** A session the index refused is revoked before the refusal: every live key stays listed. */
 	public function test_an_index_refusal_revokes_the_session_it_minted(): void {
 		$this->db->deny['INSERT INTO `wp_newspack_nodes_members`'] = 'Deadlock found 6613';
 

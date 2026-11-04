@@ -27,14 +27,14 @@
  *
  *   NODE — `__construct`, `arguments`, `fill`, `fire_cb`, `fire` (the node
  *     lifecycle in the order it runs), then the call-graph middle in
- *     topological order, then the methods no self-dispatch edge touches in
- *     source order, then `node_schema` last.
+ *     topological order, then the methods untouched by any self-dispatch edge,
+ *     in source order, then `node_schema` last.
  *
  *   GENERIC (every other class, and every trait) — `__construct`, then every
  *     remaining method in topological order.
  *
  * Topological order means a method is emitted only once EVERY caller of it
- * already is, so no caller ever prints below something it calls. A cycle stalls
+ * already is, so a caller never prints below something it calls. A cycle stalls
  * the sort, and the members left over fall through in source order.
  *
  * Member boundaries come from `token_get_all`, so a brace inside a string,
@@ -207,8 +207,8 @@ function last_ns_segment( string $name ): string {
  *
  * A namespaced name arrives as one `T_NAME_*` token rather than a run of
  * `T_STRING`s, so without those ids `extends \Newspack_Nodes\Job_Worker_Node`
- * reads as no parent at all, and a subclass whose own name lacks the `_Node`
- * suffix silently drops to the generic policy.
+ * reads as having no parent at all, and a subclass whose own name lacks the
+ * `_Node` suffix silently drops to the generic policy.
  *
  * @param int|null $id Token id, or null for a single-character token.
  * @return bool
@@ -380,9 +380,9 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
  * The prefix is `__construct`, `arguments`, `fill`, `fire_cb`, `fire`,
  * pre-placed in that order but still pulling their middle helpers in. The
  * middle is emitted in topological order, every callee below ALL its callers,
- * with ties broken by source order. A method no self-dispatch edge touches is
- * standalone and follows the middle in source order. A cycle stalls the sort,
- * and the methods left over fall through in source order.
+ * with ties broken by source order. A method untouched by any self-dispatch
+ * edge is standalone and follows the middle in source order. A cycle stalls the
+ * sort, and the methods left over fall through in source order.
  *
  * @param list<Token>  $toks    Every token in the file.
  * @param list<Member> $methods The class's methods, in source order.
@@ -444,12 +444,12 @@ function order_methods_node( array $toks, array $methods ): array {
  * GENERIC policy: `__construct`, then every remaining method in topological
  * order.
  *
- * A method is emitted only once EVERY caller of it already is, so no caller
- * ever prints below something it calls. The constructor is pre-placed and gates
- * nothing. Ties prefer, in order: the method a caller just freed, so a chain
- * stays together; then a public method that calls something, then any other
- * public method; then source order. A cycle stalls the sort, and the methods
- * left over fall through in source order.
+ * A method is emitted only once EVERY caller of it already is, so a caller
+ * never prints below something it calls. The constructor is pre-placed and
+ * gates nothing. Ties prefer, in order: the method a caller just freed, so a
+ * chain stays together; then a public method that calls something, then any
+ * other public method; then source order. A cycle stalls the sort, and the
+ * methods left over fall through in source order.
  *
  * @param list<Token>  $toks    Every token in the file.
  * @param list<Member> $methods The class's methods, in source order.
@@ -480,7 +480,7 @@ function order_methods_generic( array $toks, array $methods ): array {
 	}
 
 	// @longform Kahn: a method is emitted only once EVERY caller of it
-	// already is, so no caller can ever print below a method it calls.
+	// already is, so a caller can never print below a method it calls.
 	// Freed order breaks ties first, most recent winning: emitting a caller
 	// pulls in the callees it just released, so a chain stays together
 	// instead of yielding to an unrelated root that merely sorts earlier.

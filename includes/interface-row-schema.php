@@ -37,8 +37,8 @@ interface Row_Schema {
 	 * a list of `[ table, its column, own column ]` references, where its
 	 * column leads an index or the key there and the own column is this
 	 * table's `autoincrement` column or one-column key: a row is released
-	 * when a purge deletes rows naming it, and deleted once no row of any
-	 * table it lists names it. A released row's own deletion releases the
+	 * when a purge deletes rows naming it, and deleted once it is not named by
+	 * any row of any table it lists. A released row's own deletion releases the
 	 * rows it named in turn, so a release cascades down a chain of
 	 * references, and a chain may not return to a table on it. Every names
 	 * row is written in the batch of a row naming it, so a purge is the only
@@ -47,9 +47,10 @@ interface Row_Schema {
 	 * `ignore` hands back. `fts` lists the columns an FTS5 shadow,
 	 * `{table}_fts`, indexes, keyed by the `autoincrement` column; insert,
 	 * update and delete triggers keep it in step, a `set` included. `keep` is
-	 * `true` alone: the table purges no row, so nothing retains it and it
-	 * releases nothing, and it stands beside no `retain` or `retained_by`,
-	 * nor may another table be `retained_by` it. Its disk grows without bound.
+	 * `true` alone: the table purges no row, so it is not retained by any
+	 * other table and releases nothing, and it stands beside neither a `retain`
+	 * nor a `retained_by`, nor may another table be `retained_by` it. Its disk
+	 * grows without bound.
 	 *
 	 * @return array<string, array{
 	 *   columns: array<string,string>,

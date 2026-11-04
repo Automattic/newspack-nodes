@@ -27,7 +27,7 @@ namespace Newspack_Nodes;
  * `parked_at` kept, so a target that parks it again keeps its first park
  * time and `max_age_s` bounds the whole wait; the rest re-append before the
  * cursor commits. A delivery that throws is reported and its entry
- * re-appended, due again next sweep, so no delivery failure leaves
+ * re-appended, due again next sweep, so a delivery failure never leaves
  * `fire()`. Delivery is at least once.
  *
  * The queue is sized for low volume: 1 MiB segments, at most eight kept, and
@@ -127,8 +127,9 @@ final class Delay_Node extends Timer_Node {
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read the current ones.
 	 * @return list<string>
-	 * @throws \InvalidArgumentException When a dir names no `{partition}`, a token is
-	 *                                   mistyped, or `max_age_s` is below 1.
+	 * @throws \InvalidArgumentException When a dir does not name `{partition}`,
+	 *                                   a token is mistyped, or `max_age_s` is
+	 *                                   below 1.
 	 * @throws \RuntimeException When the queue's name is refused.
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -138,7 +139,7 @@ final class Delay_Node extends Timer_Node {
 		$values = $this->schema_values( $args );
 		foreach ( [ 'dir', 'offsets_dir', 'deadletter_dir' ] as $arg ) {
 			if ( ! Core::has_partition_token( self::written_in( $args, $arg ) ) ) {
-				$this->refuse_argument( "{$arg} names no " . Core::PARTITION_TOKEN . '; each worker sweeps a queue of its own' );
+				$this->refuse_argument( "{$arg} does not contain " . Core::PARTITION_TOKEN . '; each worker sweeps a queue of its own' );
 			}
 		}
 		if ( Core::as_int( $values['max_age_s'] ) < 1 ) {
@@ -172,7 +173,7 @@ final class Delay_Node extends Timer_Node {
 	 * Park a struct carrying a numeric `not_before`; drop anything else.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
-	 * @throws \LogicException When no arguments have built the queue.
+	 * @throws \LogicException When `arguments()` has not built the queue yet.
 	 */
 	public function fill( array $message ): void {
 		$value = $message[ Message::VALUE ];
@@ -469,13 +470,13 @@ final class Delay_Node extends Timer_Node {
 	/**
 	 * The queue `arguments()` built.
 	 *
-	 * @throws \LogicException When no arguments have built it.
+	 * @throws \LogicException When `arguments()` has not built it yet.
 	 */
 	private function queue(): Partition_Node {
 		return $this->queue ?? throw new \LogicException( \esc_html( "Delay {$this->name} has no queue; arguments() builds it" ) );
 	}
 
-	/** Seconds the cache keeps a status no sweep rewrites. */
+	/** Seconds the cache keeps a status after the last sweep rewrites it. */
 	protected function status_ttl(): int {
 		return 30 * DAY_IN_SECONDS;
 	}

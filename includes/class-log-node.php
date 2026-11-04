@@ -79,7 +79,8 @@ class Log_Node extends Partition_Node {
 	}
 
 	/**
-	 * A Log's segments hold bare VALUEs, so no record's head carries a stamp.
+	 * A Log's segments hold bare VALUEs, so a record's head never carries a
+	 * stamp.
 	 *
 	 * @param int $segment Segment id.
 	 * @return null Always.

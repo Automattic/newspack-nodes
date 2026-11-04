@@ -173,7 +173,7 @@ describe( 'Node.dropMessage', () => {
 		}
 	} );
 
-	it( 'prints a nameless response whole, since no response is signed', () => {
+	it( 'prints a nameless response whole, since responses are never signed', () => {
 		const n = new Node();
 		const spy = jest
 			.spyOn( n, 'printLessOften' )
@@ -396,8 +396,9 @@ describe( 'Node.dropMessage secret redaction', () => {
 /**
  * A message that was MINTED but never typed is a different failure from a naked
  * array with no TYPE at all — the first is our bug, the second is garbage on the
- * wire. TM_UNTYPED (a free high bit, matching no gate) tells them apart in the
- * audit; -1 could not, since as a bitmask it matches every type check there is.
+ * wire. TM_UNTYPED, a free high bit outside every gate, tells them apart in
+ * the audit; -1 could not, since as a bitmask it matches every type check
+ * there is.
  */
 describe( 'TM_UNTYPED', () => {
 	it( 'labels a minted-but-never-typed message TM_UNTYPED', () => {
@@ -427,7 +428,7 @@ describe( 'TM_UNTYPED', () => {
 		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain( 'TYPE_UNKNOWN' );
 	} );
 
-	it( 'matches no type gate — an untyped message is inert, not every type', () => {
+	it( 'fails every type gate — an untyped message is inert, not every type', () => {
 		const type = newMessage()[ TYPE ];
 		for ( const bit of [
 			TM_BYTESTREAM,

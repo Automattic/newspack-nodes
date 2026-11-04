@@ -160,7 +160,7 @@ describe( 'useCanvasLayout', () => {
 		} );
 
 		it( 'lays an untouched copy out again when the graph gains a node', () => {
-			// c extends the chain, so autoLayout seats it where no tuck would.
+			// c extends the chain: autoLayout seats it where a tuck would not.
 			const chain = {
 				nodes: [ { id: 'a' }, { id: 'b' }, { id: 'c' } ],
 				edges: [

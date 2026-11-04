@@ -247,7 +247,7 @@ describe( 'Inspector sidecars', () => {
 		).toBeNull();
 	} );
 
-	it( 'says a sidecar is gone when its name answers no row, linking back', () => {
+	it( 'says a sidecar is gone when its name matches no row, linking back', () => {
 		const onOpenNode = jest.fn();
 		const { container } = renderWithCatalog(
 			inspector( { sidecar: READER, onOpenNode } ),

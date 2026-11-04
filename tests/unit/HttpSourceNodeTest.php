@@ -395,7 +395,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 'HTTP 503 from aspen-7741', $status['last_error'] );
 	}
 
-	/** A broker no Vault entry names stays disconnected and writes no snapshot. */
+	/** A broker that is not named by any Vault entry stays disconnected and writes no snapshot. */
 	public function test_without_a_vault_entry_it_writes_no_status(): void {
 		$node = $this->broker( 'pull-aspen' );
 
@@ -952,7 +952,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'read_message' ], $names );
 	}
 
-	/** A file the spoke cannot find yet places a reader with no place at the offset named, under no invented generation. */
+	/** A file the spoke cannot find yet places a reader with no place at the offset named, without inventing a generation. */
 	public function test_an_absent_file_places_a_placeless_reader_at_its_offset(): void {
 		$this->seed_kestrel_spoke();
 		$php = new Capture_Sink_Node();
@@ -996,7 +996,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( '57:3334', $this->last_fetch_of( $http, 'sources:php' )[1] );
 	}
 
-	/** A block with bytes that names no segment cannot be placed: dropped, and its fetch settled as refused. */
+	/** A block with bytes that does not name a segment cannot be placed: dropped, and its fetch settled as refused. */
 	public function test_a_segmentless_block_with_bytes_is_refused(): void {
 		[ , $reader ] = $this->fetching_reader();
 		$errors = $this->capture_stderr();
@@ -1004,8 +1004,8 @@ class HttpSourceNodeTest extends TestCase {
 
 		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'adrift-6602' ), null, ':4404' ) );
 
-		$this->assertStringContainsString( 'names no segment', (string) $reader->fetch_stats()['refused'] );
-		$this->assertStringContainsString( 'names no segment', \implode( '', (array) $errors ) );
+		$this->assertStringContainsString( 'does not name a segment', (string) $reader->fetch_stats()['refused'] );
+		$this->assertStringContainsString( 'does not name a segment', \implode( '', (array) $errors ) );
 	}
 
 	/** A refused fetch waits a retry interval, but reports no end-of-log wait. */
@@ -1649,7 +1649,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertCount( 1, $this->catalog_asks( Core::node( 'pull-aspen:http-out' ) ) );
 	}
 
-	/** A partition owning no source builds no channel. */
+	/** A partition that does not own a source builds no channel. */
 	public function test_a_partition_owning_no_source_builds_no_channel(): void {
 		$this->seed_kestrel_spoke();
 		Core::$var['partition'] = '1';

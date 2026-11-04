@@ -213,19 +213,19 @@ final class RowTableNodeTest extends TestCase {
 			'a retained_by in the single shape' => [ static function ( array $t ): array {
 				$t['burrows']['retained_by'] = [ 'visits', 'burrow_id', 'id' ];
 				return $t;
-			}, 'burrows retained_by entry 0 (visits) is no [ table, column, own ] list: retained_by is a list of them' ],
+			}, 'burrows retained_by entry 0 (visits) is not a [ table, column, own ] list: retained_by is a list of them' ],
 			'a retained_by entry of two'       => [ static function ( array $t ): array {
 				$t['burrows']['retained_by'] = [ [ 'visits', 'burrow_id' ] ];
 				return $t;
-			}, 'burrows retained_by entry 0 (array) is no [ table, column, own ] list' ],
+			}, 'burrows retained_by entry 0 (array) is not a [ table, column, own ] list' ],
 			'a retained_by entry keyed by name' => [ static function ( array $t ): array {
 				$t['burrows']['retained_by'] = [ [ 'table' => 'visits', 'column' => 'burrow_id', 'own' => 'id' ] ];
 				return $t;
-			}, 'burrows retained_by entry 0 (array) is no [ table, column, own ] list' ],
+			}, 'burrows retained_by entry 0 (array) is not a [ table, column, own ] list' ],
 			'a retained_by entry naming a number' => [ static function ( array $t ): array {
 				$t['burrows']['retained_by'][] = [ 'visits', 'burrow_id', 4417 ];
 				return $t;
-			}, 'burrows retained_by entry 1 (array) is no [ table, column, own ] list' ],
+			}, 'burrows retained_by entry 1 (array) is not a [ table, column, own ] list' ],
 			'a retained_by cycle'              => [ static function ( array $t ): array {
 				$t['visits']['retained_by'] = [ [ 'burrows', 'id', 'rid' ] ];
 				return $t;

@@ -81,7 +81,7 @@
   <div class="card">
     <h3>What <span class="mono">wp nodes status</span> reads off a slot</h3>
     <div class="states"><span class="live">live</span><span class="stale">stale</span><span class="down">down</span><span class="idle">idle</span><span class="held">held</span><span>inactive</span></div>
-    <p>A held lock reads <b>live</b> or <b>stale</b> from its heartbeat age against the type's <span class="mono">stale_timeout</span> (60 s default; job-worker declares 600). No lock reads <b>held</b> under a deploy hold, <b>idle</b> when the topology declares an <span class="mono">on_demand_idle</span> window, <b>down</b> otherwise. A catalog topology outside the active set reads <b>inactive</b>. A <b>stale</b> or <b>down</b> slot is due for a spawn, and so is a <b>held</b> one on a topology that is not on-demand: no spawner checks the hold, so the endpoint refuses it with 409.</p>
+    <p>A held lock reads <b>live</b> or <b>stale</b> from its heartbeat age against the type's <span class="mono">stale_timeout</span> (60 s default; job-worker declares 600). Without a lock, a slot reads <b>held</b> under a deploy hold, <b>idle</b> when the topology declares an <span class="mono">on_demand_idle</span> window, <b>down</b> otherwise. A catalog topology outside the active set reads <b>inactive</b>. A <b>stale</b> or <b>down</b> slot is due for a spawn, and so is a <b>held</b> one on a topology that is not on-demand: none of the spawners checks the hold, so the endpoint refuses it with 409.</p>
   </div>
   <div class="card">
     <h3>On-demand: scale to zero, wake at the write boundary</h3>

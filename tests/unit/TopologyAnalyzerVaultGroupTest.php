@@ -73,16 +73,17 @@ TSL;
 			'a Vault_Group of brokers carrying a pair' => [ "make_node Vault_Group herons Remote_Source tw-edge /var/ibis/off.{id} /var/ibis/dl.{id} egret.p3=heron-8812\n", "Bad arguments for Remote_Source 'herons:tw0': too many arguments: 4 given, 3 accepted" ],
 			'a broker source given a second target'    => [ $direct . "command_node pull:ibis:config add_source egret.p6 heron-8812\ncommand_node pull:ibis:config add_source egret.p6 kite-3307\n", "add_source 'egret.p6' already goes to 'heron-8812', not 'kite-3307'" ],
 			'a group source given a second target'     => [ $group . "command_node herons:config add_source egret.p6 heron-8812\ncommand_node herons:config add_source egret.p6 kite-3307\n", "add_source 'egret.p6' already goes to 'heron-8812', not 'kite-3307'" ],
-			'a broker removal naming no source'        => [ $direct . "command_node pull:ibis:config add_source egret.p6 heron-8812\ncommand_node pull:ibis:config remove_source egret.p6 kite-3307\n", "remove_source 'egret.p6' 'kite-3307' names no source this node declares" ],
-			'a group removal naming no source'         => [ $group . "command_node herons:config remove_source egret.p6 heron-8812\n", "remove_source 'egret.p6' 'heron-8812' names no source this node declares" ],
+			'a broker removal naming no source'        => [ $direct . "command_node pull:ibis:config add_source egret.p6 heron-8812\ncommand_node pull:ibis:config remove_source egret.p6 kite-3307\n", "remove_source 'egret.p6' 'kite-3307' names a source this node does not declare" ],
+			'a group removal naming no source'         => [ $group . "command_node herons:config remove_source egret.p6 heron-8812\n", "remove_source 'egret.p6' 'heron-8812' names a source this node does not declare" ],
 			'a group source taking a kept slot'        => [ $group . "command_node herons:config add_source http-out heron-8812\n", "add_source 'http-out' names a slot the node keeps for its own" ],
 		];
 	}
 
 	/**
 	 * A broker line the load refuses — one still carrying a pair, a source's
-	 * second target, a removal naming no source — reads as unreadable in the
-	 * active set, so no worker spawns to refuse it on every respawn.
+	 * second target, a removal that does not name a source — reads as
+	 * unreadable in the active set, so a worker never spawns to refuse it on
+	 * every respawn.
 	 *
 	 * @param string $tsl     The topology.
 	 * @param string $refusal What the load refuses it with.

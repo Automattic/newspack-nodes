@@ -54,7 +54,7 @@ final class LogRemoteTest extends TestCase {
 		$this->assertSame( [ 'vault_id' => $vault_id, 'stamp' => $stamp ], Log_Discovery::remote_of( $name ) );
 	}
 
-	/** @return array<string,array{string}> Label => a name no remote log carries. */
+	/** @return array<string,array{string}> Label => a name that is not carried by any remote log. */
 	public static function not_remote(): array {
 		return [
 			'a local partition dir'     => [ 'firehose.p0' ],
@@ -81,7 +81,7 @@ final class LogRemoteTest extends TestCase {
 		Log_Discovery::remote_for( 'aus:tin', 'firehose.p0' );
 	}
 
-	/** A remote name is a probe SOURCE alone, so no resolver opens one. */
+	/** A remote name is a probe SOURCE alone, so a resolver never opens one. */
 	public function test_dir_of_refuses_a_remote_name(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'invalid subscription: remote:kea_41:sources:php' );

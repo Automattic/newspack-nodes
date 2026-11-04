@@ -156,7 +156,7 @@ describe( 'command_node — one statement, two readings', () => {
 		] );
 	} );
 
-	it( 'keeps a line for a target no node carries', () => {
+	it( 'keeps a line for a target without a node', () => {
 		// An expansion that has not arrived leaves the borrowed node absent.
 		// Refusing the line would strip the file's own config on save.
 		const d = draft();

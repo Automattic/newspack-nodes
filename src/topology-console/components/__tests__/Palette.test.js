@@ -30,7 +30,7 @@ const sampleClasses = [
 ];
 
 describe( 'Palette', () => {
-	it( 'renders a loading placeholder when loading=true and no classes', () => {
+	it( 'renders a loading placeholder while loading with an empty class list', () => {
 		const { container } = renderWithCatalog( <Palette loading />, {
 			classes: [],
 		} );
@@ -679,7 +679,7 @@ describe( 'Palette — search filters the Topologies section', () => {
 		).toBeNull();
 	} );
 
-	it( 'hides the Topologies header when no topology matches', () => {
+	it( 'hides the Topologies header when the query matches no topology', () => {
 		const { container } = renderEditPalette();
 		fireEvent.change(
 			container.querySelector( '.topology-palette input[type="search"]' ),

@@ -10,13 +10,13 @@
  *
  * Installing swaps the defaults to three real capabilities and grants all
  * three, in the same step, to every role that already holds `manage_options`,
- * so nobody who could do something before loses it. It also creates `newspack_nodes_hub`, a role
- * holding read + tune and nothing else — not even `read` in the WordPress
- * sense — which is what the aggregator's dedicated user wears. That user's
- * application password is then structurally incapable of restarting the fleet
- * or reading the vault, which is the point: the exposure is PRIVILEGE, not
- * credential lifetime, and a permanent link is right to hold a permanent
- * credential.
+ * so every user keeps what they could do before. It also creates
+ * `newspack_nodes_hub`, a role holding read + tune and nothing else — not
+ * even `read` in the WordPress sense — which is what the aggregator's dedicated
+ * user wears. That user's application password is then structurally incapable
+ * of restarting the fleet or reading the vault, which is the point: the
+ * exposure is PRIVILEGE, not credential lifetime, and a permanent link is right
+ * to hold a permanent credential.
  *
  * The role is the half a host can refuse. A managed host enforces which roles
  * may exist and reverts one it did not sanction, while the grants to roles it
@@ -28,7 +28,7 @@
  * Operators reach all of this through `wp nodes caps` and `wp nodes hub-user`.
  * It is reversible: `uninstall()` puts the map back and drops the role, and
  * `uninstall.php` calls it because these capabilities live in WordPress's own
- * roles option, which no `newspack_nodes_` option sweep touches.
+ * roles option, which a `newspack_nodes_` option sweep never touches.
  *
  * @package Newspack_Nodes
  */

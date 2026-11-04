@@ -63,7 +63,7 @@ test( 'shows a client uptime card (time since the page loaded)', () => {
 	expect( card.textContent ).toContain( 'Client Uptime' );
 } );
 
-test( 'shows an SSE uptime card reading "-" when no stream is connected', () => {
+test( 'shows an SSE uptime card reading "-" while the stream is disconnected', () => {
 	IoTelemetry.markSseDisconnected();
 	const { getByTestId } = renderTab();
 	const card = getByTestId( 'overview-card-sse-uptime' );

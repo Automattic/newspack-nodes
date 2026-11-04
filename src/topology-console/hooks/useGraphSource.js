@@ -13,8 +13,8 @@ import { coreToGraph } from '../utils/coreToGraph';
 import names from '../../runtime/reserved-node-names.json';
 
 /**
- * The graph a consumer draws while nothing has published one and the Core
- * fallback is off. It carries no node, so `hasNodes` reports false.
+ * The graph a consumer draws until one is published, while the Core fallback
+ * is off. It carries no node, so `hasNodes` reports false.
  */
 const EMPTY_GRAPH = { nodes: [], edges: [], pwd: '' };
 
@@ -69,8 +69,9 @@ export function usePublishedGraph( field ) {
  * @param {Object}  [opts]              Options.
  * @param {boolean} [opts.active]       Accepted and ignored. The overlay forwards its own
  *                                      active flag, and the subscription costs nothing
- *                                      while no `_metadata` node holds the name:
- *                                      `useNodeField` registers no listener and yields
+ *                                      while the name is not registered to a
+ *                                      `_metadata` node: `useNodeField`
+ *                                      registers no listener and yields
  *                                      undefined.
  * @param {boolean} [opts.coreFallback] Paint the in-process graph through `coreToGraph()`
  *                                      until a metadata graph carries a node. The overlay

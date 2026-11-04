@@ -46,8 +46,8 @@ class Tables_CLI_Command {
 	 * the filesystem allocates it, or the shared wpdb table. A live owner is asked for its per-verb counters
 	 * over its command channel; a verb it has never run is left out, and an
 	 * owner that does not answer in time is warned about and listed without.
-	 * A partition no worker holds and only inactive topologies declare has no
-	 * owner, and reads `inactive`.
+	 * A partition that is not held by any worker, and that only inactive
+	 * topologies declare, has no owner, and reads `inactive`.
 	 *
 	 * ## OPTIONS
 	 *

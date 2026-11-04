@@ -116,9 +116,9 @@ class MessagesStreamSourcesTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$tail = $ctrl->open_subscription( 'sources:php', self::positions_from_token( 'sources:php=:9' ) )[ 'sources:php' ];
 
-		// The CLIENT named no generation, and its offset belongs to whichever
-		// one it was reading — pairing it with the live inode would pass the
-		// resume check and mis-seek into a rotated-in file.
+		// The CLIENT did not name a generation, and its offset belongs to
+		// whichever one it was reading — pairing it with the live inode would
+		// pass the resume check and mis-seek into a rotated-in file.
 		$this->assertSame( ':9', $tail->cursor_position() );
 	}
 

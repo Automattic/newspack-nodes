@@ -3,10 +3,10 @@
  * PHP `Log_Manager::url_hash()`.
  *
  * Both ports hash the string's UTF-8 bytes, so a key computed in the browser
- * and one computed in PHP agree on every string; a divergence points a deep
- * link at no row, quietly, with nothing to raise. What a caller hashes is the
- * caller's to decide. `tests/fixtures/fnv1a-hashes.json` holds the two ports
- * to each other across ASCII and two-, three- and four-byte characters.
+ * and one computed in PHP agree on every string; a divergence leaves a deep
+ * link pointing nowhere, quietly, with nothing to raise. What a caller hashes
+ * is the caller's to decide. `tests/fixtures/fnv1a-hashes.json` holds the two
+ * ports to each other across ASCII and two-, three- and four-byte characters.
  */
 
 /** FNV-1a's 32-bit offset basis, the hash every pass starts from. */

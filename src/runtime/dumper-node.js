@@ -92,7 +92,7 @@ const has = ( type, flag ) => ( type & flag ) !== 0;
 
 /**
  * Human-readable TYPE: every set flag named, joined, with the unmatched bits in
- * hex when none match. The Dumper's header and the Log Viewer's TYPE
+ * hex when it matches no flag. The Dumper's header and the Log Viewer's TYPE
  * column are the same rendering.
  *
  * @param {number} type The TYPE bitmask.
@@ -154,7 +154,7 @@ function buildDebugHeader1( message ) {
  */
 export function formatMessageEnvelope( message ) {
 	const ts = message[ TIMESTAMP ] ?? '';
-	// A forged TIMESTAMP can name no instant; then it renders raw.
+	// A forged TIMESTAMP might not name an instant; then it renders raw.
 	const date = new Date( ts * 1000 );
 	const tsHuman =
 		typeof ts === 'number' && ! Number.isNaN( date.getTime() )
@@ -403,7 +403,7 @@ export class DumperNode extends ReactBridge( Node ) {
 
 	/**
 	 * A node owns its teardown: cancel any queued flush before unregistering, so
-	 * no frame callback fires against a node that has left the registry.
+	 * a frame callback never fires against a node that has left the registry.
 	 */
 	removeNode() {
 		this._cancelPendingFlush();

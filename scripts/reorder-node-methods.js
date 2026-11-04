@@ -26,7 +26,7 @@
  *
  *   GENERIC (every other class) — constructor first, then a topological order
  *     of the call graph: a unit is emitted only once EVERY caller of it
- *     already is, so no caller ever prints below something it calls. Among
+ *     already is, so a caller never prints below something it calls. Among
  *     the units free at the same moment, the ones a just-emitted caller
  *     released come first, then public callers, then source order.
  *
@@ -575,7 +575,7 @@ function reorderClass( src, cls, isNode ) {
 	} else {
 		// @longform GENERIC: constructor, then a topological order of the call
 		// graph — a unit is emitted only once EVERY caller of it already is,
-		// so no caller ever prints below something it calls.
+		// so a caller never prints below something it calls.
 		const ctor = units.filter( isConstructor );
 		const rest = units.filter( ( u ) => ! ctor.includes( u ) );
 		const restSet = new Set( rest );

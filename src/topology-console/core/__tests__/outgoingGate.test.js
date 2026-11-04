@@ -41,7 +41,7 @@ describe( 'OutgoingGateNode', () => {
 		expect( gate.connected ).toBe( true );
 	} );
 
-	it( 'stays unnamed, so no message can be addressed to it', () => {
+	it( 'stays unnamed, so a message can never be addressed to it', () => {
 		const { gate } = makeGate();
 		expect( gate.name ).toBe( '' );
 		expect( Core.node( '' ) ).toBeNull();

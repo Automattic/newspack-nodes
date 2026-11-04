@@ -130,7 +130,7 @@
     <div class="card" style="flex:1.25">
       <h3>Tier two: <span class="mono">newspack_nodes/reconcile</span> on WP-Cron, every minute, running <span class="mono">Bootstrap::reconcile_fleet()</span></h3>
       <p>The cold start. With every worker dead there is nothing left to scan, so a total fleet death waits up to a minute.</p>
-      <div class="step"><div class="n">1</div><div class="t">Spawn every due slot, under no cap.</div></div>
+      <div class="step"><div class="n">1</div><div class="t">Spawn every due slot, without a cap.</div></div>
       <div class="step"><div class="n">2</div><div class="t">Wake each on-demand reader holding a backlog.</div></div>
       <div class="step"><div class="n">3</div><div class="t">Retire lock directories outside the active set.</div></div>
       <div class="step"><div class="n">4</div><div class="t">Sweep orphan partitions.</div></div>

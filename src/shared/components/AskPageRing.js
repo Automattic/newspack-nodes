@@ -69,7 +69,7 @@ export default function AskPageRing( { active } ) {
 		// @longform The shell EASES `left` on a menu fold, so the fold's own
 		// signal arrives while the box is still moving and a rect read there
 		// is the value it started from. This is where it lands; the signal
-		// above is what answers where no transition runs at all.
+		// above is what answers when there is no transition at all.
 		document.addEventListener( 'transitionend', measure );
 		// The picker marks the box without a render, so watch that one mark.
 		const observer = new window.MutationObserver( measure );

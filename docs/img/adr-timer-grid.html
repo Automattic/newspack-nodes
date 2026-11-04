@@ -15,7 +15,7 @@
 <div class="two">
   <div class="callout">
     <h4>Rejected: pacing from the timer's own last fire</h4>
-    <p>When a surface opens decides which second it polls in: a 5 s catalog opened at :02 and another at :04 never share a tick again, and each pays its own POST forever. A page with four cadences pays four requests where one would do, and no test sees it, because every poll works. Also rejected: a per-interval phase (slides each cadence a few hundred milliseconds off the others and destroys the alignment), a shared scheduler node (state where arithmetic suffices; the Router already is the heartbeat), and snapping to the first tick after arming (makes the phase depend on when the surface opened).</p>
+    <p>When a surface opens decides which second it polls in: a 5 s catalog opened at :02 and another at :04 never share a tick again, and each pays its own POST forever. A page with four cadences pays four requests where one would do, and a test never sees it, because every poll works. Also rejected: a per-interval phase (slides each cadence a few hundred milliseconds off the others and destroys the alignment), a shared scheduler node (state where arithmetic suffices; the Router already is the heartbeat), and snapping to the first tick after arming (makes the phase depend on when the surface opened).</p>
   </div>
   <div class="card">
     <h3><span class="mono">nextBoundary( after, intervalMs )</span> lives in <span class="mono">TimerNode</span> and nowhere else</h3>
@@ -27,7 +27,7 @@
 
 <div class="note">
   <h4>The one cost, paid once</h4>
-  <p>The first period after arming is the short remainder of the period the timer opened in, so a poll can fire twice in quick succession at mount. A test asserting "no second fire within N seconds" pins the clock FORWARD to just past a boundary; moving it back reads to every watchdog as a stream gone silent. The PHP side has a second grid on purpose: <span class="mono">LRU_Cache::next_boundary()</span> carries no phase, because no cadence inside the cache aligns with another, and snaps to an epoch grid rather than localtime components so no boundary lands in a DST discontinuity. Revisit if the runtime gains sub-second cadences, where a 360 ms phase is a large fraction of a period.</p>
+  <p>The first period after arming is the short remainder of the period the timer opened in, so a poll can fire twice in quick succession at mount. A test asserting "no second fire within N seconds" pins the clock FORWARD to just past a boundary; moving it back reads to every watchdog as a stream gone silent. The PHP side has a second grid on purpose: <span class="mono">LRU_Cache::next_boundary()</span> carries no phase, because the cadences inside the cache never align with one another, and snaps to an epoch grid rather than localtime components so a boundary never lands in a DST discontinuity. Revisit if the runtime gains sub-second cadences, where a 360 ms phase is a large fraction of a period.</p>
 </div>
 </div>
 <script>

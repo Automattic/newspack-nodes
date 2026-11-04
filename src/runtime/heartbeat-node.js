@@ -24,7 +24,7 @@ import { TYPE, VALUE, TM_ERROR, TM_RESPONSE } from './message';
  *
  * PHP mints the owner with `random_int( 1, PHP_INT_MAX )`, so a token can
  * exceed `Number.MAX_SAFE_INTEGER`; parsing one here and re-stringifying it
- * would round it and poke with a lease nobody holds. Zero is excluded because
+ * would round it and poke with an unheld lease. Zero is excluded because
  * the slot pointer reserves it as the release tombstone.
  */
 const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
@@ -177,7 +177,7 @@ export class HeartbeatNode extends TimerNode {
 	 * remote string cannot pin an unbounded value in node state.
 	 *
 	 * @param {*}      payload  The decoded reply body, of whatever shape it arrived in.
-	 * @param {string} fallback Used when no field carries a non-empty string.
+	 * @param {string} fallback Used when the fields carry no non-empty string.
 	 * @return {string} The error line to record.
 	 */
 	_safeError( payload, fallback ) {
@@ -231,7 +231,7 @@ export class HeartbeatNode extends TimerNode {
 	/**
 	 * Forget one stream identity's lease, or every lease on graph teardown.
 	 * The reported `slot` / `leaseOwner` fall back to the newest surviving
-	 * lease, and the poke timer stops once none remain.
+	 * lease, and the poke timer stops once the last lease is forgotten.
 	 *
 	 * @param {Object|string|null} [streamOwner] Stream identity to forget; null forgets every lease.
 	 * @return {boolean} False when that stream held no lease; true otherwise.

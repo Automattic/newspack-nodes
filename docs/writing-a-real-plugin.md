@@ -133,9 +133,9 @@ abstract class Source_Node extends Node implements Source {
 
 That constructor is what makes §4's `cmd github:config set_vault_id …` lines work. [`Schema_Reflection::auto_wire_interpreter()`](../includes/trait-schema-reflection.php) reads `node_schema()['commands']` and mounts a sibling `Command_Interpreter_Node` named `{node}:config`, so every connector gets its config verbs without wiring one by hand ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)).
 
-![Source_Node's handling of one TICK in three steps. A TM_REQUEST reaches fill(), tested with Core::num_int( TYPE ) & TM_REQUEST, and no reply goes back. Inside try, fetch( $this->config() ) returns normalized items and each passes a loop: an item whose id is not a non-empty string is skipped, an id already in $seen is skipped, and otherwise remember( $id ) records it (past MAX_SEEN = 2000 the oldest are sliced off) and a TM_STRUCT goes out stamped TO ingest:partition. In finally, one TM_INFO "DONE\n" from the node's own name follows every item, even when fetch() threw. Side cards give the item contract { source, id: "$source:$id", title, url, body, timestamp }, the in-memory $seen that dies with the worker, and what the base declares: the {node}:config interpreter, the shared source_schema() with accepts_fill false, and an abstract class make_node Source cannot build.](img/wrp-source-tick.png)
+![Source_Node's handling of one TICK in three steps. A TM_REQUEST reaches fill(), tested with Core::num_int( TYPE ) & TM_REQUEST, and the node never replies. Inside try, fetch( $this->config() ) returns normalized items and each passes a loop: an item whose id is not a non-empty string is skipped, an id already in $seen is skipped, and otherwise remember( $id ) records it (past MAX_SEEN = 2000 the oldest are sliced off) and a TM_STRUCT goes out stamped TO ingest:partition. In finally, one TM_INFO "DONE\n" from the node's own name follows every item, even when fetch() threw. Side cards give the item contract { source, id: "$source:$id", title, url, body, timestamp }, the in-memory $seen that dies with the worker, and what the base declares: the {node}:config interpreter, the shared source_schema() with accepts_fill false, and an abstract class make_node Source cannot build.](img/wrp-source-tick.png)
 
-The base owns what the toy copies per source: the TICK trigger, the bounded dedup, the fire-and-forget emit ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)) and the item shape. Unlike the toy, it sends no `{ emitted }` reply to whoever ticked it; every TICK closes, in a `finally`, with one `TM_INFO` `DONE` that travels *downstream* to the digest (§5 spells out the auto-compose it drives):
+The base owns what the toy copies per source: the TICK trigger, the bounded dedup, the fire-and-forget emit ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)) and the item shape. Unlike the toy, it does not send an `{ emitted }` reply to whoever ticked it; every TICK closes, in a `finally`, with one `TM_INFO` `DONE` that travels *downstream* to the digest (§5 spells out the auto-compose it drives):
 
 ```php
 private function handle_request( array $message ): void {
@@ -310,7 +310,7 @@ Each node's `identifier` (e.g. `ENG-123`) is the stable per-item id; a node with
 
 ```php
 $prev = \libxml_use_internal_errors( true );
-// LIBXML_NONET: untrusted feed body — no SYSTEM ref may fetch a URL.
+// LIBXML_NONET: untrusted feed body — a SYSTEM ref must never fetch a URL.
 $xml = \simplexml_load_string( $body, \SimpleXMLElement::class, LIBXML_NONET );
 \libxml_clear_errors();
 \libxml_use_internal_errors( $prev );
@@ -391,7 +391,7 @@ protected function resolve_vault_secret( string $vault_id ): string {
 }
 ```
 
-The verb's schema arg is typed `vault_id`, which the topology console renders as a **Vault-entry dropdown** rather than a free-text box, or as a text input while no entry exists:
+The verb's schema arg is typed `vault_id`, which the topology console renders as a **Vault-entry dropdown** rather than a free-text box, or as a text input while the vault holds no entry:
 
 ```php
 [
@@ -412,13 +412,13 @@ A schema `handler` is a dispatch closure — it receives the pre-split **token a
 
 ### Repos and feeds are ordered verbs, not options
 
-Each non-secret value is a `:config` verb, stored on the node and dumped back out round-trippably. GitHub's repo list is `add_repo`, read straight off the node in `config()`, and the node writes no handler for it: one `Schema_Reflection::list_verbs()` call in `node_schema()['commands']` declares the pair.
+Each non-secret value is a `:config` verb, stored on the node and dumped back out round-trippably. GitHub's repo list is `add_repo`, read straight off the node in `config()`, and the node does not write a handler for it: one `Schema_Reflection::list_verbs()` call in `node_schema()['commands']` declares the pair.
 
 ```php
 ...self::list_verbs( 'repo', 'repos', [ 'name' => 'repo', 'type' => 'string', 'required' => true ], 'Register a repo to fetch on TICK: <owner/name>.' ),
 ```
 
-That one line is `add_repo`, which appends its trimmed argument to `$repos`, takes an identical repeat as a no-op and refuses a blank, and `remove_repo`, which takes the same argument, drops that entry and refuses one no entry matches. `dump_lists()`, called from the node's `dump_config()`, writes one `add_repo` line per entry left, so a replay rebuilds the list as the adds and removes left it. `add_url` and the LLM nodes' `add_profile`, whose variadic `text` tokens join into one entry, are declared the same way.
+That one line is `add_repo`, which appends its trimmed argument to `$repos`, takes an identical repeat as a no-op and refuses a blank, and `remove_repo`, which takes the same argument, drops that entry and refuses one that does not match any entry. `dump_lists()`, called from the node's `dump_config()`, writes one `add_repo` line per entry left, so a replay rebuilds the list as the adds and removes left it. `add_url` and the LLM nodes' `add_profile`, whose variadic `text` tokens join into one entry, are declared the same way.
 
 You set these in the topology console, or as `cmd <node>:config …` lines in the `.tsl` (shown in §5). Because every verb also round-trips through `dump_config()`, the console can serialize a live graph back to a topology that re-applies each verb in order. `config_line()` writes the canonical spelling, `command_node`; `cmd` and `command` are its aliases, and the shipped `.tsl` files use `cmd`.
 
@@ -557,7 +557,7 @@ wp nodes stop && <install the zip> && wp nodes start
 ```
 
 `wp nodes stop` sets the hold, flags every live worker, and blocks until the
-last lock dir is gone and no spawn is still in flight — `--timeout` seconds, 90
+last lock dir is gone and no slot still has a spawn in flight — `--timeout` seconds, 90
 by default. The in-flight half is what keeps `stop` from reporting success into
 a gap: a worker that released its lock and POSTed its own respawn just before
 the hold landed holds no lock dir at all while it boots. If the wait expires,
@@ -588,7 +588,7 @@ wp nodes status
 
 Activate the aggregator *or* the stages, never both. [`Topology_Analyzer::find_conflicts()`](../includes/class-topology-analyzer.php) runs on every activation and refuses two active topologies whose write sets overlap. A partition both declare with the identical `make_node` line is tolerated as a deliberate multi-writer log — but not these two: `ingest:partition` and `scored:partition` each lift the write cap with `void_warranty`, and a lifted cap assumes a sole writer. Offsetlogs never share at all, so the consumers collide whatever the cap does. Running one stage as its own fleet therefore means deactivating the aggregator first.
 
-**The analyzer classifies a node by class LINEAGE, not by its `make_node` token.** `Topology_Analyzer` resolves each token through `Command_Interpreter_Node::resolve_class()` and tests descent, most-derived first (`Log_Node` before `Partition_Node`, which it extends). So *your* `Partition_Node` or `Topic_Node` subclass lands in the write set on lineage alone, however unfamiliar its token reads — gated by `find_conflicts()`, and spared by the `wp nodes gc` sweep as a declared dir — and your `Consumer_Node` subclass appears in `consumer_positions()`, which is what pairs an on-demand worker with the log whose growth should wake it. To find your own nodes in a topology, ask `Topology_Analyzer::nodes_of_type( $topology, Your_Node::class )`: it answers on the same lineage, Vault_Group children included, rather than comparing tokens. All that costs is the namespace `register_plugin()` already registers; where no namespace resolves yet, a fallback matches `<token>_Node` against the base class's own short name, which is how the stock tokens answer before boot wiring completes. The footgun is a node that writes a log *without* descending from one of those classes: it is invisible to every one of those passes, and the sweep takes its directory. Declare its path template through the `newspack_nodes/registered_log_producers` filter instead.
+**The analyzer classifies a node by class LINEAGE, not by its `make_node` token.** `Topology_Analyzer` resolves each token through `Command_Interpreter_Node::resolve_class()` and tests descent, most-derived first (`Log_Node` before `Partition_Node`, which it extends). So *your* `Partition_Node` or `Topic_Node` subclass lands in the write set on lineage alone, however unfamiliar its token reads — gated by `find_conflicts()`, and spared by the `wp nodes gc` sweep as a declared dir — and your `Consumer_Node` subclass appears in `consumer_positions()`, which is what pairs an on-demand worker with the log whose growth should wake it. To find your own nodes in a topology, ask `Topology_Analyzer::nodes_of_type( $topology, Your_Node::class )`: it answers on the same lineage, Vault_Group children included, rather than comparing tokens. All that costs is the namespace `register_plugin()` already registers; before a namespace resolves, a fallback matches `<token>_Node` against the base class's own short name, which is how the stock tokens answer before boot wiring completes. The footgun is a node that writes a log *without* descending from one of those classes: it is invisible to every one of those passes, and the sweep takes its directory. Declare its path template through the `newspack_nodes/registered_log_producers` filter instead.
 
 **Tests are hermetic — no network.** The closure-HTTP seam is what buys that: a test sets `$http_get` or `$http_post` to return a canned body, so nothing leaves the box.
 

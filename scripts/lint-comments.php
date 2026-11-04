@@ -388,7 +388,8 @@ const LEDGER_ENTRY_LIVE = "/^\\s*'[a-z0-9_]+'\\s*=>/";
  * rule reads those description/entry pairs as prose blocks and rejects the
  * whole file, so a ledger is judged by its own shape instead: a run of comment
  * lines must LAND on an entry. That still gates the file — a comment run
- * naming no key is a violation — where exempting it would stop reading it.
+ * that does not name a key is a violation — where exempting it would stop
+ * reading it.
  *
  * Anchored to the plugin ROOT, not the basename: `includes/class-config.php`
  * is real code, `tests/*-test-config.php` is a fixture, and neither may take
@@ -412,8 +413,8 @@ function is_config_ledger( string $file ): bool {
  * Either the run CONTAINS a commented-out entry, or the next non-blank source
  * line after it is a live one. Containment rather than landing, because a
  * commented-out multi-line array default ends on `// ],` — the common config
- * shape. A run naming no key at all is a description of nothing, which is what
- * this rule exists to catch.
+ * shape. A run that does not name any key is a description of nothing, which is
+ * what this rule exists to catch.
  *
  * @param int               $start    First line of the run, 1-based.
  * @param int               $len      Lines in the run.
@@ -441,8 +442,8 @@ function ledger_run_names_a_key( int $start, int $len, array $comments, array $l
  * Line numbers belonging to a commented-out entry in a config ledger.
  *
  * An entry's continuation lines are code exactly as its first line is: a
- * multi-line array default or a closure body wraps onto lines that no amount
- * of editing turns into prose. The span runs from the `// 'key' =>` line to
+ * multi-line array default or a closure body wraps onto lines that editing
+ * can never turn into prose. The span runs from the `// 'key' =>` line to
  * the one closing it at depth zero.
  *
  * @param array<int,string> $comments Comment text keyed by line.

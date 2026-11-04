@@ -18,7 +18,7 @@ use PHPUnit\Framework\TestCase;
  */
 class SpawnCoordinatorNamingTest extends TestCase {
 
-	/** Trees no retired supervisor name may appear in; the history docs are exempt. */
+	/** Trees in which a retired supervisor name must never appear; the history docs are exempt. */
 	private const SCANNED = [ 'includes', 'src', 'tests', 'docs', 'topologies', 'examples', 'scripts', '.claude' ];
 
 	/** Docs whose job is to name retired surfaces so a consumer can rewrite them. */

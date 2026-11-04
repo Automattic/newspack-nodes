@@ -128,7 +128,7 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "SCAN: unknown verb\n" ] ], self::shape( $this->ask( "SCAN urltoken:ab:wo 5\n" ) ) );
 	}
 
-	/** The Table answers no many-key read, set read, page, expiry move or many-key write. */
+	/** The Table refuses a many-key read, a set read, a page, an expiry move and a many-key write. */
 	public function test_mget_smembers_sscan_touch_and_mset_are_refused(): void {
 		$this->table->store( 'sku-4471', 'kea-4471' );
 		foreach ( [ "MGET sku-4471\n", "SMEMBERS 9 word:kea\n", "SSCAN 9 word:kea\n", "TOUCH 4473 sku-4471\n" ] as $request ) {

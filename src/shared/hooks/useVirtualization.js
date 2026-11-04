@@ -44,8 +44,8 @@ const OVERSCAN = 5;
  * `scrollTop` and `clientHeight`. A selector measures the list against its
  * nearest matching ancestor, which must exist — where `closest()` finds
  * nothing, the first measurement throws. `null` measures against the viewport
- * and skips the update while the list sits off screen, so a list nobody is
- * looking at neither re-renders on every scroll event nor loses the window it
+ * and skips the update while the list sits off screen, so a list off
+ * screen neither re-renders on every scroll event nor loses the window it
  * will scroll back into.
  *
  * Until the first measurement, and for as long as `listRef.current` is null,

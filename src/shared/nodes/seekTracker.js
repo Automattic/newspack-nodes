@@ -35,12 +35,12 @@ export const REPLAY = 'replay';
  * file stamps its breadcrumbs with.
  *
  * This builder is where a footprint is validated, because the view applies
- * the control from `fill()`, where nothing would catch a throw.
+ * the control from `fill()`, where a throw would go uncaught.
  *
  * @param {Object}                           source            The source row.
  * @param {Array<{id?:number,size?:number}>} [source.segments] Segment list.
  * @return {{action:string,segments:Array<{id?:number,size?:number}>}|{action:string}}
- *   A `browse` control, or `follow` when no segment carries a numeric id, so
+ *   A `browse` control, or `follow` when the segments carry no numeric id, so
  *   there is no boundary to catch up to.
  * @throws {TypeError} When the newest segment carries no numeric size: the
  *   boundary offset IS the catch-up test, so a guessed 0 would flip the replay
@@ -62,7 +62,7 @@ export function browseControl( { segments = [] } ) {
 /**
  * The live boundary a replay must reach to be "caught up": the newest segment's
  * id and its byte size, from a segment list (`dump_log.segments`). Null when
- * no segment carries a numeric id.
+ * the segments carry no numeric id.
  *
  * Module-private: `browseControl()` validates through it, and
  * `SeekTracker.browse()` reads the boundary of the control it built.
@@ -176,8 +176,8 @@ export class SeekTracker {
 	 * Enter replay, capturing the boundary a replayed record must reach to count
 	 * as caught up, read once from the footprint: every segment id it lists, the
 	 * newest of which is the end segment, and that segment's byte size — for a
-	 * file source its inode and its size. A footprint naming no segment enters a
-	 * replay that never auto-flips, leaving the flip to the caller.
+	 * file source its inode and its size. A footprint without a segment enters
+	 * a replay that never auto-flips, leaving the flip to the caller.
 	 *
 	 * @param {Array<{id?:number,size?:number}>} [segments] The validated footprint.
 	 */

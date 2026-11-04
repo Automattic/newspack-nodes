@@ -178,10 +178,10 @@ class Session_CLI_Command {
 	 * Revoking a connection ends its grant, so it refreshes no more, and every
 	 * session it minted. A label is not an id: naming one revokes nothing and
 	 * fails, naming the handles of every session that carries it. Fails, too,
-	 * when no session or connection holds the id, or when the session store
-	 * did not answer and the key may still verify. `--all` flushes the session
-	 * store, labelled and unlabelled sessions and every connection alike, and
-	 * fails naming why the store refused.
+	 * when the id names neither a session nor a connection, or when the session
+	 * store did not answer and the key may still verify. `--all` flushes the
+	 * session store, labelled and unlabelled sessions and every connection
+	 * alike, and fails naming why the store refused.
 	 *
 	 * ## OPTIONS
 	 *

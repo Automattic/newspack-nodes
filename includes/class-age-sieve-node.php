@@ -5,10 +5,10 @@
  * Sheds stale work at a graph edge: forward a message whose TIMESTAMP age is
  * within `max_age`, drop everything older. A consumer resuming from its
  * offsetlog replays entries queued long before, and dispatching one of those
- * costs as much as fresh work for a result nobody reads; the sieve discards it
- * before that cost is spent. Event-logger-nodes' `job-router` and `job-feed`
- * topologies both wire `make_node Age_Sieve jobs:sieve 900 1` between their
- * Job_Router and `jobs:partition` for exactly that.
+ * costs as much as fresh work for a result that is never read; the sieve
+ * discards it before that cost is spent. Event-logger-nodes' `job-router` and
+ * `job-feed` topologies both wire `make_node Age_Sieve jobs:sieve 900 1`
+ * between their Job_Router and `jobs:partition` for exactly that.
  *
  * Age is the SOLE criterion — there is no type gate — so an aged TM_COMMAND or
  * TM_EOF drops with the data. Keep control traffic off a sieved edge. Where

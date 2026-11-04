@@ -12,7 +12,7 @@
  * fresh `var NewspackNodesData = {…}` in the footer, so a key written onto that
  * global here is lost to whichever footer localize runs after the injection.
  * `NewspackNodesLazyTabs` has one writer, the station handle's localize, which
- * prints before the station script, so nothing replaces it once a tab reads it.
+ * prints before the station script, so it stays intact once a tab reads it.
  */
 
 /**
@@ -85,7 +85,7 @@ export function loadTabBundle( handle ) {
  *
  * The shared half supplies `restUrl`, `nonce` and `version`, which every footer
  * localize carries alike; the tab's keys come from `NewspackNodesLazyTabs`,
- * which no later localize replaces. A handle with no recipe — the bundle
+ * which a later localize never replaces. A handle with no recipe — the bundle
  * enqueued outright, or a test seeding the shared global — answers the shared
  * payload alone.
  *

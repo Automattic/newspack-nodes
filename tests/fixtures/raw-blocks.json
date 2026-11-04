@@ -138,7 +138,7 @@
       }
     ],
     [
-      "a batch no header placed is dropped",
+      "a batch without a matching header is dropped",
       "firehose.p0",
       [
         {

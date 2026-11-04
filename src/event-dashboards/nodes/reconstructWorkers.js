@@ -96,7 +96,7 @@ const brokerReads = ( row, topology, broker ) => {
  * which lands a consumer on the same collapsed vertices
  * `topologyGraph.collapseGraph` renders. Both readers of a `.tsl` graph share
  * that ONE implementation, because a worker row attributed to a vertex the tree
- * never draws is a row nobody sees.
+ * never draws is a row that never shows.
  *
  * A consumer that fans through a tee to several processors — a firehose feeding
  * both the request-builder and the job-router — yields one handler EACH, so
@@ -206,7 +206,7 @@ const grownBytes = ( before, after ) =>
 	}, 0 );
 
 /**
- * The write rate of a log no worker probes, from its live segments against
+ * The write rate of an unprobed log, from its live segments against
  * the previous poll's, over the stat clock `logs_at` stamps after the stat.
  *
  * A poll carrying no clock measures nothing and keeps the old baseline, so
@@ -241,8 +241,8 @@ function liveRate( prev, segments, at ) {
  *
  * Both rates divide ONE probe window: a reader's `bytes_read` over its
  * `elapsed_ms`, and a log's `probe`, the bytes it grew over its newest
- * Partition record's window. Neither needs the last poll. A log no worker
- * probes is the one exception, rated from its live segments against the
+ * Partition record's window. Neither needs the last poll. An unprobed log
+ * is the one exception, rated from its live segments against the
  * previous poll's, so the caller passes those samples and gets the next ones
  * back; the state stays in the transform node, and the join stays a plain
  * function a test can call twice. Every log's sample is carried, probed or
@@ -312,7 +312,7 @@ export function reconstructWorkers( data, priorLive ) {
 
 		// One worker per probe row; resolve handler by its reads-template.
 		consumers.forEach( ( row ) => {
-			// Match by READER (unique); fall back to source when no reader.
+			// Match by READER (unique); without a reader, fall back to source.
 			const bindings = { partition: row.partition, topology };
 			const matching = handlers.filter( ( h ) => {
 				if ( h.broker ) {

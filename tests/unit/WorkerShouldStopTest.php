@@ -400,7 +400,7 @@ class WorkerShouldStopTest extends TestCase {
 	}
 
 	/**
-	 * A chain of stops that ends in no failure still combines to a stop the
+	 * A chain of stops that ends without a failure still combines to a stop the
 	 * reader replays — plain, never clean, and never bare — rather than to the
 	 * `Failures` of nothing, which cannot be built.
 	 */
@@ -483,7 +483,8 @@ class WorkerShouldStopTest extends TestCase {
 
 	/**
 	 * A boundary's report must not itself escape: a `newspack_nodes/stderr`
-	 * listener that throws costs no line, and its failure goes to error_log().
+	 * listener that throws does not cost a line, and its failure goes to
+	 * error_log().
 	 */
 	public function test_report_survives_a_throwing_stderr_listener(): void {
 		$lines     = $this->capture_stderr();

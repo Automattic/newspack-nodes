@@ -74,7 +74,7 @@ FakeEventSource.CLOSED = 2;
 
 // A started node holds a real 2s watchdog; one left open outlives its test and
 // reconnects inside a later fake-timer test, whose advanced clock reads as
-// silence. The harness owns teardown so no test can leak one.
+// silence. The harness owns teardown so a test can never leak one.
 const live = [];
 function newSseIn() {
 	const sse = new SseInNode();
@@ -292,7 +292,7 @@ test( 'a stream names itself so its reconnect takes its own lease over', () => {
 	expect( url.searchParams.get( 'stream' ) ).toBe( 'console.p7:sse-in' );
 } );
 
-test( 'a stream presenting no session names no stream', async () => {
+test( 'a stream without a session does not name a stream', async () => {
 	await withoutSession();
 	new RouterNode().name = names.ROUTER;
 	const sse = newSseIn();
@@ -672,7 +672,7 @@ test( 'the connected envelope seeds positions for a zero-message stream', () => 
 	} );
 } );
 
-test( 'a cursor naming no generation seeds the offset alone', () => {
+test( 'a cursor without a generation seeds the offset alone', () => {
 	const { sse } = makeSseIn( { subscribe: [ 'sources:php' ] } );
 	sse.start();
 	FakeEventSource.last.dispatch(
@@ -686,7 +686,7 @@ test( 'a cursor naming no generation seeds the offset alone', () => {
 	} );
 } );
 
-test( 'a cursor no position reads seeds nothing, as PHP skips it', () => {
+test( 'a cursor that the position reader refuses seeds nothing, as PHP skips it', () => {
 	const { sse } = makeSseIn( {
 		subscribe: [ 'firehose.p0', 'errors.p2', 'sources:php' ],
 	} );
@@ -698,7 +698,7 @@ test( 'a cursor no position reads seeds nothing, as PHP skips it', () => {
 		} )
 	);
 
-	// One reader of a position: the padded segment and the word name no place.
+	// One reader of a position: the padded segment and the word lack a place.
 	expect( sse.seekMap() ).toEqual( {
 		'firehose.p0': -1,
 		'errors.p2': -1,
@@ -871,7 +871,7 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 		} );
 	} );
 
-	it( 'drops a read position no subscription carries any more', () => {
+	it( 'drops a read position outside its subscriptions', () => {
 		const sse = newSseIn();
 		sse.arguments = [ 'tablestats.p0' ];
 		sse.lastPositions = {
@@ -895,7 +895,7 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 		} );
 	} );
 
-	it( 'states no seed its subscriptions do not carry', () => {
+	it( 'states only the seeds its subscriptions carry', () => {
 		const sse = newSseIn();
 		sse.arguments = [ 'tablestats.p0' ];
 		sse.reseek( sse.subscribe, {
@@ -978,7 +978,7 @@ test( 'start appends positions as an encoded JSON blob when set', () => {
 	);
 } );
 
-test( 'reseek is the one way to seed; no positions accessor stands beside it', () => {
+test( 'reseek is the one way to seed; there is no positions accessor beside it', () => {
 	const sse = newSseIn();
 	sse.arguments = [ 'kea.p4' ];
 	expect( 'positions' in sse ).toBe( false );
@@ -1305,7 +1305,7 @@ test( 'an UNPARSEABLE frame is dropped at ingress, sets ERROR, and warns', () =>
 } );
 
 /**
- * Garbage on the wire and a well-formed frame nobody typed are DIFFERENT bugs.
+ * Garbage on the wire and a well-formed typeless frame are DIFFERENT bugs.
  * Reporting both as one line is what left `_router: ... TYPE_UNKNOWN` unexplained
  * in the first place — the whole reason TM_UNTYPED exists.
  */
@@ -1640,7 +1640,7 @@ test( 'unparseable_lines adds each stamp’s COUNTS to its own running count', (
 	} );
 } );
 
-test( 'a COUNTS pair that names no stamp or no count adds nothing', () => {
+test( 'a COUNTS pair without a stamp or a count adds nothing', () => {
 	const { sse } = makeSseIn( { subscribe: [ 'jobstats.p0' ] } );
 	sse.start();
 	FakeEventSource.last.dispatch(
@@ -1994,7 +1994,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 			restUrl: 'https://example.test/wp-json/',
 			nonce: 'NONCE',
 		};
-		// A bare palette-drop configures only subscribe; no nonce is threaded in.
+		// A bare palette-drop configures only subscribe, never a nonce.
 		const sse = newSseIn();
 		sse.arguments = [ 'firehose,errors' ];
 		sse.start();
@@ -2066,7 +2066,7 @@ describe( 'raw blocks', () => {
 		} );
 	} );
 
-	test( 'a block from a stamp no subscription carries reaches its asker whole', () => {
+	test( 'a block from an unsubscribed stamp reaches its asker whole', () => {
 		const { sse, routed } = makeSseIn( { subscribe: [ 'sources:php' ] } );
 		sse.start();
 
@@ -2161,7 +2161,7 @@ describe( 'raw blocks', () => {
 		} );
 	} );
 
-	test( 'a batch no header placed is dropped, as PHP drops it', () => {
+	test( 'a batch without a header to place it is dropped, as PHP drops it', () => {
 		const warn = jest
 			.spyOn( Core, 'printLessOften' )
 			.mockImplementation( () => {} );
@@ -2177,7 +2177,7 @@ describe( 'raw blocks', () => {
 
 		expect( routed ).toEqual( [] );
 		expect( warn ).toHaveBeenCalledWith(
-			'ERROR: SseInNode: dropped a raw block no header placed'
+			'ERROR: SseInNode: dropped a raw block without a matching header'
 		);
 		warn.mockRestore();
 	} );
@@ -2515,7 +2515,7 @@ describe( 'FetchEventSource', () => {
 		);
 	} );
 
-	it( 'is what SseInNode opens its stream with when no seam is set', async () => {
+	it( 'is what SseInNode opens its stream with when the seam is unset', async () => {
 		global.fetch = jest.fn( async () => streamResponse( [] ) );
 		const opener = SseInNode.openStream;
 		SseInNode.openStream = null;

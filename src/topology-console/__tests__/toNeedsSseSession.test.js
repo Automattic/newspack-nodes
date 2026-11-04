@@ -57,7 +57,7 @@ describe( 'toNeedsSseSession', () => {
 		expect( toNeedsSseSession( 'Kea-7713.p3/summarizer' ) ).toBe( true );
 	} );
 
-	it( 'a padded or non-numeric partition names no worker', () => {
+	it( 'a padded or non-numeric partition does not name a worker', () => {
 		expect( toNeedsSseSession( 'kea-7713.p03' ) ).toBe( false );
 		expect( toNeedsSseSession( 'kea.pX' ) ).toBe( false );
 	} );

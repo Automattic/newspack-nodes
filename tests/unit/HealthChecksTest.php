@@ -248,7 +248,7 @@ class HealthChecksTest extends TestCase {
 	}
 
 	public function test_housekeeping_is_good_when_the_reconcile_cron_is_scheduled(): void {
-		// A timestamp no default shares — `false` is the missing-event value.
+		// A timestamp distinct from every default — `false` is the missing-event value.
 		$GLOBALS['_wp_test_next_scheduled'] = 1893456789;
 		$this->activate_topologies( [ 'ledger-lab' => "make_node Echo relay\n" ] );
 
@@ -350,9 +350,9 @@ class HealthChecksTest extends TestCase {
 	}
 
 	/**
-	 * While sessions are on SQLite and no active topology declares a wpdb
-	 * Table, nothing uses the shared tables, so their absence reports
-	 * nothing, the install record notwithstanding.
+	 * While sessions are on SQLite and the active topologies declare no wpdb
+	 * Table, nothing uses the shared tables, so their absence reports nothing,
+	 * the install record notwithstanding.
 	 */
 	public function test_absent_tables_nothing_uses_report_no_schema_row(): void {
 		$db              = $this->use_wpdb();

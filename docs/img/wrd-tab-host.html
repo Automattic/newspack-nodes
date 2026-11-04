@@ -100,8 +100,8 @@
   </div>
   <div class="card">
     <h3><span class="mono">syncUrl</span>, and the one thing a consumer cannot do</h3>
-    <div class="chip">The initial tab comes from <span class="mono">?tab=&lt;slug&gt;</span>; the resolved tab is mirrored back through <span class="mono">replaceState</span>; a tab's declared <span class="mono">param</span> survives only while it is showing. The first click retires the initial slug for the page's life; until then a slug no tab holds yet is retried on every registry version bump, which is what lets a slow lazy bundle still be reached by link.</div>
-    <div class="chip danger"><b><span class="mono">lazy</span> is substrate-internal.</b> <span class="mono">LAZY_TABS</span> has no filter, and <span class="mono">loadTabBundle()</span> sits in <span class="mono">src/station/</span>, which no alias reaches. Mark a consumer bundle <span class="mono">lazy</span> and PHP writes its recipe correctly, nothing registers a placeholder, the tab never joins the bar, and nothing logs a word. Ship an eager bundle, as event-logger-nodes' Request tab does.</div>
+    <div class="chip">The initial tab comes from <span class="mono">?tab=&lt;slug&gt;</span>; the resolved tab is mirrored back through <span class="mono">replaceState</span>; a tab's declared <span class="mono">param</span> survives only while it is showing. The first click retires the initial slug for the page's life; until then a slug that is not yet held by any tab is retried on every registry version bump, which is what lets a slow lazy bundle still be reached by link.</div>
+    <div class="chip danger"><b><span class="mono">lazy</span> is substrate-internal.</b> <span class="mono">LAZY_TABS</span> has no filter, and <span class="mono">loadTabBundle()</span> sits in <span class="mono">src/station/</span>, beyond the reach of every alias. Mark a consumer bundle <span class="mono">lazy</span> and PHP writes its recipe correctly, nothing registers a placeholder, the tab never joins the bar, and nothing logs a word. Ship an eager bundle, as event-logger-nodes' Request tab does.</div>
   </div>
 </div>
 </div>

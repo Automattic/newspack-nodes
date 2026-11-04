@@ -88,8 +88,8 @@ describe( 'liveTotal backlog', () => {
 	// The card is a CURRENT gauge. A reader that died while behind keeps its last
 	// sample, and the dashboard's 24h replay re-stamps every entry as freshly seen
 	// (liveness is measured from INGEST time, not the record's), so a dead
-	// reader's sample would report debt nobody is working off — while `wp nodes
-	// status` shows every live reader 0B behind.
+	// reader's sample would report debt that is not being worked off — while
+	// `wp nodes status` shows every live reader 0B behind.
 	it( 'ignores a reader whose newest sample is stale', () => {
 		const consumers = {
 			live: {
@@ -124,7 +124,7 @@ describe( 'liveTotal backlog', () => {
 		).toBe( 0 );
 	} );
 
-	it( 'skips a reader that names no source, which no chart plots either', () => {
+	it( 'skips a reader without a source, which the charts never plot either', () => {
 		expect(
 			backlogTotal(
 				{
@@ -177,7 +177,7 @@ describe( 'liveTotal cacheSize', () => {
 			expect( cacheSizeTotal( consumers, HEAD ) ).toBe( 2400 );
 		} );
 
-		it( 'skips a reader that names no source', () => {
+		it( 'skips a reader without a source', () => {
 			const consumers = {
 				nameless: reader( '', 9000 ),
 				r1: reader( 'jobs.p2', 1300 ),
@@ -309,7 +309,7 @@ describe( 'liveTotal msgRate', () => {
 	} );
 } );
 
-describe( 'a backlog no reader can measure', () => {
+describe( 'a backlog the readers cannot measure', () => {
 	const head = 5000;
 	const consumers = {
 		hub: {

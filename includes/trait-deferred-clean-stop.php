@@ -16,9 +16,10 @@
  * read-side advance-on-clean; both live in the substrate.
  *
  * A using node's fill() wraps its whole per-message work in `deferring()`; the
- * bracket is per-message by construction, so no stop outlives the message it
- * stopped. A checkpoint needs no bracket: `Consumer_Node` saves and commits it
- * inside `Event_Framework::uninterruptible()`, where no stop raises at all.
+ * bracket is per-message by construction, so a stop never outlives the message
+ * it stopped. A checkpoint needs no bracket: `Consumer_Node` saves and commits
+ * it inside `Event_Framework::uninterruptible()`, where a stop never raises at
+ * all.
  *
  * @api Consumed by application snapshot nodes in sibling plugins: event-logger-nodes'
  *      Request_Builder_Node and Stats_Builder_Node.

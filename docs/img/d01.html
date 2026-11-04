@@ -108,7 +108,7 @@
 
     <div class="lbl" style="left:560px;top:450px;width:480px">Command sessions, the leases on SSE stream slots, and the keyed Table store any process can read.</div>
 
-    <div class="lbl" style="left:560px;top:518px;width:480px">Every 15 seconds: read the peers' heartbeats, and POST a spawn for any peer whose heartbeat is stale. No supervisor does this; every worker does.</div>
+    <div class="lbl" style="left:560px;top:518px;width:480px">Every 15 seconds: read the peers' heartbeats, and POST a spawn for any peer whose heartbeat is stale. Every worker does this; there is no supervisor.</div>
 
     <div class="lbl" style="left:560px;top:614px;width:480px"><span class="n">6</span>At 595 seconds: release the lock, then <span class="mono">POST /workers/spawn</span> for the successor, and end.</div>
 

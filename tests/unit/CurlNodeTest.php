@@ -178,7 +178,8 @@ class CurlNodeTest extends TestCase {
 
 	/**
 	 * libcurl drops only `Authorization` (and `Cookie`) when a redirect leaves
-	 * the origin, so a credential in any other header follows no redirect.
+	 * the origin, so a request carrying a credential in any other header never
+	 * follows a redirect.
 	 */
 	public function test_a_credential_in_another_header_follows_no_redirect(): void {
 		$this->seed_vault( 'feed-12', [ 'url' => 'https://feed-12.example', 'auth_password' => 'feed-key-4410', 'auth_header' => 'X-Feed-Key-12', 'group' => 'crawl-g7' ] );
@@ -708,9 +709,9 @@ class CurlNodeTest extends TestCase {
 	}
 
 	/**
-	 * A request carrying header lines of its own follows no redirect, since
-	 * any of them may be a credential libcurl would carry along, and a 3xx
-	 * answers as the credential guard's does, naming no value.
+	 * A request carrying header lines of its own never follows a redirect,
+	 * since any of them may be a credential libcurl would carry along, and a
+	 * 3xx answers as the credential guard's does, without naming a value.
 	 */
 	public function test_request_headers_follow_no_redirect(): void {
 		$node = $this->curl();
@@ -723,7 +724,7 @@ class CurlNodeTest extends TestCase {
 		$this->assertStringNotContainsString( 's-4410', $this->only_emitted()[ Message::VALUE ] );
 	}
 
-	/** A DELETE follows no redirect, so its method is never sent to another url. */
+	/** A DELETE never follows a redirect, so its method is never sent to another url. */
 	public function test_a_delete_follows_no_redirect(): void {
 		$node = $this->curl();
 		$this->fetch( $node, $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'DELETE' ] ) );
@@ -1209,7 +1210,7 @@ class CurlNodeTest extends TestCase {
 		];
 	}
 
-	/** A public-only request naming a private, loopback, link-local or reserved address, or a name no DNS root holds, starts no transfer. */
+	/** A public-only request naming a private, loopback, link-local or reserved address, or a name that is not held by any DNS root, never starts a transfer. */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_public_only_host_provider' )]
 	public function test_a_public_only_request_refuses_a_host_that_is_not_public( string $url, string $refusal ): void {
 		$this->fetch( $this->curl(), $this->public_only( $url ) );
@@ -1511,7 +1512,7 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( 'HTTP 404 https://mcp-8.example/v1', $out[ Message::VALUE ] );
 	}
 
-	/** A request naming no response headers reads none and answers its body as a TM_BYTESTREAM. */
+	/** A request that does not name any response headers reads none, and answers its body as a TM_BYTESTREAM. */
 	public function test_a_request_naming_no_response_headers_answers_as_before(): void {
 		$node = $this->curl();
 		$this->fetch( $node, $this->request_message( [ 'url' => 'https://mcp-8.example/v1', 'method' => 'POST', 'body' => '{}' ] ) );

@@ -193,7 +193,7 @@ describe( 'createTimerHazardGuard', () => {
 			expect( () => guard.assertClean() ).toThrow( /Zed\.test\.js:77:3/ );
 		} );
 
-		it( 'still reports the count when no test frame survives', () => {
+		it( 'still reports the count when the stack holds no test frame', () => {
 			const guard = armWithStack(
 				'Error\n    at TimerNode.setTimer (/x/src/runtime/timer-node.js:9:1)'
 			);

@@ -128,8 +128,8 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	}
 
 	/**
-	 * The published per-key snapshot: the source, the newest sample, which no
-	 * fold changes, and the buckets the charts plot.
+	 * The published per-key snapshot: the source, the newest sample, which a
+	 * fold never changes, and the buckets the charts plot.
 	 *
 	 * @param {Object} c The internal entry (its buckets plus liveness bookkeeping).
 	 * @return {Object} { source, latest, buckets }.

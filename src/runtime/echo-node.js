@@ -8,11 +8,12 @@ import { TYPE, FROM, TO, TM_ERROR } from './message';
  *
  * `target` and the incoming TO pick one of four cases. A target plus a TO
  * prefixes the path (`target/TO`), and because Router peels only the head
- * segment the original address still routes onward behind it. No target and no
- * TO returns the message to its sender (TO=FROM), which is what makes a bare
- * Echo a ping responder. The other two fall through to `Node.fill`: a TO with
- * no target passes through untouched, and a target with an empty TO takes the
- * base stamp, so the message goes to the target rather than back to FROM.
+ * segment the original address still routes onward behind it. Without a
+ * target or a TO, the message returns to its sender (TO=FROM), which is what
+ * makes a bare Echo a ping responder. The other two fall through to
+ * `Node.fill`: a TO without a target passes through untouched, and a target
+ * with an empty TO takes the base stamp, so the message goes to the target
+ * rather than back to FROM.
  *
  * A TM_ERROR with an empty TO is dropped instead of bounced. Returning it would
  * land an error trail on a producer that never asked for one.
@@ -26,7 +27,7 @@ export class EchoNode extends Node {
 	 * exact match would let the substrate's commonest error shape bounce.
 	 *
 	 * A non-string target is Tee's fan-out list, which composes no path, so Echo
-	 * reads it as no target and an empty TO still returns to sender.
+	 * reads it as a missing target and an empty TO still returns to sender.
 	 *
 	 * @param {Array} message The 7-field positional message; TO is rewritten in place.
 	 */

@@ -199,7 +199,7 @@ class ReconcileTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( "{$this->tmp}/ipc/foo.bar.p41" );
 	}
 
-	/** An ipc dir no `worker_id()` spells belongs to no worker, and is not reaped. */
+	/** An ipc dir whose name `worker_id()` never spells does not belong to any worker, and is not reaped. */
 	public function test_it_leaves_an_ipc_dir_no_worker_id_spells(): void {
 		$this->ledger( 1 );
 		\mkdir( "{$this->tmp}/ipc/kea-7713.p07/input", 0755, true );

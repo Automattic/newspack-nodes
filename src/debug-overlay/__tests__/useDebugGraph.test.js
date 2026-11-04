@@ -69,7 +69,7 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'reports ready=false with an empty graph when Core is empty and no _metadata', () => {
+	it( 'reports ready=false with an empty graph when Core is empty and lacks _metadata', () => {
 		// Bare exospine: backbone hidden, no metadata → ready=false.
 		const { teardown } = mountExospine();
 		const { result } = renderHook( () => useDebugGraph() );
@@ -274,7 +274,7 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'commitDrop is silent on position when no onPositionChange is provided', () => {
+	it( 'commitDrop is silent on position without an onPositionChange', () => {
 		// No onPositionChange must not crash; make_node fires.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();

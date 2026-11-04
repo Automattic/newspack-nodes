@@ -92,9 +92,9 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 * the channel's reply cap, end the wait of every reader at the end of its
 	 * log once any one reader's wait falls due, so they share one POST and
 	 * stay in step after it, and publish the status. A reader the spoke
-	 * refused waits its full interval. A broker no Vault entry
-	 * names, or one whose partition owns no source, builds no channel and
-	 * writes no snapshot.
+	 * refused waits its full interval. A broker that is not named by
+	 * any Vault entry, or one whose partition owns no source, builds no channel
+	 * and writes no snapshot.
 	 */
 	protected function housekeep(): void {
 		if ( [] === $this->sources ) {
@@ -145,7 +145,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 
 	/**
 	 * The command channel, its reply cap raised to one share per reader; null
-	 * while no Vault entry names the spoke.
+	 * while the spoke is not named by any Vault entry.
 	 */
 	private function sized_channel(): ?HTTP_Out_Node {
 		$http = $this->ensure_channel();
@@ -230,9 +230,10 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	/**
 	 * The spoke's catalog, the one reply this broker asks for FROM itself:
 	 * a reader for each key a source claims, through the one builder, which
-	 * `MAX_READERS` caps for globs. A key no source claims is the catalog's
-	 * business, not a stray line, so it builds nothing and says nothing; a
-	 * refusal is said rate-limited. Either way the next ask waits a retry interval.
+	 * `MAX_READERS` caps for globs. A key that is not claimed by any source is
+	 * the catalog's business, not a stray line, so it builds nothing and says
+	 * nothing; a refusal is said rate-limited. Either way the next ask waits a
+	 * retry interval.
 	 *
 	 * @param array<int,mixed> $message The reply, TM_COMMAND|TM_RESPONSE or |TM_ERROR.
 	 */

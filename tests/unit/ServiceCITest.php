@@ -98,8 +98,8 @@ class ServiceCITest extends TestCase {
 	// ── central gate: dispatch() refuses EVERY verb below its declared role ──
 
 	public function test_schema_verb_is_denied_without_manage_options(): void {
-		// The probe's `ping` handler checks no role, so the refusal must come
-		// from dispatch(). With the cap denied (default) the reply is the
+		// The probe's `ping` handler does not check a role, so the refusal must
+		// come from dispatch(). With the cap denied (default) the reply is the
 		// permission error, not the verb's sentinel.
 		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
 		$this->assertSame( "permission denied: manage capability required\n", $result );

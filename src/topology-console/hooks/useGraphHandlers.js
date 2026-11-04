@@ -32,7 +32,7 @@ const NO_CLASSES = [];
 const ADMIT_ALL = () => true;
 
 /**
- * The refusal when no connected gate can carry a send.
+ * The refusal when there is no connected gate to carry a send.
  *
  * @return {string} The refusal, translated when called.
  */
@@ -126,8 +126,8 @@ function uiReplyPath( replyTo ) {
 
 /**
  * A copy of a signed message for the transcript: the signer's `auth` block
- * comes off VALUE, so no nonce, sig or handle reaches a transcript the overlay
- * persists, while TIMESTAMP stays the one the wire carries.
+ * comes off VALUE, so a nonce, sig or handle never reaches a transcript the
+ * overlay persists, while TIMESTAMP stays the one the wire carries.
  *
  * @param {Array} message A signed positional message.
  * @return {Array} The copy, without `VALUE.auth`.
@@ -224,16 +224,16 @@ function composeMessage( form, shell ) {
  * A compose mints its own message through `shell.envelope()`, asks `sseGuard`,
  * and signs it; then `sendMinted()`, the send tail it shares with `invoke`,
  * echoes it and fills `shell.sink`, the console's outgoing gate — never the
- * Shell itself, whose `fill()` parses any string TM_BYTESTREAM as a typed
- * line. The echo is the signed copy less the signer's own `auth`, a snapshot
- * taken before the send, as a typed statement's is, because the Router peels
- * TO in place and a local reply must land below its echo; no nonce, sig or
- * handle reaches a transcript the overlay persists. A refusal — no Shell, a
- * gate with no sink, an unclosed quote, malformed JSON, no SSE session — goes
- * back to the modal with nothing echoed or sent. A send that raises was
- * echoed and may have run, so the tail writes its error to the transcript and
- * the modal reports it, staying open with focus: the REPL opens only after a
- * send that returns.
+ * Shell itself, whose `fill()` parses any string TM_BYTESTREAM as a typed line.
+ * The echo is the signed copy less the signer's own `auth`, a snapshot taken
+ * before the send, as a typed statement's is, because the Router peels TO in
+ * place and a local reply must land below its echo; a nonce, sig or handle
+ * never reaches a transcript the overlay persists. A refusal — no Shell, a gate
+ * with no sink, an unclosed quote, malformed JSON, no SSE session — goes back
+ * to the modal with nothing echoed or sent. A send that raises was echoed and
+ * may have run, so the tail writes its error to the transcript and the modal
+ * reports it, staying open with focus: the REPL opens only after a send that
+ * returns.
  *
  * An Inspector action decides REPL visibility before it sends, through the
  * pure `isUiBound()`, so a gesture whose send raises still opens the REPL. An
@@ -257,9 +257,10 @@ function composeMessage( form, shell ) {
  * Naming a `replyTo` also marks the invoke UI-bound: a button working through
  * the REPL's verbs, not a command the operator asked to watch. Its reply comes
  * back through the `_ui` relay — FROM `_ui/<replyTo>`, or bare `_ui` for a
- * button that reads no reply — and neither the echo nor the reply reaches the
- * transcript unless `debug_ui` is on. Its refusal takes the same path, filled
- * straight into `_command_interpreter` because the gate may be what refused.
+ * button that does not read a reply — and neither the echo nor the reply
+ * reaches the transcript unless `debug_ui` is on. Its refusal takes the same
+ * path, filled straight into `_command_interpreter` because the gate may be
+ * what refused.
  * An invoke without one is REPL-bound and always shows.
  *
  * Every mutation also patches `_metadata`'s raw map, so the canvas repaints

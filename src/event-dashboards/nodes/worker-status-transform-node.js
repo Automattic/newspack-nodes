@@ -10,9 +10,10 @@ import {
 import { reconstructWorkers } from './reconstructWorkers';
 
 /**
- * One live sample of a log: when its segments were stat'd, and each one's
- * size, the baseline its write rate falls back on when no probe stands. `reconstructWorkers` computes these and hands them
- * back; this node only carries them between polls.
+ * One live sample of a log: when its segments were stat'd, and each one's size,
+ * the baseline its write rate falls back on when there is no probe.
+ * `reconstructWorkers` computes these and hands them back; this node only
+ * carries them between polls.
  *
  * @typedef {{at:number,sizes:Object<number,number>}} LiveSample
  */
@@ -47,8 +48,8 @@ const GAP_INTERVALS = 6;
  * attribution, because one verb answering from one atomic snapshot is what
  * keeps the four coherent. `reconstructWorkers` joins them here into the rich
  * `workers[]` array that `topologyGraph.buildTopologySections`, `TreeEntity`
- * and `SegmentBar` read, so the join lives in one place and nothing downstream
- * sees the lean shape.
+ * and `SegmentBar` read, so the join lives in one place and the lean shape
+ * never travels downstream.
  *
  * `reconstructWorkers` is stateless, so this node carries everything spanning
  * two polls: the live samples of the logs it hands back on every call,

@@ -123,7 +123,7 @@ test( 'rows carry the debug fields: msgId, key, struct flag, raw value', () => {
 	expect( row.raw ).toBe( '{"deep":{"nested":"struct 977"}}' );
 } );
 
-test( 'a struct row is stringified once, when first read, and never for a row nobody reads', () => {
+test( 'a struct row is stringified once, when first read, and never for an unread row', () => {
 	const v = makeView( 'log-viewer:view' );
 	const stringify = jest.spyOn( JSON, 'stringify' );
 	try {
@@ -638,7 +638,7 @@ test( 'adopts the first AVAILABLE catalog row when nothing is selected', () => {
 	expect( node.selected ).toBe( 'kea-7713.p3' );
 } );
 
-test( 'never adopts a catalog row that names no log', () => {
+test( 'never adopts a catalog row without a log', () => {
 	const node = new LogViewerViewNode();
 	node._control( {
 		action: 'logs',

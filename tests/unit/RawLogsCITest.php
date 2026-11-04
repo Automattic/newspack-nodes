@@ -217,7 +217,7 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( [ true ], \array_values( \array_unique( \array_column( $result, 'available' ) ) ) );
 	}
 
-	/** A root-owned dir, as a root `wp` run leaves, takes one unavailable row and blanks no other. */
+	/** A root-owned dir, as a root `wp` run leaves, takes one unavailable row and leaves every other row intact. */
 	public function test_list_logs_shows_a_dir_it_cannot_read_as_an_error_row(): void {
 		\mkdir( $this->tmp . '/offsets/job-worker.jobs.p4', 0755, true );
 		\file_put_contents( $this->tmp . '/offsets/job-worker.jobs.p4/3.log', '' );
@@ -985,7 +985,7 @@ class RawLogsCITest extends TestCase {
 
 		$this->assertSame( 'restricted body 6113 in ledger-items.p0', $record['message'][ Message::VALUE ] );
 		$this->assertStringContainsString( 'restricted body 6113', $batch[ Message::VALUE ] );
-		$this->assertStringNotContainsString( 'harbor_ledger_reader', $batch[ Message::VALUE ], 'the marker is no segment' );
+		$this->assertStringNotContainsString( 'harbor_ledger_reader', $batch[ Message::VALUE ], 'the marker is not a segment' );
 	}
 
 	public function test_the_listing_omits_a_marked_log_and_what_derives_from_it(): void {

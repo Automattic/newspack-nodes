@@ -87,7 +87,7 @@ class SchemaReflectionTest extends TestCase {
 	}
 
 	/**
-	 * Outside a worker no partition is bound, and partition 0's path would
+	 * Outside a worker a partition is never bound, and partition 0's path would
 	 * be another process's file, so the argument is refused, not resolved.
 	 */
 	public function test_a_bound_argument_outside_a_worker_is_refused(): void {
@@ -697,7 +697,7 @@ class SchemaReflectionTest extends TestCase {
 		$caught = $this->caught_any( fn () => $node->interpreter()->dispatch( 'remove_perch', [ 'heron-2' ] ) );
 
 		$this->assertInstanceOf( \InvalidArgumentException::class, $caught );
-		$this->assertSame( "remove_perch 'heron-2' names no perch this node declares", $caught->getMessage() );
+		$this->assertSame( "remove_perch 'heron-2' names a perch this node does not declare", $caught->getMessage() );
 		$this->assertSame( [ 'kite-8' ], $this->read_private( $node, 'perches' ) );
 	}
 
@@ -721,8 +721,8 @@ class SchemaReflectionTest extends TestCase {
 	}
 
 	/**
-	 * An `unlist` declaration naming no noun, by a missing or an empty
-	 * `noun`, is refused when its `:config` is wired.
+	 * An `unlist` declaration that does not name a noun, by a missing or an
+	 * empty `noun`, is refused when its `:config` is wired.
 	 *
 	 * @param class-string<Node> $fixture The node declaring the broken `unlist`.
 	 */

@@ -3149,7 +3149,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {} );
 	} );
 
-	it( 'canDeleteCurrent: returns false when no user-saved topology', async () => {
+	it( 'canDeleteCurrent: returns false for a topology the user has not saved', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		expect( lastHeaderProps.canDelete ).toBe( false );
@@ -4055,9 +4055,9 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'Discard leaves edit mode with no modal and no stale editing target', async () => {
-		// Discard drops the dirty draft as well as flipping the mode, so no
-		// later action re-asks, in LIVE, about a topology the operator cannot
-		// see. The drop itself is asserted on the interpreter
+		// Discard drops the dirty draft as well as flipping the mode, so a
+		// later action never re-asks, in LIVE, about a topology the operator
+		// cannot see. The drop itself is asserted on the interpreter
 		// (draft-interpreter-verbs); this covers the flow.
 		hooks.fetchTopology.mockResolvedValue( {
 			tsl: 'make_node Echo n1\n',
@@ -6081,7 +6081,7 @@ describe( 'TopologyConsole boot', () => {
 
 		it( 'the re-seed does not run in VIEW mode (the draft is inert there)', async () => {
 			// The effect early-returns outside edit mode; a re-seed there
-			// would be work against a document nothing has loaded.
+			// would be work against an unloaded document.
 			window.history.replaceState( {}, '', '/?topology=demo' );
 			const { getByTestId } = render( <TopologyConsole /> );
 			await act( async () => {} );
@@ -6154,7 +6154,7 @@ describe( 'topologyFromParam (deep-link validation)', () => {
 		).toBe( 'osprey-feed' );
 	} );
 
-	it( 'falls back the same way when no link is given', () => {
+	it( 'falls back the same way without a link', () => {
 		expect( topologyFromParam( null, PARTITIONS, [] ) ).toBe(
 			'kestrel-feed'
 		);

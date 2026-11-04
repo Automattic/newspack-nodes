@@ -22,8 +22,8 @@ use Newspack_Nodes\Internal_Request_Token;
  * backend and its log-source registry.
  *
  * `wp nodes doctor` runs under WP-CLI, which selects its own cache backend and
- * reads its own php.ini, so either check run there can report a posture no
- * visitor and no worker ever gets.
+ * reads its own php.ini, so either check run there can report a posture that
+ * a visitor or a worker never gets.
  * `Health_Probe_Client` is the other half of the handshake: it mints the token
  * and POSTs across the loopback, and this controller runs the probe inside the
  * web runtime and hands the result back.

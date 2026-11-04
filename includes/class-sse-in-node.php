@@ -5,10 +5,11 @@
  *
  * It owns one easy handle (the SSE GET) registered on the Event_Framework's shared
  * cURL multi, one in-memory `{segment, offset}` cursor, and one SSE connection's
- * worth of parser state. It is a *source*: `fill()` only counts, because nothing
- * upstream sends to it. Delivery is the `on_message` seam ONLY — each `msg`
- * payload reaches the patron RAW, and the patron owns unpacking, routing,
- * target and the sink fill. This node reads neither `sink` nor `target`.
+ * worth of parser state. It is a *source*: `fill()` only counts, because
+ * messages never reach it from upstream. Delivery is the `on_message` seam
+ * ONLY — each `msg` payload reaches the patron RAW, and the patron owns
+ * unpacking, routing, target and the sink fill. This node reads neither `sink`
+ * nor `target`.
  *
  * It is passive: it owns NO timer. Inbound bytes flow via the Event_Framework's
  * cURL polling (`start_curl` + `on_curl_done`, like HTTP_Out).
@@ -20,7 +21,8 @@
  *
  * `SSE_Out` defines the wire: `connected`, `msg`, `heartbeat`, `retry` and
  * `disconnect`, each carrying one packed 7-field Message. Its
- * `unparseable_lines` belongs to a worker's IPC stream, which no patron pulls.
+ * `unparseable_lines` belongs to a worker's IPC stream, which a patron never
+ * pulls.
  *
  * @package Newspack_Nodes
  */
@@ -84,7 +86,8 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * CURSORS, where each stream actually begins, which is how a tail or sentinel
 	 * seek resolves, and in DISTANCES the bytes its log holds from there; this
 	 * hands every `stamp => {segment?, offset, distance?}` start to the patron,
-	 * which owns the cursors. An envelope naming no cursor calls nothing.
+	 * which owns the cursors. An envelope that does not name a cursor calls
+	 * nothing.
 	 *
 	 * Signature: `function ( array $starts ): void`.
 	 *
@@ -752,7 +755,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * Reconnect-on-stale check. Driven by the patron (no timer here). Gated on
 	 * the HANDLE rather than the lease: a socket that opened and then went
 	 * silent before its handshake is exactly what this watchdog is for, and
-	 * CURLOPT_TIMEOUT is 0, so nothing else covers that window.
+	 * CURLOPT_TIMEOUT is 0, so this watchdog alone covers that window.
 	 *
 	 * @api Dynamic entrypoint.
 	 */
