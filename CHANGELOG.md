@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.145.0] - 2026-11-03
+
 ### Changed
 
 - **Every timer at a second or more fires on the grid, in both ports.** A PHP hitchhiker slower than the tick waits for its own cadence's boundary after its last fire, where it paced from the last fire, and a PHP slot of its own recurring at a second or more re-arms on the grid as the Router does. A clock stepped back past a whole interval re-anchors every PHP slot before the loop's next wait and a JS gridded slot, the Router's tick included, at the present, and a hitchhiker forgets a last fire left that far ahead, where each waited out the step. `Timer_Node::mark_due()` makes the next tick due, the PHP twin of `markDue()`. A PHP re-arm forgets the boundary its last arm was due at, as JS does. `Crawler_Node` holds its own `delay_ms` floor: on the grid no start comes within the delay, less a tenth of a tick for jitter, of the last, and a fire short of it is held for the first tick that clears it.
