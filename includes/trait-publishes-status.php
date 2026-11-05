@@ -43,23 +43,30 @@ trait Publishes_Status {
 	 * `null` to it. Outside a worker, or with no shared cache, it does nothing.
 	 *
 	 * @param array<string,mixed> $data Fields to merge over the snapshot.
+	 * @return bool Whether the cache holds the merged snapshot: written now,
+	 *              or unchanged since a write inside the heartbeat. False
+	 *              outside a worker, with no shared cache, or when the cache
+	 *              refused the write, which the next publish tries again.
 	 */
-	protected function publish_status( array $data ): void {
+	protected function publish_status( array $data ): bool {
 		$cache     = Cache_Backend::shared_first();
 		$partition = Core::bound_partition();
 		if ( null === $cache || null === $partition ) {
-			return;
+			return false;
 		}
 		$key    = self::status_key( $this->name, $partition );
 		$last   = $this->held_status( $key, $partition );
 		$status = \array_merge( $last, $data );
 		$now    = (int) Core::$now;
 		if ( $status === $last && $now - $this->status_written_at < $this->status_heartbeat() ) {
-			return;
+			return true;
 		}
-		$cache->set( $key, $status, $this->status_ttl() );
+		if ( ! $cache->set( $key, $status, $this->status_ttl() ) ) {
+			return false;
+		}
 		$this->status            = $status;
 		$this->status_written_at = $now;
+		return true;
 	}
 
 	/** Seconds the cache keeps a snapshot that is never rewritten. */

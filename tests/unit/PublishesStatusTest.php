@@ -14,8 +14,8 @@ final class Status_Fixture_Node extends Node {
 	use Publishes_Status;
 
 	/** @param array<string,mixed> $data Fields to publish. */
-	public function publish( array $data ): void {
-		$this->publish_status( $data );
+	public function publish( array $data ): bool {
+		return $this->publish_status( $data );
 	}
 
 	/** @return array<array-key,mixed> */
@@ -195,6 +195,39 @@ class PublishesStatusTest extends TestCase {
 		self::fixture()->publish( [ 'a' => 'x9' ] );
 
 		$this->assertNull( Status_Fixture_Node::read_status( 'fx', 3 ) );
+	}
+
+	public function test_publish_reports_a_snapshot_written_or_already_held(): void {
+		$node = self::fixture();
+
+		$this->assertTrue( $node->publish( [ 'a' => 'x9' ] ), 'written' );
+		Core::$now += 5;
+		$this->assertTrue( $node->publish( [ 'a' => 'x9' ] ), 'unchanged and fresh' );
+		$this->assertCount( 1, $this->memd->sets );
+	}
+
+	public function test_publish_reports_no_cache_and_no_worker_as_unwritten(): void {
+		$node = self::fixture();
+		unset( Core::$var['partition'] );
+		$this->assertFalse( $node->publish( [ 'a' => 'x9' ] ), 'outside a worker' );
+
+		Core::$var['partition'] = '3';
+		Core::$memd             = null;
+		$this->assertFalse( $node->publish( [ 'a' => 'x9' ] ), 'no shared cache' );
+	}
+
+	public function test_a_refused_write_is_reported_and_tried_again(): void {
+		$key  = Status_Fixture_Node::status_key( 'fx', 3 );
+		$node = self::fixture();
+		$this->memd->fail_set( $key );
+
+		$this->assertFalse( $node->publish( [ 'a' => 'x9' ] ) );
+
+		$this->memd = new InMemoryMemcached();
+		Core::$memd = $this->memd;
+		Core::$now += 1;
+		$this->assertTrue( $node->publish( [ 'a' => 'x9' ] ), 'the unchanged snapshot is written, not taken as held' );
+		$this->assertSame( [ 'a' => 'x9' ], Status_Fixture_Node::read_status( 'fx', 3 ) );
 	}
 
 	public function test_an_absent_key_reads_null(): void {

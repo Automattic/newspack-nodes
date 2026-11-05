@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Publishes_Status::publish_status()` answers whether the cache holds the snapshot:** true when it wrote it, or when it is unchanged since a write inside the heartbeat; false outside a worker, with no shared cache, or when the cache refused the write. A refused write is no longer held as written, so the next publish of the same snapshot writes it rather than skipping it as unchanged.
 - **A mount refuses every request but `GET` with `<VERB>: a mounted Table serves GET alone`,** where it answered `a mounted Table serves reads only`, which misnamed the rule once a read other than `GET` existed.
 
 ### Fixed
