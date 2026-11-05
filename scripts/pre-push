@@ -184,7 +184,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 	fi
 	if [[ "$remote_sha" =~ ^0+$ ]]; then
 		base="$(git merge-base "$local_sha" origin/main 2>/dev/null \
-		     || git merge-base "$local_sha" origin/trunk 2>/dev/null \
 		     || git merge-base "$local_sha" origin/HEAD 2>/dev/null \
 		     || echo "$empty_tree")"
 	elif git rev-parse -q --verify "${remote_sha}^{commit}" >/dev/null; then
