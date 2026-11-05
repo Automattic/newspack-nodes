@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.147.0] - 2026-11-04
+
 ### Added
 
 - **`SCARD <set_key> [<prefix>]` counts a durable Table's set members.** It answers one `TM_BYTESTREAM`, KEY the set and VALUE the count as a decimal string, of the set's live members starting with the prefix, every live member with none, then `TM_INFO "SCARD 1"`. Each arm counts with one `COUNT(*)` over the member range from the prefix up to the prefix with its last byte below 0xFF raised by one, members compared byte by byte, so `0/` counts `0/` and `0/…` and never `0x` or `1/`. SQLite walks a new covering index, `members_live` on `( set_key, member, expires )`, which every writer declares when it opens, an existing file included, so a count never reads a value's pages; wpdb's count is pinned to its primary key with `FORCE INDEX (PRIMARY)`. A count answering no row fails rather than reading as 0. It has no limit, where `members_of()` decodes each one and answers null past `MAX_MEMBERS_LIMIT`. A request naming no set, or more than a prefix, answers `SCARD: usage: SCARD <set_key> [<prefix>]`, a failed read `SCARD: backend read failed`, and a volatile Table and a mount refuse it as they refuse `SMOVE`. Its stats row counts one set asked and the members counted.
