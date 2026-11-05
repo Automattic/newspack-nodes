@@ -531,6 +531,49 @@ abstract class Durable_Arm extends Cache_Backend {
 	abstract protected function select_member_rows( string $set_key, int $limit ): array;
 
 	/**
+	 * `SCARD`: the live members of one set that start with `$prefix`, every
+	 * live member for an empty one, counted over one range of the set's
+	 * members, compared byte by byte, from the prefix up to `prefix_end()`.
+	 * A set key a write refuses holds none, and a failed count is logged.
+	 *
+	 * @param string $set_key Entry key of the set.
+	 * @param string $prefix  What each member counted starts with; '' for all.
+	 * @return int|false The members counted; false when the store failed.
+	 */
+	public function count_members( string $set_key, string $prefix ): int|false {
+		if ( self::refuses_key( $set_key ) ) {
+			return 0;
+		}
+		$counted = $this->attempt( fn (): int => $this->count_member_rows( $set_key, $prefix, self::prefix_end( $prefix ) ), false );
+		if ( false === $counted ) {
+			Core::print_less_often( 'Table member count failed: ', $this->last_failure() );
+		}
+		return $counted;
+	}
+
+	/**
+	 * The lowest string past every string starting with `$prefix`: its last
+	 * byte below 0xFF raised by one, the 0xFF bytes after it dropped.
+	 *
+	 * @param string $prefix The prefix.
+	 * @return string|null Null when every string is at or past the prefix.
+	 */
+	private static function prefix_end( string $prefix ): ?string {
+		$end = \rtrim( $prefix, "\xFF" );
+		return '' === $end ? null : \substr( $end, 0, -1 ) . \chr( \ord( \substr( $end, -1 ) ) + 1 );
+	}
+
+	/**
+	 * The live member rows of one set from `$from`, below `$below` when set.
+	 *
+	 * @param string      $set_key Entry key of the set.
+	 * @param string      $from    The lowest member counted.
+	 * @param string|null $below   The lowest member past the range; null for none.
+	 * @return int Rows counted.
+	 */
+	abstract protected function count_member_rows( string $set_key, string $from, ?string $below ): int;
+
+	/**
 	 * `SREM`: delete the named members of one set. An expired member the
 	 * purge has not yet reclaimed counts as there.
 	 *

@@ -542,11 +542,11 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
-	/** The six verbs are catalogued for `help` and the Inspector, and answered by fill(). */
+	/** The seven verbs are catalogued for `help` and the Inspector, and answered by fill(). */
 	public function test_the_verbs_are_declared_without_a_handler_and_help_lists_them(): void {
 		$requests = Table_Node::node_schema()['requests'];
 
-		$this->assertSame( [ 'GET', 'SMOVE', 'SREM', 'RM', 'ADD', 'SADD' ], \array_column( $requests, 'name' ) );
+		$this->assertSame( [ 'GET', 'SCARD', 'SMOVE', 'SREM', 'RM', 'ADD', 'SADD' ], \array_column( $requests, 'name' ) );
 		foreach ( $requests as $request ) {
 			$this->assertArrayNotHasKey( 'handler', $request );
 			$this->assertNotSame( '', $request['reply_shape'] ?? '' );

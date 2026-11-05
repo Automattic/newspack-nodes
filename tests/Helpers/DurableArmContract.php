@@ -177,6 +177,32 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( [ 'pend-4471' => [ 'm-1' => 1 ] ], $arm->members( [ 'pend-4471', 'fly-4471' ], 10 ) );
 	}
 
+	/**
+	 * A prefix counts the live members of one set that start with it and no
+	 * other: `0/` takes `0/` itself and `0/…`, never `0x`, `0` or `1/`.
+	 */
+	public function test_count_members_counts_the_live_members_starting_with_the_prefix(): void {
+		$arm = $this->arm();
+		$arm->add_members( [ 'pend-7741' => [ [ '0/' => 1, '0/a-3' => 2, '0/zz' => 3, '0x' => 4, '0' => 5, '1/' => 6, '/' => 7 ], 777 ] ] );
+		$arm->add_members( [ 'pend-7741' => [ [ '0/old' => 8 ], 37 ], 'pend-7742' => [ [ '0/b' => 9 ], 777 ] ] );
+		$this->clock += 37;
+		$this->assertSame( 3, $arm->count_members( 'pend-7741', '0/' ), 'the expired 0/old and the other set\'s 0/b are not counted' );
+		$this->assertSame( 7, $arm->count_members( 'pend-7741', '' ), 'no prefix counts every live member' );
+		$this->assertSame( 1, $arm->count_members( 'pend-7741', '0/a-3' ), 'a prefix equal to a member counts it' );
+		$this->assertSame( 0, $arm->count_members( 'pend-7741', '0/a-34' ), 'a prefix longer than every member counts none' );
+		$this->assertSame( 0, $arm->count_members( 'void-7741', '' ), 'an empty set counts none' );
+		$this->assertSame( 0, $arm->count_members( 'pend 7741', '' ), 'a set key a write refuses holds none' );
+	}
+
+	/** A prefix ending in 0xFF carries into the byte before it, and one of 0xFF alone has no upper bound. */
+	public function test_count_members_bounds_a_prefix_whose_last_byte_is_ff(): void {
+		$arm = $this->arm();
+		$arm->add_members( [ 'pend-7743' => [ [ "a\xFF" => 1, "a\xFFb" => 2, 'b' => 3, "\xFF" => 4, "\xFF\xFF" => 5, 'a~' => 6 ], 777 ] ] );
+		$this->assertSame( 2, $arm->count_members( 'pend-7743', "a\xFF" ) );
+		$this->assertSame( 2, $arm->count_members( 'pend-7743', "\xFF" ) );
+		$this->assertSame( 1, $arm->count_members( 'pend-7743', "\xFF\xFF" ) );
+	}
+
 	public function test_remove_members_names_what_was_there(): void {
 		$arm = $this->arm();
 		$arm->add_members( [ 'fly-6630' => [ [ 'u-1' => 1, 'u-2' => 1 ], 600 ] ] );

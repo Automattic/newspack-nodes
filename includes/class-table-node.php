@@ -125,6 +125,9 @@ class Table_Node extends Node {
 	/** How a GET request is answered. */
 	private const READ_REPLY = 'one message per value found, KEY set: TM_STRUCT for an array, TM_BYTESTREAM (a string) otherwise; then TM_INFO "GET <n>", or one TM_ERROR "GET: backend read failed"';
 
+	/** How a SCARD request is answered. */
+	private const COUNTED_REPLY = 'one TM_BYTESTREAM, KEY the set, VALUE the members counted as a decimal string; then TM_INFO "SCARD 1", or one TM_ERROR "SCARD: backend read failed"';
+
 	/** How a SMOVE request is answered. */
 	private const MOVED_REPLY = 'one TM_STRUCT, KEY the from set, VALUE a list of [ member, value ] moved, lowest member first, then TM_INFO "SMOVE 1", or one TM_ERROR "SMOVE: backend write failed"';
 
@@ -135,7 +138,7 @@ class Table_Node extends Node {
 	private const READ_VERBS = [ 'GET' ];
 
 	/** Why a mount refuses any other verb. */
-	private const READS_ONLY = 'a mounted Table serves reads only';
+	private const READS_ONLY = 'a mounted Table serves GET alone';
 
 	/** How every write request is answered. */
 	private const WRITE_REPLY = 'one TM_RESPONSE "<VERB> <keys…>" naming the keys it took effect on';
@@ -531,6 +534,7 @@ class Table_Node extends Node {
 		}
 		match ( $verb ) {
 			'GET'   => $this->reply_value( $request, $words ),
+			'SCARD' => $this->reply_counted( $request, $words ),
 			'SMOVE' => $this->reply_moved( $request, $words ),
 			'SREM'  => $this->reply_unmembered( $request, $words ),
 			'RM'    => $this->reply_removed( $request, $words ),
@@ -663,6 +667,38 @@ class Table_Node extends Node {
 			$rows += \count( $members );
 		}
 		return $rows;
+	}
+
+	/**
+	 * `SCARD <set_key> [<prefix>]`: the live members of one set that start
+	 * with the prefix, every one with none, answered as one message keyed by
+	 * the set, then the count of value messages sent. A request naming no set
+	 * or more than a prefix is refused, and so is a backend that is not
+	 * durable; a failed read answers one error. Counted as SCARD: the set
+	 * asked, the members counted.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   Set key, then the prefix.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply_counted( array $request, array $words ): void {
+		if ( 1 !== \count( $words ) && 2 !== \count( $words ) ) {
+			$this->refuse( $request, 'SCARD', 'usage: SCARD <set_key> [<prefix>]' );
+			return;
+		}
+		if ( ! $this->arm instanceof Durable_Arm ) {
+			$this->refuse( $request, 'SCARD', $this->needs_durable() );
+			return;
+		}
+		$counted = $this->arm->count_members( $this->key( $words[0] ), $words[1] ?? '' );
+		if ( false === $counted ) {
+			$this->count_error( 'SCARD' );
+			$this->reply( $request, Message::TM_ERROR, '', "SCARD: backend read failed\n" );
+			return;
+		}
+		$this->count_rows( 'SCARD', 1, $counted );
+		$this->reply( $request, Message::TM_BYTESTREAM, $words[0], (string) $counted );
+		$this->reply( $request, Message::TM_INFO, '', "SCARD 1\n" );
 	}
 
 	/**
@@ -2038,6 +2074,15 @@ class Table_Node extends Node {
 					'description' => 'One stored value. Case-sensitive, as every verb is.',
 					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
 					'reply_shape' => self::READ_REPLY,
+				],
+				[
+					'name'        => 'SCARD',
+					'description' => 'Count the live members of one set starting with <prefix>, every one with none; sqlite and wpdb alone hold members.',
+					'args'        => [
+						[ 'name' => 'set_key', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'prefix', 'type' => 'string', 'description' => 'What each member counted starts with, compared byte by byte.' ],
+					],
+					'reply_shape' => self::COUNTED_REPLY,
 				],
 				[
 					'name'        => 'SMOVE',

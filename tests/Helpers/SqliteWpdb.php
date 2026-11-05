@@ -120,7 +120,7 @@ class Sqlite_Wpdb extends \wpdb {
 	}
 
 	private static function sqlite( string $sql ): string {
-		$sql = \str_replace( 'INSERT IGNORE', 'INSERT OR IGNORE', $sql );
+		$sql = \str_replace( [ 'INSERT IGNORE', ' FORCE INDEX (PRIMARY)' ], [ 'INSERT OR IGNORE', '' ], $sql );
 		$sql = (string) \preg_replace( '/ON DUPLICATE KEY UPDATE .*$/s', 'ON CONFLICT DO UPDATE SET `value` = excluded.`value`, expires = excluded.expires', $sql );
 		$sql = (string) \preg_replace( '/^OPTIMIZE TABLE .*$/s', 'VACUUM', $sql );
 		return (string) \preg_replace( '/^DELETE FROM (`[^`]+`) WHERE (.*) LIMIT (\d+)$/s', 'DELETE FROM $1 WHERE rowid IN ( SELECT rowid FROM $1 WHERE $2 LIMIT $3 )', $sql );

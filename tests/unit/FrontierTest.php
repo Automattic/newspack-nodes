@@ -252,6 +252,91 @@ final class FrontierTest extends TestCase {
 		$this->assertSame( $asked, $this->owner->replies );
 	}
 
+	public function test_count_answers_each_sets_members_starting_with_the_prefix(): void {
+		$frontier = $this->frontier();
+		$this->assertSame( 0, $frontier->count( Frontier::PENDING ), 'an empty set counts 0' );
+		$frontier->add( [ '0/' => 1, '0/subj-a' => 2, '0/subj-b' => 3, '0x' => 4, '1/subj-c' => 5 ] );
+		$frontier->take( 2 );
+
+		$this->assertSame( [ 1, 2 ], [ $frontier->count( Frontier::PENDING, '0/' ), $frontier->count( Frontier::INFLIGHT, '0/' ) ], '0/ and 0/subj-a are in flight; 0x and 1/ never count' );
+		$this->assertSame( [ 3, 2 ], [ $frontier->count( Frontier::PENDING ), $frontier->count( Frontier::INFLIGHT ) ] );
+	}
+
+	public function test_a_settled_member_is_not_counted_in_flight(): void {
+		$frontier = $this->frontier();
+		$frontier->add( [ 'subj-a' => 1, 'subj-b' => 2, 'subj-c' => 3 ] );
+		$frontier->take( 3 );
+		$frontier->settle( [ 'subj-b' ] );
+
+		$this->assertSame( 2, $frontier->count( Frontier::INFLIGHT, 'subj-' ) );
+		$this->assertSame( [ Frontier::INFLIGHT => [ 'subj-a' => 1, 'subj-c' => 3 ] ], $this->sets(), 'the count removed what was settled first' );
+	}
+
+	public function test_a_successor_counts_its_predecessors_members_in_flight_as_pending(): void {
+		$predecessor = $this->frontier();
+		$predecessor->add( [ 'subj-a' => 1, 'subj-b' => 2, 'subj-c' => 3 ] );
+		$predecessor->take( 2 );
+		$successor = $this->frontier();
+
+		$this->assertSame( [ 0, 3 ], [ $successor->count( Frontier::INFLIGHT ), $successor->count( Frontier::PENDING ) ] );
+		$this->assertSame( [ Frontier::PENDING => [ 'subj-a' => 1, 'subj-b' => 2, 'subj-c' => 3 ] ], $this->sets() );
+	}
+
+	public function test_a_count_whose_recovery_goes_unanswered_is_null_and_owes_it(): void {
+		$this->frontier()->add( [ 'subj-a' => 1 ] );
+		$this->frontier()->take( 1 );
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-9:mute.p3' );
+		$this->table = 'lab-9:mute.p3';
+		$successor   = $this->frontier();
+
+		$this->assertNull( $successor->count( Frontier::INFLIGHT ) );
+
+		$this->table = self::TABLE;
+		$this->assertSame( [ 0, 1 ], [ $successor->count( Frontier::INFLIGHT ), $successor->count( Frontier::PENDING ) ], 'the recovery stayed owed' );
+	}
+
+	public function test_a_flush_the_table_does_not_answer_keeps_its_members_owed_and_the_next_retries_them(): void {
+		$frontier = $this->frontier();
+		$frontier->add( [ 'subj-a' => 1, 'subj-b' => 2 ] );
+		$frontier->take( 2 );
+		$frontier->settle( [ 'subj-a' ] );
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-9:mute.p3' );
+		$this->table = 'lab-9:mute.p3';
+
+		$frontier->flush();
+
+		$this->table = self::TABLE;
+		$this->assertSame( [ Frontier::INFLIGHT => [ 'subj-a' => 1, 'subj-b' => 2 ] ], $this->sets(), 'the dropped SREM removed nothing' );
+		$frontier->flush();
+		$this->assertSame( [ Frontier::INFLIGHT => [ 'subj-b' => 2 ] ], $this->sets(), 'the next flush removed what was owed' );
+	}
+
+	public function test_count_is_null_when_the_table_does_not_answer(): void {
+		$this->frontier()->add( [ 'subj-a' => 1 ] );
+		$this->table = 'lab-9:gone.p3';
+
+		$this->assertNull( $this->frontier()->count( Frontier::PENDING ) );
+	}
+
+	public function test_count_refuses_a_state_the_frontier_does_not_keep(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'Frontier: no set settled; count pending or inflight' );
+		( new Frontier() )->count( 'settled' );
+	}
+
+	public function test_a_frontier_with_no_table_counts_its_sets_in_the_process(): void {
+		$frontier = new Frontier();
+		$frontier->add( [ '0/subj-c' => 'gull-3', '0/' => 'gull-1', '0x' => 'gull-2', '1/subj-d' => 'gull-4', 4471 => 'gull-5' ] );
+		$frontier->take( 2 );
+
+		$this->assertSame( [ 0, 2 ], [ $frontier->count( Frontier::PENDING, '0/' ), $frontier->count( Frontier::INFLIGHT, '0/' ) ] );
+		$this->assertSame( [ 3, 1 ], [ $frontier->count( Frontier::PENDING ), $frontier->count( Frontier::INFLIGHT, '0/subj' ) ] );
+		$this->assertSame( 1, $frontier->count( Frontier::PENDING, '44' ), 'an all-digit member counts by its string' );
+		$this->assertSame( 0, $this->owner->replies, 'no Table is asked' );
+	}
+
 	public function test_a_frontier_with_no_table_keeps_both_sets_in_the_process_in_the_order_added(): void {
 		$frontier = new Frontier();
 		$this->assertTrue( $frontier->add( [ 'subj-c' => 'gull-3', 'subj-a' => 'gull-1', 'subj-b' => 'gull-2' ] ) );

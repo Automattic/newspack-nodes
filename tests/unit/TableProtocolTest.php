@@ -573,6 +573,55 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ 1, 1 ], [ $this->table->stats()['SMOVE']['errors'], $this->table->stats()['SREM']['errors'] ] );
 	}
 
+	// ── SCARD: a set's members counted, those starting with a prefix ──
+
+	public function test_scard_answers_the_count_of_members_starting_with_the_prefix_then_a_count_of_one(): void {
+		$this->ask( [ 'SADD' => [ 'pend-6612' => [ [ '0/' => 1, '0/sku-41' => 2, '0x' => 3, '1/' => 4 ] ], 'pend-6613' => [ [ '0/sku-43' => 5 ] ] ] ], self::STRUCT );
+		$replies = $this->ask( "SCARD pend-6612 0/\n" );
+		$this->assertSame( [ [ Message::TM_BYTESTREAM, 'pend-6612', '2' ], [ Message::TM_INFO, '', "SCARD 1\n" ] ], self::shape( $replies ) );
+		$this->assertSame( [ 'lab-7:kea', 'asker-9', 'ask-17' ], [ $replies[0][ Message::FROM ], $replies[0][ Message::TO ], $replies[0][ Message::ID ] ] );
+		$this->assertSame( [ [ Message::TM_BYTESTREAM, 'pend-6612', '4' ], [ Message::TM_INFO, '', "SCARD 1\n" ] ], self::shape( $this->ask( "SCARD pend-6612\n" ) ), 'no prefix counts every member' );
+		$this->assertSame( [ [ Message::TM_BYTESTREAM, 'void-6612', '0' ], [ Message::TM_INFO, '', "SCARD 1\n" ] ], self::shape( $this->ask( "SCARD void-6612 0/\n" ) ), 'an empty set counts 0' );
+	}
+
+	public function test_scard_counts_its_calls_the_sets_asked_and_the_members_counted(): void {
+		$this->ask( [ 'SADD' => [ 'pend-6612' => [ [ 'a-1' => 1, 'a-2' => 2, 'b-3' => 3 ] ] ] ], self::STRUCT );
+		$this->ask( "SCARD pend-6612 a-\n" );
+		$this->ask( "SCARD pend-6612\n" );
+		$keys = [ 'calls' => 0, 'asked' => 0, 'answered' => 0, 'errors' => 0 ];
+		$this->assertSame( [ 'calls' => 2, 'asked' => 2, 'answered' => 5, 'errors' => 0 ], \array_intersect_key( $this->table->stats()['SCARD'], $keys ) );
+	}
+
+	public function test_a_malformed_scard_is_refused_with_its_usage(): void {
+		foreach ( [ "SCARD\n", "SCARD pend-6612 0/ 1/\n" ] as $request ) {
+			$this->assertSame( [ [ Message::TM_ERROR, '', "SCARD: usage: SCARD <set_key> [<prefix>]\n" ] ], self::shape( $this->ask( $request ) ), $request );
+		}
+		$this->assertSame( 2, $this->table->stats()['SCARD']['errors'] );
+	}
+
+	public function test_a_volatile_table_refuses_scard_naming_itself_and_its_backend(): void {
+		Core::$memd = new InMemoryMemcached();
+		$owl        = $this->worker_table( 'lab-7:owl-memcache', 'owl:p3', 'memcache' );
+		Core::$memd = null;
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SCARD: needs a durable backend; lab-7:owl-memcache is memcache\n" ] ], self::shape( $this->ask( "SCARD pend-6612\n", Message::TM_REQUEST, $owl ) ) );
+	}
+
+	public function test_a_failed_scard_answers_an_error_and_counts_it(): void {
+		$this->ask( [ 'SADD' => [ 'pend-6612' => [ [ 'x-1' => 1 ] ] ] ], self::STRUCT );
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SCARD: backend read failed\n" ] ], self::shape( $this->ask( "SCARD pend-6612\n" ) ) );
+		$this->assertSame( 1, $this->table->stats()['SCARD']['errors'] );
+	}
+
+	public function test_a_wpdb_table_counts_its_own_namespaces_members(): void {
+		$this->use_wpdb();
+		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+		$emu = $this->worker_table( 'lab-7:emu', 'emu:p3', 'wpdb' );
+		$this->ask( [ 'SADD' => [ 'pend-6612' => [ [ '0/a' => 1, '0/b' => 2, '1/c' => 3 ] ] ] ], self::STRUCT, $owl );
+		$this->ask( [ 'SADD' => [ 'pend-6612' => [ [ '0/d' => 4 ] ] ] ], self::STRUCT, $emu );
+		$this->assertSame( [ [ Message::TM_BYTESTREAM, 'pend-6612', '2' ], [ Message::TM_INFO, '', "SCARD 1\n" ] ], self::shape( $this->ask( "SCARD pend-6612 0/\n", Message::TM_REQUEST, $owl ) ) );
+	}
+
 	public function test_a_failed_wpdb_set_add_is_retried_set_by_set(): void {
 		$this->use_wpdb();
 		$owl     = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
@@ -742,7 +791,7 @@ final class TableProtocolTest extends TestCase {
 		$struct = Message::TM_REQUEST | Message::TM_STRUCT;
 		foreach ( [ 'RM' => [ "RM sku-41\n", Message::TM_REQUEST ], 'ADD' => [ [ 'ADD' => [ 'sku-44' => [ 'owl' ] ] ], $struct ], 'SADD' => [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 'owl' ] ] ] ], $struct ], 'SMOVE' => [ "SMOVE 2 word:kea word:owl\n", Message::TM_REQUEST ], 'SREM' => [ "SREM word:kea u-41\n", Message::TM_REQUEST ] ] as $verb => [ $value, $type ] ) {
 			$replies = $this->ask( $value, $type, $mount );
-			$this->assertSame( [ [ Message::TM_ERROR, '', "{$verb}: a mounted Table serves reads only\n" ] ], self::shape( $replies ) );
+			$this->assertSame( [ [ Message::TM_ERROR, '', "{$verb}: a mounted Table serves GET alone\n" ] ], self::shape( $replies ) );
 			$this->assertSame( [ 'lab-7:kea.p3', 'asker-9', 'ask-17' ], [ $replies[0][ Message::FROM ], $replies[0][ Message::TO ], $replies[0][ Message::ID ] ] );
 		}
 		$this->assertSame( 'kea-41', $this->table->lookup( 'sku-41' ) );
@@ -754,6 +803,12 @@ final class TableProtocolTest extends TestCase {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$mount = $this->mounted_kea();
 		$this->assertSame( [ [ Message::TM_BYTESTREAM, 'sku-41', 'kea-41' ], [ Message::TM_INFO, '', "GET 1\n" ] ], self::shape( $this->ask( "GET sku-41\n", Message::TM_REQUEST, $mount ) ) );
+	}
+
+	public function test_a_mount_refuses_scard_since_it_serves_get_alone(): void {
+		$this->ask( [ 'SADD' => [ 'pend-6612' => [ [ '0/a' => 1, '0/b' => 2, '1/c' => 3 ] ] ] ], self::STRUCT );
+		$mount = $this->mounted_kea();
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SCARD: a mounted Table serves GET alone\n" ] ], self::shape( $this->ask( "SCARD pend-6612 0/\n", Message::TM_REQUEST, $mount ) ) );
 	}
 
 	public function test_a_mount_of_a_file_its_writer_declared_before_members_reads_no_members(): void {

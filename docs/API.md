@@ -1846,10 +1846,11 @@ is its first user.
 |---|---|
 | `add( array $members ): bool` | `SADD` member => value into `pending` for `MEMBER_TTL`; a member already there takes the new value and expiry. Answers whether `pending` took them. |
 | `take( int $count ): array` | Up to `$count` members, lowest first, moved from `pending` to `inflight` in one `SMOVE`, as `[ member, value ]` pairs. A count below 1 takes none. |
-| `settle( array $members ): void` | Take the members out of `inflight`: their work is done. The next `take()`, `restart()` or `drain()` removes every member settled since in one `SREM`. |
+| `settle( array $members ): void` | Take the members out of `inflight`: their work is done. The next `take()`, `restart()`, `drain()` or `count()` removes every member settled since in one `SREM`. |
 | `restart(): void` | Owe a recovery, as a new process does, for an owner that dropped the work it had in flight. |
 | `drain(): array` | Empty both sets, `pending` in `take()`s of `MAX_MEMBERS_LIMIT` and `inflight` in one `SREM`, and answer every member they held. |
-| `flush(): void` | Remove what was settled since in one `SREM`, as an owner's `shutdown_sweep()` does on a clean stop. |
+| `flush(): void` | Remove what was settled since in one `SREM`, as an owner's `shutdown_sweep()` does on a clean stop. An `SREM` the Table refuses or leaves unanswered keeps those members owed to the next flush. |
+| `count( string $state, string $prefix = '' ): ?int` | How many members of `PENDING` or `INFLIGHT` start with `$prefix`, every member with none, once what was settled is removed and any recovery owed has finished, as before a `take()`, so a successor never counts its predecessor's members as in flight: one `SCARD` of the Table through `Table_Client::count_members()`, or a count of the process's own sets for a frontier with no Table. Null when the Table does not answer the count or the recovery; any other state throws `\InvalidArgumentException`. |
 
 Built with no arguments, `new Frontier()` keeps both sets in the process, in
 the order added rather than lowest first, behind the same calls, for an owner

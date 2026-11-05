@@ -149,6 +149,38 @@ final class Frontier {
 	}
 
 	/**
+	 * How many members of one set start with `$prefix`, every member with
+	 * none, once what was settled is removed and any recovery owed has
+	 * finished, as before a take: one `SCARD` of the Table, or a count of the
+	 * process's own sets for a frontier with no Table.
+	 *
+	 * @api A node keeping work, and a view of how much it has left.
+	 * @param string $state  `PENDING` or `INFLIGHT`.
+	 * @param string $prefix What each member counted starts with; '' for all.
+	 * @return int|null The members counted; null when the Table did not
+	 *                  answer the count or the recovery before it.
+	 * @throws \InvalidArgumentException On a state that is neither set.
+	 * @throws \LogicException When the owner's client has an ask in flight.
+	 * @throws \RuntimeException When the owner has no name or no sink.
+	 */
+	public function count( string $state, string $prefix = '' ): ?int {
+		if ( self::PENDING !== $state && self::INFLIGHT !== $state ) {
+			throw new \InvalidArgumentException( \esc_html( "Frontier: no set {$state}; count " . self::PENDING . ' or ' . self::INFLIGHT ) );
+		}
+		$this->flush();
+		$this->recovered = $this->recovered || $this->recover();
+		if ( ! $this->recovered ) {
+			return null;
+		}
+		$backing = $this->backing();
+		if ( null !== $backing ) {
+			return $backing[0]->count_members( $backing[1], $state, $prefix );
+		}
+		$members = \array_keys( self::PENDING === $state ? $this->pending : $this->inflight );
+		return \count( \array_filter( $members, static fn ( int|string $member ): bool => \str_starts_with( (string) $member, $prefix ) ) );
+	}
+
+	/**
 	 * Return every member in `inflight` to `pending`.
 	 *
 	 * @return bool Whether the recovery finished; a move the Table does not
@@ -173,7 +205,8 @@ final class Frontier {
 
 	/**
 	 * Remove the members settled since the last flush from the Table's
-	 * `inflight`, in one `SREM`: what an owner's clean stop calls.
+	 * `inflight`, in one `SREM`: what an owner's clean stop calls. An `SREM`
+	 * the Table refuses or leaves unanswered keeps them owed to the next.
 	 *
 	 * @api A node keeping work, from its `shutdown_sweep()`.
 	 * @throws \LogicException When the owner's client has an ask in flight.
@@ -181,10 +214,13 @@ final class Frontier {
 	 */
 	public function flush(): void {
 		$backing = [] === $this->settled ? null : $this->backing();
+		$failed  = false;
 		if ( null !== $backing ) {
-			$backing[0]->remove_members( $backing[1], self::INFLIGHT, $this->settled );
+			$backing[0]->remove_members( $backing[1], self::INFLIGHT, $this->settled, $failed );
 		}
-		$this->settled = [];
+		if ( ! $failed ) {
+			$this->settled = [];
+		}
 	}
 
 	/**

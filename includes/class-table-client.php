@@ -89,21 +89,25 @@ final class Table_Client {
 	}
 
 	/**
-	 * `SREM`: delete members of one set.
+	 * `SREM`: delete members of one set. A write the Table refuses or leaves
+	 * unanswered removes none and sets `$failed`.
 	 *
-	 * @api A node moving members between sets: the Crawler_Node.
+	 * @api A node moving members between sets: the Frontier.
 	 * @param string       $table   The Table's registered name.
 	 * @param string       $set_key Set key.
 	 * @param list<string> $members Members.
+	 * @param ?bool        $failed  Set true when the write did not answer.
+	 * @param-out bool     $failed
 	 * @return list<string> The members that were there to delete.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
 	 */
-	public function remove_members( string $table, string $set_key, array $members ): array {
+	public function remove_members( string $table, string $set_key, array $members, ?bool &$failed = null ): array {
+		$failed = false;
 		if ( [] === $this->nameable( [ $set_key ] ) ) {
 			return [];
 		}
-		return $this->write_keys( $table, 'SREM', [ $set_key ], $members );
+		return $this->write_keys( $table, 'SREM', [ $set_key ], $members, $failed );
 	}
 
 	/**
@@ -132,11 +136,38 @@ final class Table_Client {
 	}
 
 	/**
+	 * `SCARD`: how many members of one set start with `$prefix`, every member
+	 * with none. A set or a prefix that cannot be named holds none and asks
+	 * nothing; a refusal, no answer, or an answer that is not one string
+	 * TM_BYTESTREAM keyed by the set and holding a whole number answers null,
+	 * so a failure never reads as an empty set.
+	 *
+	 * @api A node counting its work: the Frontier.
+	 * @param string $table   The Table's registered name.
+	 * @param string $set_key Set key.
+	 * @param string $prefix  What each member counted starts with; '' for all.
+	 * @return int|null The members counted; null when the Table did not answer.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	public function count_members( string $table, string $set_key, string $prefix = '' ): ?int {
+		if ( [] === $this->nameable( [ $set_key ] ) || ( '' !== $prefix && [] === $this->nameable( [ $prefix ] ) ) ) {
+			return 0;
+		}
+		$counted = $this->read( $table, 'SCARD', \rtrim( "{$set_key} {$prefix}" ) );
+		$reply   = $counted[0] ?? null;
+		if ( null === $reply || 0 === ( Core::num_int( $reply[ Message::TYPE ] ) & Message::TM_BYTESTREAM ) || $set_key !== $reply[ Message::KEY ] || ! \is_string( $reply[ Message::VALUE ] ) ) {
+			return null;
+		}
+		return Core::canonical_decimal( $reply[ Message::VALUE ] );
+	}
+
+	/**
 	 * Ask a read and collect its data replies, the messages its `VERB <n>`
 	 * TM_INFO counts.
 	 *
 	 * @param string $table The Table's registered name.
-	 * @param string $verb  `GET` or `SMOVE`.
+	 * @param string $verb  `GET`, `SCARD` or `SMOVE`.
 	 * @param string $args  The verb's arguments.
 	 * @return list<array<int,mixed>>|null Null on a TM_ERROR, a missing count, or a count the data replies miss.
 	 * @throws \LogicException When an ask is in flight already.
@@ -262,17 +293,18 @@ final class Table_Client {
 	 * @param string       $table The Table's registered name.
 	 * @param string       $verb  `SREM` or `RM`.
 	 * @param list<string> $args  The verb's arguments ahead of the keys.
-	 * @param list<string> $keys  Keys.
+	 * @param list<string> $keys   Keys.
+	 * @param bool         $failed Set true when the write did not answer.
 	 * @return list<string> The keys the write took effect on.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
 	 */
-	private function write_keys( string $table, string $verb, array $args, array $keys ): array {
+	private function write_keys( string $table, string $verb, array $args, array $keys, bool &$failed = false ): array {
 		$keys = $this->nameable( $keys );
 		if ( [] === $keys ) {
 			return [];
 		}
-		return $this->written( $verb, $this->ask( $table, Message::TM_REQUEST, \implode( ' ', [ $verb, ...$args, ...$keys ] ) . "\n" ) );
+		return $this->written( $verb, $this->ask( $table, Message::TM_REQUEST, \implode( ' ', [ $verb, ...$args, ...$keys ] ) . "\n" ), $failed );
 	}
 
 	/**

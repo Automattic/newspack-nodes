@@ -348,6 +348,32 @@ final class SqliteArmTest extends TestCase {
 		$this->assertStringNotContainsString( 'TEMP B-TREE', $detail, 'the key order serves ORDER BY member for free' );
 	}
 
+	/** A count walks the covering index, so it never reads a member's value pages. */
+	public function test_a_member_count_walks_the_covering_index_over_one_sets_member_range(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->add_members( [ 'word:w1' => [ [ 'u-1' => \str_repeat( 'kea', 3000 ) ], 777 ] ] );
+		foreach ( [ 'MEMBERS_PREFIX_COUNT' => [ 'word:w1', 'u-', 'u.', 1790000037 ], 'MEMBERS_COUNT' => [ 'word:w1', 'u-', 1790000037 ] ] as $name => $args ) {
+			$sql  = ( new \ReflectionClassConstant( Sqlite_Arm::class, $name ) )->getValue();
+			$plan = ( new \PDO( 'sqlite:' . $this->path() ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
+			$plan->execute( $args );
+			$detail = \implode( "\n", \array_column( $plan->fetchAll( \PDO::FETCH_ASSOC ), 'detail' ) );
+			$this->assertStringContainsString( 'SEARCH members USING COVERING INDEX members_live (set_key=? AND member>?', $detail, $name );
+			$this->assertStringNotContainsString( 'SCAN', $detail, $name );
+		}
+	}
+
+	public function test_a_file_written_before_the_count_index_gains_it_when_its_writer_opens(): void {
+		\mkdir( \dirname( $this->path() ), 0700, true );
+		$db = new \PDO( 'sqlite:' . $this->path() );
+		$db->exec( 'PRAGMA journal_mode = WAL' );
+		$db->exec( 'CREATE TABLE members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
+		$db = null;
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->add_members( [ 'word:w1' => [ [ 'u-1' => 1, 'u-2' => 2 ], 777 ] ] );
+		$this->assertSame( 2, $arm->count_members( 'word:w1', 'u-' ) );
+		$this->assertSame( [ 'members_live' ], ( new \PDO( 'sqlite:' . $this->path() ) )->query( "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'members_live'" )->fetchAll( \PDO::FETCH_COLUMN ) );
+	}
+
 	public function test_the_member_purge_seeks_expired_rows_through_the_expires_index(): void {
 		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
 		$arm->add_members( [ 'word:w1' => [ [ 'u-1' => 1 ], 777 ] ] );
@@ -382,6 +408,20 @@ final class SqliteArmTest extends TestCase {
 		$reader = new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true );
 		$this->assertSame( [], $reader->members( [ 'owl:set-7' ], 9 ) );
 		$this->assertFileDoesNotExist( $this->path() );
+	}
+
+	public function test_a_file_holding_no_members_table_fails_a_member_count(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'DROP TABLE members' );
+		$this->assertFalse( $arm->count_members( 'owl:set-7', 'm-' ), 'a failure never reads as an empty set' );
+		$this->assertStringContainsString( 'no such table: members', $arm->last_failure() );
+	}
+
+	public function test_a_reader_of_a_file_not_there_or_holding_no_members_table_counts_none(): void {
+		$reader = new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true );
+		$this->assertSame( 0, $reader->count_members( 'owl:set-7', '' ) );
+		$this->kv_only_file();
+		$this->assertSame( 0, ( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->count_members( 'owl:set-7', 'm-' ) );
 	}
 
 	/** A file its writer declared before members existed: a `kv` table alone. */

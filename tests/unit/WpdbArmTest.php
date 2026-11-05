@@ -501,6 +501,37 @@ final class WpdbArmTest extends TestCase {
 		$this->assertStringContainsString( 'Lost connection to server during query', $arm->last_failure() );
 	}
 
+	public function test_a_failed_member_count_is_a_failure_never_an_empty_set(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 1 ], 777 ] ] );
+		$this->db->deny['SELECT COUNT'] = 'Lost connection to server during query 4479';
+		$this->assertFalse( $arm->count_members( 'owl:set-7', 'm-' ) );
+		$this->assertStringContainsString( 'Lost connection to server during query 4479', $arm->last_failure() );
+	}
+
+	public function test_a_member_count_answering_no_row_is_a_failure_never_zero(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 1 ], 777 ] ] );
+		$this->db->canned['SELECT COUNT'] = [];
+		$this->assertFalse( $arm->count_members( 'owl:set-7', 'm-' ) );
+		$this->assertStringContainsString( 'answered no count', $arm->last_failure() );
+	}
+
+	/** The count seeks the primary key, never `namespace_expires`, whichever the optimizer prefers. */
+	public function test_a_member_count_is_pinned_to_the_primary_key(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$arm         = new Wpdb_Arm( 'kea:p3' );
+		$arm->count_members( 'owl:set-7', 'm-' );
+		$arm->count_members( 'owl:set-7', '' );
+		$this->assertSame(
+			[
+				"SELECT COUNT(*) AS members FROM `kea7_newspack_nodes_members` FORCE INDEX (PRIMARY) WHERE namespace = 'kea:p3' AND set_key = 'owl:set-7' AND member >= 'm-' AND member < 'm.' AND expires > 1790000000",
+				"SELECT COUNT(*) AS members FROM `kea7_newspack_nodes_members` FORCE INDEX (PRIMARY) WHERE namespace = 'kea:p3' AND set_key = 'owl:set-7' AND member >= '' AND expires > 1790000000",
+			],
+			$this->sent( 'SELECT COUNT' )
+		);
+	}
+
 	public function test_bind_refuses_a_statement_whose_values_and_placeholders_disagree(): void {
 		$bind = new \ReflectionMethod( Wpdb_Arm::class, 'bind' );
 		foreach ( [ [ 'SELECT %d FROM %i', [ 41, 'kea', 43 ] ], [ 'SELECT %s, %d FROM %i', [ 'kea', 41 ] ], [ "SELECT '%%s', %s FROM %i", [ 'kea', 'owl', 'emu' ] ] ] as [ $sql, $args ] ) {

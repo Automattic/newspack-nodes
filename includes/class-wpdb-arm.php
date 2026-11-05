@@ -216,6 +216,16 @@ final class Wpdb_Arm extends Durable_Arm {
 		return false === $bytes ? '' : $bytes;
 	}
 
+	/** See Durable_Arm::count_member_rows(). */
+	protected function count_member_rows( string $set_key, string $from, ?string $below ): int {
+		$statement = null === $below
+			? $this->member_statement( 'SELECT COUNT(*) AS members FROM %i FORCE INDEX (PRIMARY) WHERE namespace = %s AND set_key = %s AND member >= %s AND expires > %d', $this->namespace, $set_key, $from, self::now() )
+			: $this->member_statement( 'SELECT COUNT(*) AS members FROM %i FORCE INDEX (PRIMARY) WHERE namespace = %s AND set_key = %s AND member >= %s AND member < %s AND expires > %d', $this->namespace, $set_key, $from, $below, self::now() );
+		$rows = $this->rows( $statement );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text, shaped by Driver_Error where shown.
+		return \array_key_exists( 'members', $rows[0] ?? [] ) ? Core::as_int( $rows[0]['members'] ) : throw new \UnexpectedValueException( 'wpdb ' . self::members_table() . ': a member count answered no count' );
+	}
+
 	/** See Durable_Arm::delete_member(). */
 	protected function delete_member( string $set_key, string $member ): int {
 		return self::execute( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s AND set_key = %s AND member = %s', $this->namespace, $set_key, $member ) );

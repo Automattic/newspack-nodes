@@ -127,6 +127,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		'kv_expires'      => 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )',
 		'members'         => 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID',
 		'members_expires' => 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )',
+		'members_live'    => 'CREATE INDEX IF NOT EXISTS members_live ON members ( set_key, member, expires )',
 	];
 
 	/** The tables FTS5 keeps beside an `fts` shadow `{table}_fts`, as suffixes on it. */
@@ -153,6 +154,12 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/** One set's live rows with expiry, in member order; binds set, now, limit. */
 	private const MEMBERS_ROWS = 'SELECT member, "value", expires FROM members WHERE set_key = ? AND expires > ? ORDER BY member LIMIT ?';
+
+	/** One set's live members from a member on, through `members_live`; binds set, from, now. */
+	private const MEMBERS_COUNT = 'SELECT COUNT(*) FROM members WHERE set_key = ? AND member >= ? AND expires > ?';
+
+	/** One set's live members in a member range, through `members_live`; binds set, from, below, now. */
+	private const MEMBERS_PREFIX_COUNT = 'SELECT COUNT(*) FROM members WHERE set_key = ? AND member >= ? AND member < ? AND expires > ?';
 
 	/** One member's row; binds set, member. */
 	private const MEMBER_DELETE = 'DELETE FROM members WHERE set_key = ? AND member = ?';
@@ -1229,13 +1236,7 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/** See Durable_Arm::select_member_rows(). */
 	protected function select_member_rows( string $set_key, int $limit ): array {
-		if ( null === $this->db() ) {
-			// No file: its writer has not written, so there is nothing to read.
-			return [];
-		}
-		// A file its writer declared before members holds none to read.
-		$this->has_members ??= null !== $this->single_row( self::MEMBERS_TABLE );
-		if ( ! $this->has_members ) {
+		if ( ! $this->holds_members() ) {
 			return [];
 		}
 		$read = $this->statement( self::MEMBERS_ROWS );
@@ -1249,6 +1250,31 @@ final class Sqlite_Arm extends Durable_Arm {
 			$rows[] = [ Core::as_string( $row[0] ?? null ), Core::as_string( $row[1] ?? null ), Core::as_int( $row[2] ?? null ) ];
 		}
 		return $rows;
+	}
+
+	/** See Durable_Arm::count_member_rows(). */
+	protected function count_member_rows( string $set_key, string $from, ?string $below ): int {
+		if ( ! $this->holds_members() ) {
+			return 0;
+		}
+		$count = null === $below
+			? self::executed( $this->statement( self::MEMBERS_COUNT ), [ $set_key, $from, self::now() ] )
+			: self::executed( $this->statement( self::MEMBERS_PREFIX_COUNT ), [ $set_key, $from, $below, self::now() ] );
+		$rows = $count->fetchAll( \PDO::FETCH_COLUMN );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text, shaped by Driver_Error where shown.
+		return \array_key_exists( 0, $rows ) ? Core::as_int( $rows[0] ) : throw new \UnexpectedValueException( "sqlite {$this->path}: a member count answered no count" );
+	}
+
+	/**
+	 * Whether the file holds a `members` table to read: a file its writer has
+	 * not written, or declared before members, holds none.
+	 */
+	private function holds_members(): bool {
+		if ( null === $this->db() ) {
+			return false;
+		}
+		$this->has_members ??= null !== $this->single_row( self::MEMBERS_TABLE );
+		return $this->has_members;
 	}
 
 	/**

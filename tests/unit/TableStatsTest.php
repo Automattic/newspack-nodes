@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Table_Node::class )]
 #[CoversClass( Durable_Arm::class )]
 final class TableStatsTest extends TestCase {
-	private const VERBS = [ 'GET', 'SMOVE', 'SREM', 'RM', 'ADD', 'SADD', 'INSERT', 'SMEMBERS', 'PURGE', 'CHECKPOINT' ];
+	private const VERBS = [ 'GET', 'SCARD', 'SMOVE', 'SREM', 'RM', 'ADD', 'SADD', 'INSERT', 'SMEMBERS', 'PURGE', 'CHECKPOINT' ];
 
 	private string $dir = '';
 	private Table_Node $table;
@@ -160,6 +160,7 @@ final class TableStatsTest extends TestCase {
 		$this->insert( 175000, 'sku-47', '' );
 		$this->ask( 3000000, [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1, 'u-43' => 3 ] ], 'word:owl' => [ [ 'u-47' => 7 ], 777 ], 'bad set' => [ [ 'u-9' => 9 ] ] ] ] );
 		$this->table->members_of( [ 'word:kea', 'word:emu' ], 9 );
+		$this->ask( 900000, "SCARD word:kea u-\n" );
 		$this->ask( 400000, "SMOVE 1 word:kea word:emu\n" );
 		$this->ask( 600000, "SREM word:owl u-47 u-49\n" );
 		$this->ask( 5000000, "SCAN urltoken 5\n" );
@@ -176,6 +177,7 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame(
 			[
 				'GET'      => self::row( 1, 1, 1, 0.75, 0.75 ),
+				'SCARD'    => self::row( 1, 1, 2, 0.9, 0.9 ),
 				'SMOVE'    => self::row( 1, 1, 1, 0.4, 0.4 ),
 				'SREM'     => self::row( 1, 2, 1, 0.6, 0.6 ),
 				'RM'       => self::row( 1, 2, 1, 0.2, 0.2 ),

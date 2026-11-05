@@ -305,6 +305,10 @@ final class RowTableNodeTest extends TestCase {
 				$t['visits']['indexes']['members_expires'] = [ 'bucket' ];
 				return $t;
 			}, 'members_expires' ],
+			'an index named as the member count index' => [ static function ( array $t ): array {
+				$t['visits']['indexes']['members_live'] = [ 'bucket' ];
+				return $t;
+			}, 'members_live' ],
 			'two tables declaring one index name' => [ static function ( array $t ): array {
 				$t['tallies']['indexes'] = [ 'visits_bucket' => [ 'bucket' ] ];
 				return $t;
@@ -460,7 +464,7 @@ final class RowTableNodeTest extends TestCase {
 	public function test_a_mounted_table_refuses_rows(): void {
 		$mount   = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $this->sink );
 		$replies = $this->ask( $mount, [ 'ROWS' => self::visit( 'rid-5501', 1790000000 ) ] );
-		$this->assertSame( [ [ Message::TM_ERROR, '', "ROWS: a mounted Table serves reads only\n" ] ], self::shape( $replies ) );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "ROWS: a mounted Table serves GET alone\n" ] ], self::shape( $replies ) );
 	}
 
 	/**

@@ -35,16 +35,18 @@ final class Table_Asker_Fixture_Node extends Node {
 
 /** A Table that answers every request with one scripted set message and a count of 1. */
 final class Scripted_Member_Table_Fixture_Node extends Node {
-	public int $type    = Message::TM_STRUCT;
-	public mixed $value = null;
+	public int $type     = Message::TM_STRUCT;
+	public mixed $value  = null;
+	public string $count = "SMOVE 1\n";
+	public string $key   = 'word:kea';
 
 	public function fill( array $message ): void {
-		foreach ( [ [ $this->type, $this->value ], [ Message::TM_INFO, "SMOVE 1\n" ] ] as [ $type, $value ] ) {
+		foreach ( [ [ $this->type, $this->value ], [ Message::TM_INFO, $this->count ] ] as [ $type, $value ] ) {
 			$reply                   = Message::new_message();
 			$reply[ Message::TYPE ]  = $type;
 			$reply[ Message::FROM ]  = $this->name;
 			$reply[ Message::TO ]    = $message[ Message::FROM ];
-			$reply[ Message::KEY ]   = Message::TM_INFO === $type ? '' : 'word:kea';
+			$reply[ Message::KEY ]   = Message::TM_INFO === $type ? '' : $this->key;
 			$reply[ Message::VALUE ] = $value;
 			$this->require_sink()->fill( $reply );
 		}
@@ -194,6 +196,74 @@ final class TableClientTest extends TestCase {
 
 		$this->assertTrue( $failed, 'the Table refuses it' );
 		$this->assertSame( [ 'pend-3307' => [ 'x-1' => 1 ] ], $this->kea()->members_of( [ 'pend-3307' ], 9 ) );
+	}
+
+	public function test_count_members_counts_the_members_starting_with_the_prefix_through_the_graph(): void {
+		$client = $this->asker->client;
+		$client->add_members( 'lab-7:kea', [ 'pend-5583' => [ '0/' => 1, '0/sku-41' => 2, '0x' => 3, '1/' => 4, '0' => 5 ], 'pend-5584' => [ '0/sku-47' => 6 ] ], 900 );
+
+		$this->assertSame( 2, $client->count_members( 'lab-7:kea', 'pend-5583', '0/' ), '0/ takes 0/ and 0/sku-41, never 0x, 0 or 1/' );
+		$this->assertSame( 5, $client->count_members( 'lab-7:kea', 'pend-5583' ), 'no prefix counts every member' );
+		$this->assertSame( 0, $client->count_members( 'lab-7:kea', 'void-5583', '0/' ), 'an empty set counts 0, not a failure' );
+		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
+	}
+
+	public function test_count_members_is_null_when_the_table_refuses_or_does_not_answer(): void {
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-7:mute.p3' );
+		$this->assertNull( $this->asker->client->count_members( 'lab-7:gone.p3', 'pend-5583' ), 'NOT_AVAILABLE is no answer, never 0' );
+		$this->assertNull( $this->asker->client->count_members( 'lab-7:mute.p3', 'pend-5583' ), 'no count means no answer' );
+	}
+
+	public function test_count_members_is_null_when_the_count_is_not_a_whole_number(): void {
+		$scripted = new Scripted_Member_Table_Fixture_Node();
+		$scripted->name( 'lab-7:scripted.p3' );
+		$scripted->sink( $this->asker->sink() );
+		$scripted->type  = Message::TM_BYTESTREAM;
+		$scripted->count = "SCARD 1\n";
+		$scripted->key   = 'pend-5583';
+		foreach ( [ 'many', '-3', '' ] as $value ) {
+			$scripted->value = $value;
+			$this->assertNull( $this->asker->client->count_members( 'lab-7:scripted.p3', 'pend-5583' ), "'{$value}' is not a count" );
+		}
+		$scripted->value = '4471';
+		$this->assertSame( 4471, $this->asker->client->count_members( 'lab-7:scripted.p3', 'pend-5583' ) );
+	}
+
+	public function test_count_members_is_null_for_a_count_that_is_not_a_string_bytestream_keyed_by_the_set(): void {
+		$scripted = new Scripted_Member_Table_Fixture_Node();
+		$scripted->name( 'lab-7:scripted.p3' );
+		$scripted->sink( $this->asker->sink() );
+		$scripted->count = "SCARD 1\n";
+		$scripted->key   = 'pend-5583';
+		$scripted->type  = Message::TM_STRUCT;
+		$scripted->value = 4471;
+		$this->assertNull( $this->asker->client->count_members( 'lab-7:scripted.p3', 'pend-5583' ), 'a TM_STRUCT is not a count' );
+		$scripted->type = Message::TM_BYTESTREAM;
+		$this->assertNull( $this->asker->client->count_members( 'lab-7:scripted.p3', 'pend-5583' ), 'an int VALUE is not the string a count is sent as' );
+		$scripted->value = '4471';
+		$scripted->key   = 'pend-5584';
+		$this->assertNull( $this->asker->client->count_members( 'lab-7:scripted.p3', 'pend-5583' ), 'a count of another set is not this one' );
+	}
+
+	public function test_remove_members_fails_when_the_table_does_not_answer(): void {
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-7:mute.p3' );
+		$this->assertSame( [], $this->asker->client->remove_members( 'lab-7:mute.p3', 'fly-3307', [ 'x-1' ], $failed ) );
+		$this->assertTrue( $failed, 'no response means no answer' );
+		$this->asker->client->add_members( 'lab-7:kea', [ 'fly-3307' => [ 'x-1' => 1 ] ], 900 );
+		$this->assertSame( [ 'x-1' ], $this->asker->client->remove_members( 'lab-7:kea', 'fly-3307', [ 'x-1', 'x-2' ], $failed ) );
+		$this->assertFalse( $failed );
+	}
+
+	public function test_a_count_naming_an_unnameable_set_or_prefix_is_never_asked(): void {
+		$asked                   = 0;
+		$this->asker->on_message = static function () use ( &$asked ): void {
+			++$asked;
+		};
+		$this->assertSame( 0, $this->asker->client->count_members( 'lab-7:kea', 'pend 5583' ) );
+		$this->assertSame( 0, $this->asker->client->count_members( 'lab-7:kea', 'pend-5583', '0/ sku' ) );
+		$this->assertSame( 0, $asked );
 	}
 
 	public function test_members_expire_on_the_ttl_the_add_named(): void {
