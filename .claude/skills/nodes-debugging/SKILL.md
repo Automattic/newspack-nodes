@@ -1,6 +1,6 @@
 ---
 name: nodes-debugging
-description: Debugging the newspack-nodes substrate live — the REPL and its introspection verbs, fleet health, the on-disk layout, the browser debug overlay, and the failure modes we actually hit. Use when something flowing through the node graph isn't behaving as expected, when workers are unhealthy, or when you need to inspect node state without redeploying.
+description: Debugging the newspack-nodes substrate live — the REPL and its introspection verbs, fleet health, the on-disk layout, the browser debug overlay, and the failure modes we hit. Use when something flowing through the node graph isn't behaving as expected, when workers are unhealthy, or when you need to inspect node state without redeploying.
 argument-hint: "[symptom]"
 ---
 
@@ -125,7 +125,7 @@ register / unregister <source> <target> <event>
 
 Reach for `connect_node <node>` with no target first: it wires that node's output to your session, and `disconnect_node <node>` takes it back. Mind which kind of node you point at, though. A fan-out node — Tee or Tap — APPENDS your session to its target list and keeps delivering everywhere else; every other node REPLACES its single target, so connecting to one steers its production traffic at you until you disconnect. Settings_Sync appends like the other two and then skips you: it pushes only to a target whose head resolves to an `HTTP_Out_Node` carrying a live signing session, and a REPL session's head is not such a node, so your target earns the rate-limited `no session for <target>; skipping` and nothing else. Watch its pushes on the spoke, not from here.
 
-The `Tee → Dumper → Grep → Stderr` debug tap the substrate is designed around ships in no topology; build it in the REPL. `make_node` sinks each new node into the interpreter, so the wiring is a target chain and nothing else:
+The `Tee → Dumper → Grep → Stderr` debug tap the substrate is designed around does not ship in any topology; build it in the REPL. `make_node` sinks each new node into the interpreter, so the wiring is a target chain and nothing else:
 
 ```
 make_node Dumper tap-render           # renders any message to one text line
@@ -251,6 +251,7 @@ wp nodes reqgrep --follow          # tail under the event loop until SIGINT
 wp nodes reqgrep --incomplete      # only requests that reached neither complete nor aborted
 wp nodes reqgrep --raw             # the matching JSONL, unformatted
 wp nodes reqgrep --firehose=<dir>  # read another firehose dir, inside the configured logs dir
+wp nodes reqgrep --stdin           # read packed lines from stdin; refuses --follow, --recent, --firehose
 wp nodes reqgrep --bucket-size=<n> --num-buckets=<n>   # history geometry; 250 and 10 by default
 ```
 
