@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Coverage runs under PCOV.** `tests/run-coverage.sh` sources `scripts/lib/coverage-php.sh`, the one place a plugin chooses its coverage driver. It turns PCOV on for that process with `XDEBUG_MODE=off`, scoped to the plugin, and stops the run naming `php8.4-pcov` where the module is missing. `scripts/test-coverage-php.sh` tests it, and `pre-push` runs that with the other self-tests. No runtime change.
-- **`scripts/lint-english.mjs` holds comments, Markdown and HTML to the house prose rules.** It finds folded negatives, possessives standing in for a noun, dead qualifiers and Markdown arrow chains. There is no opt-out comment: a false positive is carved out of the gate itself. It is shared to every plugin and not wired into a hook yet.
+- **`scripts/lint-english.mjs` holds comments, Markdown and HTML to the house prose rules.** It finds folded negatives, possessives standing in for a noun, dead qualifiers and Markdown arrow chains. There is no opt-out comment: a false positive is carved out of the gate itself. It is shared to every plugin and wired into both hooks: each plugin's `lint-staged` hands it every staged file, and `pre-push` runs it over the whole repo on every push, docs-only included. `DEFERRED_GATES` cannot defer it. `test-pre-push.sh` holds the hook to it, and `pre-push` runs `test-lint-english.sh` with the other self-tests. No runtime change.
 
 ### Changed
 

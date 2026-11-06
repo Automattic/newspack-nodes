@@ -85,7 +85,7 @@ For a new or changed topology (`topologies/*.tsl`):
 
 ### Phase 3: Test, lint, deploy, restart
 
-Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage, the per-file JS coverage gate, `lint-docs.sh` (a grep gate over `docs/`, `README.md`, `AGENTS.md` and `.claude/skills` catching prose that drifted from the runtime — this file included), and the self-tests for the reorder twins, the comment gate and both coverage gates. Then, scoped to what the push touched: `lint:php`, a container deploy, the coverage suite and the per-class 90% gate for PHP; `lint:js` and `build` for JS; `lint:scss` and `build` for SCSS. Run the narrow commands below while you work, and let the push run the rest.
+Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage, the per-file JS coverage gate, `lint-docs.sh` (a grep gate over `docs/`, `README.md`, `AGENTS.md` and `.claude/skills` catching prose that drifted from the runtime — this file included), `lint-english.mjs` over the whole repo, and the self-tests for the reorder twins, the comment gate and both coverage gates. Then, scoped to what the push touched: `lint:php`, a container deploy, the coverage suite and the per-class 90% gate for PHP; `lint:js` and `build` for JS; `lint:scss` and `build` for SCSS. Run the narrow commands below while you work, and let the push run the rest.
 
 ```bash
 # Unit, integration and examples suites. Use the vendored binary, NOT whatever

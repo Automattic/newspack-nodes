@@ -9,6 +9,7 @@ SELF_TESTS=(
 	"test-fix-blank-lines.sh" "the blank-line fixer"
 	"test-abspath-guard-sniff.sh" "the ABSPATH guard sniff"
 	"test-lint-contract.sh" "the contract gate"
+	"test-lint-english.sh" "the prose gate"
 	"test-lint-styles.sh" "the style gate"
 	"test-lint-wp-pin.sh" "the pin gate"
 	"test-lint-private-data.sh" "the private-data gate"

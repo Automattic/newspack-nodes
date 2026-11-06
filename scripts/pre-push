@@ -30,6 +30,9 @@
 # names and tag message, in a plugin whose pre-push.local sets
 # PRIVATE_DATA_GATE=1.
 #
+# The prose gate (scripts/lint-english.mjs) runs on EVERY push, over the whole
+# repo: a reader finds clipped prose in a file this push never touched.
+#
 # Everything else is smart-scoped by file type touched in the push range:
 #
 #   PHP changed  → npm run lint:php + deploy + coverage suite + container_gates
@@ -260,6 +263,11 @@ script_gate lint-docs.sh \
 	"lint-docs (doc-vs-runtime drift)" \
 	"lint-docs failed — docs drifted from the runtime (see above)" \
 	"lint-docs clean"
+
+# Every push, docs-only included, from this plugin's own copy of the gate.
+step "lint-english (the prose in the whole repo)"
+node scripts/lint-english.mjs . || fail "lint-english failed — fix the prose (see above)"
+ok "lint-english clean"
 
 # A @wordpress/* range or a drifted lock builds against the wrong WordPress.
 wppin="${TOPLEVEL}/scripts/lint-wp-pin.mjs"

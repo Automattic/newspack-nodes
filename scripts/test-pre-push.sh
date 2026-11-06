@@ -397,6 +397,24 @@ grep -q 'coverage gate skipped' <<<"$out" && pass "which says it skips the cover
 out="$( STUB_DOWN=' ' push class-x.php )"; rc=$?
 not_run 'coverage-gate\.py' "a PHP push deferring coverage-gate with the container down"
 
+# (L2) every push, docs-only included, holds the whole repo's prose to the
+# gate in this plugin's own scripts/, and a hit fails it there.
+english_call='^node scripts/lint-english\.mjs \.$'
+write_local
+out="$( push notes.md )"; rc=$?
+[[ "$rc" -eq 0 ]] && grep -qE "$english_call" "$calls" \
+	&& pass "a docs-only push runs lint-english over the whole repo" \
+	|| bad "a docs-only push never ran lint-english over the repo ($rc): $( cat "$calls" )"
+out="$( STUB_FAILING='lint-english' push notes.md )"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q 'lint-english failed' <<<"$out" && grep -qx 'stub failure line 3' <<<"$out" \
+	&& pass "a lint-english hit fails the push, showing the hit" \
+	|| bad "a lint-english hit did not fail the push: $out"
+grep -q 'lint:php' <<<"$out" && bad "the scoped gates ran past the hit" || pass "before the scoped gates run"
+out="$( STUB_FAILING='lint-english' STUB_STATUS=127 push notes.md )"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q 'lint-english failed' <<<"$out" \
+	&& pass "a lint-english that cannot run fails the push" \
+	|| bad "a lint-english that cannot run passed the push: $out"
+
 # (M) a run_gate call naming a gate deferrable lacks fails loud, naming it.
 sed 's/run_gate lint:js /run_gate lint:jss /' "$here/pre-push" > "$repo/scripts/pre-push"
 write_local

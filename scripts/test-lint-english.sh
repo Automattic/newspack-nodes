@@ -383,6 +383,8 @@ prose_flags folded-subordinate \
 	'Stop when nobody holds the lock.' \
 	'Stop if nothing else can hold it.' \
 	'Skip it as no row matches.' \
+	'Skip it as nothing holds the lock.' \
+	'Skip it as nobody holds the lock.' \
 	'Return the row, or null when none.' \
 	"The column reads '' when none." \
 	'Use the stock path if none.' \
@@ -400,7 +402,10 @@ prose_clean \
 	'A failed read throws rather than reading as none.' \
 	'It reaches the check as no row.' \
 	'WordPress renders it as no type and falls back.' \
-	'It throws rather than reading as no such class.'
+	'It throws rather than reading as no such class.' \
+	'An until date that reads as nothing leaves the bare clause.' \
+	'A blank name read as nobody starts the job.' \
+	'A date reading as nothing leaves the row alone.'
 flags 'a read as no plural is the clipped form' is-no note.md 'A bad tag reads as no declared names.'
 if [[ "$out" == *'[folded-subordinate]'* ]]; then
 	echo "✗ a read as no plural is not a subordinate clause: $out"
@@ -601,6 +606,23 @@ prose_clean \
 	'See [foo](https://github.com/a/b/blob/main/c.php#L181).' \
 	'See [foo](https://x.test/c.php) (:181).' \
 	'See `foo` (:181).'
+
+# ---- the staged half of the wiring ----
+
+# Every plugin hands lint-staged's whole list to the gate, whose READERS choose.
+for plugin in "$( pwd )"/../../newspack-*/; do
+	[[ -f "$plugin/scripts/pre-commit" ]] || continue
+	name="$( basename "$plugin" )"
+	wired="$( node -p \
+		'require( process.argv[ 1 ] )[ "lint-staged" ][ "*" ]' \
+		"$( cd "$plugin" && pwd )/package.json" )"
+	if [[ "$wired" == 'node scripts/lint-english.mjs' ]]; then
+		echo "✓ $name hands every staged file to the gate"
+	else
+		echo "✗ $name hands every staged file to the gate: $wired"
+		fail=1
+	fi
+done
 
 # ---- the gate holds itself to its own rules ----
 

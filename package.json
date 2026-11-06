@@ -68,6 +68,7 @@
 		"typescript": "6.0.3"
 	},
 	"lint-staged": {
+		"*": "node scripts/lint-english.mjs",
 		"*.{js,jsx}": [
 			"prettier --write",
 			"eslint",

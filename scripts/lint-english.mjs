@@ -16,6 +16,10 @@
  *
  * Exit 0 clean; exit 1 with `file:line: [id] message` per hit.
  *
+ * `pre-commit` hands it every staged file through lint-staged, and `pre-push`
+ * hands it `.`, each from the plugin's own copy. READERS alone says what is
+ * prose, so `package.json` names no extension.
+ *
  * A false positive is carved out here, in the rule's `keep`, and never reworded
  * around. The gate offers no opt-out comment and honours no marker, because every
  * opt-out in a source tree teaches the next reader to write one.
@@ -844,7 +848,10 @@ const RULES = [
 		keep: [
 			...KEEP_IDIOMS,
 			{ match: / (?:is|was|has) \w+$/i },
-			{ match: /^as no /i, before: /\bread(?:s|ing)? $/i },
+			{
+				match: /^as no(?:thing|body)? /i,
+				before: /\bread(?:s|ing)? $/i,
+			},
 		],
 	},
 	{
