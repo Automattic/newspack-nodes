@@ -234,7 +234,7 @@ class LogCleanerTest extends TestCase {
 	}
 
 	public function test_sweeps_jobstats_when_no_declaring_topology_is_active(): void {
-		// jobstats.p0 is TSL-declared (topologies/job-worker.tsl), not whitelisted.
+		// jobstats.p0 is TSL-declared (topologies/job-worker.tsl.php), not whitelisted.
 		// When the active topologies do not declare it, it is an orphan and GCs
 		// like any other deactivated topology's log.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );

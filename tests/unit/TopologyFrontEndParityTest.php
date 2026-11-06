@@ -43,8 +43,8 @@ class TopologyFrontEndParityTest extends TestCase {
 	private function tsl_files(): array {
 		$plugin_dir = \dirname( __DIR__, 2 );
 		$files      = [
-			...\glob( $plugin_dir . '/topologies/*.tsl' ) ?: [],
-			...\glob( $plugin_dir . '/examples/example-ai-newsletter/topologies/*.tsl' ) ?: [],
+			...\glob( $plugin_dir . '/topologies/*.tsl.php' ) ?: [],
+			...\glob( $plugin_dir . '/examples/example-ai-newsletter/topologies/*.tsl.php' ) ?: [],
 			...\glob( \dirname( __DIR__ ) . '/fixtures/*.tsl' ) ?: [],
 		];
 		\sort( $files );

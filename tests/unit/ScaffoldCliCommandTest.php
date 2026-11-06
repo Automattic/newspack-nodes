@@ -51,7 +51,8 @@ class ScaffoldCliCommandTest extends TestCase {
 		$this->assertFileExists( "{$this->tmp}/orbit-mail/orbit-mail.php" );
 		$this->assertFileExists( "{$this->tmp}/orbit-mail/composer.json" );
 		$this->assertFileExists( "{$this->tmp}/orbit-mail/includes/class-orbit-mail-node.php" );
-		$this->assertFileExists( "{$this->tmp}/orbit-mail/topologies/orbit-mail.tsl" );
+		$this->assertFileExists( "{$this->tmp}/orbit-mail/topologies/orbit-mail.tsl.php" );
+		$this->assertStringStartsWith( "# <?php \\defined( 'ABSPATH' ) || exit; ?>\n", (string) \file_get_contents( "{$this->tmp}/orbit-mail/topologies/orbit-mail.tsl.php" ) );
 		$this->assertFileExists( "{$this->tmp}/orbit-mail/README.md" );
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
 	}
@@ -93,7 +94,7 @@ class ScaffoldCliCommandTest extends TestCase {
 	public function test_plugin_topology_wires_the_node(): void {
 		$this->scaffold( 'plugin', 'orbit-mail' );
 
-		$tsl = (string) \file_get_contents( "{$this->tmp}/orbit-mail/topologies/orbit-mail.tsl" );
+		$tsl = (string) \file_get_contents( "{$this->tmp}/orbit-mail/topologies/orbit-mail.tsl.php" );
 		$this->assertStringContainsString( 'var num_partitions = 1', $tsl );
 		$this->assertStringContainsString( 'make_node Orbit_Mail orbit-mail', $tsl );
 		$this->assertStringContainsString( 'connect_node orbit-mail', $tsl );

@@ -1,3 +1,4 @@
+# <?php \defined( 'ABSPATH' ) || exit; ?>
 make_node Topic_Probe topicprobe 15
 make_node Partition   topicprobe:log <config:logs_dir>/topicprobe.p0 16777216 2 8 0 86400 86400
 

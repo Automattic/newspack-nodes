@@ -167,7 +167,7 @@ TSL;
 			"{$slug}/{$slug}.php"                     => $this->plugin_bootstrap_template( $slug, $prefix ),
 			"{$slug}/composer.json"                   => $this->composer_template( $slug ),
 			"{$slug}/includes/class-{$slug}-node.php" => $this->node_template( $prefix, $prefix, $slug ),
-			"{$slug}/topologies/{$slug}.tsl"          => $this->plugin_topology_template( $slug, $prefix ),
+			"{$slug}/topologies/{$slug}.tsl.php"      => $this->plugin_topology_template( $slug, $prefix ),
 			"{$slug}/README.md"                       => $this->readme_template( $slug ),
 		];
 
@@ -255,6 +255,7 @@ MD;
 	 */
 	private function plugin_topology_template( string $slug, string $prefix ): string {
 		return <<<TSL
+# <?php \defined( 'ABSPATH' ) || exit; ?>
 # {$slug} — scaffolded starter graph: {$slug} → log.
 # Drive it by hand: wp nodes cli {$slug}.p0
 var num_partitions = 1
@@ -398,7 +399,7 @@ namespace {$prefix};
 		require_once __DIR__ . '/vendor/autoload.php';
 
 		// One call: the namespace (make_node resolves your *_Node classes)
-		// and the topologies/ dir, whose *.tsl become catalog entries.
+		// and the topologies/ dir, whose *.tsl.php become catalog entries.
 		\\Newspack_Nodes\\Topology_Registry::register_plugin(
 			'{$prefix}\\\\',
 			__DIR__ . '/topologies'

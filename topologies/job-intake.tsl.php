@@ -1,3 +1,4 @@
+# <?php \defined( 'ABSPATH' ) || exit; ?>
 # Job_Intake topology — drain the large-write job ingress into jobs.log on
 # SUBSTRATE-ONLY installs (no event-logger). ELN's job-router.tsl `include`s
 # this file and re-routes the leg through Job_Router — the conflict gate (shared

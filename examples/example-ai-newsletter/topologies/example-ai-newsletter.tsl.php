@@ -1,3 +1,4 @@
+# <?php \defined( 'ABSPATH' ) || exit; ?>
 # AI Newsletter — scored, durable digest pipeline (dashboard chapter).
 #
 #   community ┐

@@ -19,7 +19,7 @@ class SettingsSyncTopologyTest extends TestCase {
 	 * @return array<string,list<string>>
 	 */
 	private function settings_sync_map(): array {
-		$tsl = \file_get_contents( \dirname( __DIR__, 2 ) . '/topologies/settings-sync.tsl' );
+		$tsl = \file_get_contents( \dirname( __DIR__, 2 ) . '/topologies/settings-sync.tsl.php' );
 		$this->assertNotFalse( $tsl, 'settings-sync.tsl must be readable' );
 
 		$map = [];

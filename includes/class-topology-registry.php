@@ -32,6 +32,13 @@ namespace Newspack_Nodes;
 class Topology_Registry {
 
 	/**
+	 * What a stock `.tsl` adds to its name so a web server runs its first line,
+	 * `# <?php \defined( 'ABSPATH' ) || exit; ?>`, a comment to TSL, rather than
+	 * serving the file as text.
+	 */
+	public const GUARD_SUFFIX = '.php';
+
+	/**
 	 * Worker-spawn seam. Defaulted lazily at the call site to a closure that
 	 * builds and executes the real `Worker_Base`, since a closure cannot be a
 	 * constant expression. Tests reassign it in setUp to capture the spawn
@@ -219,9 +226,11 @@ class Topology_Registry {
 		}
 		// Order is load-bearing: a shadowing user .tsl is code execution.
 		foreach ( [ ...self::$stock_dirs, ...( '' === self::$user_dir ? [] : [ self::$user_dir ] ) ] as $dir ) {
-			$path = $dir . '/' . $filename;
-			if ( \is_file( $path ) ) {
-				return $path;
+			foreach ( [ $filename, $filename . self::GUARD_SUFFIX ] as $name ) {
+				$path = $dir . '/' . $name;
+				if ( \is_file( $path ) ) {
+					return $path;
+				}
 			}
 		}
 		return null;
@@ -446,9 +455,9 @@ class Topology_Registry {
 			return [];
 		}
 		$found = [];
-		foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+		foreach ( [ ...( \glob( $dir . '/*.tsl' ) ?: [] ), ...( \glob( $dir . '/*.tsl' . self::GUARD_SUFFIX ) ?: [] ) ] as $path ) {
 			if ( \is_file( $path ) ) {
-				$found[ \basename( $path, '.tsl' ) ] = $path;
+				$found[ \basename( \basename( $path, self::GUARD_SUFFIX ), '.tsl' ) ] = $path;
 			}
 		}
 		return $found;

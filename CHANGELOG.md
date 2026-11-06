@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Stock topologies ship as `<name>.tsl.php`.** A plain `.tsl` in a plugin folder is served as text over HTTP. Each stock file now opens `# <?php \defined( 'ABSPATH' ) || exit; ?>`, a comment to the TSL parser and an exit to PHP, so a direct request gets two characters. `Topology_Registry::resolve_file()` and `list()` find both names, so topologies keep their bare names everywhere else, and a topology saved to the user directory stays a plain `.tsl`. `wp nodes scaffold plugin` writes the guarded form. Plugins shipping stock topologies raise their substrate floor to this release.
+
 ## [2.147.1] - 2026-11-05
 
 ### Changed

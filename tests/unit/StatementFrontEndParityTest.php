@@ -27,13 +27,13 @@ class StatementFrontEndParityTest extends TestCase {
 	private function tsl_fixtures(): array {
 		$plugin_dir = \dirname( __DIR__, 2 );
 		$paths      = [
-			...\glob( $plugin_dir . '/topologies/*.tsl' ) ?: [],
-			...\glob( $plugin_dir . '/examples/example-ai-newsletter/topologies/*.tsl' ) ?: [],
+			...\glob( $plugin_dir . '/topologies/*.tsl.php' ) ?: [],
+			...\glob( $plugin_dir . '/examples/example-ai-newsletter/topologies/*.tsl.php' ) ?: [],
 			...\glob( \dirname( __DIR__ ) . '/fixtures/*.tsl' ) ?: [],
 		];
 		$fixtures = [];
 		foreach ( $paths as $path ) {
-			$fixtures[ \basename( $path, '.tsl' ) ] = $path;
+			$fixtures[ \basename( \basename( $path, '.php' ), '.tsl' ) ] = $path;
 		}
 		\ksort( $fixtures );
 		return $fixtures;

@@ -1,3 +1,4 @@
+# <?php \defined( 'ABSPATH' ) || exit; ?>
 # settings-sync topology — single-instance settings-sync control plane (hub side).
 #
 #   settings:consumer ─→ settings-sync ─→ <HTTP_Out per spoke> (operator-added)

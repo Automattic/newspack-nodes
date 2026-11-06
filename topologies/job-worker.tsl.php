@@ -1,3 +1,4 @@
+# <?php \defined( 'ABSPATH' ) || exit; ?>
 # Job-workers topology.
 #
 #   Consumer (jobs.log) ─→ JobWorker

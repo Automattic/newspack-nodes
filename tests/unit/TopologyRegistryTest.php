@@ -99,9 +99,44 @@ class TopologyRegistryTest extends TestCase {
 		Topology_Registry::register_builtin();
 
 		$this->assertStringEndsWith(
-			'/topologies/topic-probe.tsl',
+			'/topologies/topic-probe.tsl.php',
 			(string) Topology_Registry::resolve( 'topic-probe' )
 		);
+	}
+
+	/**
+	 * A stock topology ships as `<name>.tsl.php`, so a web server runs its
+	 * guard rather than serving its text, and it resolves by its bare name.
+	 */
+	public function test_a_guarded_stock_topology_resolves_and_lists_by_its_bare_name(): void {
+		$dir = \sys_get_temp_dir() . '/np-guarded-tsl-' . \getmypid();
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/harbor.tsl.php", "# <?php \\defined( 'ABSPATH' ) || exit; ?>\nmake_node Null x\n" );
+		try {
+			Topology_Registry::register_stock_dir( $dir );
+
+			$this->assertSame( "{$dir}/harbor.tsl.php", Topology_Registry::resolve( 'harbor' ) );
+			$this->assertSame( "{$dir}/harbor.tsl.php", Topology_Registry::resolve_file( 'harbor.tsl' ) );
+			$this->assertContains( 'harbor', Topology_Registry::list() );
+		} finally {
+			\unlink( "{$dir}/harbor.tsl.php" );
+			\rmdir( $dir );
+		}
+	}
+
+	/**
+	 * Every topology the plugin ships is guarded: a plain `.tsl` would be
+	 * served as text over HTTP.
+	 */
+	public function test_every_shipped_topology_carries_the_guard(): void {
+		$dir = \dirname( __DIR__, 2 ) . '/topologies';
+
+		$this->assertSame( [], \glob( "{$dir}/*.tsl" ) ?: [] );
+		$files = \glob( "{$dir}/*.tsl.php" ) ?: [];
+		$this->assertNotSame( [], $files );
+		foreach ( $files as $file ) {
+			$this->assertStringStartsWith( "# <?php \\defined( 'ABSPATH' ) || exit; ?>\n", (string) \file_get_contents( $file ), $file );
+		}
 	}
 
 	/**
