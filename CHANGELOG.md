@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/lint-english.mjs` holds comments, Markdown and HTML to the house prose rules.** It finds folded negatives, possessives standing in for a noun, dead qualifiers and Markdown arrow chains. There is no opt-out comment: a false positive is carved out of the gate itself. It is shared to every plugin and not wired into a hook yet.
+
 ### Changed
 
 - `SSE_Out_Node::init_sse_headers()` no longer sets the `implicit_flush` ini key, which PHP reads only at request startup. `write_wire()` and `flush_if_needed()` call `flush()` themselves, so the stream is unchanged.
