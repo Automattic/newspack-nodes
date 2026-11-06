@@ -247,7 +247,7 @@ class ConsumerTest extends TestCase {
 	/**
 	 * A refused publish unwinds to the sibling the caller BUILT, never to the
 	 * one the retract already tore down — `source()` only refuses null, so a
-	 * dead Partition passes it and writes reach a node nothing addresses.
+	 * dead Partition passes it and writes reach an unaddressed node.
 	 */
 	public function test_a_refused_source_publish_leaves_the_live_partition_in_the_property(): void {
 		$c = new class() extends Consumer_Node {
@@ -2057,7 +2057,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_counter_counts_only_successfully_forwarded_messages(): void {
-		// probe MSGS_DELTA / throughput reflect work actually delivered downstream. A
+		// probe MSGS_DELTA / throughput reflect work delivered downstream. A
 		// quarantined on a throw (or re-delivered after a cooperative stop) must NOT inflate
 		// the counter — otherwise a respawn double-counts the same re-delivered message.
 		$source = new Partition_Node();

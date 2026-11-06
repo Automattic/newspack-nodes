@@ -130,7 +130,7 @@ function createTimerHazardGuard( describeSite = defaultSite ) {
  *
  * @param {Error}  err    Error whose stack holds the site.
  * @param {string} needle Path fragment the wanted frame contains.
- * @return {string} The frame, or '' when none matches or the Error carries no stack.
+ * @return {string} The frame, or '' when every frame misses or the Error carries no stack.
  */
 function firstFrame( err, needle ) {
 	const line = ( err.stack || '' )

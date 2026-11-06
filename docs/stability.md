@@ -50,7 +50,8 @@ names resolve the active topology set first, which fails when the
 runtime base directory is unusable. `node_dirs()` and `node_partitions()`
 answer from the readable active topologies declaring the node, so another
 topology's broken `.tsl` costs them nothing while a readable one declares it;
-when none does, they raise every active topology that will not read — an
+when every readable one leaves it undeclared, they raise every active
+topology that will not read — an
 unknown include, an include cycle, a conflicting `make_node`, or a name no
 `.tsl` resolves — because the node may be what that one declares.
 Event-logger-nodes calls `node_dirs()` on dashboard request paths from

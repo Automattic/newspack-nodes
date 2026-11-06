@@ -597,7 +597,7 @@ class Vault {
 	/**
 	 * Open a stored value.
 	 *
-	 * A value without `ENCRYPTED_PREFIX` reads as no password: `add()` and
+	 * A value without `ENCRYPTED_PREFIX` reads as an empty password: `add()` and
 	 * `update()` seal every one, so an unsealed value was planted by something
 	 * with database write, and honouring it would let that something downgrade
 	 * a sealed credential to one it chose. The prefix is checked before any

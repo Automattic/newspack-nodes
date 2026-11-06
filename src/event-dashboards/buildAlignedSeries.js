@@ -189,7 +189,7 @@ function lastPerBucket( points, bucketOf ) {
  *
  * A point with no weight is an idle window: it is ignored when the bucket
  * holds positive weight, and the bucket reads the plain mean of its points
- * only when none of them carries any.
+ * only when every one of them lacks weight.
  *
  * @param {Array<{ts:number,value:number,weight:number}>} points   One topic's points.
  * @param {(ts:number)=>number}                           bucketOf Floors a ts onto its bucket instant.

@@ -680,7 +680,7 @@ test( 'scrolls only the records, keeping the count and the actions in view', () 
 
 test( 'paints the queue verbs as the rows paint theirs', () => {
 	// Refresh and Purge act on the queue as Requeue acts on a record, so
-	// all three take the compact verb role rather than a dialog's.
+	// all three take the compact verb role rather than a dialog's role.
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);

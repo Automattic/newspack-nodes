@@ -87,7 +87,7 @@ export class StubNode extends Node {
 	 *
 	 * A stub cannot inherit them — the class it describes is the one that has
 	 * them — so the catalog's `fans_out` is what decides, and setting it swaps
-	 * `target` between the two shapes the runtime actually uses.
+	 * `target` between the two shapes the runtime uses.
 	 *
 	 * @return {boolean} True when `connect_node` appends rather than replaces.
 	 */

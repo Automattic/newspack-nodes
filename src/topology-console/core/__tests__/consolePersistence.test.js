@@ -288,7 +288,7 @@ describe( 'session-reply redaction', () => {
 		'9e3f71a2bd48c05613fa27de8901bc3477a5e0d6218f4b9cae63027d5f1a8b40';
 	const SEEDED = { scope: 'tune', expires_in: 4242, now: 1735689600 };
 
-	/** The field names `mint_session()` actually returns, in source order. */
+	/** The field names `mint_session()` returns, in source order. */
 	function mintFields() {
 		const source = fs.readFileSync(
 			path.join( INCLUDES, 'class-command-auth.php' ),

@@ -2130,7 +2130,7 @@ describe( 'canonical appearance ownership', () => {
 	} );
 
 	// Clearing a value restores a default; it destroys nothing. Only the glyphs
-	// that actually remove something carry the danger role, as a red circle.
+	// that remove something carry the danger role, as a red circle.
 	it( 'reserves the danger role for controls that destroy something', () => {
 		const CLEARS = [
 			'topology-edit-row__reset',

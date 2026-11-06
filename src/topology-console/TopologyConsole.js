@@ -180,7 +180,7 @@ export { scopeFromCwd };
  *
  * @param {Object} args
  * @param {string} args.mode        'edit' or 'view'.
- * @param {string} args.editingName Topology open in the editor; '' when none is.
+ * @param {string} args.editingName Topology open in the editor; '' when nothing is open.
  * @param {string} args.scopeKey    Storage scope from `scopeFromCwd( cwd ).key`.
  * @return {?string} The key, or null in edit mode with nothing open.
  */
@@ -289,7 +289,7 @@ export function replCeilingFromAppHeight( appHeight ) {
  * @param {?string}               t          The `?topology=` value, or null when absent.
  * @param {Object<string,number>} partitions Partition count per known topology.
  * @param {string[]}              active     Topologies the fleet spawns.
- * @return {string|undefined} The topology to open; undefined when none is known.
+ * @return {string|undefined} The topology to open; undefined when the catalog is empty.
  */
 export function topologyFromParam( t, partitions, active ) {
 	if ( t && Object.prototype.hasOwnProperty.call( partitions, t ) ) {
@@ -1184,7 +1184,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setSettingsOpen( false );
 			}
 			if ( next === 'edit' ) {
-				// Auto-load the currently-live topology; blank canvas if none.
+				// Auto-load the live topology; blank canvas without one.
 				setMode( 'edit' );
 				discardDraft();
 				if ( topology ) {
@@ -1223,7 +1223,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	/**
 	 * One soft hull per directly-declared include. Membership comes from the
-	 * BASELINE's provenance intersected with the nodes actually on screen, so it
+	 * BASELINE's provenance intersected with the nodes on screen, so it
 	 * works in live mode too, where metadata nodes carry no `origin` of their own.
 	 */
 	const hulls = useMemo( () => {

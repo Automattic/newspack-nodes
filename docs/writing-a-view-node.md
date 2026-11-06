@@ -247,8 +247,8 @@ is written out by hand where the class is registered — each bundle's
 `register.js`, and `useStreamGraph.js` for the one shared view — rather than
 derived, though a named class conventionally registers as its own name minus the
 trailing `Node`. A `sliceView()` declaration returns an anonymous class, so that
-registered name is the only handle TSL and the REPL have on it. A base nothing
-registers is an import and nothing more: a TSL line can never name it.
+registered name is the only handle TSL and the REPL have on it. An
+unregistered base is an import and nothing more: a TSL line can never name it.
 
 | Class | Registers as | Where | Base, and what it owns |
 |---|---|---|---|

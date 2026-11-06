@@ -1041,7 +1041,7 @@ class Table_Node extends Node {
 	 *
 	 * @param string $key Key within the table's namespace.
 	 * @return array{found: bool, value: mixed, failed: bool} The value, null
-	 *         when none was found.
+	 *         when nothing was found.
 	 */
 	private function read_one( string $key ): array {
 		$backend = $this->arm();
@@ -1089,7 +1089,7 @@ class Table_Node extends Node {
 	 *
 	 * @param list<string> $keys     Keys that missed.
 	 * @param ?bool        $answered Set true when a backing looked, false when
-	 *                               none is installed or it could not look.
+	 *                               the Table has no backing or it could not look.
 	 * @param-out bool     $answered
 	 * @return array<string,mixed> Values recovered, under the caller's keys.
 	 */
@@ -1133,7 +1133,7 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Read under the stored keys, answer under the caller's: `$read` takes the
+	 * Read under the stored keys, answer under the caller's keys: `$read` takes the
 	 * keys as this Table stores them and returns what it found by those.
 	 *
 	 * @template T
@@ -1189,8 +1189,8 @@ class Table_Node extends Node {
 
 	/**
 	 * Store entries under their own remaining lifetimes, a round trip per
-	 * lifetime rather than per key. An entry stating none takes the table's,
-	 * and one whose life is spent takes no cache slot.
+	 * lifetime rather than per key. An entry stating none takes the table's
+	 * lifetime, and one whose life is spent takes no cache slot.
 	 *
 	 * @param array<array-key,array{value: mixed,ttl?: int}> $entries Key within
 	 *        the table's namespace => value and remaining life.
@@ -1212,7 +1212,7 @@ class Table_Node extends Node {
 	 * Refuse a TTL that is not a whole number of at least one second, naming
 	 * the Table: a Table entry always expires.
 	 *
-	 * @param string $ttl The TTL as given; '' when none was.
+	 * @param string $ttl The TTL as given; '' when nothing was given.
 	 * @throws \InvalidArgumentException Always.
 	 */
 	private function refuse_ttl( string $ttl ): never {

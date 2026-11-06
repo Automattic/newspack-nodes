@@ -223,7 +223,7 @@ interleave — which lets the firehose skip a lock on the common path.
 is dropped whole, trimmed at the producer by [`Line_Fitter::fit()`](../includes/class-line-fitter.php), or written under one of two
 explicit opt-ins that raise the ceiling to `MAX_LARGE_LINE_SIZE`, 32 MiB.
 
-![A record reaches Partition::fill() and is measured as packed bytes plus newline against MAX_LINE_SIZE 4096: under it, one lock-free atomic write; over it with no opt-in, dropped with a rate-limited WARNING. Three routes below. Line_Fitter::fit keeps the cap by halving the listed VALUE fields in sacrifice order and returns null when none is left. allow_large_writes takes a Lock at write.lock.d, retrying every 100 ms up to DEFAULT_LOCK_WAIT_MS 15 s, stealing a lock orphaned or stale past 60 s, throwing at timeout, with a debounce mode. void_warranty lifts the cap on the caller's assertion of sole writer. A mode strip shows NONE, LOCK and VOID: the lock supersedes a void, and a refused acquisition drops the cap all the way back. A note states the habitable zone: one host's local POSIX filesystem.](img/adr-large-write-modes.png)
+![A record reaches Partition::fill() and is measured as packed bytes plus newline against MAX_LINE_SIZE 4096: under it, one lock-free atomic write; over it with no opt-in, dropped with a rate-limited WARNING. Three routes below. Line_Fitter::fit keeps the cap by halving the listed VALUE fields in sacrifice order and returns null when the listed fields run out. allow_large_writes takes a Lock at write.lock.d, retrying every 100 ms up to DEFAULT_LOCK_WAIT_MS 15 s, stealing a lock orphaned or stale past 60 s, throwing at timeout, with a debounce mode. void_warranty lifts the cap on the caller's assertion of sole writer. A mode strip shows NONE, LOCK and VOID: the lock supersedes a void, and a refused acquisition drops the cap all the way back. A note states the habitable zone: one host's local POSIX filesystem.](img/adr-large-write-modes.png)
 
 The two opt-ins are for a record that must survive whole; the fit is for one carrying an
 expendable field, where a fitted line keeps its head and an unfitted one is gone.
@@ -308,7 +308,7 @@ key family is required — then a *new, named* routing function, not a quiet sec
 `message[TO]` only when TO is empty; [`_router`](../includes/class-router-node.php) resolves a non-empty TO by peeling the head
 segment; replies set `TO=$message[FROM]` to walk the breadcrumb back.
 
-![Two planes side by side. Physical: a node reference, unaddressable, which is how the stdin reader and the Shell stay off the registry and out of reach of any TO path. Logical: a string path stamped into an empty TO, walked by _router one segment at a time, serializable across IPC, SSE, HTTP and the browser. Three verdicts: all-logical loses unaddressability, all-physical loses the serializable address, so both planes are load-bearing. A decision at the bottom shows what PHP's HTTP_Out does with a message the remote sent back: addressed messages pass only when their whole TO is on the allow_replies_to list and are dropped otherwise; unaddressed ones take the target when one is set and go on to the sink as they stand when none is. A note under it gives the browser's HttpOut, which keeps Tachikoma's type-bit test and refuses an addressed non-reply while a target is set.](img/adr-sink-vs-target.png)
+![Two planes side by side. Physical: a node reference, unaddressable, which is how the stdin reader and the Shell stay off the registry and out of reach of any TO path. Logical: a string path stamped into an empty TO, walked by _router one segment at a time, serializable across IPC, SSE, HTTP and the browser. Three verdicts: all-logical loses unaddressability, all-physical loses the serializable address, so both planes are load-bearing. A decision at the bottom shows what PHP's HTTP_Out does with a message the remote sent back: addressed messages pass only when their whole TO is on the allow_replies_to list and are dropped otherwise; unaddressed ones take the target when one is set and go on to the sink as they stand otherwise. A note under it gives the browser's HttpOut, which keeps Tachikoma's type-bit test and refuses an addressed non-reply while a target is set.](img/adr-sink-vs-target.png)
 
 The routing nodes go further. [Tee](../includes/class-tee-node.php) (array target, fan-out) sets TO per target — the target
 alone, or `target/TO` prepended so the remainder routes onward after the Router peels the
@@ -995,8 +995,8 @@ containing one answers **401** rather than a reassuring 202.
   `id:timestamp:name:arguments:payload` for the same reason.
 - **Asymmetric signing (Ed25519)** — rejected even for hub-to-spoke authority through
   `sign_for()`: both ends of a session are one trust domain, since the site that minted the key
-  verifies it. Public-key signing buys non-repudiation and third-party verification, which no
-  consumer needs, at the cost of a key-distribution problem.
+  verifies it. Public-key signing buys non-repudiation and third-party verification at the cost
+  of a key-distribution problem, and consumers need neither.
 - **`crypto.subtle` in the browser** — rejected: it returns promises, and awaiting one makes the
   Shell's dispatch async, moving every graph mutation a microtask later. The browser signs with
   synchronous `@noble/hashes`.
@@ -1101,8 +1101,8 @@ and skips resolution, so registration stays required for TSL and the palette whi
 depend on it. [`scripts/lint-contract.mjs`](../scripts/lint-contract.mjs) enforces the rule: `name-lookup-in-hook` catches a
 name passed to `makeNode`, and `name-lookup-in-option` catches one a hop out, in a hook
 option's `viewClass` / `viewType` / `nodeClass`. Both read their builtin allow-list from
-`includeNodes`'s own declaration, and both stand down behind a one-line `console.warn` when no
-substrate is in reach to read it from, which is the standing state for pyrobase,
+`includeNodes`'s own declaration, and both stand down behind a one-line `console.warn` when the
+substrate is out of reach, which is the standing state for pyrobase,
 nuclear-gyrobase and cache-cozy; the other rules keep running.
 
 **Alternatives considered:** A window-global registry, as
@@ -1270,7 +1270,7 @@ misses cost a walk bounds that cost itself, where it knows which keys can still 
 **Consequences:** A table with a backing cannot report a miss the caller can
 distinguish from "absent everywhere" — that is the point. The backing is invoked on the read
 path, so a slow system of record becomes read latency, one walk per read. A key the record does not hold costs that walk on
-every read, because nothing records that it was absent.
+every read, because its absence is not recorded.
 
 **Revisit if:** a backing whose cost makes synchronous read-through wrong — at which point the
 fill belongs on a queue rather than in `lookup()` — or a caller whose repeated absent keys cost
@@ -2017,7 +2017,7 @@ which answer READ. One function, `Capabilities::require_verb()`, makes the decis
 
 - where a WordPress user is current, `Capabilities::can( $role )`: the user's capability,
   under whatever ceiling the command's session installed;
-- where none is — a worker, WP-CLI without `--user`, WP-Cron —
+- where the process has no logged-in user — a worker, WP-CLI without `--user`, WP-Cron —
   `Capabilities::scope_covers( $session_scope ?? MANAGE, $role )`: the verified session's
   scope alone. A command carrying no ceiling, signed by the site's own secret or LOCAL to the
   process, runs at MANAGE, the authority that loaded the topology.
@@ -2553,8 +2553,8 @@ Retention is declared per table and runs on the Table tick, as a `retain` window
 `retained_by` list of `[ table, its column, own column ]` references. The referencing column
 leads an index or the key in its table, and the own column is the lookup table's
 `autoincrement` column or one-column key, so each released value deletes at most one row by a
-seek. A lookup row is released when a purge deletes rows naming it, and deleted once no
-listed table still names it; its deletion releases the rows it alone named in turn, so a
+seek. A lookup row is released when a purge deletes rows naming it, and deleted once every
+listed table has stopped naming it; its deletion releases the rows it alone named in turn, so a
 `requests` purge releases `urls` rows and those release `servers` rows. Only the values the
 deleted rows returned are examined, every release fits the purge's budget, and a chain of
 references returning to a table on it, a table naming itself included, is refused. The
@@ -2659,7 +2659,7 @@ no-op once renamed, so a build that throws or answers `false` leaves the last pu
 standing. A fleet with no `tables` directory, or no partition file to attach, builds
 nothing and answers `false`. `Row_Table_Node::open_snapshot( $name )` resolves the same
 path and opens it through `Sqlite_Arm::open_immutable()`, `mode=ro&immutable=1`, taking no
-lock and reading no journal because nothing writes a published file again; it answers null
+lock and reading no journal because a published file is never written again; it answers null
 when nothing is published. `Row_Table_Node::remove_snapshot( $name )` deletes the published
 file and every build of it a crash left, for uninstall. All three refuse, with an
 `\InvalidArgumentException`, a name `Table_Node::stem()` refuses and a name ending `.p{N}`,
@@ -2744,8 +2744,8 @@ and every access token it issues is a command session.
   before it deletes the live row. A refresh retried or racing within 60 s gets the same
   pair, and the request that lost the claim revokes the session it minted. A spent token
   presented later revokes the grant and every session it minted. Both branches, a live
-  rotation and a grace replay, refuse a token from another client or naming another
-  resource than the grant's.
+  rotation and a grace replay, refuse a token from another client or naming a
+  resource the grant was not issued for.
 - **The user must still hold the scope.** At the exchange and at each refresh,
   `Oauth_Server` signs the grant's user in to ask `can_grant( $scope )`, which needs the
   scope's own capability and passes the `allowed_users` list, and signs them out again. A

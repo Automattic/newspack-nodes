@@ -78,7 +78,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	/**
 	 * A named broker sinking into _router, its first tick not yet run, given
-	 * each source by `add_source`: `firehose.p0` into `downstream` when none.
+	 * each source by `add_source`: `firehose.p0` into `downstream` when given none.
 	 *
 	 * @param list<string> ...$sources Each `[ remote_log, local_node ]`.
 	 */

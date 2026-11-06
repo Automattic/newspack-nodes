@@ -410,7 +410,7 @@ class PartitionTest extends TestCase {
 
 	public function test_derive_max_segments_floors_num_segments_like_arguments_does(): void {
 		// The displays call this raw; a num_segments below the floor must not
-		// under-report the ceiling the runtime actually enforces.
+		// under-report the ceiling the runtime enforces.
 		$this->assertSame( 4, Partition_Node::derive_max_segments( 1, 0 ), 'floors to 2, derives 2x' );
 		$this->assertSame( 14, Partition_Node::derive_max_segments( 7, 14 ) );
 	}
@@ -775,7 +775,7 @@ class PartitionTest extends TestCase {
 	/**
 	 * `void_warranty()` then `allow_large_writes()` is one Partition changing
 	 * its mind, and the lock SUPERSEDES the void — the round trip has to
-	 * replay the verb that is actually in force, or a replay drops the lock.
+	 * replay the verb that is in force, or a replay drops the lock.
 	 */
 	public function test_taking_the_lock_supersedes_a_voided_warranty(): void {
 		$this->use_base_dir( $this->tmp );
@@ -1030,7 +1030,7 @@ class PartitionTest extends TestCase {
 	/**
 	 * An UNNAMED Partition does not name a sibling, so nothing refuses a second
 	 * `allow_large_writes()` — and the pair the first call installed is simply
-	 * overwritten. The Timer keeps beating a Lock nothing references, and the
+	 * overwritten. The Timer keeps beating an unreferenced Lock, and the
 	 * lock dir on disk is never released, because the fresh `lock_held = false`
 	 * tells the next release there is nothing to free.
 	 */
@@ -1189,7 +1189,7 @@ class PartitionTest extends TestCase {
 
 	public function test_debounced_mode_acquires_the_lock_lazily_on_first_write(): void {
 		// Debounced allow_large_writes does NOT grab the lock at setup — only
-		// when a write actually arrives, so an idle partition holds nothing.
+		// when a write arrives, so an idle partition holds nothing.
 		\Newspack_Nodes\Core::$now = 1000.0;
 		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
 		$this->assertDirectoryDoesNotExist(
@@ -1897,7 +1897,7 @@ class PartitionTest extends TestCase {
 	public function test_remove_node_closes_file_handles(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
-		// with_index() so the .idx companion handle actually opens (default mode
+		// with_index() so the .idx companion handle opens (default mode
 		// never opens idx_fh, leaving the is_resource(idx_fh) assert false).
 		$p->void_warranty();
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
@@ -3855,7 +3855,7 @@ class PartitionTest extends TestCase {
 	public function test_rotate_segment_stale_lock_force_clears_and_retries(): void {
 		// rotate_segment finds a lock dir older than ROTATE_LOCK_TTL_SECONDS:
 		// rmdir it, mkdir again, then proceed to do_rotate. Verify the
-		// segment actually rotated.
+		// segment rotated.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		$this->produce_into( $p, \str_repeat( 'a', 20 ) ); // seed seg 0.
@@ -3894,7 +3894,7 @@ class PartitionTest extends TestCase {
 
 	public function test_do_rotate_touch_failure_swallowed_with_print_less_often(): void {
 		// touch() at line 755 fails when the partition_dir is read-only.
-		// Run as the web user (non-root) so 0500 perms actually deny writes. Skip if
+		// Run as the web user (non-root) so 0500 perms deny writes. Skip if
 		// running as root since chmod is a no-op for privileged users.
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			$this->markTestSkipped( 'chmod 0500 is bypassed for root; the touch-fail branch needs a non-root uid (production runs as the web user).' );

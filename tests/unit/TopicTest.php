@@ -437,7 +437,7 @@ class TopicTest extends TestCase {
 		$this->assertNull( Core::node( 'sextant:p3' ) );
 	}
 
-	/** The same partition must be torn down, not left registered under a name nothing owns. */
+	/** The same partition must be torn down, not left registered under an unowned name. */
 	public function test_a_partition_past_a_shrunken_geometry_is_still_torn_down(): void {
 		$t = new Topic_Node();
 		$t->name( 'sextant' );
@@ -545,7 +545,7 @@ class TopicTest extends TestCase {
 		// After remove, internal partitions array is reset.
 		// Subsequent fill should re-materialize cleanly.
 		$this->produce_into( $t, 'c', 'k1' );
-		// Test passes if no exception was thrown above.
+		// Test passes when the calls above do not throw.
 		$this->assertTrue( true );
 	}
 
@@ -703,7 +703,7 @@ class TopicTest extends TestCase {
 
 		$this->assertSame( $t, $t->allow_large_writes() );
 		$partition = $this->read_private( $t, 'partitions' )[0];
-		// The mode actually reached the materialized partition.
+		// The mode reached the materialized partition.
 		$this->assertNotSame( '', $this->read_private( $partition, 'large_write_mode' ) );
 		$held_lock = $this->read_private( $partition, 'write_lock' );
 

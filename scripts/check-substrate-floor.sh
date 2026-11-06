@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Is this plugin's declared substrate floor high enough for the substrate APIs
-# it actually calls?
+# it calls?
 #
 # A floor set too LOW is the failure this exists for: the handshake passes, the
 # plugin wires itself up, and then fatals on a method the older substrate does

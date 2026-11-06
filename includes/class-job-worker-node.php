@@ -59,7 +59,7 @@
  * for a declined job exactly as it does for a thrown one, so a second listener
  * that had already set itself up is torn down whatever order the two ran in.
  * A before_job listener that THROWS fails the job: the throw propagates to the
- * Consumer like a handler's, and after_job still fires first.
+ * Consumer like a handler's throw, and after_job still fires first.
  *
  * SECURITY: the handler name must match HANDLER_NAME_PATTERN and the encoded
  * entry must fit MAX_JOB_SIZE. Nothing here inspects the parameters — a

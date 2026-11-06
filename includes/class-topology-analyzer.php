@@ -1409,7 +1409,7 @@ class Topology_Analyzer {
 
 	/**
 	 * The walked statements with each Vault_Group's derived ones in place: a
-	 * child `make_node` per Vault member right after the group's, and after
+	 * child `make_node` per Vault member right after the group's `make_node`, and after
 	 * every statement naming the group, one copy per child. The group's own
 	 * statements stay, since the node exists at runtime too, and the order
 	 * stays the eval order.

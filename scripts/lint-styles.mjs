@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * lint-styles — fail the build when a component gives a CANONICAL CONTROL its
- * own appearance, because none of it is a bug and every reviewer nods it past.
+ * own appearance, because that appearance is not a bug and every reviewer nods it past.
  *
  * One control, one look. `.button` is painted once, by the shared roles in
  * `@newspack-nodes/shared/styles/_buttons.scss` and the mixins it includes from

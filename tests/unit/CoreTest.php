@@ -160,7 +160,7 @@ class CoreTest extends TestCase {
 		}
 	}
 
-	/** The fleet `Topology_Loader` bound, or null where none is, an empty one included. */
+	/** The fleet `Topology_Loader` bound, or null where nothing is bound, an empty one included. */
 	public function test_the_bound_topology_is_the_fleet_or_null(): void {
 		try {
 			unset( Core::$var['topology'] );
@@ -1119,7 +1119,7 @@ class CoreTest extends TestCase {
 	public function test_terminal_safe_passes_the_character_one_codepoint_above_the_c1_block_through(): void {
 		// U+00A0 NO-BREAK SPACE is C2 A0, one codepoint past the block, and is not a
 		// control at all. The BEL is there to defeat the fast path, so the render
-		// pass really runs over the A0.
+		// pass runs over the A0.
 		$this->assertSame( "kame\u{00A0}moraine<07>", Core::terminal_safe( "kame\u{00A0}moraine\x07" ) );
 	}
 

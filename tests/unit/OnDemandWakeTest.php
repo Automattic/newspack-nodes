@@ -214,7 +214,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_the_reconcile_pass_runs_the_backlog_sweep(): void {
-		// The sweep is only a fallback tier if the minute pass actually runs it.
+		// The sweep is only a fallback tier if the minute pass runs it.
 		$this->activate( 'marmot-ondemand', 23 );
 		$this->seed_partition( 'jobintake.p1', 512 );
 		$this->seed_offsetlog( 'jobintake.p1', 0, 200 );
@@ -487,7 +487,7 @@ class OnDemandWakeTest extends TestCase {
 
 	/**
 	 * The graph says which topology tails which log, so the wake goes to the
-	 * one that can actually act on the write. Waking every on-demand topology
+	 * one that can act on the write. Waking every on-demand topology
 	 * on the partition would boot a firehose reader because a job was queued.
 	 */
 	public function test_it_wakes_only_the_topology_that_reads_that_log(): void {
@@ -631,7 +631,7 @@ class OnDemandWakeTest extends TestCase {
 		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
 	}
 
-	/** Answer every spawn POST with `$status`, carrying `$message` as the endpoint's. */
+	/** Answer every spawn POST with `$status`, carrying `$message` as the endpoint's message. */
 	private function endpoint_answers( int $status, string $message ): void {
 		$posts           = &$this->posts;
 		Core::$curl_exec = static function ( \CurlHandle $ch, array $body, array $options ) use ( &$posts, $status, $message ): int {

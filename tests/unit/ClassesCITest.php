@@ -144,7 +144,7 @@ class ClassesCITest extends TestCase {
 
 		// Guard: a stale/empty composer classmap (no `composer dump-autoload -o`)
 		// would yield zero classes and pass this strip test vacuously. Assert
-		// discovery actually found classes — and Topologies specifically — so a
+		// discovery found classes — and Topologies specifically — so a
 		// broken classmap fails LOUDLY here, not silently green.
 		$this->assertNotEmpty( $result['classes'], 'class discovery found nothing — stale composer classmap?' );
 		$shell_names = \array_column( $result['classes'], 'shell_name' );

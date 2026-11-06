@@ -68,7 +68,7 @@ final class Oauth_Controller {
 
 	/** The caller's IP address, or `unknown`, which all such callers share. */
 	private static function address(): string {
-		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__ -- validated as an IP; it keys the rate limit of a POST no cache holds.
+		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__ -- validated as an IP; it keys the rate limit of an uncached POST.
 		$address = \filter_var( \wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ), \FILTER_VALIDATE_IP );
 		return \is_string( $address ) ? $address : 'unknown';
 	}

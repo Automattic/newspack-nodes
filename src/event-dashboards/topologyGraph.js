@@ -253,8 +253,8 @@ function buildSteps( workers ) {
  * Three tiers, in order. The canonical catalog slots win, each merged with the
  * cursor and recorded end that this topology's own consumer probed. A log with
  * no catalog entry falls back to the consuming workers' `inputs_status`, which
- * is what a partition directory that does not exist yet looks like. A log
- * nothing reads falls back to the producing workers' `outputs_status`, which
+ * is what a partition directory that does not exist yet looks like. An
+ * unread log falls back to the producing workers' `outputs_status`, which
  * carries segments but no cursor.
  *
  * Only THIS topology's workers are read, because two topologies reading one

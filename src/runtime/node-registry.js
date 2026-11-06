@@ -42,8 +42,8 @@ export class NodeRegistry {
 	 * Add a node under a name this table does not already hold.
 	 *
 	 * A collision throws rather than overwriting, which would leave the
-	 * displaced node holding its sinks and timers while nothing can address
-	 * it. `Node`'s name setter runs the same check first, so a caller can
+	 * displaced node holding its sinks and timers while it cannot be
+	 * addressed. `Node`'s name setter runs the same check first, so a caller can
 	 * refuse in its own voice before reaching here.
 	 *
 	 * @param {string} name Node name.

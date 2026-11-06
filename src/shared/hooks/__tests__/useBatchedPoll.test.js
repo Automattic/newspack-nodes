@@ -131,7 +131,7 @@ function useObservedVisibilityRace( wire, observations ) {
 
 beforeEach( () => {
 	Core.reset();
-	// Every POST counted here is one a test asked for.
+	// A test asks for every POST counted here.
 	holdRouterCadence();
 	// Every test posts; a suite-wide wire keeps each one from re-installing.
 	installWire();

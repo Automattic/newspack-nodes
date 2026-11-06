@@ -153,8 +153,8 @@ function ViewBody( { view, node, onAction } ) {
 }
 
 /**
- * Render the wide modal around the requested view, or nothing when none is
- * open. The caller keeps the open view in its own state and closes the modal
+ * Render the wide modal around the requested view, or nothing while it is
+ * closed. The caller keeps the open view in its own state and closes the modal
  * by passing null, so there is one source of truth for what is showing.
  *
  * @param {Object}      props

@@ -122,7 +122,7 @@ class WorkerLifecycleTest extends TestCase {
 
 		$this->assertSame( 'ok', $result['status'] );
 
-		// 1) Both seeded messages were actually processed through real drain ticks.
+		// 1) Both seeded messages were processed through real drain ticks.
 		$this->assertInstanceOf( Capture_Sink_Node::class, $stopper );
 		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $stopper->captured );
 		$this->assertSame( [ 'lifecycle-msg-1', 'lifecycle-msg-2' ], $values, 'the seeded messages were consumed via the real event loop' );

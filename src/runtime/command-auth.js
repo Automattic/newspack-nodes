@@ -173,7 +173,7 @@ const BACKOFF_MAX_MS = 30_000;
 /** The current window width. A successful /auth resets it to the start. */
 let backoffMs = BACKOFF_START_MS;
 
-/** clock() ms before which no /auth is attempted; 0 means "attempt now". */
+/** clock() ms before which /auth is not attempted; 0 means "attempt now". */
 let retryAfter = 0;
 
 /**
@@ -197,8 +197,8 @@ function clock() {
 let clockOffset = 0;
 
 /**
- * One /auth round trip, resolving to the issued session or to null when none
- * could be had. It may reject instead — ensureSession() catches, and a
+ * One /auth round trip, resolving to the issued session or to null when one
+ * could not be had. It may reject instead — ensureSession() catches, and a
  * rejection and a null cost the same widened backoff.
  *
  * @typedef {() => Promise<CommandSession|null>} AuthFetch
@@ -401,7 +401,7 @@ export async function ensureSession() {
 	if ( ! establishing ) {
 		establishing = ( authFetch ?? postAuth )()
 			.then( ( issued ) => {
-				// "Expected" only once a server actually answered.
+				// "Expected" only once a server answered.
 				attempted = null !== issued;
 				session = issued?.handle && issued?.secret ? issued : null;
 				if ( session ) {

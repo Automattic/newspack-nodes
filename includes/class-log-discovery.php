@@ -154,7 +154,7 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The dir a stamp names under `$base`, or null when none is there: the
+	 * The dir a stamp names under `$base`, or null when that dir is absent: the
 	 * stream's guard, then a direct path. A glob, a registry stamp and any
 	 * name the guard refuses are refused, so a stamp never reaches a dir
 	 * the stream would not. It reads no listing: a broker's root and a

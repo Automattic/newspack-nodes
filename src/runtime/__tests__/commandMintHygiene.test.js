@@ -97,7 +97,7 @@ test( 'CommandInterpreterNode `reply_to` re-mint', () => {
 // The guard the four above are worth having: each asserts a field is empty, and
 // an empty field is also the newMessage() default — so on its own each could
 // pass because the minter never touched the slot OR because the slot happens to
-// start blank. This proves the assertion actually bites: a message carrying
+// start blank. This proves the assertion bites: a message carrying
 // either field fails it, so a minter that starts stamping one is caught.
 test( 'the assertion fails on a command carrying either field', () => {
 	const node = new Node();

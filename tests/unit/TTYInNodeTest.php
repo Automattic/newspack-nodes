@@ -64,7 +64,7 @@ class TTYInNodeTest extends TestCase {
 	/**
 	 * Drop the readline-mode constructor's cache-seeding completion queries
 	 * (KEY='completion') so dispatch-count assertions stay focused on the
-	 * lines actually typed.
+	 * lines typed.
 	 *
 	 * @param array<int,array<int,mixed>> $captured
 	 * @return array<int,array<int,mixed>>

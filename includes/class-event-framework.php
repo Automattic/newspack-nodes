@@ -328,7 +328,7 @@ class Event_Framework {
 	 * @param Node&Curl_Owner<mixed> $owner The node the completion belongs to.
 	 * @param array<int,mixed> $opts    The transfer's libcurl options.
 	 * @param mixed            $context Handed back to `on_curl_done()`.
-	 * @return \CurlHandle|null The handle, or null when none could be made.
+	 * @return \CurlHandle|null The handle, or null when one could not be made.
 	 */
 	public function start_curl( Node&Curl_Owner $owner, array $opts, mixed $context ): ?\CurlHandle {
 		$dispatch = self::$curl_dispatch ?? static function ( array $o ): \CurlHandle|false {

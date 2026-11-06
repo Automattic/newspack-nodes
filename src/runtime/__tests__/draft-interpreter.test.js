@@ -92,7 +92,7 @@ function evalTsl( interpreter, tsl ) {
 	}
 }
 
-// Deliberately PHP-only classes plus one the browser really has (Tee), so a
+// Deliberately PHP-only classes plus one the browser has (Tee), so a
 // pass cannot come from every class taking the same path.
 const TSL = [
 	'make_node Topic firehose firehose.p0',
@@ -106,7 +106,7 @@ const TSL = [
 describe( 'a draft interpreter holding a server topology', () => {
 	// dump_config groups each node's statements together, so the INPUT order is
 	// not the oracle — a dump re-evaluating to itself is. That is the parity
-	// property a save/load cycle actually depends on.
+	// property a save/load cycle depends on.
 	const NAMES = [ 'firehose', 'firehose-in', 'firehose-fanout', 'flames' ];
 	const dumpAll = ( interpreter ) =>
 		NAMES.map(

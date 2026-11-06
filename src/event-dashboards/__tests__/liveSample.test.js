@@ -87,7 +87,7 @@ describe( 'liveTotal backlog', () => {
 
 	// The card is a CURRENT gauge. A reader that died while behind keeps its last
 	// sample, and the dashboard's 24h replay re-stamps every entry as freshly seen
-	// (liveness is measured from INGEST time, not the record's), so a dead
+	// (liveness is measured from INGEST time, not the record's time), so a dead
 	// reader's sample would report debt that is not being worked off — while
 	// `wp nodes status` shows every live reader 0B behind.
 	it( 'ignores a reader whose newest sample is stale', () => {

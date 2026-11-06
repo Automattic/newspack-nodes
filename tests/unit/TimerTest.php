@@ -151,7 +151,7 @@ class TimerTest extends TestCase {
 
 	/**
 	 * The hitchhike is keyed by NAME, so a rename must move the registration.
-	 * Left behind it addresses a name nothing resolves: the router shouts
+	 * Left behind it addresses an unresolvable name: the router shouts
 	 * `forgot to unregister` on the next tick, drops the entry, and the timer
 	 * stops firing under either spelling.
 	 */
@@ -198,7 +198,7 @@ class TimerTest extends TestCase {
 	 * fire_cb's throttle paces the 1s ROUTER tick down to interval_ms. An own
 	 * slot already fires at interval_ms, so gating it again drops any tick the
 	 * scheduler delivers early — which is the whole point of letting an unnamed
-	 * node ask for 2000: it has to actually fire every 2s.
+	 * node ask for 2000: it has to fire every 2s.
 	 */
 	public function test_own_slot_above_1000ms_is_not_re_throttled(): void {
 		$timer = new Timer_Node();

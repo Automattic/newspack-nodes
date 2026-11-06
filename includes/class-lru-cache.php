@@ -456,7 +456,7 @@ class LRU_Cache {
 	 * survive a worker restart. Rotation settings and on_evict stay out — the
 	 * restoring instance supplies its own. The window boundary DOES ride along:
 	 * the grid gives a fresh cache the right phase, but only the boundary the
-	 * predecessor was actually waiting on tells the successor how many windows
+	 * predecessor was waiting on tells the successor how many windows
 	 * went by unattended, and those are exactly the ones to repay.
 	 *
 	 * @api Consumers persist a working set across a worker restart.

@@ -42,7 +42,7 @@ import names from './reserved-node-names.json';
 /**
  * The TM_ERROR an undelivered command earns, addressed back to its minter.
  *
- * `undelivered` marks the refusal as ours rather than the server's, so a
+ * `undelivered` marks the refusal as ours rather than the server's answer, so a
  * retried read asks again instead of treating it as the answer.
  *
  * @param {Array}  sent   The command Message that failed to POST.

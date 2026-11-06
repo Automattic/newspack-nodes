@@ -126,7 +126,7 @@ class SSE_Out_Node extends Node {
 	 *
 	 * Acquire runs once per stream:
 	 * `function ( int $partition, ?array $session ): array|false`, taking the
-	 * partition the subscriptions name (or -1 when none names one) and the
+	 * partition the subscriptions name (or -1 when they name none) and the
 	 * stream's session lease as `{key, ttl}` — the key and the seconds the
 	 * session has left — or null for a stream that named no session and
 	 * stream. It is called before any header is sent, so `false` can still
@@ -326,7 +326,7 @@ class SSE_Out_Node extends Node {
 	 *
 	 * @param string $handle The `session` query parameter, empty when absent.
 	 * @return array{handle:string,ttl:int}|false|null The handle and the
-	 *         seconds it has left, null when none was presented, or false to
+	 *         seconds it has left, null when the request presented none, or false to
 	 *         refuse the stream.
 	 */
 	private function resolve_session( string $handle ): array|false|null {
@@ -377,7 +377,7 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Pick the partition to hand the slot pool: the number the first IPC-shaped
-	 * (`{type}.p{N}`) dir subscription carries, or -1 when none carries one. A
+	 * (`{type}.p{N}`) dir subscription carries, or -1 when the subscriptions carry none. A
 	 * grouped sub pools like its bare sibling.
 	 *
 	 * @param list<Resolved_Sub> $resolved Resolved subscriptions.
@@ -1132,7 +1132,7 @@ class SSE_Out_Node extends Node {
 	 * `stamp_pairs()`: `stamp=segment:offset`.
 	 *
 	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
-	 * @return string The pairs, or '' when none can be stated.
+	 * @return string The pairs, or '' when nothing can be stated.
 	 */
 	private static function cursor_pairs( array $consumers ): string {
 		return self::stamp_pairs( \array_map( static fn ( Consumer_Node $c ): string => $c->cursor_position(), $consumers ) );
@@ -1143,7 +1143,7 @@ class SSE_Out_Node extends Node {
 	 * `stamp_pairs()`: `stamp=bytes`, what its log holds from its cursor.
 	 *
 	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
-	 * @return string The pairs, or '' when none can be stated.
+	 * @return string The pairs, or '' when nothing can be stated.
 	 */
 	private static function distance_pairs( array $consumers ): string {
 		return self::stamp_pairs( \array_map( static fn ( Consumer_Node $c ): int => $c->bytes_behind(), $consumers ) );
@@ -1156,7 +1156,7 @@ class SSE_Out_Node extends Node {
 	 * in.
 	 *
 	 * @param array<string,int|string> $values Values, keyed by stamp.
-	 * @return string The pairs, or '' when none can be stated.
+	 * @return string The pairs, or '' when nothing can be stated.
 	 */
 	private static function stamp_pairs( array $values ): string {
 		$pairs = [];

@@ -66,7 +66,7 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	 * @return {void}
 	 */
 	fill( message ) {
-		// A restart's failure lands on ITS node; this one gets the poll's.
+		// A restart's failure lands on ITS node; a poll's failure lands here.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			super.fill( message );
 			return;

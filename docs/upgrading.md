@@ -984,7 +984,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   bool.
 - **`Schema_Reflection` supplies `arguments()`.** It runs the tokens through
   `parse_schema_args()` and stores them. A node whose override only did that
-  can delete it; an override that derives state still wins over the trait's.
+  can delete it; an override that derives state still wins over the trait's `arguments()`.
   A node using the trait with no override now stores its tokens through the
   trait, which for a node declaring no arguments is what `Node::arguments()`
   did.
@@ -1116,7 +1116,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   declare its `capability`, and `dispatch()` refuses a caller below it. Code
   outside a verb that must refuse calls `Capabilities::require_verb( $role )`,
   which asks `can()` where a user is logged in and the session's scope alone
-  where none is; code that only tests calls `can()`.
+  otherwise; code that only tests calls `can()`.
 - **`SSE_Slot_Pool::user_id()` is `Core::current_user_id()`.**
 - **A session listing row has no `live` or `state`.** `sessions list`,
   `Sessions::listing()` and `wp nodes session list` answer
@@ -1558,12 +1558,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   takes the base directory first; see the entry above.
 - **`Bootstrap::node_dirs()` and `node_partitions()` answer from the
   readable active topologies.** A topology that will not read no longer
-  fails the call when a readable one declares the node; when none does,
-  every unreadable active topology raises, an active name with no matching
-  `.tsl` included, where that name returned an empty answer.
+  fails the call when a readable one declares the node; when every readable
+  one leaves it undeclared, every unreadable active topology raises, an active
+  name with no matching `.tsl` included, where that name returned an empty
+  answer.
 - **A log producer template declaring no dir refuses the retention sweep
   out loud.** A template registered through
-  `newspack_nodes/registered_log_producers` that resolves under no
+  `newspack_nodes/registered_log_producers` that does not resolve under any
   `<config:logs_dir>` dir raises `log producer <template> declares no dir
   under the logs root <root>` from the sweep and `workers dump_cleanup`,
   where it printed a line and skipped. `Log_Cleaner::producer_log_dirs()`
@@ -1662,7 +1663,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `$release_slot = function ( array $lease, int $partition, ?string $session )`.
   A closure declaring fewer parameters still loads, because PHP drops extra
   arguments to a closure.
-- **`dump_config` omits every published sibling, not only a patron's.** A
+- **`dump_config` omits every published sibling, not only a patroned one.** A
   node built through `publish_sibling()` and dumped separately before —
   never patroned — no longer emits its own config line; its publisher's
   line rebuilds it on replay. Read `Node::publisher()` to find who owns it.
@@ -2299,8 +2300,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   Both owned the same mechanism — close the stream while inactive, and on reopen
   choose between the recorded seek, a same-dir resume and a tail — one from the
   mount side with no pause, the other from the pause side with no mount. The one
-  hook also builds the RemoteLink → Tee → view graph four dashboards each wrote out
-  by hand.
+  hook also builds the graph of RemoteLink, Tee and view that four dashboards each
+  wrote out by hand.
 
 - **`useLogCatalog` is the one polled catalog slice.** `usePartitionViewerGraph`'s
   `fetchLogStatus` / `logStatus` pair is gone, and with it the hand-rolled
@@ -2756,7 +2757,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   were already identical — `Restart_Planner::topologies_for()` resolved both to
   "restart nothing" — while the settings UI printed a different sentence for
   each. A `Field` still carrying the string keeps working (an unknown string
-  resolves to no restart), but it now renders under the same label as `[]`.
+  means no restart), but it now renders under the same label as `[]`.
 
 - **A `settings set` command that does not change the value is a no-op.**
   `Settings_CI`'s `set` verb now compares against the stored value first and
@@ -3082,7 +3083,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **Dashboards / hub verbs** — `Aggregator_CI` dropped its dead `status`, `health`, and `servers` verbs. Anything invoking them gets an unknown-verb error; read `summary` and `servers_status` instead.
 - **JS runtime** — the `Core.reinit` global is retired; the overlay's Reset-Graph capability is now the `Core.rebuildable` boolean.
-- **Node schemas** — a `node_schema()` argument whose `<config:…>` default resolves to no registered key (unknown namespace, unowned key, non-scalar) now throws instead of silently coercing to `''`. If a node stops constructing, its schema default names a key that no longer exists — check the retention keys in particular (`min_segments` / `max_segments` / `min_lifetime` / `max_lifetime`). Topology-line interpolation is unchanged (an unowned token still interpolates to `''`, Tachikoma parity).
+- **Node schemas** — a `node_schema()` argument whose `<config:…>` default does not resolve to a registered key (unknown namespace, unowned key, non-scalar) now throws instead of silently coercing to `''`. If a node stops constructing, its schema default names a key that no longer exists — check the retention keys in particular (`min_segments` / `max_segments` / `min_lifetime` / `max_lifetime`). Topology-line interpolation is unchanged (an unowned token still interpolates to `''`, Tachikoma parity).
 
 ## 0.47.0
 

@@ -80,7 +80,7 @@ trait Durable_Reader {
 	 * Retention is the three-rule scheme (see Partition_Node): keep at least 10 keyframes
 	 * and a count target of 30, holding anything younger than 5 minutes even when over the
 	 * count, pruning anything older than 15 minutes back down to the floor, and a hard cap
-	 * of 60 that bounds a very hot cursor whose keyframes are all younger than 5 minutes.
+	 * of 60 that bounds a hot cursor whose keyframes are all younger than 5 minutes.
 	 */
 	public const OFFSETLOG_SEGMENT_SIZE = 1;
 	public const OFFSETLOG_MIN_SEGMENTS = 10;
@@ -351,7 +351,7 @@ trait Durable_Reader {
 		$this->write_checkpoint_frame( false, true );
 	}
 
-	/** First complete (newline-terminated) line buffered at the cursor, or null when none is in flight. */
+	/** First complete (newline-terminated) line buffered at the cursor, or null when nothing is in flight. */
 	private function buffer_head_line(): ?string {
 		$nl = \strpos( $this->buffer, "\n" );
 		return false === $nl ? null : \substr( $this->buffer, 0, $nl );

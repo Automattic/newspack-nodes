@@ -383,7 +383,7 @@ trait Dead_Letter_Queue {
 	/**
 	 * Walk the sidecar's .idx newest-first, handing $visit each record row with
 	 * its status: the one its latest tombstone set — the first met, walking
-	 * backwards — or `quarantined` when none did. A tombstone is folded, never
+	 * backwards — or `quarantined` when the tombstones set none. A tombstone is folded, never
 	 * visited, and one whose record rotated out is folded and never read.
 	 *
 	 * @param Partition_Node                                $deadletter The sidecar.
@@ -460,7 +460,7 @@ trait Dead_Letter_Queue {
 	 * @param array{segment: int, offset: int, length: int} $crumb      The locator, parsed.
 	 * @param string                                        $locator    The locator as given, for the refusal.
 	 * @return array<int,mixed> The message, positional.
-	 * @throws \RuntimeException When no record sits there.
+	 * @throws \RuntimeException When that position holds no record.
 	 */
 	private static function deadletter_record( Partition_Node $deadletter, array $crumb, string $locator ): array {
 		return $deadletter->read_message_at( $crumb['segment'], $crumb['offset'], $crumb['length'] )

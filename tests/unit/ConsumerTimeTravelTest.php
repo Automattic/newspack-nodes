@@ -300,7 +300,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		for ( $i = 1; $i <= $total; $i++ ) {
 			$this->checkpoint_at( $c1, 2, $i * 100 );
 		}
-		// Age them past min_lifetime so the count rule actually drops the oldest.
+		// Age them past min_lifetime so the count rule drops the oldest.
 		$offsetlog = $this->read_private( $c1, 'offsetlog' );
 		$this->age_offsetlog_segments( $offsetlog, 400 );
 		$this->assertCount( Consumer_Node::OFFSETLOG_NUM_SEGMENTS, $offsetlog->get_segments( true ) );

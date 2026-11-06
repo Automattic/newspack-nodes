@@ -345,7 +345,7 @@ describe( 'clock alignment', () => {
 		__setAuthFetch( null );
 	} );
 
-	// The local clock runs a day behind the server's.
+	// The local clock runs a day behind the server clock.
 	const LOCAL_NOW = SERVER_NOW - 86400;
 
 	it( 'signs a fresh command at local time plus the offset', async () => {

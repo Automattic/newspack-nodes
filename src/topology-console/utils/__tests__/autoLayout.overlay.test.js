@@ -1,5 +1,5 @@
 /**
- * autoLayout over a graph the debug overlay really draws: event-logger-nodes'
+ * autoLayout over a graph the debug overlay draws: event-logger-nodes'
  * Performance dashboard, built through the same `addSliceFetcher` calls its
  * hooks make, with the overlay's own REPL nodes mounted beside it, and read
  * back through `coreToGraph()` exactly as the overlay's canvas reads it.

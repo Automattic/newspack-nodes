@@ -322,7 +322,7 @@ class Log_Cleaner {
 	 *
 	 * A registered template that does not land under a logs dir anywhere across
 	 * the whole partition range declares nothing, so that producer's live dirs
-	 * are in NO declared set while a topology keeps the set non-empty — and the
+	 * are NOT in any declared set while a topology keeps the set non-empty — and the
 	 * sweep would delete them. It comes back refused, keyed by template, for
 	 * the sweep to raise and the catalog to name.
 	 *

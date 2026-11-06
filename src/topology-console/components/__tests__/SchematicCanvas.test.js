@@ -3045,7 +3045,7 @@ describe( 'SchematicCanvas', () => {
 		expect( onSelect ).not.toHaveBeenCalled();
 	} );
 
-	// === Wire drag that actually snaps onto an IN port ===
+	// === Wire drag that snaps onto an IN port ===
 
 	it( 'wire drag that lands on an IN port fires onConnect(from, to)', () => {
 		const onConnect = jest.fn();

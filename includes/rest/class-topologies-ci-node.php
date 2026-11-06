@@ -46,7 +46,7 @@
  *                `Topology_Registry::activate()`. Returns
  *                `{name, active:true, spawned:<int>, warning}`: `warning`
  *                names the active topologies the conflict check could not read,
- *                null when none.
+ *                null when it read them all.
  *   deactivate — args `{name}`. Removes the name from the active set, invalidates
  *                the config cache and drains the fleet, through
  *                `Topology_Registry::deactivate()`. Returns `{name, active:false}`.

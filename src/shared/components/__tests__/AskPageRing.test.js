@@ -55,7 +55,7 @@ test( 'it rings the page box it measures, inside that box own scrollbar', () => 
 	render( <AskPageRing active={ true } /> );
 
 	// 1200 outside, 1183 inside: the 17px scrollbar belongs to the box, and a
-	// line drawn outside it reads as a browser edge rather than the page's.
+	// line drawn outside it reads as a browser edge rather than the page's edge.
 	// The origin is the PADDING box, so the 2px and 3px borders count.
 	expect( ring().style.top ).toBe( '98px' );
 	expect( ring().style.left ).toBe( '39px' );

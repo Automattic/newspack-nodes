@@ -7,7 +7,7 @@
  * pulling in a type package: the checked sources touch a handful of these
  * names, and the test files themselves are excluded from the check.
  *
- * Narrow by design. Add a name when a checked file actually calls it; this is
+ * Narrow by design. Add a name when a checked file calls it; this is
  * not a stand-in for `@types/jest`.
  */
 

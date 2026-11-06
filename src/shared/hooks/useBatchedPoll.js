@@ -106,7 +106,7 @@ function isFirstLoadPending( timer ) {
  *
  * A paused mount stays armed while its first load is still owed, because pause
  * suspends a CADENCE and a surface that has never shown its data has no cadence
- * to suspend. `enabled` carries no such exemption: a surface nobody opened owes
+ * to suspend. `enabled` carries no such exemption: an unopened surface owes
  * nothing.
  *
  * @param {TimerNode} timer         The owned Timer node.
@@ -175,7 +175,7 @@ export function useBatchedPoll( opts ) {
 	// Pause polling while the tab is hidden.
 	const isPageVisible = usePageVisibility();
 
-	// A surface nobody opened owns NOTHING — no request, and no named node.
+	// An unopened surface owns NOTHING — no request, and no named node.
 	const enabled = false !== opts.enabled;
 
 	useEffect( () => {

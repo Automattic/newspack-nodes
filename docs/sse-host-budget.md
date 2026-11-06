@@ -15,8 +15,8 @@ alike. The budget is per host.
 ## What the platform does when you run out
 
 Every Atomic site has a PHP worker allocation, ten by default. Past it, the
-host holds each further PHP request in a queue for a worker, and a request no
-worker frees for in time is refused with a **429**. A request the queue does
+host holds each further PHP request in a queue for a worker, and a request that
+waits too long for one is refused with a **429**. A request the queue does
 serve arrives slow; one it refuses arrives as an error page. So for as long as
 the workers stay busy, readers get pages and refusals by turns, request by
 request, and the stream that holds the worker sees neither.

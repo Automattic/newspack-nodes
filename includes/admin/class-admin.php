@@ -1275,7 +1275,7 @@ class Admin {
 
 	/**
 	 * Render the read-only "Effective Configuration" table below the settings form,
-	 * so an operator can see the value each setting actually resolves to once the
+	 * so an operator can see the value each setting resolves to once the
 	 * config files and the option rows have both been applied.
 	 *
 	 * Hooked to `newspack_nodes/settings_after_form` and delegated to
@@ -1341,7 +1341,7 @@ class Admin {
 	 * entry would otherwise poison the whole server pool.
 	 *
 	 * @param mixed $value Newline-separated server list.
-	 * @return array<int,string> Validated `host:port` entries, empty when none pass.
+	 * @return array<int,string> Validated `host:port` entries, empty when every entry fails.
 	 */
 	public static function sanitize_memcache_servers( $value ): array {
 		if ( ! \is_scalar( $value ) ) {
@@ -1371,7 +1371,7 @@ class Admin {
 	 * `Config::load_config()` yields an array directly, as memcache_servers does.
 	 *
 	 * @param mixed $value Newline-separated source list.
-	 * @return array<int,string> Validated entries, empty when none pass.
+	 * @return array<int,string> Validated entries, empty when every entry fails.
 	 */
 	public static function sanitize_log_sources( $value ): array {
 		if ( ! \is_scalar( $value ) ) {

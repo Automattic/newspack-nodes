@@ -266,7 +266,7 @@ class Settings_Renderer {
 	 * @param int|string $value       Stored option value ('' when the option
 	 *                                has no row).
 	 * @param int        $default     The default a reset restores; shown as the placeholder.
-	 * @param int        $min         Inclusive lower bound (the Field's).
+	 * @param int        $min         Inclusive lower bound, from the Field.
 	 * @param int        $max         Inclusive upper bound; over 999 widens the input to `regular-text`.
 	 * @param string     $description Text rendered under the input.
 	 * @param string     $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).

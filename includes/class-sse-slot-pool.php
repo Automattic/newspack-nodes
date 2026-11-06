@@ -481,7 +481,7 @@ class SSE_Slot_Pool {
 	 * @param int           $max_per_identity Slots one identity may hold at once.
 	 * @param int           $ttl              Lease lifetime in seconds.
 	 * @param int           $claimable        Leading slots this caller may hold.
-	 * @return array{slot:int,owner:int}|false Lease, or false when none is claimable.
+	 * @return array{slot:int,owner:int}|false Lease, or false when nothing is claimable.
 	 */
 	private static function claim( Cache_Backend $backend, string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl, int $claimable ): array|false {
 		if ( self::held_by( $backend, $namespace, $identity, $max_streams ) >= $max_per_identity ) {
@@ -745,7 +745,7 @@ class SSE_Slot_Pool {
 	 * This is the cap that protects the site; the per-identity one only divides
 	 * it fairly. An SSE stream occupies a php-fpm child for its entire life, and
 	 * past the site's worker allocation Atomic queues each request for a worker
-	 * and refuses it with 429 when none frees in time. The shipped 6 leaves room
+	 * and refuses it with 429 when the wait for a worker runs out. The shipped 6 leaves room
 	 * in a ~10-worker allocation for page requests and the node worker itself.
 	 * See docs/sse-host-budget.md.
 	 *

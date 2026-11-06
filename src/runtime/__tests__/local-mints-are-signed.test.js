@@ -1,5 +1,5 @@
 /**
- * Every local mint must be signed, not just the Shell's.
+ * Every local mint must be signed, not just the Shell's mints.
  *
  * Ingress stopped signing, so a command that leaves the browser unsigned is
  * refused — and the first deploy proved the Shell is not the only minter:

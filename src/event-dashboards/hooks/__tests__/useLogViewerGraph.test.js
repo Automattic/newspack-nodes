@@ -12,7 +12,7 @@
  * EventSource is faked via `global.EventSource`; SseInNode's connection logic
  * (already covered by the substrate's `sse-in-node.test.js`) is unmocked
  * here — we drive a `msg` event through the fake EventSource and assert it
- * actually routes the page link → view. The link opens once per tick, so a
+ * routes the page link → view. The link opens once per tick, so a
  * test flushes the microtask before it reads the fake.
  */
 
@@ -60,7 +60,7 @@ class FakeEventSource {
 
 beforeEach( () => {
 	Core.reset();
-	// Every POST counted here is one a test asked for.
+	// A test asks for every POST counted here.
 	holdRouterCadence();
 	FakeEventSource.last = null;
 	FakeEventSource.instances = [];
@@ -280,7 +280,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		mountGraph();
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
-		// Only the subscription, and it reports the one actually streaming —
+		// Only the subscription, and it reports the one streaming —
 		// the page link is built bare and the catalog's pick configures it.
 		expect( Core.node( LINK ).arguments ).toEqual( [ 'firehose.p0' ] );
 		expect( 'endpoint' in Core.node( LINK ) ).toBe( false );

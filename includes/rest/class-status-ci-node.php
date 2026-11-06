@@ -18,7 +18,7 @@
  * reads; `Bootstrap::get_topologies()` narrows the catalog to the names an
  * operator activated, so it never reports a topology that spawns nothing; and
  * `Cache_Backend::shared_first()` answers with the tier a cross-process
- * surface would actually select.
+ * surface would select.
  *
  * @package Newspack_Nodes
  */

@@ -903,7 +903,7 @@ class Bootstrap {
 
 	/**
 	 * The global `num_partitions` option, clamped to the range a worker will
-	 * actually consume: `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
+	 * consume: `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
 	 *
 	 * THE accessor for that option, so a producer can never spell the clamp its
 	 * own way or omit the upper bound. Unbounded, an option above the cap has
@@ -956,8 +956,8 @@ class Bootstrap {
 	 * The minute-cadence reconciliation pass: revive whatever is down, then keep
 	 * house. This is the cold-start tier of ADR-9 — every live worker runs the
 	 * same peer scan on its own timer, so the spawn step decides anything only
-	 * when none is left, which is why this holds no lock and enters no loop of
-	 * its own.
+	 * when every live worker is gone, which is why this holds no lock and
+	 * enters no loop of its own.
 	 *
 	 * The four housekeeping chores tolerate minutes of latency (`Log_Cleaner`'s
 	 * delete grace alone is an hour), and running them here rather than as a job

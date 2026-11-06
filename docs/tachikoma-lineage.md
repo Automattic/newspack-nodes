@@ -328,7 +328,7 @@ Upstream has no Graphite node: `TopicProbeToGraphite.pm` formats the lines and s
 
 ### A probe's FROM carries its worker; upstream's carries the bare node name
 
-`TopicProbe.pm` stamps FROM with the bare node name and puts the writer's location in the payload: a `hostname:` field and the prefix argument. [`Probe_Node`](../includes/class-probe-node.php) stamps FROM `{worker-id}/{probe-name}` through `Probe_Node::from()` when a worker is bound, and the bare name when none is. This applies to `Topic_Probe_Node`, `Job_Probe_Node` and `Table_Probe_Node` alike.
+`TopicProbe.pm` stamps FROM with the bare node name and puts the writer's location in the payload: a `hostname:` field and the prefix argument. [`Probe_Node`](../includes/class-probe-node.php) stamps FROM `{worker-id}/{probe-name}` through `Probe_Node::from()` when a worker is bound, and the bare name otherwise. This applies to `Topic_Probe_Node`, `Job_Probe_Node` and `Table_Probe_Node` alike.
 
 **Why:** every worker's probe appends to one shared log, so there is no per-worker boundary to stamp the record. The worker id is also the path the console already uses to address that node, so FROM names it without a second spelling. A positional record keeps no location slot, and adding one would change three layouts and their parity pins for what FROM already carries. [`workerOfFrom()`](../src/shared/utils/workerId.js) is the one reader (ADR-22).
 
@@ -378,7 +378,7 @@ Tachikoma is a long-running daemon: the checkout's `bin/tachikoma-server` starts
 
 ## Upstream that is not public
 
-Four ancestors live in the DN tree (`services/tachikoma/sources/tachikoma-dn/`) rather than in [datapoke/tachikoma](https://github.com/datapoke/tachikoma), so the links here will not resolve for you. They are described in reverse — by the public thing they resemble — because that is the half you can actually read.
+Four ancestors live in the DN tree (`services/tachikoma/sources/tachikoma-dn/`) rather than in [datapoke/tachikoma](https://github.com/datapoke/tachikoma), so the links here will not resolve for you. They are described in reverse — by the public thing they resemble — because that is the half you can read.
 
 | Not public | Read this instead |
 |---|---|

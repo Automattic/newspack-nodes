@@ -2895,7 +2895,7 @@ describe( 'formatActivityWindow', () => {
 	} );
 
 	// The label describes the SPARKLINE's span, so it has to be derived from the
-	// ring the sparkline actually keeps — this file held its own `60`.
+	// ring the sparkline keeps — this file held its own `60`.
 	it( 'derives its span from the rate-history ring, not a private copy', () => {
 		const minutes =
 			( RATE_HISTORY_MAX * computePollIntervalMs( 3000 ) ) / 60000;

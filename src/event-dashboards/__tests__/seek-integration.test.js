@@ -110,7 +110,7 @@ function connectedEnvelope( subscription ) {
 
 function boot( payloadByVerb ) {
 	Core.reset();
-	// Every tick here is one a test asked for; the heartbeat rides none.
+	// A test asks for every tick here; the heartbeat rides none.
 	holdRouterCadence();
 	FakeEventSource.last = null;
 	global.EventSource = FakeEventSource;

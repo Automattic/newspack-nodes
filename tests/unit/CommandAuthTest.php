@@ -424,8 +424,8 @@ class CommandAuthTest extends TestCase {
 
 	/**
 	 * A handle that does not name a live site-wide session is named nowhere:
-	 * neither a dead one nor a grant's, which the verifier refuses as naming
-	 * none.
+	 * neither a dead one nor a grant's session, which the verifier refuses as
+	 * naming none.
 	 */
 	public function test_a_refusal_names_no_handle_without_a_live_session(): void {
 		$dead        = 'dead7746dead7746dead7746dead7746';

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render docs/img/<name>.html to <name>.png at the size the sheet actually is.
+# Render docs/img/<name>.html to <name>.png at the size the sheet is.
 #
 # With no argument it renders every sheet in this plugin's docs/img; given
 # pages, it renders those alone.

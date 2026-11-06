@@ -1498,7 +1498,7 @@ class CurlNodeTest extends TestCase {
 		$this->assert_error( 'invalid public_only https://feed-3.example/feed/' );
 	}
 
-	/** Through a proxy the connected address is the proxy's, so nothing could check the host's. */
+	/** Through a proxy the connected address is the proxy's address, so the host's address could not be checked. */
 	public function test_a_public_only_request_through_a_proxy_is_refused(): void {
 		$this->fetch( $this->curl(), $this->public_only( 'https://feed-3.example/feed/', [ 'proxy' => 'socks5h://proxy-5.example:1080' ] ) );
 

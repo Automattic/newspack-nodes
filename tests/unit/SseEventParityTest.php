@@ -12,7 +12,7 @@ use Newspack_Nodes\Tests\TestCase;
  * sites, not off its `SAFE_EVENTS` allow-list, so an event added to the emit
  * path with no branch in the PHP `SSE_In_Node` or the browser `SseInNode`
  * fails here instead of being dropped on the floor by whichever reader lacks
- * it. The allow-list is then held to that same set, so a name nothing emits
+ * it. The allow-list is then held to that same set, so an unemitted name
  * cannot linger in it.
  */
 #[CoversNothing]

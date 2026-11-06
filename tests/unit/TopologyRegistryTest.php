@@ -90,7 +90,7 @@ class TopologyRegistryTest extends TestCase {
 	 * The registry lives in `includes/`, so it can always name its own stock
 	 * dir. Registered inside the LAZY `ensure_runtime_wired()` instead — while
 	 * consumers register theirs at plugin load — a request that wired neither
-	 * tier would see the consumer topologies and not the substrate's, and their
+	 * tier would see the consumer topologies and not the substrate's topologies, and their
 	 * `include topic-probe` would throw.
 	 */
 	public function test_register_builtin_registers_the_substrates_own_topologies(): void {

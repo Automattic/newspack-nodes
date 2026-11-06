@@ -436,7 +436,7 @@ class Row_Table_Node extends Table_Node {
 
 	/**
 	 * Open the published snapshot `$name` as `Sqlite_Arm::open_immutable()`
-	 * opens a file, `immutable`, aliased `main`; null when none is published.
+	 * opens a file, `immutable`, aliased `main`; null when nothing is published.
 	 *
 	 * @api The read path of a snapshot `build()` publishes.
 	 * @param string $name The snapshot's name.

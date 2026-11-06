@@ -69,7 +69,7 @@ class Timer_Node extends Node {
 	/**
 	 * Dispatches, not emissions. `fire_cb()` counts a tick that cleared the sink
 	 * and throttle guards and reached `fire()`, while `Node::$counter` counts
-	 * messages actually sent. `list_timers` shows it as FIRES, where a climb
+	 * messages sent. `list_timers` shows it as FIRES, where a climb
 	 * beside a NEXT of 0 or less is how a spinning timer announces itself.
 	 */
 	protected int $fire_count = 0;

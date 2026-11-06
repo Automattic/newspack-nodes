@@ -505,7 +505,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	}
 
 	/**
-	 * Run $fn and return the RuntimeException it threw; fail with $why if none.
+	 * Run $fn and return the RuntimeException it threw; fail with $why if it threw nothing.
 	 *
 	 * Replaces `try { …; $this->fail(); } catch ( \RuntimeException $e )`: in
 	 * PHPUnit 10 `fail()` throws AssertionFailedError, itself a

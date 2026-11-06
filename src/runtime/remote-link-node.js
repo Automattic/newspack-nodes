@@ -438,7 +438,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 *
 	 * @param {string} stamp  The source, as `addSource()` took it.
 	 * @param {string} target Its target, as `addSource()` took it.
-	 * @throws {Error} When no such source is declared.
+	 * @throws {Error} When the source is not declared.
 	 */
 	removeSource( stamp, target ) {
 		this.sources = sourcesOf(
@@ -623,7 +623,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Open the stream on every streaming source's stamp, or close it when none
+	 * Open the stream on every streaming source's stamp, or close it when nothing
 	 * is left. A stream on the same set with no seek pending and no place
 	 * forgotten is left alone, open or waiting out its reopen, so a re-render
 	 * costs no reconnect and cannot cut a backoff short.

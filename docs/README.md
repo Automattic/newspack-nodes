@@ -35,7 +35,7 @@ Facts, not tutorials. The chapters above tell the same story once; come here for
 - **[security-model.md](security-model.md)**: read when you need the trust boundaries in one place: the signing model, the three roles, the reply gate, the Vault's cryptography and what the runtime chooses to live with. It assumes [commands-capabilities-and-sessions.md](commands-capabilities-and-sessions.md) and [hub-and-spoke.md](hub-and-spoke.md); read both first.
 - **[API.md](API.md)**: read when you're calling the runtime over HTTP or extending it from PHP: the REST endpoints and their envelopes, command signing, the SSE stream, and every `newspack_nodes/*` hook.
 - **[cli.md](cli.md)**: read when you need a `wp nodes` verb: the one-page reference for every subcommand and the common flows.
-- **[troubleshooting.md](troubleshooting.md)**: read when something live is misbehaving: the REPL, worker health, log paths, and the failure modes we actually hit.
+- **[troubleshooting.md](troubleshooting.md)**: read when something live is misbehaving: the REPL, worker health, log paths, and the failure modes we hit.
 - **[sse-host-budget.md](sse-host-budget.md)**: read before changing an SSE slot bound: what a stream costs in php-fpm children, and what the platform does when they run out. [browser-runtime.md's slot-pool section](browser-runtime.md#the-slot-pool) is the short form.
 - **[stability.md](stability.md)**: read when you need to know what you can build on: the frozen surfaces, the heavily-used names left off that list, and what changing a frozen name buys: an [upgrading.md](upgrading.md) entry, never an alias.
 - **[upgrading.md](upgrading.md)**: read when you're moving a consumer plugin across substrate versions: the breaking changes, with the fix beside each.

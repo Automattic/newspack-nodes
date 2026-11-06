@@ -119,8 +119,8 @@ class Tail_Node extends Consumer_Node {
 	}
 
 	/**
-	 * Gate seam: a Tail reads a file, so its gate is the file's, a Log's
-	 * marker or a marked dir's.
+	 * Gate seam: a Tail reads a file, so the file sets its gate, through a
+	 * Log's marker or a marked dir's marker.
 	 *
 	 * @return string|null The source's gate, or null for none.
 	 */

@@ -312,7 +312,7 @@ class ConfigTest extends TestCase {
 		// DECLARE_ACTION callbacks still being registered at re-derive time — a
 		// consumer whose hook was dropped (test isolation wipes $wp_actions; prod
 		// code can remove_action) would have every one of its keys throw, i.e. a
-		// 500 on every request, to buy the pruning of a key nobody reads.
+		// 500 on every request, to buy the pruning of an unread key.
 		\add_action( Config::DECLARE_ACTION, $this->consumer_declaration );
 		$this->assertTrue( Config::is_declared( 'acme_consumer_key' ) );
 		\remove_action( Config::DECLARE_ACTION, $this->consumer_declaration );

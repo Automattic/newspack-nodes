@@ -404,8 +404,8 @@ class LogCleanerTest extends TestCase {
 
 	public function test_tokenless_producer_template_declares_exactly_one_dir(): void {
 		// `alerts.p0` / `jobdelay.p0` are pinned across the whole fleet. Expanding
-		// every producer over num_partitions declared `alerts.p1`+ that nothing
-		// writes — phantom "No segments" rows in the dashboard catalog, which reads
+		// every producer over num_partitions declared an unwritten `alerts.p1`+
+		// — phantom "No segments" rows in the dashboard catalog, which reads
 		// the same declared set.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',

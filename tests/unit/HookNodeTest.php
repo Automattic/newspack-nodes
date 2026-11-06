@@ -41,7 +41,7 @@ class HookNodeTest extends TestCase {
 		$message[ Message::VALUE ] = 'payload';
 		$node->fill( $message );
 
-		// fill() is by-value: the adoption is visible on the forwarded message, not the caller's.
+		// fill() is by-value: the adoption is visible on the forwarded message, not the caller's message.
 		$out = $sink->captured[0];
 		$this->assertSame( [ 'a', 'b', 'c' ], $out[ Message::VALUE ], 'A list return becomes the new VALUE.' );
 		$this->assertSame( Message::TM_STRUCT, $out[ Message::TYPE ], 'A list return marks the message TM_STRUCT.' );

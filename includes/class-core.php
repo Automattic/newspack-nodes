@@ -739,7 +739,7 @@ class Core {
 	 * so it reads a half-sent body as delivered. Bytes uploaded can.
 	 *
 	 * @param int    $errno    curl_errno().
-	 * @param int    $uploaded CURLINFO_SIZE_UPLOAD_T; body bytes actually sent.
+	 * @param int    $uploaded CURLINFO_SIZE_UPLOAD_T; body bytes sent.
 	 * @param int    $expected Body length that had to go out.
 	 * @param string $error    curl_error().
 	 * @return string|null Error string on failure, null on success.
@@ -941,11 +941,11 @@ class Core {
 
 	/**
 	 * The worker partition `Topology_Loader` bound before building the graph,
-	 * or null outside a worker, where none is bound. The loader writes only
+	 * or null outside a worker, because only a worker binds one. The loader writes only
 	 * canonical decimals, so a bound value `canonical_decimal()` refuses is a
 	 * bug, refused by name rather than read as no partition.
 	 *
-	 * @return int|null The bound partition, or null when none is.
+	 * @return int|null The bound partition, or null when unbound.
 	 * @throws \LogicException When the bound value is not a canonical decimal.
 	 */
 	public static function bound_partition(): ?int {
@@ -1062,7 +1062,7 @@ class Core {
 
 	/**
 	 * The fleet `Topology_Loader` bound beside the partition, or null outside
-	 * a worker, where none is.
+	 * a worker, because only a worker binds one.
 	 */
 	public static function bound_topology(): ?string {
 		$topology = self::$var['topology'] ?? null;

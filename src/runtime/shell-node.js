@@ -410,7 +410,7 @@ function eagerPartitionRefusal( tokens ) {
  * PHP's, not this file's parse(): every caller reads a TOPOLOGY, and a topology
  * runs on the PHP loader. So the two builtins parse() owns alone —
  * `list_skins`/`set_skin`, which style the browser host — are deliberately NOT
- * modelled here; a `.tsl` naming one gets the cwd command PHP will really send.
+ * modelled here; a `.tsl` naming one gets the cwd command PHP will send.
  *
  * @param {ShellNode} shell The shared throwaway shell carrying the cwd.
  * @param {string}    text  One joined statement.

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Live-investigation reference for the substrate: the REPL, worker health, log paths, and the failure modes we actually hit. For the conceptual model behind all of it, read [architecture-guide.md](architecture-guide.md); for every `wp nodes` verb, its flags and what each `doctor` row means, read [cli.md](cli.md).
+Live-investigation reference for the substrate: the REPL, worker health, log paths, and the failure modes we hit. For the conceptual model behind all of it, read [architecture-guide.md](architecture-guide.md); for every `wp nodes` verb, its flags and what each `doctor` row means, read [cli.md](cli.md).
 
 Reach for this page when:
 
@@ -142,7 +142,7 @@ Under the runtime tree `{base}`:
 
 Eight of those partitions belong to the substrate: `topicprobe.p0` (the consumer-stats sweep), `jobstats.p0` (per-job-identity stats), `alerts.p0` (the alert journal), `settings.p0` (watched-option changes), `jobs.p{N}` (the job queue the worker pool drains), and Job_Intake's three ingresses `jobintake.p{N}`, `jobfeed.p{N}` and `jobdelay.p0`. Everything else under `logs/` is whatever Partition or Log an application's topology constructs — the event logger's `firehose.p{N}`, for one.
 
-`settings.p0` is the one whose geometry ignores the retention settings. [`Settings_Event_Writer::partition_args()`](../includes/class-settings-event-writer.php) pins it at 5 MiB segments, a count target and floor of two segments and a one-day age rule, so raising `num_segments` or `lifetime` does not lengthen the Config Audit history. Because the count target equals the floor, every rotation prunes straight back to two segments and the day-long age rule never removes anything the count rule has not already taken: the retained history is the previous full 5 MiB segment plus the current one, which on a quiet install reaches a very long way back.
+`settings.p0` is the one whose geometry ignores the retention settings. [`Settings_Event_Writer::partition_args()`](../includes/class-settings-event-writer.php) pins it at 5 MiB segments, a count target and floor of two segments and a one-day age rule, so raising `num_segments` or `lifetime` does not lengthen the Config Audit history. Because the count target equals the floor, every rotation prunes straight back to two segments and the day-long age rule never removes anything the count rule has not already taken: the retained history is the previous full 5 MiB segment plus the current one, which on a quiet install reaches far back.
 
 The `base_directory` setting names that tree and defaults to `/tmp/newspack-nodes`. Override it under Settings → Nodes Runtime, in `newspack-nodes-config.php`, or in the file named by `LOCAL_NEWSPACK_NODES_CONF`; a stored option beats both files, by presence rather than truthiness.
 

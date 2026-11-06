@@ -189,7 +189,7 @@ class CLI {
 	 * departed reader's last snapshot says whatever was true when it left —
 	 * usually `caught up`, which is how an externally-fed partition reports 0B
 	 * while its backlog grows. Cursor and end are BOTH re-read, never mixed with
-	 * the record's: pairing a stale cursor against a fresh stat would overstate
+	 * the record's values: pairing a stale cursor against a fresh stat would overstate
 	 * every live reader by an interval of throughput, which is why the live path
 	 * measures them together.
 	 *

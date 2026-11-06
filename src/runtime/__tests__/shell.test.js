@@ -207,7 +207,7 @@ describe( 'tokenizer escape round-trip', () => {
 		);
 	} );
 
-	// A name is as much a token as an argument — `make Echo 'foo bar'` really
+	// A name is as much a token as an argument — `make Echo 'foo bar'`
 	// does register a node named "foo bar". Emitted bare, every dumped line
 	// replays as one token too many and rebuilds a DIFFERENT graph.
 	// Parity-pinned to the PHP test of the same name.

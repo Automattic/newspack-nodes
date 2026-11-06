@@ -40,7 +40,7 @@ function classOf( node ) {
  * are exactly the siblings it built.
  *
  * @param {Object}  registry The name table to read.
- * @param {?Object} [only]   The one owner to list for; null lists every owner's.
+ * @param {?Object} [only]   The one owner to list for; null lists every owner's sidecars.
  * @return {Map<Object, Array<{name: string, class: string}>>} Sidecars by owner.
  */
 function sidecarsByOwner( registry, only = null ) {
@@ -110,7 +110,7 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 		if ( node.patron ) {
 			continue;
 		}
-		// Per-node port flags from the node's schema; default true if none.
+		// Per-node port flags from the node's schema; default true without one.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
 		if ( ! isHidden( schema ) ) {
 			out[ name ] = metadataRow( name, node, schema, registry, sidecars );

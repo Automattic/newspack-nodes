@@ -165,7 +165,7 @@ class InMemoryMemcached extends \Memcached {
 
 	/**
 	 * Test-only: absolute expiry stamps by key, so a test can assert which TTL
-	 * a caller actually applied (not merely that the key exists).
+	 * a caller applied (not merely that the key exists).
 	 *
 	 * @return array<string,int>
 	 */

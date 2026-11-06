@@ -13,7 +13,7 @@ class WorkerBaseTest extends TestCase {
 	/** @var \Closure|null Bootstrap-installed curl seam, restored in tearDown so a test capturer can't leak. */
 	private $saved_curl_exec;
 
-	/** The `memory_limit` a test replaced, restored in tearDown; null while none did. */
+	/** The `memory_limit` a test replaced, restored in tearDown; null until a test replaces it. */
 	private ?string $saved_memory_limit = null;
 
 	/** A limit apart from every default, and the usage that puts a worker over its watermark. */

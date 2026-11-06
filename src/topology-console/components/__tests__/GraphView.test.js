@@ -148,7 +148,7 @@ const twoNodeGraph = {
 };
 
 // Freeze the clock and hand the body a `tick()` that advances it one second:
-// useGraphRates records a sample only once time has actually moved.
+// useGraphRates records a sample only once time has moved.
 const withClock = ( body ) => {
 	let t = 1_700_000_000_000;
 	const real = Date.now;

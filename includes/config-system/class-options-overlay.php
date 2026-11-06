@@ -35,7 +35,7 @@ class Options_Overlay {
 	 *
 	 * Handing it to `get_option()` as the default is what makes absence
 	 * detectable. WordPress returns the CALLER's default when one is passed and
-	 * the `register_setting()` default only when none is, so a bare read reports
+	 * the `register_setting()` default only when the caller passes none, so a bare read reports
 	 * a registered default as though an operator had stored it. The NUL
 	 * delimiters keep the sentinel distinct from any value a settings form or a
 	 * sanitizer can produce.

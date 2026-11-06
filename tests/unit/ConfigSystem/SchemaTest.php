@@ -328,7 +328,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			$this->assertSame( [ 'leading' => 5400, 'trailing' => 900 ], $config );
 		}
 
-		/** followers() lists every key following the given one, and none for a key nothing follows. */
+		/** followers() lists every key following the given one, and none for an unfollowed key. */
 		public function test_followers_lists_the_keys_following_a_key(): void {
 			$schema = $this->following_schema();
 

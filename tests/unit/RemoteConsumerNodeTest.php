@@ -105,7 +105,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	/**
 	 * A named broker sinking into _router, given each source by `add_source`
-	 * (`firehose.p0` into `downstream` when none), its first tick run so each
+	 * (`firehose.p0` into `downstream` when given none), its first tick run so each
 	 * exact source's reader exists; `downstream` is whatever the caller
 	 * registered.
 	 *

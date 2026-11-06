@@ -88,7 +88,7 @@ class RateLimitTest extends TestCase {
 
 	/**
 	 * A read that misses one held slot costs that slot's refused `add()`, and
-	 * the claim walks on to the first slot that really is free.
+	 * the claim walks on to the first free slot.
 	 */
 	public function test_a_lost_race_walks_on_to_the_next_free_slot(): void {
 		$this->assertSame( 2, $this->admitted( 2 ) );

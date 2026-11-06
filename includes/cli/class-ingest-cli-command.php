@@ -33,8 +33,8 @@ class Ingest_CLI_Command {
 	/**
 	 * Replay packed segment records back through a Topic onto disk.
 	 *
-	 * Reads each source line by line — the named files, or stdin when none are
-	 * named — unpacks every record and runs it through `Topic_Node::fill()`,
+	 * Reads each source line by line — the named files, or stdin when the command
+	 * names no file — unpacks every record and runs it through `Topic_Node::fill()`,
 	 * which picks the destination partition three ways: a record whose TO pins
 	 * a `p<N>` keeps that pin, one carrying a KEY hashes by KEY, and one with
 	 * neither lands round-robin. A line that will not unpack is counted and

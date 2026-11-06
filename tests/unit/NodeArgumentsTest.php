@@ -90,7 +90,7 @@ class NodeArgumentsTest extends TestCase {
 	}
 
 	public function test_dump_config_quotes_spaced_node_sink_and_target_names(): void {
-		// A name is as much a token as an argument: `make Echo 'foo bar'` really
+		// A name is as much a token as an argument: `make Echo 'foo bar'`
 		// does register a node named "foo bar", so every emitted name is quoted
 		// or the dumped line replays as two tokens and rebuilds a DIFFERENT graph.
 		$sink = new Test_Args_Node();

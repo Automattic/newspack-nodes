@@ -21,7 +21,7 @@ import { VALUE, payloadOf } from './message';
  * input to, so completion stops where the candidates stop agreeing.
  *
  * @param {string[]} strings Candidate strings.
- * @return {string} The longest prefix shared by every string ('' if none).
+ * @return {string} The longest prefix shared by every string ('' when they share none).
  */
 export function longestCommonPrefix( strings ) {
 	if ( ! strings || 0 === strings.length ) {
@@ -81,7 +81,7 @@ export class CompletionNode extends ReactBridge( Node ) {
 	/**
 	 * Opens the `candidates` registration slot.
 	 * `nodeSchema()` declares no `registrations`, so `seedRegistrations()` opens
-	 * nothing, and `register()` refuses an event nobody seeded: seeding here is
+	 * nothing, and `register()` refuses an unseeded event: seeding here is
 	 * what lets a `register` verb subscribe to the channel. The React hook needs
 	 * no help — `useNodeEvent()` declares the event it subscribes to.
 	 */

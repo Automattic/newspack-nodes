@@ -267,9 +267,9 @@ final class Oauth_Server {
 
 	/**
 	 * Rotate a refresh token into a new session of its grant. The store
-	 * refuses a token issued to another client, or a request naming another
-	 * resource than the grant's, retry or not; a request naming none is bound
-	 * to the grant's.
+	 * refuses a token issued to another client, or a request naming a
+	 * resource the grant was not issued for, retry or not; a request naming no
+	 * resource is bound to the grant's resource.
 	 *
 	 * @param string                 $client The registered client.
 	 * @param array<array-key,mixed> $params The request's parameters.

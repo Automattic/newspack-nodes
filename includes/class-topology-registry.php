@@ -64,7 +64,7 @@ class Topology_Registry {
 	/** @var array<int,string> Stock dirs in resolution order; the first hit wins. */
 	private static array $stock_dirs = [];
 
-	/** @var string Writable per-deployment user dir; '' when none is registered. */
+	/** @var string Writable per-deployment user dir; '' until one is registered. */
 	private static string $user_dir = '';
 
 	/**
@@ -162,7 +162,7 @@ class Topology_Registry {
 	 * @return array{name: string, active: true, spawned: int, warning: string|null}
 	 *         `spawned` counts spawn POSTs REQUESTED — a fire-and-forget POST
 	 *         reports no outcome; `warning` names the active topologies the
-	 *         conflict check could not read, null when none.
+	 *         conflict check could not read, null when it read them all.
 	 * @throws \RuntimeException When the name is unknown or activating it would
 	 *                           put two fleets on one log or offsetlog.
 	 * @throws \InvalidArgumentException When a line of the set's topologies is one its class refuses.
@@ -213,7 +213,7 @@ class Topology_Registry {
 	/**
 	 * Absolute path to the file named `$filename` in the first registered dir
 	 * holding one — each stock dir, the last registered first, then the user
-	 * dir — or null when none does, or when the name carries a separator or
+	 * dir — or null when every dir lacks it, or when the name carries a separator or
 	 * `..` and so could reach outside the dir. A deployment
 	 * shadows any file a plugin ships beside its topologies by registering a
 	 * dir holding the same name. Within a dir the bare name wins, as it does
@@ -519,7 +519,7 @@ class Topology_Registry {
 		self::$user_dir = \rtrim( $path, '/' );
 	}
 
-	/** Read-only view of the user-dir path; '' when none is registered. */
+	/** Read-only view of the user-dir path; '' until one is registered. */
 	public static function user_dir(): string {
 		return self::$user_dir;
 	}

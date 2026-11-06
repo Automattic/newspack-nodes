@@ -3,8 +3,8 @@
  * Mcp_Door: the MCP server a plugin declares a door on (ADR-38).
  *
  * A subclass declares `rest_namespace()`, `tools()`, `instructions()`,
- * `caveat()`, `fills()` and `server_info()`, and calls `wire()`; the
- * protocol, the session check, the meter and the fence are this class's.
+ * `caveat()`, `fills()` and `server_info()`, and calls `wire()`; this
+ * class owns the protocol, the session check, the meter and the fence.
  *
  * @package Newspack_Nodes
  */
@@ -242,7 +242,7 @@ abstract class Mcp_Door {
 	}
 
 	/**
-	 * The tools this session's scope actually covers. Offering one it will be
+	 * The tools this session's scope covers. Offering one it will be
 	 * refused for wastes a round trip and reads to an agent as a broken server.
 	 *
 	 * @return list<array<string,mixed>>

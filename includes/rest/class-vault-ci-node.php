@@ -165,7 +165,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `update` verb handler — merge the args actually given into an existing
+	 * `update` verb handler — merge the args given into an existing
 	 * entry, moving it when `new_id` names somewhere else. Returns the id the
 	 * entry now carries.
 	 *
@@ -202,7 +202,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The stored fields among the bound args that were actually given: an
+	 * The stored fields among the bound args that were given: an
 	 * absent arg binds null and is left out, so `update` leaves its field
 	 * untouched and `add` stores ''.
 	 *
@@ -224,7 +224,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * the store would otherwise refuse without saying why. Returns '' when the
 	 * entry keeps the id it has.
 	 *
-	 * @param string|null $named    The `new_id` arg; null when none was given.
+	 * @param string|null $named    The `new_id` arg; null when the caller gave none.
 	 * @param string      $id       The entry's current id.
 	 * @param Vault       $registry Backing vault.
 	 * @return string The new id, or '' for no rename.

@@ -85,7 +85,7 @@
   </div>
   <div class="card">
     <h3>On-demand: scale to zero, wake at the write boundary</h3>
-    <p><span class="mono">var on_demand_idle = &lt;seconds&gt;</span> rides the <span class="mono">stale_timeout</span> path into each worker descriptor. A cleanly MISSING lock dir then spawns nothing, <span class="mono">Alerts::evaluate()</span> raises nothing, and status renders <b>idle</b>; a STALE dir still spawns, because a stale lock is a crash. Every producer's <span class="mono">Partition_Node::fill()</span> marks its directory and the Router-tick flush wakes whoever tails it, through <span class="mono">Bootstrap::on_demand_wake_map()</span>, cached in APCu for 60 s. A partition nothing tails is absent from the map.</p>
+    <p><span class="mono">var on_demand_idle = &lt;seconds&gt;</span> rides the <span class="mono">stale_timeout</span> path into each worker descriptor. A cleanly MISSING lock dir then spawns nothing, <span class="mono">Alerts::evaluate()</span> raises nothing, and status renders <b>idle</b>; a STALE dir still spawns, because a stale lock is a crash. Every producer's <span class="mono">Partition_Node::fill()</span> marks its directory and the Router-tick flush wakes whoever tails it, through <span class="mono">Bootstrap::on_demand_wake_map()</span>, cached in APCu for 60 s. An untailed partition is absent from the map.</p>
   </div>
   <div class="callout">
     <h4>Faster is not better</h4>

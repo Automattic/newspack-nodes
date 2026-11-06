@@ -342,7 +342,7 @@ final class Oauth_Store {
 	/**
 	 * Give way to the rotation that claimed a token first, once `spend()` has
 	 * dropped the token this one issued: revoke the session this one minted
-	 * and answer the winner's.
+	 * and return the winner's answer.
 	 *
 	 * @param string      $hash     The token's digest.
 	 * @param string      $handle   The session this rotation minted.
@@ -402,7 +402,7 @@ final class Oauth_Store {
 	 * Delete a row.
 	 *
 	 * @param string $key Row key.
-	 * @return bool True when this call deleted a live row, false when none was there.
+	 * @return bool True when this call deleted a live row, false when the row was absent.
 	 * @throws Session_Store_Unavailable When the store does not answer.
 	 */
 	private static function forget( string $key ): bool {

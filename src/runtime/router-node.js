@@ -459,7 +459,7 @@ export class RouterNode extends TimerNode {
 	 * nothing notifies FIRE here. A route miss publishes no state at all; the
 	 * bounce back along FROM is what reports it.
 	 *
-	 * Nothing else is declared because nothing else reads it: the Router is
+	 * Nothing else is declared because the rest goes unread: the Router is
 	 * placed by `mountExospine` and never listed in `includeNodes`, so
 	 * a palette or `help` lookup never reaches this schema. PHP spells the
 	 * same exclusion as a `Hidden` category.

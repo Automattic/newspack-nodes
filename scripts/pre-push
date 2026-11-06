@@ -282,7 +282,7 @@ if [[ -z "$php_changed" && -z "$js_changed" && -z "$scss_changed" ]]; then
 	exit 0
 fi
 
-# --- Lint pass — only run the linters for file types that actually changed. -
+# --- Lint pass — only run the linters for file types that changed. ----------
 if [[ -n "$php_changed" ]]; then
 	run_gate lint:php "lint:php ($(echo "$php_changed" | wc -l | tr -d ' ') file(s) changed)" \
 		"lint:php failed — fix or push --no-verify" "lint:php clean" \

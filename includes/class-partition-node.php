@@ -266,7 +266,7 @@ class Partition_Node extends Timer_Node {
 	/** Acquisition timeout (ms) a debounced re-acquire reuses, recorded by allow_large_writes(). */
 	protected int $lock_max_wait_ms = 0;
 
-	/** Heartbeat age (s) past which another writer may steal the lock; 0 while none is armed. */
+	/** Heartbeat age (s) past which another writer may steal the lock; 0 while the lock is unarmed. */
 	protected int $lock_stale_timeout = 0;
 
 	/** Age rule: prune a segment older than this many seconds; 0 disables the rule. */

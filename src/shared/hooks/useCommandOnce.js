@@ -21,7 +21,7 @@
  *
  * `retry` marks an idempotent READ. It re-asks a request that went MISSING —
  * never a refusal, which is an answer — and a second `run()` supersedes rather
- * than adding, because nobody wants the first topology's body once a second is
+ * than adding, because the first topology's body is unwanted once a second is
  * opened. A write neither retries nor supersedes: an unanswered write may
  * already have applied, and two rows deleted in the same second are two
  * commands that both have to go.

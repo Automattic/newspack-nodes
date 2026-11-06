@@ -48,7 +48,7 @@ function delete_prefixed_options( $wpdb, string $prefix ): int {
  * Resolve the base directory this install EXPLICITLY configured, in the
  * precedence `Config` applies: the option overlay, else the
  * LOCAL_NEWSPACK_NODES_CONF file, else the shipped `newspack-nodes-config.php`.
- * '' when none of them names one.
+ * '' when each of them leaves it unset.
  *
  * `Config::get_base_directory()` would do two things uninstall must not: it
  * creates the directory it resolves, and it falls back to the schema default.

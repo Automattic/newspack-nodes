@@ -118,7 +118,7 @@ function installWedgingWire() {
 
 beforeEach( () => {
 	Core.reset();
-	// Every dump counted here is one a test asked for.
+	// A test asks for every dump counted here.
 	holdRouterCadence();
 	window.localStorage.clear();
 	mockPageVisible = true;

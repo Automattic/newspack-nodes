@@ -62,7 +62,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** How long a call waits on another connection's write lock. */
 	public const BUSY_TIMEOUT_MS = 1000;
 
-	/** The `wal_checkpoint` mode `checkpoint()` runs: it waits on no reader. */
+	/** The `wal_checkpoint` mode `checkpoint()` runs: it does not wait on any reader. */
 	public const CHECKPOINT_MODE = 'PASSIVE';
 
 	/**

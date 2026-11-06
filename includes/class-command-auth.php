@@ -396,7 +396,7 @@ class Command_Auth {
 	 * row in it, an OAuth row among them, can never be deleted through here.
 	 *
 	 * @param string $handle Session handle.
-	 * @return bool|null True when a live row went, false when none was there,
+	 * @return bool|null True when a live row went, false when it was absent,
 	 *                   null when the store did not answer, so the key may
 	 *                   still verify.
 	 * @throws Session_Store_Unavailable When the store will not open.

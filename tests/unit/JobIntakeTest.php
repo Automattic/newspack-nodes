@@ -264,7 +264,7 @@ class JobIntakeTest extends TestCase {
 		}
 		$intake->close();
 
-		// At least two distinct partition dirs must exist (round-robin actually
+		// At least two distinct partition dirs must exist (round-robin
 		// distributed). With 8 writes over 4 partitions every dir should appear.
 		$pdirs = array_filter(
 			scandir( "{$this->tmp}/logs" ),

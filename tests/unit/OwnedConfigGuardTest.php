@@ -2,7 +2,7 @@
 /**
  * Every patroned node whose class declares verbs keeps its `:config`, so a
  * sidecar's verbs reach it as a canvas node's do. The guard walks graphs the
- * substrate really builds; a class built as a patroned sibling with verbs and
+ * substrate builds; a class built as a patroned sibling with verbs and
  * no interpreter fails it.
  *
  * @package Newspack_Nodes

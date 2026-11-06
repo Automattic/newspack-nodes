@@ -36,7 +36,7 @@ class Command_Interpreter_Node extends Node {
 	 * Null → the built-in LOCAL-provenance check (client tier).
 	 * Signature: `function ( Command_Interpreter_Node $ci, array $message ): bool`
 	 * (true = allow). The interpreter comes first so a refusal is logged through
-	 * the node that actually handled the command — the reason and the generic
+	 * the node that handled the command — the reason and the generic
 	 * "unauthorized" suppression must land on ONE object, or every refusal logs
 	 * twice under two different node names.
 	 *

@@ -125,7 +125,7 @@ function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
  * Fit a frame inside the usable bounds — size first, then position.
  *
  * Clamping the size first lets each axis pin the frame between the near edge
- * and the far edge minus the size that will actually be applied. The outer
+ * and the far edge minus the size that will be applied. The outer
  * `Math.max` on each far edge keeps the near edge winning when the bounds are
  * narrower than the minimum size: the panel then overhangs the far edge,
  * where the alternative puts its origin off-screen and the header out of

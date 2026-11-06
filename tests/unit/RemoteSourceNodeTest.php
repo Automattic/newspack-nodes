@@ -87,7 +87,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/**
 	 * A named broker sinking into _router, its first tick not yet run, given
-	 * each source by `add_source`: `firehose.p0` into `downstream` when none.
+	 * each source by `add_source`: `firehose.p0` into `downstream` when given none.
 	 *
 	 * @param list<string> ...$sources Each `[ remote_log, local_node ]`.
 	 */
@@ -157,8 +157,8 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/**
 	 * The two transports are owned siblings, so a rename carries them. Left
-	 * inline, `{old}:sse-in` and `{old}:http-out` stay registered under a
-	 * spelling nothing resolves while `{new}:sse-in` resolves to null.
+	 * inline, `{old}:sse-in` and `{old}:http-out` stay registered under an
+	 * unresolvable spelling while `{new}:sse-in` resolves to null.
 	 */
 	public function test_renaming_a_connected_source_moves_its_transports(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
@@ -2909,7 +2909,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	/**
-	 * Silence is not a refusal. The session is dropped when the spoke actually
+	 * Silence is not a refusal. The session is dropped when the spoke
 	 * refuses — HTTP_Out forgets it on a 401 — never on an inference drawn from
 	 * missing replies: the keepalive is gated on having a session, so a guess
 	 * would suspend it and cost the slot and then the stream.

@@ -233,7 +233,7 @@ class Spawn_Coordinator {
 	/**
 	 * Spawn every active-fleet worker whose lock is missing or whose heartbeat
 	 * has gone stale. The COLD-START pass: `Fleet_Node` runs the same scan from
-	 * inside every live worker, so this only ever matters when none is left —
+	 * inside every live worker, so this only ever matters when every live worker is gone —
 	 * which is exactly why it may not depend on one.
 	 *
 	 * @param float $now Pass clock.

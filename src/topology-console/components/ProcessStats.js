@@ -42,7 +42,7 @@ export function formatRate( rate ) {
 }
 
 /**
- * Label for the window the sparklines actually cover: ring capacity × the
+ * Label for the window the sparklines cover: ring capacity × the
  * metadata poll interval, which itself scales with graph size. A fixed "last
  * minute" would lie on a big graph, where one poll is already several seconds.
  *

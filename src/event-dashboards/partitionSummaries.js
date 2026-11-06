@@ -17,7 +17,7 @@
  * @property {number}  partition       Partition index the process owns.
  * @property {string}  state           `live`, `stale`, `held`, `idle` or `down`, as `wp nodes status` reads the slot.
  * @property {?number} started_at      Epoch seconds the process started; null when the lock dir records no start.
- * @property {?number} heartbeat_age   Seconds since the last heartbeat; null when none was ever written.
+ * @property {?number} heartbeat_age   Seconds since the last heartbeat; null before the first heartbeat.
  * @property {boolean} restart_pending A restart is queued on the partition's lock dir.
  */
 

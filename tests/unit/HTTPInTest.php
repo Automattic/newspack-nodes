@@ -1347,7 +1347,7 @@ class HTTPInTest extends TestCase {
 		// branch executes on first fill — otherwise the production path is
 		// uncovered. Bootstrap stubs status_header() to push the code into
 		// $GLOBALS['_wp_test_status_headers'] so we can assert the default
-		// closure actually called it.
+		// closure called it.
 		$GLOBALS['_wp_test_status_headers'] = [];
 		$writer                             = new HTTP_In_Node();
 

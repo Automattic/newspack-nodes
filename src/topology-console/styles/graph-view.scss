@@ -864,7 +864,7 @@
 
 	// Per-node message rate in the lower-left. Same slot the former
 	// "live" label occupied — labels are useless ("LIVE" lives in
-	// the header for the whole topology), so we put the actually-
+	// the header for the whole topology), so we put the
 	// informative signal there instead. Format and threshold come
 	// from formatNodeRate; the renderer returns null below the
 	// threshold so the slot is empty rather than "0 /s".

@@ -126,7 +126,7 @@ export function primeExpandedIncludes(
  * The ask is a READ, so it keeps asking until an answer lands: an expansion
  * lost to a refused session or a restarted worker resolves on its own, and a
  * new include set SUPERSEDES the old one rather than queueing behind it, since
- * nobody wants the previous document's graph once a second one is open. An
+ * the previous document's graph is unwanted once a second one is open. An
  * already-expanded set is served from the module cache with no round trip, and
  * an empty set resolves synchronously without asking at all.
  *

@@ -540,7 +540,7 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		setVisibility( 'hidden' );
 		expect( router.mode ).toBe( 'inactive' );
 
-		// Resuming must actually repaint: at cwd '/' this poll is LOCAL (it
+		// Resuming must repaint: at cwd '/' this poll is LOCAL (it
 		// dumps the browser's own graph, no request), so pausing it while
 		// hidden is only acceptable if it comes straight back.
 		setVisibility( 'visible' );
@@ -946,8 +946,8 @@ describe( 'useConsoleGraph — station transcript persistence [87]', () => {
 } );
 
 describe( 'useConsoleGraph — lifecycle', () => {
-	// The backbone belongs to the page and stands either way; what `enabled=false`
-	// means is no VIEW nodes and no stream. Edit mode still saves, deletes and
+	// The backbone belongs to the page and stands either way; `enabled=false`
+	// means no VIEW nodes and no stream. Edit mode still saves, deletes and
 	// expands, and those commands need somewhere to sink.
 	it( 'short-circuits when enabled=false: no view nodes, status closed', () => {
 		const { result } = renderGraph( { enabled: false } );

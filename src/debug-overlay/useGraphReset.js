@@ -54,7 +54,7 @@ const NO_USER_NODES = new Set();
  * `make_node <Class> <name>` puts the node second, `remove_node <name>` and
  * `move_node <name> <new name>` first. Every producer tokenizes — the Shell,
  * and the Compose modal through the Shell's tokenizer — so arguments arrive
- * as a token array; any other shape reads as no arguments.
+ * as a token array; any other shape reads as an empty argument list.
  *
  * Three forms do not name a node. The wiring verbs are not in either set, and
  * their first token is a node that already exists — connecting two nodes

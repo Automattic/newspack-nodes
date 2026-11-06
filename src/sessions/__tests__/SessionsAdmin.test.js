@@ -158,7 +158,7 @@ it( 'marks only the outstanding row busy', () => {
 	expect( revokeButton( rowsOf( container )[ 1 ] ).disabled ).toBe( false );
 } );
 
-// Everything below covers the surfaces a reader of this screen actually uses:
+// Everything below covers the surfaces a reader of this screen uses:
 // the create form (validation, the args it sends), the one-time key panel, and
 // the states the table can be in.
 

@@ -633,7 +633,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * Only the invocations the DOCUMENT declares — what a save writes back.
 	 *
 	 * @param {string} name Node name.
-	 * @return {Invocation[]} Its declared invocations; empty when none.
+	 * @return {Invocation[]} Its declared invocations; empty for a node with none.
 	 */
 	declaredInvocationsFor( name ) {
 		return this._invocations.get( name ) ?? [];
@@ -652,7 +652,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * they would run in. `dumpDocument` writes only the file's half back.
 	 *
 	 * @param {string} name Node name.
-	 * @return {Invocation[]} Seeded then declared; empty when none.
+	 * @return {Invocation[]} Seeded then declared; empty for a node with none.
 	 */
 	invocationsFor( name ) {
 		return [
@@ -674,7 +674,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * Only the invocations an INCLUDE supplies — not the document's to write.
 	 *
 	 * @param {string} name Node name.
-	 * @return {Invocation[]} Its seeded invocations; empty when none.
+	 * @return {Invocation[]} Its seeded invocations; empty for a node with none.
 	 */
 	seededInvocationsFor( name ) {
 		return this._seeded.get( name ) ?? [];

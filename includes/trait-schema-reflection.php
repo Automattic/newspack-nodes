@@ -291,7 +291,7 @@ trait Schema_Reflection {
 
 	/**
 	 * The token `$name` arrived as, before `{partition}` resolved: what the
-	 * TSL wrote, which ownership is judged against. '' when none arrived.
+	 * TSL wrote, which ownership is judged against. '' when nothing arrived.
 	 *
 	 * @param string $name A declared positional.
 	 */

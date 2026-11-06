@@ -244,7 +244,7 @@ export default function TopologySettingsPanel( {
 	 *
 	 * Refuses a name the file would not read back, a name already in use — the
 	 * recognized keys included, since those have inputs of their own — and an
-	 * empty value, which `commit` would drop to no key at all. The refusal
+	 * empty value, which `commit` would drop, leaving no key at all. The refusal
 	 * lands in `addError` under the row.
 	 */
 	const addVar = () => {

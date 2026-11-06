@@ -3,7 +3,7 @@
  *
  * The Inspector hands back a whole positional array with one slot changed. The
  * draft holds raw SPANS, quote characters intact, because the quote type
- * carries interpolation semantics. So only the slot the operator actually
+ * carries interpolation semantics. So only the slot the operator
  * edited is a plain value needing quotes; re-quoting the rest would add a
  * layer of quoting on every edit.
  *

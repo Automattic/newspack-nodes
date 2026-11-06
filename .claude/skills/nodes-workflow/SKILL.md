@@ -1,6 +1,6 @@
 ---
 name: nodes-workflow
-description: Implementation workflow for the newspack-nodes substrate (Node subclasses, topologies, deploys). Use when adding new node types, wiring topology files, or making changes that need to ride through the deploy → restart → verify cycle.
+description: Implementation workflow for the newspack-nodes substrate (Node subclasses, topologies, deploys). Use when adding new node types, wiring topology files, or making changes that need to ride through the deploy, restart and verify cycle.
 argument-hint: "[node-type or feature]"
 ---
 
@@ -91,9 +91,10 @@ Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage
 # Unit, integration and examples suites. Use the vendored binary, NOT whatever
 # `phpunit` a host puts on PATH — composer's lock pins 10.5.64, and a newer
 # major dies on our bootstrap with DispatchingEmitter::exportsObjects().
-# --enforce-time-limit aborts a hung test (readline without a TTY, an infinite
-# drain loop) instead of stalling the whole suite. phpunit.xml sets
-# defaultTimeLimit="10", because run-coverage.sh runs the same suite under
+# phpunit.xml sets enforceTimeLimit="true" and defaultTimeLimit="10", so a hung
+# test (readline without a TTY, an infinite drain loop) aborts at ten seconds,
+# with or without --enforce-time-limit, instead of stalling the whole suite.
+# The budget is ten seconds because run-coverage.sh runs the same suite under
 # Xdebug and the instrumentation pushes the heaviest cases past PHPUnit's own
 # one second. failOnRisky="true" makes breaking it fail the run rather than
 # warn, where the abort escapes the test: php-invoker throws from a SIGALRM

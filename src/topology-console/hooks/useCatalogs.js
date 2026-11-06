@@ -13,7 +13,7 @@
  *
  * `loading` goes false the moment a failure is in hand, because the poll keeps
  * asking behind it — a broken catalog shows its error rather than a spinner
- * nothing stops. Each catalog also carries the slice's `refresh()`, for a
+ * that never stops. Each catalog also carries the slice's `refresh()`, for a
  * caller that has just CHANGED the list and should not wait out the cadence.
  *
  * `useTopology` is the exception and stays one: one topology's BODY, asked for
@@ -89,7 +89,7 @@ export function useClassCatalog( { enabled = false } = {} ) {
  * @return {{topologies: Object[], userDir: string, loading: boolean, error: ?string, refresh: () => void}}
  *   `topologies` are the `topologies dump` entries (`name`, `source`, `active`,
  *   `num_partitions`, `frontmatter`, `includes`), sorted by name; `userDir` is
- *   the writable topology directory, empty when none is configured.
+ *   the writable topology directory, empty when unconfigured.
  */
 export function useTopologyList( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {

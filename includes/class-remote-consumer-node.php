@@ -61,7 +61,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/** Whether the cursor's segment is unknown: a file source's generation not yet seen. */
 	private bool $generation_unknown = false;
 
-	/** When a step's `read_message` went out unanswered; null while none is out. */
+	/** When a step's `read_message` went out unanswered; null while nothing is out. */
 	private ?float $step_requested_at = null;
 
 	/** `step` clicks still waiting on a reply, one record each. */
@@ -69,7 +69,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/**
 	 * The block fetch in flight: the arguments its reply echoes, and when it
-	 * went out. Null while none is out.
+	 * went out. Null while nothing is out.
 	 *
 	 * @var array{args:list<string>,at:float}|null
 	 */
@@ -86,8 +86,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private ?array $fetch_answered = null;
 
 	/**
-	 * When a wait at the end, or after a refusal, began; null while none
-	 * stands. Only the broker's tick ends one, a retry interval on, so
+	 * When a wait at the end, or after a refusal, began; null outside
+	 * a wait. Only the broker's tick ends one, a retry interval on, so
 	 * readers due together ask in one POST.
 	 */
 	private ?float $waiting_since = null;
@@ -156,7 +156,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private ?array $block_end = null;
 
 	/**
-	 * The entry crumb_for_line() last took for a line, or null when none was
+	 * The entry crumb_for_line() last took for a line, or null when nothing was
 	 * queued. Its crumb, null when the line carried none, is what drain_line()
 	 * steers on — the distinction the placeholder crumb erases — and its
 	 * message is what forward_line() relays.
@@ -1189,7 +1189,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Gate seam: a remote log's gate is the spoke's, and the spoke sends none,
+	 * Gate seam: a remote log's gate lives on the spoke, and the spoke sends none,
 	 * so this broker's cursor and dead letters carry no marker (ADR-39).
 	 *
 	 * @return null Never a gate.

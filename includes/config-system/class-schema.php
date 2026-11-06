@@ -171,7 +171,7 @@ class Schema {
 	}
 
 	/**
-	 * The Field declaring an unprefixed option key, or null when none does.
+	 * The Field declaring an unprefixed option key, or null when the key is undeclared.
 	 *
 	 * @param string $short Unprefixed option key.
 	 */
@@ -285,7 +285,7 @@ class Schema {
 	 * Runs on a config already merged from EVERY layer it reads, so an option
 	 * setting only the followed key moves both. Resolving an earlier layer
 	 * instead would hand the overlay a filled-in value it cannot tell from an
-	 * operator's.
+	 * operator's stored value.
 	 *
 	 * @param array<string,mixed> $config The merged config.
 	 * @return array<string,mixed>

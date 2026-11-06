@@ -896,7 +896,7 @@ class TableNodeTest extends TestCase {
 	}
 
 	/**
-	 * A Table built outside a graph for many writers is ticked by none of
+	 * A Table built outside a graph for many writers is not ticked by any of
 	 * them: COMMIT checkpoints, and a flush leaves each other writer reading
 	 * the emptied file.
 	 */

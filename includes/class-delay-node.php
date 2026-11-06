@@ -397,7 +397,7 @@ final class Delay_Node extends Timer_Node {
 	/**
 	 * The segment the next read starts in: the pass reader's cursor during a
 	 * sweep, otherwise the committed frame's, read from the offsetlog once a
-	 * sweep and -1 when none was ever committed.
+	 * sweep and -1 before the first commit.
 	 *
 	 * @throws \InvalidArgumentException When the newest frame will not unpack.
 	 */

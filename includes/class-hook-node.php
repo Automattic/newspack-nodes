@@ -57,8 +57,8 @@ class Hook_Node extends Node {
 	 * that never reaches a sink. `hook_name` is a required argument, and the
 	 * guard still earns its place: a node constructed in PHP that never calls
 	 * `arguments()`, and a blank token on a `make_node` line, each satisfy the
-	 * schema and would otherwise dispatch on the empty hook name, where no
-	 * listener can be waiting.
+	 * schema and would otherwise dispatch on the empty hook name, where a
+	 * listener cannot be waiting.
 	 *
 	 * Filter mode restamps TYPE from the shape of the return: a list array is
 	 * TM_STRUCT, and every other return — a scalar, null, an object, an

@@ -4,7 +4,7 @@
  * `dump_metadata` reports CUMULATIVE counters, on a cadence that scales with
  * graph size (`computePollIntervalMs`, 2 seconds for a small graph), so a
  * rate exists nowhere in a snapshot. This file keeps every node's previous reading and
- * divides each delta by the wall-clock time that actually elapsed, so a slower
+ * divides each delta by the wall-clock time that elapsed, so a slower
  * poll on a large graph does not read as a busier node. The canvas cards, the
  * Inspector's Activity section and `aggregateSeries` all plot what it
  * accumulates.

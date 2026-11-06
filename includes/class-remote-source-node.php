@@ -60,7 +60,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	/** When the last heartbeat went out, fraction kept for its RTT; 0 before any. */
 	private float $last_heartbeat_sent = 0.0;
 
-	/** Wall-second of the last heartbeat reply; 0 while none has come back. */
+	/** Wall-second of the last heartbeat reply; 0 until the first one comes back. */
 	private int $last_heartbeat_response = 0;
 
 	/** Reason the last heartbeat failed, published as `last_error`; null on success. */

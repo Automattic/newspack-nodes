@@ -3004,8 +3004,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		// wire holds that row a block-level seat walks past the next band.
 		// Seated here, the band's height covers it, and it grows downward
 		// only: the band's top is the row the stack gave it. The wires it lays
-		// stay out of the band's, which the block-level pass reads before it
-		// reseats the source against every wire the block holds, or the
+		// stay out of the band's wires, which the block-level pass reads before
+		// it reseats the source against every wire the block holds, or the
 		// source's own wire would refuse it. One seating serves every draw.
 		const seatBand = ( members, grid ) =>
 			memo( bandSeats, grid, () => {
@@ -3732,7 +3732,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
  * a wire when its column lies strictly between the wire's ends and it sits
  * within the rows `wireRows` gives the drawn curve across that card, the
  * margin `clearWires` and `seatSources` keep. A block's passes measure that curve
- * over the block's own half steps, as this does; a band's, laid out alone,
+ * over the block's own half steps, as this does; a band laid out alone
  * cannot see them. A wire whose ends share a column counts for neither.
  *
  * @param {Object<string,{x: number, y: number}>} at    Canvas position of every card.

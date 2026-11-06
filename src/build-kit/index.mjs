@@ -136,7 +136,7 @@ export const WP_EXTERNALS = {
 /**
  * Build the esbuild plugin that rewrites every `WP_EXTERNALS` import into a
  * read of its window global and records which handles the bundle reached for,
- * so `<base>.asset.php` declares the dependencies it actually has.
+ * so `<base>.asset.php` declares the dependencies it has.
  *
  * Marking the packages `external` instead leaves a bare `require()` in an IIFE
  * bundle, which the browser has no loader for. A stub module returning the
@@ -248,7 +248,7 @@ function scssPlugin( sass, alias ) {
  * Render the `<base>.asset.php` enqueue manifest WordPress reads alongside a
  * bundle, emitted sorted and deduped so the file only changes when the deps do.
  *
- * @param {Set<string>} handles Enqueue handles the bundle actually pulled from
+ * @param {Set<string>} handles Enqueue handles the bundle pulled from
  *                              window globals, collected by the wp-externals
  *                              plugin during the build.
  * @param {string}      version Cache-busting version — the content hash of the

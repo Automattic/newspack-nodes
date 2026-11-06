@@ -74,7 +74,7 @@ export function measureTabBarHeight( rootEl ) {
  * so the transcript never collapses on a tiny panel.
  *
  * @param {number} frameHeight  Panel height (frame.h) in px.
- * @param {number} tabBarHeight Measured tab bar height in px (0 if no bar).
+ * @param {number} tabBarHeight Measured tab bar height in px (0 without a bar).
  * @return {number} Transcript max-height in px.
  * @testonly Exported for its own unit tests; InspectorTab is the caller.
  */

@@ -841,7 +841,7 @@ describe( 'TopologyConsole boot', () => {
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
 		Core.reset();
-		// Every tick counted here is one a test asked for.
+		// A test asks for every tick counted here.
 		holdRouterCadence();
 		globalThis.__graphKey = null;
 		globalThis.__shell = null;

@@ -43,7 +43,7 @@ class File_Tail_Node extends Tail_Node {
 
 	/**
 	 * The open read handle for the currently-followed generation, or null when
-	 * none is open — the path is absent, unreadable, or not yet opened. A
+	 * nothing is open — the path is absent, unreadable, or not yet opened. A
 	 * rotated-away generation stays open here until drained to EOF. Its inode
 	 * lives in the inherited $cursor_segment, which reads 0 while the reader
 	 * has no generation open.

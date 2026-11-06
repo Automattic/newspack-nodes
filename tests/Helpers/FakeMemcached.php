@@ -7,7 +7,7 @@
  * `\Memcached`); there is no Cache_Interface anywhere. This helper exists so
  * substrate-side tests for Workers_CI can pass a cache-shaped stub (or stand in
  * for `Core::$memd`) without a live memcached. The shape mirrors the methods
- * the substrate actually reads.
+ * the substrate reads.
  *
  * Set $fail_all = true to simulate a memcache-down scenario (every
  * operation returns the failure sentinel: get → null, set/delete → false).

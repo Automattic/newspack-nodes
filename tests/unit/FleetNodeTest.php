@@ -34,7 +34,7 @@ class FleetNodeTest extends TestCase {
 		// Force the throttle onto the transient tier, which we DO clear per test;
 		// a shared handle would leak spawn records between tests.
 		Core::$memd = null;
-		// Ambient base_dir deliberately != the fleet's: a Fleet that ignored its
+		// Ambient base_dir deliberately != the fleet's base_dir: a Fleet that ignored its
 		// argument would scan the decoy, find no locks, and spawn the world.
 		$this->use_base_dir( $this->decoy );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'ledger-workers' ];
@@ -558,7 +558,7 @@ class FleetNodeTest extends TestCase {
 		\add_action( Config::RESET_ACTION, static function () use ( &$resets ): void {
 			++$resets;
 		} );
-		// A write nothing signalled: the cached fleet is current by definition.
+		// An unsignalled write: the cached fleet is current by definition.
 		\update_option( 'newspack_nodes_lifetime', 44021 );
 
 		Core::right_now();

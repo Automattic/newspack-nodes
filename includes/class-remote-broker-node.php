@@ -121,7 +121,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker. */
 	private ?int $bound_partition = null;
 
-	/** The topology this broker runs in, bound at load beside the partition; null outside a worker, whose readers report under no id. */
+	/** The topology this broker runs in, bound at load beside the partition; null outside a worker, whose readers report without an id. */
 	private ?string $bound_topology = null;
 
 	/**
@@ -319,7 +319,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * A source as this worker reads it, `{partition}` resolved at its
-	 * partition, or at 0 where none is bound and the source names none.
+	 * partition, or at 0 where the process binds no partition and the source names none.
 	 *
 	 * @param string $remote_log The source, as written.
 	 * @param string $local_node Its target, as written.
@@ -420,14 +420,14 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @param string                                   $verb       `add_source` or `remove_source`.
 	 * @param string                                   $remote_log The source, as written.
 	 * @param string                                   $local_node Its target, as written.
-	 * @param int|null                                 $partition  The partition `{partition}` resolves at; null where none is bound.
+	 * @param int|null                                 $partition  The partition `{partition}` resolves at; null where the process binds none.
 	 * @return list<array{source:string,target:string}>
 	 * @throws \InvalidArgumentException When the source already goes elsewhere,
 	 *                                   a removal does not name a declared
 	 *                                   source, a spoke could never stream it,
 	 *                                   its reader would take a kept slot, or
-	 *                                   it names `{partition}` where none is
-	 *                                   bound.
+	 *                                   it names `{partition}` where the
+	 *                                   process binds none.
 	 */
 	public static function fold_source( array $declared, string $verb, string $remote_log, string $local_node, ?int $partition ): array {
 		$written = [ 'source' => $remote_log, 'target' => $local_node ];
@@ -477,7 +477,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * The reader for a stamp, built on first sight when a source claims it; null
-	 * when none does. A spoke names the stamps it sends, and a stamp names a
+	 * for an unclaimed stamp. A spoke names the stamps it sends, and a stamp names a
 	 * sibling slot and a directory here, so the one builder refuses four,
 	 * rate-limited: a stamp outside the stream name grammar, one naming a slot
 	 * the broker keeps, one that is not claimed by any source, and a glob's
@@ -717,7 +717,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @param int           $now      Current wall-second.
 	 */
 	private function maybe_request_session( HTTP_Out_Node $http_out, int $now ): void {
-		// intdiv, so a 1s housekeeping tick can actually land on the boundary.
+		// intdiv, so a 1s housekeeping tick can land on the boundary.
 		$offset = \intdiv( self::HEARTBEAT_INTERVAL, 2 );
 		if ( $now - $this->lease_epoch < $offset ) {
 			return;

@@ -686,7 +686,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_reconcile_fleet_returns_without_unscheduling_when_no_topologies(): void {
 		// Logging is on, but no topologies are registered — no workers to
-		// spawn, no reason to actually run the fleet's 595s loop. But
+		// spawn, no reason to run the fleet's 595s loop. But
 		// DO leave the cron scheduled so the next tick after the operator
 		// flips a gate back on picks up the fresh topology fleet without
 		// requiring plugin re-activation. A minute-cadence no-op tick is

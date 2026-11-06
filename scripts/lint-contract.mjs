@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * lint-contract — fail the build on the ADR violations that REVIEW KEEPS
- * PASSING, because none of them is a bug.
+ * PASSING, because they are not bugs.
  *
  * Most of RULES catches one shape. A reply is already addressed: the server
  * echoes `TO = FROM`, so it lands on the node that minted it, and its VALUE

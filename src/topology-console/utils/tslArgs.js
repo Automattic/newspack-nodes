@@ -44,7 +44,7 @@ export function trimTrailingEmpties( args ) {
  * The result covers every declared slot — its length is the longer of the
  * two inputs — and an empty slot with no default stays `''`, so every
  * position has a token to write. A `default` of `''` counts as none, and a
- * `spec` that is not an array reads as no declared arguments.
+ * `spec` that is not an array reads as declaring no arguments.
  *
  * @param {Array} args Positional arg values from the draft graph.
  * @param {Array} spec Schema arg list (each entry may carry `default`).

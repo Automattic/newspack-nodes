@@ -19,7 +19,7 @@ class OwnedSiblingsTest extends TestCase {
 
 	/**
 	 * A patron that PUBLISHES an `escort` from its constructor, before it has a
-	 * name — the shape a sibling builder actually has. The suffix is
+	 * name — the shape a sibling builder has. The suffix is
 	 * deliberately unlike any real one (source, offsetlog, deadletter, flight,
 	 * auto-tuner) so nothing here can pass on a production node's behaviour. The
 	 * escort owns a `deputy` of its own, so the tree is two deep and a cascade
@@ -73,8 +73,8 @@ class OwnedSiblingsTest extends TestCase {
 	/**
 	 * Retracting is the exact inverse of publishing: publishing owns the slot
 	 * AND the name, so retracting owes both. A slot dropped while the registry
-	 * keeps the sibling's name leaves `{name}:{suffix}` registered against a
-	 * node nothing owns, and the next occupant of that slot is refused for the
+	 * keeps the sibling's name leaves `{name}:{suffix}` registered against an
+	 * unowned node, and the next occupant of that slot is refused for the
 	 * life of the process.
 	 */
 	public function test_retracting_a_sibling_tears_it_down_and_frees_its_name(): void {

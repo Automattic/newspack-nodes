@@ -524,7 +524,7 @@ connection returns to the page, which asks for one; otherwise it issues a code
 that lives 60 seconds, bound to the client, the redirect URI, the challenge,
 the resource, the user, the scope and the name, and redirects to the registered
 URI with `code=<code>&state=<state>`. Both redirects go through
-`wp_redirect()`, because `wp_safe_redirect()` refuses every host but the site's.
+`wp_redirect()`, because `wp_safe_redirect()` refuses every host but the site's host.
 
 ### `POST /oauth/token`
 
@@ -538,7 +538,7 @@ requests a minute are then admitted per client (`oauth-token:<client>`).
 | `grant_type` | Also names | Checks |
 |---|---|---|
 | `authorization_code` | `code`, `redirect_uri`, `code_verifier`, `resource` | The code is taken once, so a refused exchange spends it too. It must have been issued to this client for this exact `redirect_uri` and `resource`, and `base64url( sha256( code_verifier ) )` must equal its challenge. A new thirty-day grant opens |
-| `refresh_token` | `refresh_token`, optionally `resource` | The token rotates through `Oauth_Store::rotate()`: a retry within 60 s is answered with the same pair, and a token reused later revokes its grant. A token issued to another client, or a `resource` other than the grant's, is refused and spends nothing, a retry inside the 60 s included; a request without a resource is bound to the grant's |
+| `refresh_token` | `refresh_token`, optionally `resource` | The token rotates through `Oauth_Store::rotate()`: a retry within 60 s is answered with the same pair, and a token reused later revokes its grant. A token issued to another client, or a `resource` the grant was not issued for, is refused and spends nothing, a retry inside the 60 s included; a request without a resource is bound to the grant's resource |
 
 Before either mints a session, the grant's user is signed in for the one check
 that they still hold its scope (`Oauth_Server::can_grant( $scope )`, the check
@@ -932,7 +932,7 @@ row per wired [`Remote_Source`](../includes/class-remote-source-node.php), keyed
 Vault credential id separately as `vault_id`, the `topology` it is wired in,
 its `partitions`, each worker partition's status snapshot as the broker
 publishes it through [`Publishes_Status`](../includes/trait-publishes-status.php)
-under `status:<broker>:p<partition>` and empty where none has published yet,
+under `status:<broker>:p<partition>` and empty until the broker publishes one,
 and its `readers`: one `{ stamp, partition, cursor, distance }`
 per stream reader the probe log reports, `stamp` as the spoke names the log,
 `partition` the hub worker's, `cursor` in the read-position grammar (a
@@ -952,8 +952,8 @@ null when every reader's distance is unmeasurable. `summary` reduces the same sn
 to `{ connected, idle, total, server_now, unreadable }` — `unreadable` maps each
 active topology that will not read to its message, and the Aggregator Status
 tab renders each as an error banner — and its per-server reading is best
-partition wins: `connected` while any partition is connected, `idle` while none
-is connected but one carries a `scheduled_reconnect_at`, and `down` otherwise —
+partition wins: `connected` while any partition is connected, `idle` while every
+partition is disconnected but one carries a `scheduled_reconnect_at`, and `down` otherwise —
 so a partition mid-handshake or in error backoff counts toward `down`.
 
 **`settings` — `get` and `set` do not cover the same keys.** `get` answers the
@@ -985,7 +985,7 @@ ignored.
 **`status get` is a cheap probe.** The snapshot is `{ status, runtime_version,
 num_partitions, topologies, cache_available, timestamp }`. Its `num_partitions`
 comes from [`Bootstrap::global_num_partitions()`](../includes/class-bootstrap.php), the count clamped into
-`[1, Spawn_Coordinator::MAX_PARTITIONS]` that the fleet actually spawns, while
+`[1, Spawn_Coordinator::MAX_PARTITIONS]` that the fleet spawns, while
 `dump_graph`'s same-named field is the raw config value cast to int — a
 misconfigured value makes the two disagree, and only this one names what runs.
 `cache_available` asks whether a backend is SELECTABLE: a non-empty memcached
@@ -1656,7 +1656,7 @@ naming `public_only` is not guarded, and libcurl follows its redirects.
 | `invalid public_only <url>` | A request's `public_only` is not a boolean. |
 | `refused private address <url>` | A public-only request's host is an IP literal outside the global ranges, or its transfer connected to such an address before sending, or, on a PHP without `CURLOPT_PREREQFUNCTION`, a name any of whose addresses is: nothing is sent. Or the address the completed transfer reports is one, and nothing of the response is answered. |
 | `refused single-label host <url>` | A public-only request's host is one label, a trailing dot ignored. |
-| `unresolved host <url>` | On a PHP without `CURLOPT_PREREQFUNCTION`, a public-only request's host is a name that resolves to no address; nothing is sent. |
+| `unresolved host <url>` | On a PHP without `CURLOPT_PREREQFUNCTION`, a public-only request's host is a name that does not resolve to any address; nothing is sent. |
 | `refused numeric host <url>` | A public-only request's host is not an IP literal and its last label is digits or `0x` hex. |
 | `refused proxy on a public-only request <url>` | A public-only request names a proxy. |
 | `redirects past 5 <url>` | A public-only request on a node following redirects was redirected again after `MAX_REDIRECTS` hops; `<url>` is the last hop. |
@@ -1889,7 +1889,7 @@ dir holding the same name.
 | Method | What it does |
 |---|---|
 | `resolve( string $name ): ?string` | The path of `<name>.tsl` or `<name>.tsl.php`, through `resolve_file()`. |
-| `resolve_file( string $filename ): ?string` | The path of the first file of that name, or of that name plus `.php`, in those dirs, or null when none holds either. Within a dir the exact name wins. A directory of that name is skipped; an unreadable file still answers, so its reader fails loud. A name carrying `/`, `\` or `..` answers null, since it could reach outside the dir. |
+| `resolve_file( string $filename ): ?string` | The path of the first file of that name, or of that name plus `.php`, in those dirs, or null when neither file exists in any of them. Within a dir the exact name wins. A directory of that name is skipped; an unreadable file still answers, so its reader fails loud. A name carrying `/`, `\` or `..` answers null, since it could reach outside the dir. |
 
 ## Extensibility hooks
 

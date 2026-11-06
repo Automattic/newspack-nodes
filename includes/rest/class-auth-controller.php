@@ -62,7 +62,7 @@ class Auth_Controller {
 	 * Three optional request fields shape the session. `scope` defaults to
 	 * `manage` (`tune` for a labelled request, which may hold only a
 	 * `Capabilities::LABELLED_SCOPES` scope) and is CLAMPED to the highest role the
-	 * minting user actually holds, so the Sessions tab lists a session's real
+	 * minting user holds, so the Sessions tab lists a session's real
 	 * authority rather than what it asked for; an unrecognised scope is
 	 * refused outright. `ttl` is clamped to
 	 * `Command_Auth::SESSION_TTL_MIN_S`..`SESSION_TTL_MAX_S`. `label` is how

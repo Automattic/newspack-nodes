@@ -1325,7 +1325,7 @@ class SseSlotPoolTest extends TestCase {
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . __DIR__ . '/../configs/sse-slots-absurd.php' );
 		\Newspack_Nodes\Config::reset();
 
-		// The class docblock calls 45 the wall. A wall nothing enforces is a
+		// The class docblock calls 45 the wall. An unenforced wall is a
 		// comment, and 10s fences every stream one poke after it connects.
 		$this->assertSame(
 			3 * \Newspack_Nodes\Remote_Source_Node::HEARTBEAT_INTERVAL,

@@ -123,7 +123,7 @@ class MessagesStreamSourcesTest extends TestCase {
 	}
 
 	/**
-	 * The round trip the viewer actually performs: connect at EOF, hang up,
+	 * The round trip the viewer performs: connect at EOF, hang up,
 	 * lines arrive in the gap, reconnect echoing the advertised token. Those
 	 * lines must be DELIVERED — tail-seeking again is what leaves the view on
 	 * "Waiting for log lines..." while the offset climbs.
