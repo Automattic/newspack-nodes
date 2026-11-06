@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `SSE_Out_Node::init_sse_headers()` no longer sets the `implicit_flush` ini key, which PHP reads only at request startup. `write_wire()` and `flush_if_needed()` call `flush()` themselves, so the stream is unchanged.
 - **Stock topologies ship as `<name>.tsl.php`.** A plain `.tsl` in a plugin folder is served as text over HTTP. Each stock file now opens `# <?php \defined( 'ABSPATH' ) || exit; ?>`, a comment to the TSL parser and an exit to PHP, so a direct request gets two characters. `Topology_Registry::resolve_file()` and `list()` find both names, so topologies keep their bare names everywhere else, and a topology saved to the user directory stays a plain `.tsl`. `wp nodes scaffold plugin` writes the guarded form. Plugins shipping stock topologies raise their substrate floor to this release.
 - Within one dir a bare `<name>.tsl` wins over a guarded `<name>.tsl.php`, in the lookup and the catalog alike, so a console save always takes effect. `wp nodes scaffold topology` writes `<name>.tsl.php` with the guard line. Topologies saved to the runtime dir stay bare `.tsl`.
 

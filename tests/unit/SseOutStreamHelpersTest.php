@@ -232,6 +232,26 @@ final class SseOutStreamHelpersTest extends TestCase {
 		}
 	}
 
+	/**
+	 * Opening the stream leaves the implicit_flush ini value as it found it.
+	 */
+	public function test_init_sse_headers_leaves_the_implicit_flush_setting_alone(): void {
+		$host        = $this->host();
+		$found       = \ini_get( 'implicit_flush' );
+		$start_level = \ob_get_level();
+		\ini_set( 'implicit_flush', '0' );
+
+		try {
+			$host->call_init_sse_headers();
+			$this->assertSame( '0', \ini_get( 'implicit_flush' ) );
+		} finally {
+			\ini_set( 'implicit_flush', (string) $found );
+			while ( \ob_get_level() < $start_level ) {
+				\ob_start();
+			}
+		}
+	}
+
 	public function test_init_sse_headers_is_safe_to_call_with_no_active_buffers(): void {
 		// Drain anything ambient so the while loop has nothing to do, then
 		// re-open it in the finally so PHPUnit's risky-test buffer-level

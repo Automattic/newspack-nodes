@@ -1271,10 +1271,8 @@ class SSE_Out_Node extends Node {
 	 * stream incrementally (output buffers, zlib, mod_deflate, nginx).
 	 */
 	protected function init_sse_headers(): void {
-		// phpcs:disable WordPress.PHP.IniSet.Risky
+		// phpcs:ignore WordPress.PHP.IniSet.Risky
 		\ini_set( 'zlib.output_compression', false );
-		\ini_set( 'implicit_flush', true );
-		// phpcs:enable
 
 		while ( \ob_get_level() > 0 ) {
 			\ob_end_clean();
