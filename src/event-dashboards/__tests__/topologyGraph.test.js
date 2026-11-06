@@ -1112,7 +1112,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 	} );
 } );
 
-// `topic-probe.tsl` is included by seven topologies, so a `topicprobe` node
+// `topic-probe.tsl.php` is included by seven topologies, so a `topicprobe` node
 // exists in each. Overview renders every topology against ONE shared fold set,
 // so a key that names only the tree path would make folding it in one row fold
 // it in all of them.

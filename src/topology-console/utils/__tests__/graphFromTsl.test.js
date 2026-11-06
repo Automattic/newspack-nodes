@@ -386,7 +386,7 @@ describe( 'graphFromTsl — disconnect_node', () => {
 
 describe( 'graphFromTsl — verb aliases', () => {
 	it( 'reads `make` as `make_node` (the interpreter aliases it, and topologies use it)', () => {
-		// ELN's performance.tsl says `make Tee firehose:tee`. A parser that only
+		// ELN's performance.tsl.php says `make Tee firehose:tee`. A parser that only
 		// knows the long form silently drops the node.
 		const g = graphFromTsl(
 			'make Tee wombat:tee\nconnect_node wombat:tee zebra\n',

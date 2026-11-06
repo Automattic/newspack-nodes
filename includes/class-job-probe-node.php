@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
  * carries a free-text last-run message. That message is why this is the only
  * probe that trims a record to fit the PIPE_BUF cap.
  *
- * `topologies/job-worker.tsl` mounts the sweep beside the workers it claims and
+ * `topologies/job-worker.tsl.php` mounts the sweep beside the workers it claims and
  * sinks it into `jobstats.p0`, the one log every job-worker partition appends to.
  */
 class Job_Probe_Node extends Probe_Node {

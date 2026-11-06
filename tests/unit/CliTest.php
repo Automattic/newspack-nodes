@@ -260,7 +260,7 @@ class CliTest extends TestCase {
 	/**
 	 * Four readers of one heartbeat mtime had four policies. `wp nodes status`
 	 * used a flat `Lock_Node::STALE_TIMEOUT`, so a job-worker mid-job — whose
-	 * `job-worker.tsl` declares `stale_timeout = 600` precisely because job
+	 * `job-worker.tsl.php` declares `stale_timeout = 600` precisely because job
 	 * handlers run user code that can be slow — showed DOWN at 120s while the
 	 * fleet (which honours the declaration) correctly left it alone and
 	 * never respawned it. The operator saw a dead worker that was working.
@@ -770,7 +770,7 @@ class CliTest extends TestCase {
 
 	/**
 	 * With no record to judge, nothing reads the sweep cadence, so a broken
-	 * `topic-probe.tsl` cannot fail a status read of an empty probe log.
+	 * `topic-probe.tsl.php` cannot fail a status read of an empty probe log.
 	 */
 	public function test_consumer_rows_reads_no_cadence_for_an_empty_probe_log(): void {
 		$stock = $this->make_temp_dir( 'probe-broken-' );

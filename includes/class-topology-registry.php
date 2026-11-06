@@ -396,7 +396,7 @@ class Topology_Registry {
 		\Newspack_Nodes\Config::reset();
 		// The reader memo is keyed off the active set this just changed.
 		\Newspack_Nodes\Bootstrap::forget_on_demand_readers();
-		// So is the probe cadence: it is read out of topic-probe.tsl.
+		// So is the probe cadence: it is read out of topic-probe.tsl.php.
 		\Newspack_Nodes\Topic_Probe_Node::forget_interval();
 	}
 

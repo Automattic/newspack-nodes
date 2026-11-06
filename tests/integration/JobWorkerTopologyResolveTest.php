@@ -9,7 +9,7 @@ class JobWorkerTopologyResolveTest extends TestCase {
 
 	public function test_job_worker_tsl_ships_in_substrate_stock_dir(): void {
 		// The substrate's own topologies/ dir is registered as the builtin
-		// fallback dir at plugin boot; job-worker.tsl must appear in the catalog union.
+		// fallback dir at plugin boot; job-worker.tsl.php must appear in the catalog union.
 		Topology_Registry::register_stock_dir( \dirname( __DIR__, 2 ) . '/topologies' );
 		$this->assertContains( 'job-worker', Topology_Registry::list() );
 	}
@@ -22,7 +22,7 @@ class JobWorkerTopologyResolveTest extends TestCase {
 	}
 
 	public function test_job_worker_tsl_wires_the_jobstats_probe_and_log(): void {
-		// The jobstats sweep is declarative: job-worker.tsl declares the shared
+		// The jobstats sweep is declarative: job-worker.tsl.php declares the shared
 		// jobstats.p0 Partition (1 MiB × 2, min-lifetime 86400, max-lifetime 0), a
 		// 15s Job_Probe, and steers the probe at the log via connect_node.
 		Topology_Registry::register_stock_dir( \dirname( __DIR__, 2 ) . '/topologies' );

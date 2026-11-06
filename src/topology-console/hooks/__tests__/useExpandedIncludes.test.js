@@ -169,7 +169,7 @@ describe( 'useExpandedIncludes', () => {
 	}, 20000 );
 
 	it( 'drops the cache so a saved topology re-expands', async () => {
-		// Editing performance.tsl and saving it CHANGES what `include
+		// Editing performance.tsl.php and saving it CHANGES what `include
 		// performance` expands to. Without invalidation, reopening combined.tsl
 		// would paint the pre-save expansion — stale borrowed nodes, and a save
 		// that writes deltas against a baseline the server no longer agrees with.

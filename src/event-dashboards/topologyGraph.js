@@ -762,7 +762,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		);
 		// @longform Rooted at the TOPOLOGY, not at ''. Overview draws every
 		// row against ONE shared fold set, and seven topologies include
-		// `topic-probe.tsl`, so a key naming only the tree path makes
+		// `topic-probe.tsl.php`, so a key naming only the tree path makes
 		// `topicprobe` one entity across all of them: folding it in one row
 		// folds it in every row.
 		const roots = makeSiblings( rootVertices, new Set(), topology );

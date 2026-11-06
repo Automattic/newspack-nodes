@@ -246,7 +246,7 @@ class LogCleanerTest extends TestCase {
 	}
 
 	public function test_keeps_jobstats_when_a_declaring_topology_is_active(): void {
-		// A topology that declares the jobstats Partition (as job-worker.tsl does)
+		// A topology that declares the jobstats Partition (as job-worker.tsl.php does)
 		// protects jobstats.p0 through the ordinary declared-set path — no whitelist.
 		$this->declare_topology(
 			'jobs-workers',

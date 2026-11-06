@@ -486,7 +486,7 @@ describe( 'TopologyRow', () => {
 		expect( container.querySelector( '.worker-segment-h' ) ).toBeTruthy();
 	} );
 
-	// Overview shares ONE fold set across every row, and `topic-probe.tsl` is
+	// Overview shares ONE fold set across every row, and `topic-probe.tsl.php` is
 	// included by seven topologies, so a key naming only the tree path would
 	// fold the same-named entity in all of them at once.
 	it( 'folding an entity in one topology leaves its namesake in another open', () => {

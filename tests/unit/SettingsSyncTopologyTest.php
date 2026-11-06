@@ -11,7 +11,7 @@ use Newspack_Nodes\Tests\TestCase;
 class SettingsSyncTopologyTest extends TestCase {
 
 	/**
-	 * Parse the shipped settings-sync.tsl's `add_setting <hub> settings <spoke>`
+	 * Parse the shipped settings-sync.tsl.php's `add_setting <hub> settings <spoke>`
 	 * lines into a hub-option => list-of-spoke-options map. One watched option
 	 * can push to several spoke keys (add_setting accumulates a spec list), so
 	 * the map is a list per key, not a single value.

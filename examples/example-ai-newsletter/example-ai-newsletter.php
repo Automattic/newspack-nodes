@@ -6,7 +6,7 @@
  *
  * Bootstrap for the walkthrough plugin that `docs/writing-a-plugin.md` and
  * `docs/writing-a-dashboard.md` build a chapter at a time. It carries wiring and nothing
- * else: the nodes live in `includes/`, the graph in `topologies/example-ai-newsletter.tsl`,
+ * else: the nodes live in `includes/`, the graph in `topologies/example-ai-newsletter.tsl.php`,
  * and the React page in `src/dashboard/`. Four registrations happen here — this plugin's
  * class namespace and topology directory with the substrate, the dashboard's service
  * interpreter into every request graph, the Publisher Insights admin page, and the bundle

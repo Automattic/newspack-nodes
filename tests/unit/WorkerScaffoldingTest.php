@@ -79,7 +79,7 @@ class WorkerScaffoldingTest extends TestCase {
 	public function test_build_scaffolding_does_not_mount_job_probe(): void {
 		// The jobstats probe/log are not auto-mounted here: only the job-worker
 		// topology runs a Job_Worker, so a scaffolding sweep would find nothing everywhere
-		// else. Jobstats is wired declaratively in topologies/job-worker.tsl.
+		// else. Jobstats is wired declaratively in topologies/job-worker.tsl.php.
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 

@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
  * one self-contained window per Table. Each named Table yields one
  * `Tablestats_Record`; a mount yields none.
  *
- * `topologies/table-probe.tsl` declares it beside the `tablestats.p0` log,
+ * `topologies/table-probe.tsl.php` declares it beside the `tablestats.p0` log,
  * and a topology declaring Tables includes that file.
  */
 class Table_Probe_Node extends Probe_Node {

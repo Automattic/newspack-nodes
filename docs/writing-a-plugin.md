@@ -8,15 +8,15 @@ The finished code is in [`examples/example-ai-newsletter/`](../examples/example-
 
 If you haven't run the example yet, do [getting-started.md](getting-started.md) first — the same pipeline, five minutes, no building.
 
-> **Build under a slug of your own while that example is installed.** getting-started.md installs it as the plugin `example-ai-newsletter`, and every command below names that same slug. Your bootstrap and `composer.json` would land on top of the shipped ones in `wp-content/plugins/example-ai-newsletter/`, and §5's topology file would collide too — [`Topology_Registry::resolve()`](../includes/class-topology-registry.php) returns the first `.tsl` it finds across the registered directories and `list()` reports the name once, so one `example-ai-newsletter.tsl` silently shadows the other. Either uninstall it first — [`wp plugin uninstall --deactivate example-ai-newsletter`](https://developer.wordpress.org/cli/commands/plugin/uninstall/), since without that flag WP-CLI warns and skips an active plugin — or read every `example-ai-newsletter` below (the directory, the plugin slug, the `.tsl` filename, the topology name, the worker id) as a stand-in for your own.
+> **Build under a slug of your own while that example is installed.** getting-started.md installs it as the plugin `example-ai-newsletter`, and every command below names that same slug. Your bootstrap and `composer.json` would land on top of the shipped ones in `wp-content/plugins/example-ai-newsletter/`, and §5's topology file would collide too — [`Topology_Registry::resolve()`](../includes/class-topology-registry.php) returns the first `.tsl` it finds across the registered directories and `list()` reports the name once, so one `example-ai-newsletter.tsl.php` silently shadows the other. Either uninstall it first — [`wp plugin uninstall --deactivate example-ai-newsletter`](https://developer.wordpress.org/cli/commands/plugin/uninstall/), since without that flag WP-CLI warns and skips an active plugin — or read every `example-ai-newsletter` below (the directory, the plugin slug, the `.tsl` filename, the topology name, the worker id) as a stand-in for your own.
 
-> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets below use bare names (`Releases_Source_Node`, `Summarizer_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Releases_Source_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — so its shell names never collide with a real plugin's in the one shared catalog. Node *names* differ too, because the shipped topology prefixes each generic name with the stage that owns it: this walkthrough's `tee` and `log` are `digest:tee` and `digest:log` there. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`) and the durable log is `example-scored.p*`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name to its shipped form. The teaching code reads cleaner without the suffix; the example needs it.
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets below use bare names (`Releases_Source_Node`, `Summarizer_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Releases_Source_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — so its shell names never collide with a real plugin's in the one shared catalog. Node *names* differ too, because the shipped topology prefixes each generic name with the stage that owns it: this walkthrough's `tee` and `log` are `digest:tee` and `digest:log` there. Likewise the topology file is `topologies/example-ai-newsletter.tsl.php` (name `example-ai-newsletter`) and the durable log is `example-scored.p*`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name to its shipped form. The teaching code reads cleaner without the suffix; the example needs it.
 
 ---
 
 ## 0. What we're building
 
-![The walkthrough's graph in two halves. Above, the teaching graph: releases and community each wire into summarizer, which feeds digest, and a stock Tee copies digest's draft to the stock log, written as digest.md.0, .1 and on under <config:logs_dir>, and to _repl, the output IPC partition; red arrows mark request_node releases TICK and request_node digest FLUSH, each answered TO = FROM. Below, the shipped topologies/example-ai-newsletter.tsl in its one worker, example-ai-newsletter.p0: a scorer and a durable scored:partition (logs/example-scored.p0) sit between summarizer and digest, and scored:consumer tails it back into the digest, keeping its cursor and the digest's snapshot in offsets/example-scored.p0. Fan-in needs no node; fan-out takes a Tee.](img/wp-topology-graph.png)
+![The walkthrough's graph in two halves. Above, the teaching graph: releases and community each wire into summarizer, which feeds digest, and a stock Tee copies digest's draft to the stock log, written as digest.md.0, .1 and on under <config:logs_dir>, and to _repl, the output IPC partition; red arrows mark request_node releases TICK and request_node digest FLUSH, each answered TO = FROM. Below, the shipped topologies/example-ai-newsletter.tsl.php in its one worker, example-ai-newsletter.p0: a scorer and a durable scored:partition (logs/example-scored.p0) sit between summarizer and digest, and scored:consumer tails it back into the digest, keeping its cursor and the digest's snapshot in offsets/example-scored.p0. Fan-in needs no node; fan-out takes a Tee.](img/wp-topology-graph.png)
 
 Two **sources** emit items. One **summarizer** condenses each item to a line. One **builder** accumulates the lines and, on request, writes a draft. `log` is the substrate's built-in `Log`. Sources emit on a `TICK` request; the digest writes on a `FLUSH` request — both typeable in the REPL with `request_node`, so you can drive the whole thing by hand.
 
@@ -62,7 +62,7 @@ add_action(
 
 		// One call, two registrations: the namespace prefix (so make_node
 		// resolves your *_Node classes) and the topologies/ dir (so every
-		// *.tsl in it is discoverable).
+		// *.tsl.php in it is discoverable).
 		\Newspack_Nodes\Topology_Registry::register_plugin(
 			'Newspack_AI_Newsletter\\',
 			__DIR__ . '/topologies'
@@ -365,7 +365,7 @@ Four nodes, a working pipeline. You wrote three; `Log` you reused.
 
 Typing `make_node`/`connect_node` by hand is how you explore. To run it as a real, persistent worker, write the same lines to a topology file.
 
-`topologies/example-ai-newsletter.tsl` — shown here **simplified for teaching** (it already includes the `community` source from step 6 and the [`Tee`](../includes/class-tee-node.php); if you're following along, leave `community` and its `connect_node` out until step 6):
+`topologies/example-ai-newsletter.tsl.php` — shown here **simplified for teaching** (it already includes the `community` source from step 6 and the [`Tee`](../includes/class-tee-node.php); if you're following along, leave `community` and its `connect_node` out until step 6):
 
 ```
 var num_partitions = 1
@@ -383,7 +383,7 @@ connect_node tee        log
 connect_node tee        _repl
 ```
 
-> **The shipped `.tsl` does more.** This is a teaching reduction; the lower half of §0's diagram draws the real [`topologies/example-ai-newsletter.tsl`](../examples/example-ai-newsletter/topologies/example-ai-newsletter.tsl). It inserts a `Scorer` between the summarizer and a **durable scored `Partition`** (`example-scored.p{partition}`), with a `Consumer` tailing it back into the digest and `add_snapshot_node digest` co-committing the digest's state — the durability [writing-a-dashboard.md](writing-a-dashboard.md#1-give-the-pipeline-something-worth-showing--score-it-and-make-it-durable)'s §1 reads from. Ignore that middle for now.
+> **The shipped topology does more.** This is a teaching reduction; the lower half of §0's diagram draws the real [`topologies/example-ai-newsletter.tsl.php`](../examples/example-ai-newsletter/topologies/example-ai-newsletter.tsl.php). It inserts a `Scorer` between the summarizer and a **durable scored `Partition`** (`example-scored.p{partition}`), with a `Consumer` tailing it back into the digest and `add_snapshot_node digest` co-committing the digest's state — the durability [writing-a-dashboard.md](writing-a-dashboard.md#1-give-the-pipeline-something-worth-showing--score-it-and-make-it-durable)'s §1 reads from. Ignore that middle for now.
 
 A few things this file adds that the by-hand session didn't:
 

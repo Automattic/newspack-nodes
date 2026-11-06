@@ -2098,7 +2098,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_rotation_sees_peer_growth_of_the_segment_it_is_already_writing(): void {
-		// request-builder.tsl points every worker's completed:partition at one
+		// request-builder.tsl.php points every worker's completed:partition at one
 		// hardcoded .p0, so N writers share a segment. Each one decides to
 		// rotate from its OWN current_size, so a peer's bytes are invisible and
 		// the file runs to N x segment_size. Sizes distinct from every default:

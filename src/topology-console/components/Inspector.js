@@ -969,7 +969,7 @@ function LockedForm( {
  *
  * A borrowed node's INCLUDE half is read-only — that configuration belongs to
  * the topology that defines it — while the lines THIS document aims at the
- * node are for this document to edit. Event-logger-nodes' `hub-control.tsl` is
+ * node are for this document to edit. Event-logger-nodes' `hub-control.tsl.php` is
  * exactly that shape: `include settings-sync`, then `add_setting` lines aimed
  * at the included node. `handleUpdateVerbs` drops the seeded half before it
  * writes, so an edit here can only change the file's own declarations.

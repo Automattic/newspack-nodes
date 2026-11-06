@@ -40,7 +40,7 @@ namespace Newspack_Nodes;
 class Topic_Probe_Node extends Probe_Node {
 
 	/**
-	 * Basename of the shared probe-log directory. `topic-probe.tsl` declares the
+	 * Basename of the shared probe-log directory. `topic-probe.tsl.php` declares the
 	 * writer's full path; every reader composes it under its own base directory.
 	 */
 	public const LOG_DIR = 'topicprobe.p0';
@@ -66,7 +66,7 @@ class Topic_Probe_Node extends Probe_Node {
 	 * two missed cadences mean the process is gone.
 	 *
 	 * Measured in SWEEPS against the declared cadence, not a fixed number of
-	 * seconds: `topic-probe.tsl` carries `interval_s` as arg 0, and a deployment
+	 * seconds: `topic-probe.tsl.php` carries `interval_s` as arg 0, and a deployment
 	 * that retunes it would otherwise have every healthy reader read as departed,
 	 * recomputing lag off disk on every dashboard poll and reporting a zero rate
 	 * for workers that are running fine.
@@ -76,7 +76,7 @@ class Topic_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * Read the cadence `topic-probe.tsl` declares, or `DEFAULT_INTERVAL_S` when
+	 * Read the cadence `topic-probe.tsl.php` declares, or `DEFAULT_INTERVAL_S` when
 	 * the topology is not registered or does not name a `Topic_Probe`. Memoized
 	 * for the request — a status poll asks once per reader row — off a graph
 	 * the analyzer already caches; `forget_interval()` drops the memo when the

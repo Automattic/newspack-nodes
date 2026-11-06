@@ -598,7 +598,7 @@ class DeadLetterQueueTest extends TestCase {
 	 * Requeue delivers to the SINK, so the PIPE_BUF cap never applies. Writing
 	 * back into the source made the cap a property of the requeuing node's own
 	 * handle: a Consumer tailing a log whose writer lifted the cap elsewhere
-	 * (`requests:partition` carries `void_warranty` in request-builder.tsl)
+	 * (`requests:partition` carries `void_warranty` in request-builder.tsl.php)
 	 * reported 4096 and refused. Lifting it there would have been worse — a
 	 * second writer appending > PIPE_BUF beside a lockless sole-writer tears.
 	 */

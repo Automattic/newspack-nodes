@@ -290,7 +290,7 @@ class TopologyLoaderTest extends TestCase {
 	/**
 	 * `<topology>` names the FLEET. An offsetlog is a reader's cursor, and the
 	 * reader is the fleet — two processes tailing one log need two cursors. The
-	 * token lets request-builder.tsl and job-router.tsl declare BYTE-IDENTICAL
+	 * token lets request-builder.tsl.php and job-router.tsl.php declare BYTE-IDENTICAL
 	 * Consumer lines (so `combined` dedupes them into one reader) while each
 	 * standalone fleet still gets its own offsetlog.
 	 */

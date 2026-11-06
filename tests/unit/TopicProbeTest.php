@@ -36,7 +36,7 @@ class TopicProbeTest extends TestCase {
 
 	/**
 	 * A record is stale after two SWEEPS, and the sweep cadence is whatever
-	 * `topic-probe.tsl` declares — not the class default. A deployment that
+	 * `topic-probe.tsl.php` declares — not the class default. A deployment that
 	 * retunes the probe would otherwise have every healthy reader read as
 	 * departed, recomputing off disk on every poll and reporting a zero rate.
 	 */

@@ -540,7 +540,7 @@ class Lock_Node extends Node {
 	 * Every reader of that mtime comes through here — the respawn decision,
 	 * `wp nodes status`, the dashboards — because a threshold each picks for
 	 * itself drifts from the rest. A worker mid-job declares a long one
-	 * (`job-worker.tsl` sets 600, because a handler beats only where it reaches
+	 * (`job-worker.tsl.php` sets 600, because a handler beats only where it reaches
 	 * `should_continue()`), and a reader holding a flat 60 reports it down while
 	 * the peer scan correctly leaves it alone.
 	 *

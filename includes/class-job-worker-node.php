@@ -4,7 +4,7 @@
  *
  * Dispatches normalized job entries to handlers an application registers through
  * WordPress filters. The entries come off jobs.log, written either by
- * `topologies/job-intake.tsl`, which copies `Job_Intake`'s ingress across on a
+ * `topologies/job-intake.tsl.php`, which copies `Job_Intake`'s ingress across on a
  * substrate-only install, or by an application's `Job_Router_Node`. The
  * substrate owns the dispatch, the retry, the batch fan-in and the stats; the
  * application owns the handlers and the request context each one runs in.

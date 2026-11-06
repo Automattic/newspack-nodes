@@ -26,7 +26,7 @@ namespace Newspack_Nodes;
  * Partitioned writer for the three job-ingress logs.
  *
  * @api Job ingress. Consumed by sibling plugins (event-logger-nodes,
- *      nuclear-gyrobase, pyrobase) and the stock `job-intake.tsl` topology.
+ *      nuclear-gyrobase, pyrobase) and the stock `job-intake.tsl.php` topology.
  */
 class Job_Intake {
 

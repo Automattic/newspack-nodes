@@ -1,6 +1,6 @@
 <?php
 /**
- * Test for the stock `job-intake.tsl` topology.
+ * Test for the stock `job-intake.tsl.php` topology.
  *
  * Pins its load-bearing invariant: a job written through `Job_Intake::queue()`
  * into jobintake.log is drained by the `job-intake` topology's Consumer into
@@ -30,7 +30,7 @@ class JobIntakeTopologyCutoverTest extends TestCase {
 		$GLOBALS['_wp_actions'] = [];
 		$this->tmp              = $this->make_temp_dir( 'newspack-jobintake-cutover-' );
 		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1 ] );
-		// The stock job-intake.tsl ships in the substrate's topologies/ dir; make
+		// The stock job-intake.tsl.php ships in the substrate's topologies/ dir; make
 		// it resolvable regardless of what an earlier test did to the registry.
 		Topology_Registry::register_stock_dir( \dirname( __DIR__, 2 ) . '/topologies' );
 	}

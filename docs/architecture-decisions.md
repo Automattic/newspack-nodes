@@ -333,7 +333,7 @@ reaches the browser transcript instead of dying at `_router` as *message not add
 where the relay that owns the egress would send the spoke's own output straight back out.
 `Remote_Broker_Node` builds one as `<name>:null`, re-points `HTTP_Out` at it on every rename,
 and lists its own name so its heartbeat replies reach it. The per-spoke `HTTP_Out` an operator
-wires for [`topologies/settings-sync.tsl`](../topologies/settings-sync.tsl) takes both lines by hand: `connect_node <egress> null`
+wires for [`topologies/settings-sync.tsl.php`](../topologies/settings-sync.tsl.php) takes both lines by hand: `connect_node <egress> null`
 and `cmd <egress>:config allow_replies_to settings-sync`.
 
 The browser's [`HttpOut`](../src/runtime/http-out-node.js) keeps Tachikoma's type-bit test, counting a directed `TM_ERROR`

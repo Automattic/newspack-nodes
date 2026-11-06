@@ -78,11 +78,11 @@ separate repository.
 Topology owners hook `newspack_nodes/spawn_worker` to build the right worker for `$type` and call
 `->execute()`. The substrate registers [`Topology_Registry::spawn_worker`](../includes/class-topology-registry.php) on it
 at load, which spawns any worker in the active set, and the runtime ships five
-topologies under [`topologies/`](../topologies/) — [`job-worker`](../topologies/job-worker.tsl) (the generic `Job_Worker_Node`
-pool, per-partition), [`job-intake`](../topologies/job-intake.tsl) (drains the large-write job ingress on
-substrate-only installs), [`settings-sync`](../topologies/settings-sync.tsl) (a single-instance hub control plane,
-`num_partitions = 1`), [`topic-probe`](../topologies/topic-probe.tsl) (the per-worker consumer-stats sweep, `include`d
-by the others) and [`table-probe`](../topologies/table-probe.tsl) (the per-worker Table-stats sweep, `include`d by a
+topologies under [`topologies/`](../topologies/) — [`job-worker`](../topologies/job-worker.tsl.php) (the generic `Job_Worker_Node`
+pool, per-partition), [`job-intake`](../topologies/job-intake.tsl.php) (drains the large-write job ingress on
+substrate-only installs), [`settings-sync`](../topologies/settings-sync.tsl.php) (a single-instance hub control plane,
+`num_partitions = 1`), [`topic-probe`](../topologies/topic-probe.tsl.php) (the per-worker consumer-stats sweep, `include`d
+by the others) and [`table-probe`](../topologies/table-probe.tsl.php) (the per-worker Table-stats sweep, `include`d by a
 topology that declares Tables). Application plugins register the rest. **Every active topology,
 builtin or application, spawns through this one hook** — there is no separate
 control-plane spawn path.

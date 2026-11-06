@@ -253,7 +253,7 @@ class TopologyRegistryExpandTest extends TestCase {
 	/**
 	 * The interpreter aliases `make` to `make_node` and honors `disconnect_node`
 	 * (one-arg = clear the sink). A static expander that ignores either one paints
-	 * a graph the runtime never builds — ELN's own performance.tsl uses BOTH.
+	 * a graph the runtime never builds — ELN's own performance.tsl.php uses BOTH.
 	 */
 	public function test_expand_honors_the_make_alias_and_disconnect_node(): void {
 		$this->write_tsl(
