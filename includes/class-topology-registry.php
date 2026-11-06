@@ -32,11 +32,16 @@ namespace Newspack_Nodes;
 class Topology_Registry {
 
 	/**
-	 * What a stock `.tsl` adds to its name so a web server runs its first line,
-	 * `# <?php \defined( 'ABSPATH' ) || exit; ?>`, a comment to TSL, rather than
-	 * serving the file as text.
+	 * First line of a `.tsl.php`: a comment to TSL, and to a web server the
+	 * PHP that exits rather than serving the file as text.
 	 */
-	public const GUARD_SUFFIX = '.php';
+	public const GUARD_LINE = "# <?php \\defined( 'ABSPATH' ) || exit; ?>";
+
+	/**
+	 * What a `.tsl` a web server can reach adds to its name, so that server
+	 * runs `GUARD_LINE`.
+	 */
+	private const GUARD_SUFFIX = '.php';
 
 	/**
 	 * Worker-spawn seam. Defaulted lazily at the call site to a closure that
@@ -196,8 +201,8 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Absolute path to `<name>.tsl`, or null when the registered dirs do not
-	 * hold one.
+	 * Absolute path to `<name>.tsl` or `<name>.tsl.php`, through
+	 * `resolve_file()`, or null when the registered dirs hold neither.
 	 *
 	 * @param string $name Topology name, without the `.tsl` extension.
 	 */
@@ -211,7 +216,9 @@ class Topology_Registry {
 	 * dir — or null when none does, or when the name carries a separator or
 	 * `..` and so could reach outside the dir. A deployment
 	 * shadows any file a plugin ships beside its topologies by registering a
-	 * dir holding the same name.
+	 * dir holding the same name. Within a dir the bare name wins, as it does
+	 * in `scan_dir()`, because a console save writes the bare name; the
+	 * guarded name answers when the bare one is absent.
 	 *
 	 * `is_file`, not `file_exists`: a directory of that name is not the file,
 	 * and resolving one would hand the reader a path it cannot read. An
@@ -445,7 +452,9 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Every `.tsl` in one dir as `name => path`; empty when it is not a dir.
+	 * Every `.tsl` and `.tsl.php` in one dir as `name => path`, the bare file
+	 * winning; empty when it is not a dir. `glob()` sorts, so a bare file
+	 * lands first and its guarded twin finds the name taken.
 	 *
 	 * @param string $dir Absolute directory path, or '' for none.
 	 * @return array<string,string>
@@ -455,9 +464,10 @@ class Topology_Registry {
 			return [];
 		}
 		$found = [];
-		foreach ( [ ...( \glob( $dir . '/*.tsl' ) ?: [] ), ...( \glob( $dir . '/*.tsl' . self::GUARD_SUFFIX ) ?: [] ) ] as $path ) {
-			if ( \is_file( $path ) ) {
-				$found[ \basename( \basename( $path, self::GUARD_SUFFIX ), '.tsl' ) ] = $path;
+		foreach ( \glob( $dir . '/*.tsl*' ) ?: [] as $path ) {
+			$stem = \basename( $path, self::GUARD_SUFFIX );
+			if ( \str_ends_with( $stem, '.tsl' ) && \is_file( $path ) ) {
+				$found[ \basename( $stem, '.tsl' ) ] ??= $path;
 			}
 		}
 		return $found;

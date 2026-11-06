@@ -26,23 +26,24 @@ const TSL_DIRS = [
 	'tests/fixtures',
 ];
 
-const namesIn = ( dir, ext ) =>
-	fs
-		.readdirSync( path.join( ROOT, dir ) )
-		.filter( ( file ) => file.endsWith( ext ) )
-		.map( ( file ) => path.basename( file, ext ) );
-
-// Fixture name → the .tsl the PHP harness drove through parse_statements().
+// Fixture name → the .tsl or .tsl.php parse_statements() was driven through.
 const TSL_SOURCES = Object.fromEntries(
 	TSL_DIRS.flatMap( ( dir ) =>
-		namesIn( dir, '.tsl' ).map( ( name ) => [
-			name,
-			path.join( dir, `${ name }.tsl` ),
-		] )
+		fs
+			.readdirSync( path.join( ROOT, dir ) )
+			.filter( ( file ) => /\.tsl(\.php)?$/.test( file ) )
+			.map( ( file ) => [
+				file.replace( /\.tsl(\.php)?$/, '' ),
+				path.join( dir, file ),
+			] )
 	)
 );
 
-const GOLDEN_NAMES = namesIn( 'tests/fixtures/statements', '.json' ).sort();
+const GOLDEN_NAMES = fs
+	.readdirSync( path.join( ROOT, 'tests/fixtures/statements' ) )
+	.filter( ( file ) => file.endsWith( '.json' ) )
+	.map( ( file ) => path.basename( file, '.json' ) )
+	.sort();
 
 // The pin is on what both front ends PARSE. A line NUMBER is diagnostic only,
 // and pinning it would make every comment edit in a shipped .tsl a fixture

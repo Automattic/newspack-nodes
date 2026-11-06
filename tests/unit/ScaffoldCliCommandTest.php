@@ -10,6 +10,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Scaffold_CLI_Command;
+use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/cli/class-scaffold-cli-command.php';
@@ -157,9 +158,11 @@ class ScaffoldCliCommandTest extends TestCase {
 	public function test_topology_scaffold_writes_a_working_stock_graph(): void {
 		$this->scaffold( 'topology', 'nightly-sync' );
 
-		$file = "{$this->tmp}/nightly-sync.tsl";
+		$file = "{$this->tmp}/nightly-sync.tsl.php";
 		$this->assertFileExists( $file );
+		$this->assertFileDoesNotExist( "{$this->tmp}/nightly-sync.tsl" );
 		$tsl = (string) \file_get_contents( $file );
+		$this->assertStringStartsWith( Topology_Registry::GUARD_LINE . "\n", $tsl );
 		$this->assertStringContainsString( 'var num_partitions = 1', $tsl );
 		$this->assertStringContainsString( 'make_node', $tsl );
 		$this->assertStringContainsString( 'connect_node', $tsl );

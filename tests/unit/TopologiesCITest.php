@@ -461,6 +461,24 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
+	/**
+	 * A save writes `<name>.tsl`, so a `<name>.tsl.php` already in the user dir
+	 * must not win, or the save silently does nothing.
+	 */
+	public function test_a_saved_topology_wins_over_a_guarded_file_in_the_user_dir(): void {
+		\file_put_contents( "{$this->user}/ferry.tsl.php", Topology_Registry::GUARD_LINE . "\nmake_node Echo stale\n" );
+
+		VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'ferry', "make_node Echo saved\n" ]
+		);
+
+		$this->assertSame( "{$this->user}/ferry.tsl", Topology_Registry::resolve( 'ferry' ) );
+		$this->assertStringContainsString( 'make_node Echo saved', (string) \file_get_contents( (string) Topology_Registry::resolve( 'ferry' ) ) );
+	}
+
 	public function test_save_then_get_round_trips(): void {
 		VerbHarness::fire(
 			new Topologies_CI_Node(),

@@ -1888,8 +1888,8 @@ dir holding the same name.
 
 | Method | What it does |
 |---|---|
-| `resolve( string $name ): ?string` | The path of `<name>.tsl`, through `resolve_file()`. |
-| `resolve_file( string $filename ): ?string` | The path of the first file of that exact name in those dirs, or null when none holds one. A directory of that name is skipped; an unreadable file still answers, so its reader fails loud. A name carrying `/`, `\` or `..` answers null, since it could reach outside the dir. |
+| `resolve( string $name ): ?string` | The path of `<name>.tsl` or `<name>.tsl.php`, through `resolve_file()`. |
+| `resolve_file( string $filename ): ?string` | The path of the first file of that name, or of that name plus `.php`, in those dirs, or null when none holds either. Within a dir the exact name wins. A directory of that name is skipped; an unreadable file still answers, so its reader fails loud. A name carrying `/`, `\` or `..` answers null, since it could reach outside the dir. |
 
 ## Extensibility hooks
 

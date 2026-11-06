@@ -105,6 +105,31 @@ class TopologyRegistryTest extends TestCase {
 	}
 
 	/**
+	 * One dir holding both spellings of a name answers with the bare file, in
+	 * the lookup and the catalog alike, because a console save writes bare.
+	 */
+	public function test_a_bare_file_wins_over_its_guarded_twin_in_resolve_and_list(): void {
+		$dir = \sys_get_temp_dir() . '/nodes-guard-twin-' . \uniqid();
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/lantern.tsl", "make_node Echo bare\n" );
+		\file_put_contents( "{$dir}/lantern.tsl.php", Topology_Registry::GUARD_LINE . "\nmake_node Echo guarded\n" );
+		\file_put_contents( "{$dir}/lantern.tsl.bak", "make_node Echo backup\n" );
+		\file_put_contents( "{$dir}/quay.php", "<?php\n" );
+		Topology_Registry::register_stock_dir( $dir );
+
+		try {
+			$this->assertSame( "{$dir}/lantern.tsl", Topology_Registry::resolve( 'lantern' ) );
+			$paths = ( new \ReflectionMethod( Topology_Registry::class, 'scan_dir' ) )->invoke( null, $dir );
+			$this->assertSame( [ 'lantern' => "{$dir}/lantern.tsl" ], $paths );
+		} finally {
+			foreach ( \glob( "{$dir}/*" ) ?: [] as $file ) {
+				\unlink( $file );
+			}
+			\rmdir( $dir );
+		}
+	}
+
+	/**
 	 * A stock topology ships as `<name>.tsl.php`, so a web server runs its
 	 * guard rather than serving its text, and it resolves by its bare name.
 	 */

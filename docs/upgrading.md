@@ -2974,7 +2974,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   into `includes/` and `topologies/`. `scaffold plugin` still creates the full
   tree; cd to where you want the file, or move it after. 2.9.0 above returns
   `scaffold node` to `includes/`, so the rule holds for `scaffold topology`
-  alone, which drops a bare `<name>.tsl` wherever you stand.
+  alone, which drops a loose `<name>.tsl.php` wherever you stand.
 - **The `runtime_stats` verb is removed.** It bundled `list_timers`,
   `list_handles` and the Router profile table into one struct for the devtools
   views, and its profile third had silently fallen behind the text verb's

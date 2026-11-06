@@ -50,6 +50,40 @@ class TopologyDurabilityTest extends TestCase {
 		$this->rmdir_recursive( $dir );
 	}
 
+	/**
+	 * A stock topology ships guarded, so the audit reads that spelling too.
+	 */
+	public function test_a_guarded_file_is_audited(): void {
+		$dir = $this->make_temp_dir();
+		\file_put_contents(
+			"{$dir}/bad.tsl.php",
+			"# <?php \\defined( 'ABSPATH' ) || exit; ?>\n"
+			. "make_node Consumer feed:consumer /logs/feed.p0 /offsets/feed.p0\n"
+		);
+
+		$violations = TopologyDurability::audit( $dir );
+
+		$this->assertCount( 1, $violations );
+		$this->assertStringContainsString( 'bad.tsl.php:2', $violations[0] );
+		$this->rmdir_recursive( $dir );
+	}
+
+	/**
+	 * An audit of nothing would pass, so a dir holding no topology refuses.
+	 */
+	public function test_a_dir_with_no_topology_refuses_the_audit(): void {
+		$dir = $this->make_temp_dir();
+
+		try {
+			TopologyDurability::audit( $dir );
+			$this->fail( 'an empty dir must refuse the audit' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( $dir, $e->getMessage() );
+		} finally {
+			$this->rmdir_recursive( $dir );
+		}
+	}
+
 	public function test_a_reader_missing_both_dirs_is_reported_twice(): void {
 		$dir = $this->make_temp_dir();
 		\file_put_contents( "{$dir}/bare.tsl", "make_node Consumer feed:consumer /logs/feed.p0\n" );

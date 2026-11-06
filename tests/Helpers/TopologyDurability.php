@@ -23,12 +23,19 @@ class TopologyDurability {
 	public const REQUIRED_ARGS = [ 'offsetlog_dir', 'deadletter_dir' ];
 
 	/**
-	 * @param string $dir Directory of `.tsl` files.
+	 * @param string $dir Directory of `.tsl` and `.tsl.php` files.
 	 * @return string[] One message per reader missing a durability arg; empty = clean.
+	 * @throws \RuntimeException When the dir holds neither, since an audit of nothing passes.
 	 */
 	public static function audit( string $dir ): array {
+		$dir   = \rtrim( $dir, '/' );
+		$files = [ ...( \glob( "{$dir}/*.tsl" ) ?: [] ), ...( \glob( "{$dir}/*.tsl.php" ) ?: [] ) ];
+		if ( [] === $files ) {
+			throw new \RuntimeException( "No topology to audit in {$dir}" );
+		}
+
 		$violations = [];
-		foreach ( \glob( \rtrim( $dir, '/' ) . '/*.tsl' ) ?: [] as $file ) {
+		foreach ( $files as $file ) {
 			$lines = \file( $file, \FILE_IGNORE_NEW_LINES ) ?: [];
 			foreach ( $lines as $i => $line ) {
 				$found = self::audit_line( \trim( $line ) );

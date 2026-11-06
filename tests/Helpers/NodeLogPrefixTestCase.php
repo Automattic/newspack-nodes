@@ -24,7 +24,7 @@ abstract class NodeLogPrefixTestCase extends TestCase {
 	/** Node log helpers that route through `Node::log_midfix()`. */
 	private const MIDFIX_METHODS = [ 'print_less_often', 'print_least_often', 'stderr' ];
 
-	/** Directory of `*.tsl` files whose make_node lines name this plugin's nodes. */
+	/** Directory of `.tsl` and `.tsl.php` files whose make_node lines name this plugin's nodes. */
 	abstract protected function topology_dir(): string;
 
 	public function test_no_node_hard_codes_its_own_name_in_a_log_line(): void {
@@ -53,8 +53,11 @@ abstract class NodeLogPrefixTestCase extends TestCase {
 	private function nodes_by_source_file(): array {
 		$dir = $this->topology_dir();
 		$this->assertDirectoryExists( $dir, 'the topology dir the scan reads' );
+		$files = [ ...( \glob( "{$dir}/*.tsl" ) ?: [] ), ...( \glob( "{$dir}/*.tsl.php" ) ?: [] ) ];
+		$this->assertNotEmpty( $files, "no topology to scan in {$dir}" );
+
 		$by_file = [];
-		foreach ( (array) \glob( $dir . '/*.tsl' ) as $tsl ) {
+		foreach ( $files as $tsl ) {
 			$source = (string) \file_get_contents( (string) $tsl );
 			\preg_match_all( '/^\s*make_node\s+(\S+)\s+(\S+)/m', $source, $matches, \PREG_SET_ORDER );
 			foreach ( $matches as [ , $type, $name ] ) {

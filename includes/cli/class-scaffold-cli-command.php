@@ -95,7 +95,7 @@ class Scaffold_CLI_Command {
 	 */
 	private function scaffold_topology( string $name ): array {
 		self::require_slug( $name );
-		$path = "{$name}.tsl";
+		$path = "{$name}.tsl.php";
 
 		self::refuse_existing( [ $path ] );
 		self::write_file( $path, $this->stock_topology_template( $name ) );
@@ -109,7 +109,9 @@ class Scaffold_CLI_Command {
 	 * @param string $name Topology name, used as the Echo instance's name too.
 	 */
 	private function stock_topology_template( string $name ): string {
+		$guard = Topology_Registry::GUARD_LINE;
 		return <<<TSL
+{$guard}
 # {$name} — scaffolded starter graph (stock nodes only): echo → log.
 # Replace Echo with your own node once `composer dump-autoload -o` knows it.
 var num_partitions = 1
@@ -254,8 +256,9 @@ MD;
 	 * @param string $prefix Node type as `make_node` resolves it.
 	 */
 	private function plugin_topology_template( string $slug, string $prefix ): string {
+		$guard = Topology_Registry::GUARD_LINE;
 		return <<<TSL
-# <?php \defined( 'ABSPATH' ) || exit; ?>
+{$guard}
 # {$slug} — scaffolded starter graph: {$slug} → log.
 # Drive it by hand: wp nodes cli {$slug}.p0
 var num_partitions = 1
