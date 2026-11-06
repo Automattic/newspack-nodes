@@ -764,21 +764,33 @@ const KEEP_CONTRAST = [
 ];
 
 /**
- * A possessive beside another in its clause borrows that one's noun. A copula
- * ahead of it stays a hit, because "the window is the boot's" has no parallel:
- * its subject is the noun it stands in for.
+ * A possessive beside another in its clause borrows that one's noun, whether
+ * the other is singular or a plural's `clauses'`. A copula ahead of it stays a
+ * hit, because "the window is the boot's" has no parallel: its subject is the
+ * noun it stands in for. So does a quoted word ending in a closing quote.
+ *
+ * The first of three or more possessives takes the noun after the last, as in
+ * "a source's, the extractor's or collection's row". Two stay out of that
+ * carve-out: "the request's and the worker's count" may be two clauses.
  */
 const COPULA = '(?:is|are|was|were)';
+const LIST_ITEM = "(?:(?:a|an|the|each|every|one|this) )?[\\w§-]+'s";
 const KEEP_PARALLEL = [
 	{
 		match: new RegExp( `^(?!${ COPULA }\\b)`, 'i' ),
 		before: new RegExp(
-			`(?:(?<!\\b(?:it|that|what|there|here|who|let))'s|\\b(?:its|their|our|your|his|her|whose))\\b[^.;:!?]{0,80}(?<!\\b${ COPULA } (?:still |also )?)$`,
+			`(?:(?<!\\b(?:it|that|what|there|here|who|let))'s\\b|\\b(?:its|their|our|your|his|her|whose)\\b|\\b(?<!')[a-z-]+s'(?= [\\w§]))[^.;:!?]{0,80}(?<!\\b${ COPULA } (?:still |also )?)$`,
 			'i'
 		),
 	},
 	{
 		after: /^(?:,? (?:and|or|nor|not|never|but|else|then|rather than|than)(?: [\w§-]+){1,3}|, (?:a|an|the|each|every|one|this) [\w§-]+)'s(?=[.,;:)]|$)/i,
+	},
+	{
+		after: new RegExp(
+			`^(?:, ${ LIST_ITEM })+,? (?:and|or|nor) ${ LIST_ITEM } [\\w§]`,
+			'i'
+		),
 	},
 ];
 

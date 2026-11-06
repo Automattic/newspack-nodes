@@ -3,9 +3,9 @@
 # Tests for scripts/coverage-gate-js.mjs — the per-file JS coverage gate the
 # pre-push hook runs. Feeds fixture summaries via a temp file; no jest needed.
 #
-# A gate nothing tests is a gate that can stop gating without anyone noticing,
-# which is the failure mode most of these cases are about: every assertion below
-# that expects exit 2 exists because the alternative is a silent pass.
+# An untested gate can stop gating without anyone noticing, which is the failure
+# mode most of these cases are about: every assertion below that expects exit 2
+# exists because the alternative is a silent pass.
 
 # shellcheck disable=SC2015 # pass()/bad() both return 0, so every `cond && pass || bad` below is a safe two-way branch, not if-then-else.
 set -u

@@ -461,7 +461,12 @@ prose_flags possessive-noun \
 	'The window is the boot'"'"'s, so the node'"'"'s name holds.' \
 	'The boot'"'"'s window ends. The node reads a crash'"'"'s.' \
 	'That'"'"'s the boot'"'"'s, and it stops.' \
-	'It'"'"'s a crash'"'"'s.'
+	'It'"'"'s a crash'"'"'s.' \
+	'The clauses'"'"' binds end. The node reads the condition'"'"'s.' \
+	'The clauses'"'"' binds are the condition'"'"'s.' \
+	'Read the '"'"'clauses'"'"' and the condition'"'"'s.' \
+	'Read a source'"'"'s, the extractor'"'"'s or collection'"'"'s.' \
+	'Read a source'"'"'s, which the extractor'"'"'s or collection'"'"'s row holds.'
 prose_clean \
 	'The node'"'"'s name is set.' \
 	'That'"'"'s all, and it'"'"'s done.' \
@@ -477,7 +482,13 @@ prose_clean \
 	'The name is the hub'"'"'s, not the spoke'"'"'s.' \
 	'Each set keeps its own TTL, or the Table'"'"'s.' \
 	'The start'"'"'s message outranks the complete'"'"'s.' \
-	'Empties are `foo`'"'"'s job, not the shell'"'"'s.'
+	'Empties are `foo`'"'"'s job, not the shell'"'"'s.' \
+	'The `WITH` clauses, the condition, the clauses'"'"' binds and the condition'"'"'s.' \
+	'The workers'"'"' logs and the fleet'"'"'s.' \
+	'The fields of a source'"'"'s, the extractor'"'"'s or collection'"'"'s row.' \
+	'A source'"'"'s, the extractor'"'"'s or collection'"'"'s row.' \
+	'On a Partition'"'"'s, a Log'"'"'s or a Delay'"'"'s `:config`, it writes.' \
+	'A source'"'"'s, a Log'"'"'s, a Delay'"'"'s, or the fleet'"'"'s row.'
 
 prose_flags dropped-noun \
 	'A header the check passes is one the rewrite takes.' \
