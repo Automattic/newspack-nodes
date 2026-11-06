@@ -97,8 +97,10 @@ class CLI_Command {
 
 	/**
 	 * Drive the REPL from the drain loop until stdin closes and the reader flips
-	 * its exit flag, reading through readline when stdin is a terminal and the
-	 * extension is loaded, and through `fgets` otherwise.
+	 * its exit flag, or stdout fails and the writer flips its own, reading through
+	 * readline when stdin is a terminal and the extension is loaded, and through
+	 * `fgets` otherwise. A reader closing its pipe ends the session with status 0;
+	 * any other failed write fails it.
 	 *
 	 * The reader is a timer-driven node rather than a blocking `while ( fgets() )`
 	 * loop, so the one drain that services the graph's timers, the IPC Consumer
@@ -135,14 +137,17 @@ class CLI_Command {
 
 		// Recurring, not oneshot: a oneshot strands the reader off the loop.
 		$reader->set_timer( 0 );
-		Event_Framework::instance()->drain( static fn () => ! $reader->exit );
+		Event_Framework::instance()->drain( static fn () => ! $reader->exit && ! $stdout->exit );
 
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
 		}
 		// A trailing newline on a TTY only; it would corrupt a piped stream.
-		if ( $is_tty ) {
+		if ( $is_tty && ! $stdout->exit ) {
 			\WP_CLI::log( '' );
+		}
+		if ( '' !== $stdout->write_error ) {
+			\WP_CLI::error( 'stdout: ' . $stdout->write_error );
 		}
 	}
 

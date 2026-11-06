@@ -9,13 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Coverage runs under PCOV.** `tests/run-coverage.sh` sources `scripts/lib/coverage-php.sh`, the one place a plugin chooses its coverage driver. It turns PCOV on for that process with `XDEBUG_MODE=off`, scoped to the plugin, and stops the run naming `php8.4-pcov` where the module is missing. `scripts/test-coverage-php.sh` tests it, and `pre-push` runs that with the other self-tests. No runtime change.
 - **`scripts/lint-english.mjs` holds comments, Markdown and HTML to the house prose rules.** It finds folded negatives, possessives standing in for a noun, dead qualifiers and Markdown arrow chains. There is no opt-out comment: a false positive is carved out of the gate itself. It is shared to every plugin and not wired into a hook yet.
 
 ### Changed
 
+- **The ABSPATH guard sniff requires `\defined( 'ABSPATH' ) || exit;`.** An unqualified guard is reported as `Unqualified`, and phpcbf adds the backslash. Inside a namespace `defined()` compiles to a function call, which PCOV reports as a line and reads as a miss in a class file a suite loads during bootstrap; qualified, it compiles to the `DEFINED` opcode, which PCOV reports no line for.
 - `SSE_Out_Node::init_sse_headers()` no longer sets the `implicit_flush` ini key, which PHP reads only at request startup. `write_wire()` and `flush_if_needed()` call `flush()` themselves, so the stream is unchanged.
 - **Stock topologies ship as `<name>.tsl.php`.** A plain `.tsl` in a plugin folder is served as text over HTTP. Each stock file now opens `# <?php \defined( 'ABSPATH' ) || exit; ?>`, a comment to the TSL parser and an exit to PHP, so a direct request gets two characters. `Topology_Registry::resolve_file()` and `list()` find both names, so topologies keep their bare names everywhere else, and a topology saved to the user directory stays a plain `.tsl`. `wp nodes scaffold plugin` writes the guarded form. Plugins shipping stock topologies raise their substrate floor to this release.
 - Within one dir a bare `<name>.tsl` wins over a guarded `<name>.tsl.php`, in the lookup and the catalog alike, so a console save always takes effect. `wp nodes scaffold topology` writes `<name>.tsl.php` with the guard line. Topologies saved to the runtime dir stay bare `.tsl`.
+
+### Fixed
+
+- **A failed stdout write ends the command.** `Stdout_Node` writes to a failed stream once, silently, and then flips a public `$exit` that the owner of the loop polls, as it polls `Stdin_Node::$exit`. `wp nodes cli < script | head` stops when `head` exits and leaves the rest of the script unread, where it ran on and logged a `Broken pipe` notice per line. A pipe or socket reader closing its end exits 0, because a reader that has read enough is not an error. Any other failed write, such as a full disk, sets `Stdout_Node::$write_error`, and the command exits 1 naming it.
 
 ## [2.147.1] - 2026-11-05
 

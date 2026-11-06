@@ -23,6 +23,14 @@
  * both terminal writers: `TTY_Out_Node` extends it with readline and ANSI
  * redraw and inherits the coercion and the write loop unchanged.
  *
+ * A write that fails ends the writer for good. PHP ignores SIGPIPE, so nothing
+ * stops a process whose reader has gone: `| head` exits, and every later
+ * `fwrite` fails with its own E_NOTICE. The first failure flips `$exit`, every
+ * later write returns at once, and the owner of the loop polls `$exit`, as it
+ * polls `Stdin_Node::$exit`. `fill()` still returns nothing, so a producer learns
+ * nothing about the write (ADR-13), and no exception crosses a graph that
+ * `Command_Interpreter_Node` would catch it in.
+ *
  * @package Newspack_Nodes
  */
 
@@ -41,6 +49,28 @@ class Stdout_Node extends Node {
 	 * is retried. The wait is a ceiling: writability ends it early.
 	 */
 	private const WRITE_WAIT_US = 100000;
+
+	/** The file-type bits of `fstat()`'s mode. */
+	private const S_IFMT = 0170000;
+
+	/** File type of a pipe or a FIFO. */
+	private const S_IFIFO = 0010000;
+
+	/** File type of a socket. */
+	private const S_IFSOCK = 0140000;
+
+	/**
+	 * Drain-until flag the owner polls. True from the first failed write on,
+	 * when the stream takes no more bytes and the command should end.
+	 */
+	public bool $exit = false;
+
+	/**
+	 * Why the write failed, for a stream with no reader to lose. Empty while
+	 * writes land, and after a pipe or socket reader closes its end, which is
+	 * how a reader says it has read enough. The owner fails the command on it.
+	 */
+	public string $write_error = '';
 
 	/**
 	 * The stream every write lands on, owned for the node's lifetime. Private
@@ -144,6 +174,13 @@ class Stdout_Node extends Node {
 	 * `Event_Framework` installs signal handlers, so a false there means
 	 * retry, and the descriptor going bad surfaces on the next `fwrite`.
 	 *
+	 * `fwrite` answers a stream's EAGAIN with 0 and any other failure with
+	 * false, so false is final here: every handler the tree installs restarts
+	 * an interrupted write. Its `@` silences that one E_NOTICE and nothing
+	 * else: a closed handle still throws, and `stop_writing()` keeps the failure
+	 * as state, so what the notice said reaches the owner rather than the log,
+	 * once rather than once per line.
+	 *
 	 * `File_Writer::write_all()` is the segment writer's loop, not this one:
 	 * it spends a five-refusal budget with no wait, then reports a short count
 	 * for `Partition_Node` to quarantine, which is right for a full disk and
@@ -155,10 +192,12 @@ class Stdout_Node extends Node {
 	protected function write_all( string $bytes ): void {
 		$read   = [];
 		$except = [];
-		while ( '' !== $bytes ) {
+		while ( '' !== $bytes && ! $this->exit ) {
+			\error_clear_last();
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-			$written = \fwrite( $this->stdout, $bytes );
+			$written = @\fwrite( $this->stdout, $bytes );
 			if ( false === $written ) {
+				$this->stop_writing();
 				return;
 			}
 			if ( 0 === $written ) {
@@ -167,6 +206,21 @@ class Stdout_Node extends Node {
 				continue;
 			}
 			$bytes = \substr( $bytes, $written );
+		}
+	}
+
+	/**
+	 * End the writer, and keep the reason unless a reader closing its end is
+	 * the reason. Only a pipe or a socket has a reader to lose, and that test
+	 * reads the descriptor rather than a notice a PHP error handler may have
+	 * taken, so `> /dev/full` still fails the command.
+	 */
+	private function stop_writing(): void {
+		$this->exit = true;
+		$stat       = \fstat( $this->stdout );
+		$type       = \is_array( $stat ) ? $stat['mode'] & self::S_IFMT : 0;
+		if ( self::S_IFIFO !== $type && self::S_IFSOCK !== $type ) {
+			$this->write_error = \error_get_last()['message'] ?? 'write failed';
 		}
 	}
 

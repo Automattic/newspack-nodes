@@ -93,6 +93,81 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
+	public function test_cli_ends_the_session_when_its_reader_closes_stdout(): void {
+		// `wp nodes cli < script | head`: every line behind the failed write
+		// stays unread, and the exit status is the reader's business, not ours.
+		CLI::$uid_provider = static fn (): int => 1000;
+		$script            = $this->script( 50 );
+		CLI_Command::$stdin  = static fn () => $script;
+		CLI_Command::$stdout = fn () => $this->closed_pipe();
+
+		( new CLI_Command() )->cli( [], [] );
+
+		$this->assertLessThan( \strlen( \str_repeat( "ls\n", 50 ) ), \ftell( $script ) );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] );
+		CLI_Command::$stdout = null;
+		Core::cleanup_all_nodes();
+	}
+
+	public function test_cli_fails_when_stdout_refuses_a_write_for_any_other_reason(): void {
+		CLI::$uid_provider = static fn (): int => 1000;
+		$script            = $this->script( 1 );
+		CLI_Command::$stdin  = static fn () => $script;
+		CLI_Command::$stdout = static fn () => \fopen( '/dev/full', 'w' );
+
+		try {
+			( new CLI_Command() )->cli( [], [] );
+			$this->fail( 'a failed write must fail the command' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'WP_CLI::error called: stdout', $e->getMessage() );
+		} finally {
+			CLI_Command::$stdout = null;
+			Core::cleanup_all_nodes();
+		}
+	}
+
+	public function test_cli_writes_no_courtesy_newline_to_a_closed_stdout(): void {
+		// Stdin a terminal and stdout a pipe: `wp nodes cli | head`.
+		CLI::$uid_provider = static fn (): int => 1000;
+		$script            = $this->script( 50 );
+		CLI_Command::$stdout = fn () => $this->closed_pipe();
+		$cli               = new CLI_Command();
+		( new \ReflectionProperty( $cli, 'terminal' ) )->setValue( $cli, [ $script, true, false ] );
+
+		$cli->cli( [], [] );
+
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_logs'] );
+		CLI_Command::$stdout = null;
+		Core::cleanup_all_nodes();
+	}
+
+	/**
+	 * A stdin fixture holding `$lines` copies of a verb that renders.
+	 *
+	 * @return resource
+	 */
+	private function script( int $lines ) {
+		$stream = \fopen( 'php://memory', 'r+' );
+		\fwrite( $stream, \str_repeat( "ls\n", $lines ) );
+		\rewind( $stream );
+		return $stream;
+	}
+
+	/**
+	 * A FIFO whose one reader has closed, so the next write fails with EPIPE.
+	 *
+	 * @return resource The write end.
+	 */
+	private function closed_pipe() {
+		$path = "{$this->tmp}/closed-pipe";
+		\posix_mkfifo( $path, 0600 );
+		$reader = \fopen( $path, 'r+' );
+		$writer = \fopen( $path, 'w' );
+		\fclose( $reader );
+		\unlink( $path );
+		return $writer;
+	}
+
 	public function test_cli_bare_repl_exits_when_stdin_delivers_on_the_first_tick(): void {
 		// Piped input with a line ALREADY waiting, which the empty fixture above
 		// never produces: the first fire delivers, so the reader re-arms at the

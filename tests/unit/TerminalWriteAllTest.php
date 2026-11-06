@@ -68,6 +68,7 @@ class TerminalWriteAllTest extends TestCase {
 		$node->fill( $this->message( $value ) );
 		$this->assertSame( $value, Pty_Stream_Wrapper::written() );
 		$this->assertGreaterThan( 0, Pty_Stream_Wrapper::$selects );
+		$this->assertFalse( $node->exit, 'a refused write is not a closed reader' );
 	}
 
 	public function test_stdout_write_raw_lands_every_byte_past_a_refused_write(): void {
@@ -152,6 +153,7 @@ class TerminalWriteAllTest extends TestCase {
 		\pcntl_signal( \SIGUSR1, \SIG_DFL );
 		\stream_set_blocking( $reader, false );
 		$this->assertSame( $value, (string) \stream_get_contents( $reader ) );
+		$this->assertFalse( $node->exit, 'EAGAIN and EINTR leave the writer running' );
 	}
 
 	public function test_stdout_write_gives_up_on_a_failed_write_rather_than_spinning(): void {
@@ -162,5 +164,124 @@ class TerminalWriteAllTest extends TestCase {
 		$this->assertSame( \substr( $value, 0, self::PTY_BUFFER ), Pty_Stream_Wrapper::written() );
 		$this->assertSame( 1, Pty_Stream_Wrapper::$refusals );
 		$this->assertSame( 0, Pty_Stream_Wrapper::$selects );
+		$this->assertTrue( $node->exit );
+	}
+
+	public function test_a_closed_pipe_stops_the_writer_after_one_silenced_failure(): void {
+		$node   = new Stdout_Node( $this->closed_pipe() );
+		$raised = $this->raised_during( function () use ( $node ): void {
+			$node->fill( $this->message( "first\n" ) );
+			$node->fill( $this->message( "second\n" ) );
+			$node->write_raw( "third\n" );
+		} );
+		$this->assertTrue( $node->exit );
+		$this->assertSame( '', $node->write_error, 'a reader closing its pipe is not an error' );
+		$this->assertCount( 1, $raised, 'the stream is written once and then left alone' );
+		$this->assertTrue( $raised[0]['silenced'] );
+		$this->assertStringContainsString( 'Broken pipe', $raised[0]['message'] );
+		$counter = new \ReflectionProperty( $node, 'counter' );
+		$this->assertSame( 2, $counter->getValue( $node ), 'a dropped message still counts as arrived' );
+	}
+
+	public function test_a_closed_pipe_stops_the_prompt_as_well(): void {
+		$node   = new TTY_Out_Node( $this->closed_pipe() );
+		$raised = $this->raised_during( static function () use ( $node ): void {
+			$node->write_prompt( 'first> ' );
+			$node->write_prompt( 'second> ' );
+		} );
+		$this->assertTrue( $node->exit );
+		$this->assertCount( 1, $raised );
+	}
+
+	public function test_a_socket_closed_during_the_wait_stops_the_writer(): void {
+		if ( ! \function_exists( 'pcntl_fork' ) ) {
+			$this->markTestSkipped( 'pcntl is not loaded' );
+		}
+		[ $writer, $reader ] = \stream_socket_pair( \STREAM_PF_UNIX, \STREAM_SOCK_STREAM, 0 );
+		\stream_set_blocking( $writer, false );
+		do {
+			$landed = (int) \fwrite( $writer, \str_repeat( 'p', 65536 ) );
+		} while ( $landed > 0 );
+
+		$child = \pcntl_fork();
+		if ( 0 === $child ) {
+			// Dying with the buffer unread is the reader going away mid-write.
+			\fclose( $writer );
+			\usleep( 20000 );
+			\posix_kill( \posix_getpid(), \SIGKILL );
+		}
+		// The child holds the only reader left, so its death closes the socket.
+		\fclose( $reader );
+
+		$node   = new Stdout_Node( $writer );
+		$raised = $this->raised_during( function () use ( $node ): void {
+			$node->fill( $this->message( $this->value() ) );
+			$node->fill( $this->message( $this->value() ) );
+		} );
+		\pcntl_waitpid( $child, $status );
+
+		$this->assertTrue( $node->exit );
+		$this->assertSame( '', $node->write_error );
+		$this->assertCount( 1, $raised );
+		$this->assertTrue( $raised[0]['silenced'] );
+	}
+
+	public function test_a_full_disk_stops_the_writer_and_keeps_its_reason(): void {
+		$node = new Stdout_Node( \fopen( '/dev/full', 'w' ) );
+		$this->raised_during( function () use ( $node ): void {
+			$node->fill( $this->message( "lost\n" ) );
+		} );
+		$this->assertTrue( $node->exit );
+		$this->assertNotSame( '', $node->write_error, 'a stream with no reader to lose reports its failure' );
+	}
+
+	public function test_a_full_disk_names_its_errno_where_no_handler_takes_the_notice(): void {
+		$node = new Stdout_Node( \fopen( '/dev/full', 'w' ) );
+		\set_error_handler( null );
+		try {
+			$node->fill( $this->message( "lost\n" ) );
+		} finally {
+			\restore_error_handler();
+		}
+		$this->assertStringContainsString( 'errno=28', $node->write_error );
+	}
+
+	/**
+	 * A FIFO whose one reader has closed, so the next write fails with EPIPE.
+	 *
+	 * @return resource The write end.
+	 */
+	private function closed_pipe() {
+		$path = \sys_get_temp_dir() . '/newspack-nodes-closed-pipe-' . \uniqid();
+		\posix_mkfifo( $path, 0600 );
+		$reader = \fopen( $path, 'r+' );
+		$writer = \fopen( $path, 'w' );
+		\fclose( $reader );
+		\unlink( $path );
+		return $writer;
+	}
+
+	/**
+	 * Run `$work` and report every PHP error it raised, silenced or not.
+	 *
+	 * @return list<array{silenced:bool,message:string}>
+	 */
+	private function raised_during( \Closure $work ): array {
+		$raised = [];
+		\set_error_handler(
+			static function ( int $level, string $message ) use ( &$raised ): bool {
+				$raised[] = [
+					'silenced' => 0 === ( \error_reporting() & $level ),
+					'message'  => $message,
+				];
+				return true;
+			}
+		);
+		try {
+			$work();
+		} finally {
+			\restore_error_handler();
+		}
+		return $raised;
 	}
 }

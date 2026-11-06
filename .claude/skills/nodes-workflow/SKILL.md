@@ -94,8 +94,7 @@ Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage
 # phpunit.xml sets enforceTimeLimit="true" and defaultTimeLimit="10", so a hung
 # test (readline without a TTY, an infinite drain loop) aborts at ten seconds,
 # with or without --enforce-time-limit, instead of stalling the whole suite.
-# The budget is ten seconds because run-coverage.sh runs the same suite under
-# Xdebug and the instrumentation pushes the heaviest cases past PHPUnit's own
+# The budget is ten seconds because the heaviest cases run past PHPUnit's own
 # one second. failOnRisky="true" makes breaking it fail the run rather than
 # warn, where the abort escapes the test: php-invoker throws from a SIGALRM
 # handler inside it, so a broad catch in the code under test can absorb it.
@@ -103,8 +102,8 @@ Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage
 # declares neither: a test must not wait in real time. It calls use_loop_time()
 # instead, which binds Core::$clock and Event_Framework::$sleep so a drain
 # wait advances the clock rather than blocking. Filter while iterating.
-# tests/run-coverage.sh runs the same configuration under XDEBUG_MODE=coverage
-# and writes the clover the per-class gate reads.
+# tests/run-coverage.sh runs the same configuration under PCOV, through
+# scripts/lib/coverage-php.sh, and writes the clover the per-class gate reads.
 cd tests && ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest
 
 # Lint. lint:php is phpcs plus the PHP comment gate; lint:js is eslint, the JS
@@ -173,8 +172,10 @@ Exercise the path the change touches. Three substrate verbs cover most of it —
 
 ```bash
 curl -sk "<site>/" -o /dev/null
-docker exec -t -u bend eve-pyrobase1-1 wp nodes reqgrep --recent --path=/var/www/html | head -10
+docker exec -u bend eve-pyrobase1-1 bash -c 'wp nodes reqgrep --recent --path=/var/www/html | head -10'
 ```
+
+Keep `head` inside the container. A closed pipe ends the command only when `head` shares a pipe with `wp`; run on the host, `head` closes the `docker` client's pipe, and `wp` reads to the end of the firehose with nobody watching.
 
 Match what you see against your expectations. If something is off, the `nodes-debugging` skill walks through `wp nodes cli` for live introspection.
 

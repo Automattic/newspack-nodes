@@ -126,6 +126,11 @@ class Pty_Stream_Wrapper {
 		return self::$landed;
 	}
 
+	/** @return array<string,int> A mode whose file-type bits are zero, as `fstat()` reads it. */
+	public function stream_stat(): array {
+		return [ 'mode' => 0 ];
+	}
+
 	public function stream_close(): void {
 	}
 }
