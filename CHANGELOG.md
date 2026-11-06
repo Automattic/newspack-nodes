@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.147.1] - 2026-11-05
+
+### Changed
+
+- Every test suite fails a risky test and gives each test a 10-second budget, with no flags. No runtime change. The shared pre-push drops its origin/trunk fallback.
+
 ## [2.147.0] - 2026-11-04
 
 ### Added
