@@ -5,8 +5,16 @@
  * A guard is an `if` whose condition is `! defined( 'ABSPATH' )`, the backslash
  * optional, and whose body, braced or not, is a bare `exit`, `exit()`, `die` or
  * `die()`. An `if` defining ABSPATH, or carrying an `else`, is not a guard.
- * phpcbf rewrites a guard into the one line, keeping the backslash the source
- * wrote, unless a comment sits inside it, which the rewrite would delete.
+ * phpcbf rewrites a guard into the one line, unless a comment sits inside it,
+ * which the rewrite would delete.
+ *
+ * The one line without its backslash is reported too. In a namespace an
+ * unqualified `defined()` compiles to a function call, which PCOV reports as a
+ * line, and in a class file loaded during a suite's bootstrap, before coverage
+ * starts, that line reads as a miss. Qualified, it compiles to the `DEFINED`
+ * opcode, which PCOV reports no line for, so the guard stops counting against
+ * the class it sits in. Outside a namespace both spellings compile alike; the
+ * rule is one spelling.
  *
  * Every plugin's phpcs.xml.dist references this file by path. PHPCS takes the
  * sniff code, `Newspack.WP.AbspathGuard`, from the namespace, and needs only a
@@ -32,11 +40,62 @@ final class AbspathGuardSniff implements Sniff {
 	/** The condition's words, the leading backslash dropped. */
 	private const CONDITION = [ '!', 'defined', '(', "'ABSPATH'", ')' ];
 
+	/** The one-line form's words up to its body, the backslash dropped. */
+	private const ONE_LINE_OPENING = [ 'defined', '(', "'ABSPATH'", ')', '||' ];
+
 	/** The bodies a guard may hold, `die` read as `exit`. */
 	private const BODIES = [ [ 'exit', ';' ], [ 'exit', '(', ')', ';' ] ];
 
-	/** The guard's one-line form, after the optional backslash. */
-	private const ONE_LINE = "defined( 'ABSPATH' ) || exit;";
+	/** The guard's one-line form. */
+	private const ONE_LINE = "\\defined( 'ABSPATH' ) || exit;";
+
+	/**
+	 * Report the guard at `$token`, when one starts there.
+	 *
+	 * @param File $file  The file being scanned.
+	 * @param int  $token The `if` or `defined` token's position.
+	 * @return void
+	 */
+	public function process( File $file, $token ) {
+		if ( \T_IF === $file->getTokens()[ $token ]['code'] ) {
+			$this->process_if( $file, $token );
+			return;
+		}
+		$this->process_defined( $file, $token );
+	}
+
+	/**
+	 * Report the `defined` at `$defined` when it opens an unqualified one-line guard.
+	 *
+	 * @param File $file    The file being scanned.
+	 * @param int  $defined The `defined` token's position.
+	 * @return void
+	 */
+	private function process_defined( File $file, int $defined ): void {
+		$tokens = $file->getTokens();
+		if ( 'defined' !== \strtolower( $tokens[ $defined ]['content'] ) ) {
+			return;
+		}
+
+		$previous = $file->findPrevious( Tokens::$emptyTokens, $defined - 1, null, true );
+		if ( false !== $previous && \T_NS_SEPARATOR === $tokens[ $previous ]['code'] ) {
+			return;
+		}
+
+		$end = $file->findNext( \T_SEMICOLON, $defined );
+		if ( false === $end ) {
+			return;
+		}
+
+		$words = $this->words( $file, $defined, $end );
+		if ( self::ONE_LINE_OPENING !== \array_slice( $words, 0, 5 ) || ! \in_array( \array_slice( $words, 5 ), self::BODIES, true ) ) {
+			return;
+		}
+
+		if ( $file->addFixableError( 'Qualify the ABSPATH guard: %s', $defined, 'Unqualified', [ self::ONE_LINE ] ) ) {
+			$file->fixer->addContentBefore( $defined, '\\' );
+		}
+	}
 
 	/**
 	 * Report the `if` at `$if` when it is an ABSPATH guard.
@@ -45,15 +104,14 @@ final class AbspathGuardSniff implements Sniff {
 	 * @param int  $if   The `if` token's position.
 	 * @return void
 	 */
-	public function process( File $file, $if ) {
+	private function process_if( File $file, int $if ): void {
 		$tokens = $file->getTokens();
 		if ( ! isset( $tokens[ $if ]['parenthesis_opener'], $tokens[ $if ]['parenthesis_closer'] ) ) {
 			return;
 		}
 
 		$condition = $this->words( $file, $tokens[ $if ]['parenthesis_opener'] + 1, $tokens[ $if ]['parenthesis_closer'] - 1 );
-		$qualified = '\\' === ( $condition[1] ?? null );
-		if ( $qualified ) {
+		if ( '\\' === ( $condition[1] ?? null ) ) {
 			\array_splice( $condition, 1, 1 );
 		}
 		if ( self::CONDITION !== $condition ) {
@@ -71,15 +129,14 @@ final class AbspathGuardSniff implements Sniff {
 		}
 
 		$message = 'Use the one-line ABSPATH guard: %s';
-		$data    = [ ( $qualified ? '\\' : '' ) . self::ONE_LINE ];
 		if ( false !== $file->findNext( Tokens::$commentTokens, $if, $end + 1 ) ) {
-			$file->addError( $message, $if, 'NotOneLine', $data );
+			$file->addError( $message, $if, 'NotOneLine', [ self::ONE_LINE ] );
 			return;
 		}
 
-		if ( $file->addFixableError( $message, $if, 'NotOneLine', $data ) ) {
+		if ( $file->addFixableError( $message, $if, 'NotOneLine', [ self::ONE_LINE ] ) ) {
 			$file->fixer->beginChangeset();
-			$file->fixer->replaceToken( $if, $data[0] );
+			$file->fixer->replaceToken( $if, self::ONE_LINE );
 			for ( $i = $if + 1; $i <= $end; $i++ ) {
 				$file->fixer->replaceToken( $i, '' );
 			}
@@ -150,6 +207,6 @@ final class AbspathGuardSniff implements Sniff {
 	 * @return list<int|string>
 	 */
 	public function register(): array {
-		return [ \T_IF ];
+		return [ \T_IF, \T_STRING ];
 	}
 }

@@ -25,15 +25,16 @@ OUT=/tmp
 # is wired for 10.x.
 PHPUNIT="$SCRIPT_DIR/../vendor/bin/phpunit"
 
-# Ensure xdebug coverage mode is enabled
-export XDEBUG_MODE=coverage
+# shellcheck disable=SC1091 # this plugin's vendored copy of the shared lib
+. "$SCRIPT_DIR/../scripts/lib/coverage-php.sh"
+coverage_php "$(dirname "$SCRIPT_DIR")"
 
 # Each run's bootstrap names a per-PID base and removes it at exit; sweep
 # only bases a crashed run left, never one a concurrent suite is using.
 find /tmp -maxdepth 1 -name 'newspack-nodes-test-*' -mmin +120 -exec rm -rf {} +
 
 # Run PHPUnit with coverage
-"$PHPUNIT" --configuration phpunit.xml \
+"${COVERAGE_PHP[@]}" "$PHPUNIT" --configuration phpunit.xml \
     --coverage-clover "${OUT}"/newspack-nodes-coverage/clover.xml \
     --coverage-html "${OUT}"/newspack-nodes-coverage \
 	--enforce-time-limit \
