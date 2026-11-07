@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.149.0] - 2026-11-07
+
 ### Added
 
 - **A topology sets its workers' lifetime.** `var max_runtime = <seconds>` in a `.tsl`'s frontmatter replaces the 595-second recycle for that topology's workers, and 0 turns it off, so a worker on a workstation runs as long as it likes. A negative or non-numeric value takes the default. It reaches the worker through the catalog entry and each `Bootstrap::expand_workers()` descriptor, and `Worker_Base::for_descriptor()`, new, builds the worker for both the spawn endpoint and `wp nodes run`, which each built it by hand before.
