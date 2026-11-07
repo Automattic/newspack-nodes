@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.148.0] - 2026-11-06
+
 ### Added
 
 - **Coverage runs under PCOV.** `tests/run-coverage.sh` sources `scripts/lib/coverage-php.sh`, the one place a plugin chooses its coverage driver. It turns PCOV on for that process with `XDEBUG_MODE=off`, scoped to the plugin, and stops the run naming `php8.4-pcov` where the module is missing. `scripts/test-coverage-php.sh` tests it, and `pre-push` runs that with the other self-tests. No runtime change.
