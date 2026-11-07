@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.149.1] - 2026-11-07
+
 ### Changed
 
 - **The three worker windows read through one rule.** `Worker_Base::window_of( $descriptor, $key, ?$default )` reads `stale_timeout`, `on_demand_idle` and `max_runtime` by the `WINDOWS` table, which records each one's default and whether 0 means something there, and every descriptor carries all three. `Lock_Node::stale_timeout_of()`, `Bootstrap::on_demand_idle_of()` and `Worker_Base::max_runtime_of()` are gone; no sibling plugin called them. Each window now takes only a whole number at or above its least meaningful value, and anything else declares nothing and takes the default. Three readings change. A catalog entry pinned through `newspack_nodes/topologies` with a `stale_timeout` of 0, a negative value, `60.5` or `"12abc"` reads as 60, where it passed 0 or the negative value through, turning every worker stale at once, and read the others as 60 and 12. A negative or non-numeric `var on_demand_idle` takes the fleet default where it was clamped to 0, the resident window, because a value that declares nothing should not opt a topology out of the operator's window. And the fleet-wide `on_demand_idle` setting reads through the same rule, so `12.5` there takes 0 where it read 12.
