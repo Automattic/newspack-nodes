@@ -261,12 +261,12 @@ class Spawn_Coordinator {
 	public function worker_needs_spawn( array $worker, float $now ): bool {
 		$type      = Core::as_string( $worker['type'] );
 		$partition = Core::as_int( $worker['partition'] );
-		$stale     = Lock_Node::stale_timeout_of( $worker );
+		$stale     = Worker_Base::window_of( $worker, 'stale_timeout' );
 
 		$dir = self::lock_path( $this->base_dir, $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
 			// Clean absence is normal on-demand; a producer wakes it, not us.
-			return 0 === Bootstrap::on_demand_idle_of( $worker );
+			return 0 === Worker_Base::window_of( $worker, 'on_demand_idle' );
 		}
 		// A stale lock is a worker that died holding it — a crash either way.
 		return Lock_Node::heartbeat_is_stale( $dir, (int) $now, $stale );
@@ -481,7 +481,7 @@ class Spawn_Coordinator {
 	 */
 	private static function on_demand_worker( string $type, int $partition ): ?array {
 		foreach ( Bootstrap::expand_workers() as $worker ) {
-			if ( 0 !== Bootstrap::on_demand_idle_of( $worker )
+			if ( 0 !== Worker_Base::window_of( $worker, 'on_demand_idle' )
 				&& $type === Core::as_string( $worker['type'] )
 				&& $partition === Core::as_int( $worker['partition'] ) ) {
 				return $worker;

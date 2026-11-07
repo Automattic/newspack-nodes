@@ -109,6 +109,22 @@ class Worker_Base {
 	protected string $worker_type;
 
 	/**
+	 * The windows a topology's frontmatter sets for its workers: each one's
+	 * default, and the least value that means something there. `window_of()`
+	 * is the one reader, and a descriptor carries every key.
+	 *
+	 * - `stale_timeout`: at least 1, since a zero window reads every worker as
+	 *   stale at once.
+	 * - `on_demand_idle`: at least 0, which keeps the worker resident.
+	 * - `max_runtime`: at least 0, which never yields.
+	 */
+	public const WINDOWS = [
+		'stale_timeout'  => [ 'default' => Lock_Node::STALE_TIMEOUT, 'min' => 1 ],
+		'on_demand_idle' => [ 'default' => 0, 'min' => 0 ],
+		'max_runtime'    => [ 'default' => self::DEFAULT_MAX_RUNTIME, 'min' => 0 ],
+	];
+
+	/**
 	 * Configure one worker. Nothing here touches the lock, the filesystem or the
 	 * graph — `execute()` owns all three, so constructing a worker is free.
 	 *
@@ -151,25 +167,30 @@ class Worker_Base {
 			$base_dir,
 			Core::as_string( $descriptor['type'] ),
 			Core::as_int( $descriptor['partition'] ),
-			max_runtime: self::max_runtime_of( $descriptor ),
-			stale_timeout: Lock_Node::stale_timeout_of( $descriptor ),
-			on_demand_idle: Bootstrap::on_demand_idle_of( $descriptor )
+			max_runtime: self::window_of( $descriptor, 'max_runtime' ),
+			stale_timeout: self::window_of( $descriptor, 'stale_timeout' ),
+			on_demand_idle: self::window_of( $descriptor, 'on_demand_idle' )
 		);
 	}
 
 	/**
-	 * Seconds a worker runs before yielding to its successor; 0 never yields.
+	 * Read a window from a topology entry or worker descriptor, through the
+	 * rule `WINDOWS` holds for it.
 	 *
-	 * Only a whole number counts. A descriptor declaring none, or a negative,
-	 * fractional or non-numeric value, takes `DEFAULT_MAX_RUNTIME`: a negative
-	 * budget reads as already spent, and a fraction truncated to 0 would run
-	 * the worker forever.
+	 * Only a whole number at or above the window's `min` counts. Anything else
+	 * takes the default — a smaller number, a fraction, a non-numeric value —
+	 * because it declares nothing: a negative budget would read as already
+	 * spent, and a fraction truncated to 0 would turn a recycle off.
 	 *
-	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
+	 * @param array<array-key,mixed> $descriptor Topology entry, worker descriptor or frontmatter.
+	 * @param string                 $key        A `WINDOWS` key.
+	 * @param int|null               $default    The caller's default; the table's when null.
+	 * @throws \InvalidArgumentException When `$key` names no window.
 	 */
-	public static function max_runtime_of( array $descriptor ): int {
-		$seconds = \filter_var( $descriptor['max_runtime'] ?? null, FILTER_VALIDATE_INT );
-		return \is_int( $seconds ) && $seconds >= 0 ? $seconds : self::DEFAULT_MAX_RUNTIME;
+	public static function window_of( array $descriptor, string $key, ?int $default = null ): int {
+		$rule    = self::WINDOWS[ $key ] ?? throw new \InvalidArgumentException( \esc_html( "no worker window named {$key}" ) );
+		$seconds = \filter_var( $descriptor[ $key ] ?? null, FILTER_VALIDATE_INT );
+		return \is_int( $seconds ) && $seconds >= $rule['min'] ? $seconds : ( $default ?? $rule['default'] );
 	}
 
 	/**

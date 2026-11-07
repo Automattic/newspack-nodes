@@ -486,7 +486,7 @@ class CLI {
 		} elseif ( $held ) {
 			$state = 'held';
 		} else {
-			$state = Bootstrap::on_demand_idle_of( $entry ) > 0 ? 'idle' : 'down';
+			$state = Worker_Base::window_of( $entry, 'on_demand_idle' ) > 0 ? 'idle' : 'down';
 		}
 		return [
 			'lock'  => $lock,
@@ -541,7 +541,7 @@ class CLI {
 			$workers[] = $lock + self::lock_liveness(
 				$dir,
 				$now,
-				Lock_Node::stale_timeout_of( Core::arr( $topologies[ $lock['type'] ] ?? [] ) )
+				Worker_Base::window_of( Core::arr( $topologies[ $lock['type'] ] ?? [] ), 'stale_timeout' )
 			);
 		}
 		\usort( $workers, fn ( $a, $b ) =>

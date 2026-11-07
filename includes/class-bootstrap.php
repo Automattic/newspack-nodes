@@ -39,7 +39,7 @@ use Newspack_Nodes\Rest\Spawn_Controller;
  *
  * @phpstan-import-type HealthResult from Health_Checks
  *
- * @phpstan-type Worker_Descriptor array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int, max_runtime: int}
+ * @phpstan-type Worker_Descriptor array{type: string, partition: int, topology: mixed, stale_timeout: int, on_demand_idle: int, max_runtime: int}
  * @phpstan-type Resolved_Table array{kind: 'table', namespace: string, ttl: int, backend: string}|array{kind: 'row', schema: string}
  */
 class Bootstrap {
@@ -199,7 +199,7 @@ class Bootstrap {
 		}
 		$entries                   = self::get_topologies();
 		[ $readable, $unreadable ] = self::split_readable( $entries );
-		$on_demand                 = \array_filter( $entries, static fn ( mixed $entry ): bool => 0 !== self::on_demand_idle_of( Core::arr( $entry ) ) );
+		$on_demand                 = \array_filter( $entries, static fn ( mixed $entry ): bool => 0 !== Worker_Base::window_of( Core::arr( $entry ), 'on_demand_idle' ) );
 		$map                       = [];
 		foreach ( \array_intersect_key( $readable, $on_demand ) as $topology => $entry ) {
 			$positions = Topology_Analyzer::consumer_positions( $topology );
@@ -269,32 +269,20 @@ class Bootstrap {
 	private static function workers_of( string $type, array $entry ): array {
 		$workers = [];
 		$count   = self::partitions_of( $entry );
+		$stale   = Worker_Base::window_of( $entry, 'stale_timeout' );
+		$idle    = Worker_Base::window_of( $entry, 'on_demand_idle' );
+		$runtime = Worker_Base::window_of( $entry, 'max_runtime' );
 		for ( $p = 0; $p < $count; ++$p ) {
 			$workers[] = [
 				'type'           => $type,
 				'partition'      => $p,
 				'topology'       => $entry['topology'] ?? '',
-				'stale_timeout'  => Lock_Node::stale_timeout_of( $entry ),
-				'on_demand_idle' => self::on_demand_idle_of( $entry ),
-				'max_runtime'    => Worker_Base::max_runtime_of( $entry ),
+				'stale_timeout'  => $stale,
+				'on_demand_idle' => $idle,
+				'max_runtime'    => $runtime,
 			];
 		}
 		return $workers;
-	}
-
-	/**
-	 * Seconds a worker stays idle before exiting; 0 means it stays resident.
-	 *
-	 * The window IS the flag — declaring one opts a topology in — so a descriptor
-	 * declaring none falls to $default, and that default is 0 unless the operator
-	 * set a fleet-wide window. Reading absence as nonzero would scale to zero a
-	 * topology that never opted in.
-	 *
-	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
-	 * @param int                    $default    Fleet-wide window when the descriptor declares none.
-	 */
-	public static function on_demand_idle_of( array $descriptor, int $default = 0 ): int {
-		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? null, $default ) );
 	}
 
 	/**
@@ -319,7 +307,7 @@ class Bootstrap {
 		if ( ! isset( $topologies[ $type ] ) ) {
 			return Lock_Node::STALE_TIMEOUT;
 		}
-		return Lock_Node::stale_timeout_of( Core::arr( $topologies[ $type ] ) );
+		return Worker_Base::window_of( Core::arr( $topologies[ $type ] ), 'stale_timeout' );
 	}
 
 	/**
@@ -934,7 +922,7 @@ class Bootstrap {
 
 	/** The operator's fleet-wide idle window; every synthesize_entry caller injects it. */
 	public static function config_on_demand_idle(): int {
-		return \max( 0, Core::num_int( Config::value( 'on_demand_idle' ), 0 ) );
+		return Worker_Base::window_of( [ 'on_demand_idle' => Config::value( 'on_demand_idle' ) ], 'on_demand_idle' );
 	}
 
 	/**

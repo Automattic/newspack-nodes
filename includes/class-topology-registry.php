@@ -102,17 +102,18 @@ class Topology_Registry {
 	 * max_runtime]` catalog entry from a topology's frontmatter; null when the name does not
 	 * resolve to a `.tsl`.
 	 *
-	 * Every field is read with the VALIDATED `Core::num_int`, matching what
-	 * `Bootstrap` does with the same values: a lenient `(int)` cast turns
+	 * `num_partitions` is read with the VALIDATED `Core::num_int`, matching
+	 * what `Bootstrap` does with it: a lenient `(int)` cast turns
 	 * `var num_partitions = "12abc"` into 12 here and into the default there.
+	 * The three worker windows read through `Worker_Base::window_of()`, which
+	 * takes only a whole number.
 	 *
 	 * A `num_partitions` or `stale_timeout` declared zero or negative takes the
 	 * caller's default too, because neither can run: zero partitions make no fleet
 	 * at all, and a zero stale timeout makes every worker in the fleet read as
 	 * instantly stale, which is continuous respawn churn. `on_demand_idle` and
 	 * `max_runtime` are exempt: 0 means "stay resident" for the first and
-	 * "never recycle" for the second, which `Worker_Base::max_runtime_of()`
-	 * reads as a whole number only.
+	 * "never recycle" for the second, as `Worker_Base::WINDOWS` records.
 	 *
 	 * @param string $name                   Topology name.
 	 * @param int    $default_num_partitions Partitions when the frontmatter declares none usable.
@@ -131,13 +132,12 @@ class Topology_Registry {
 		}
 		$front      = Topology_Analyzer::frontmatter( $name );
 		$partitions = Core::num_int( $front['num_partitions'] ?? null, $default_num_partitions );
-		$stale      = Core::num_int( $front['stale_timeout'] ?? null, $default_stale_timeout );
 		return [
 			'topology'       => $name,
 			'num_partitions' => $partitions > 0 ? $partitions : $default_num_partitions,
-			'stale_timeout'  => $stale > 0 ? $stale : $default_stale_timeout,
-			'on_demand_idle' => \Newspack_Nodes\Bootstrap::on_demand_idle_of( $front, $default_on_demand_idle ),
-			'max_runtime'    => \Newspack_Nodes\Worker_Base::max_runtime_of( $front ),
+			'stale_timeout'  => Worker_Base::window_of( $front, 'stale_timeout', $default_stale_timeout ),
+			'on_demand_idle' => Worker_Base::window_of( $front, 'on_demand_idle', $default_on_demand_idle ),
+			'max_runtime'    => Worker_Base::window_of( $front, 'max_runtime' ),
 		];
 	}
 

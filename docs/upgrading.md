@@ -6,6 +6,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The three worker-window readers are one, `Worker_Base::window_of()`.**
+  `Lock_Node::stale_timeout_of( $d )` is `Worker_Base::window_of( $d,
+  'stale_timeout' )`, `Bootstrap::on_demand_idle_of( $d, $default )` is
+  `Worker_Base::window_of( $d, 'on_demand_idle', $default )`, and
+  `Worker_Base::max_runtime_of( $d )` is `Worker_Base::window_of( $d,
+  'max_runtime' )`. Only a whole number at or above the window's `min` in
+  `Worker_Base::WINDOWS` counts; anything else takes the default. A topology
+  that declared a negative `on_demand_idle` to stay resident declares 0.
 - **`Curl_Node::MAX_BODY_BYTES` is `Curl_Node::DEFAULT_BODY_CAP`.** Rename every
   reader. A node's cap in force can now be raised with `set_body_cap()`, so a
   test matching the over-cap refusal reads `body over <cap> bytes <url>`.

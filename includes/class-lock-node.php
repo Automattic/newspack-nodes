@@ -656,20 +656,6 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * The stale threshold a worker descriptor declares, falling back to
-	 * STALE_TIMEOUT when the key is absent or holds a non-scalar.
-	 *
-	 * @param array<array-key,mixed> $descriptor A worker descriptor or topology entry.
-	 * @return int Seconds.
-	 */
-	public static function stale_timeout_of( array $descriptor ): int {
-		return Core::as_int(
-			$descriptor['stale_timeout'] ?? self::STALE_TIMEOUT,
-			self::STALE_TIMEOUT
-		);
-	}
-
-	/**
 	 * The acquisition time the current holder wrote, or null when the lock dir
 	 * or the file is absent — which reads as "no uptime to show", never as an
 	 * uptime of zero.
