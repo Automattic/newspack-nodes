@@ -39,7 +39,7 @@ use Newspack_Nodes\Rest\Spawn_Controller;
  *
  * @phpstan-import-type HealthResult from Health_Checks
  *
- * @phpstan-type Worker_Descriptor array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int}
+ * @phpstan-type Worker_Descriptor array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int, max_runtime: int}
  * @phpstan-type Resolved_Table array{kind: 'table', namespace: string, ttl: int, backend: string}|array{kind: 'row', schema: string}
  */
 class Bootstrap {
@@ -276,6 +276,7 @@ class Bootstrap {
 				'topology'       => $entry['topology'] ?? '',
 				'stale_timeout'  => Lock_Node::stale_timeout_of( $entry ),
 				'on_demand_idle' => self::on_demand_idle_of( $entry ),
+				'max_runtime'    => Worker_Base::max_runtime_of( $entry ),
 			];
 		}
 		return $workers;

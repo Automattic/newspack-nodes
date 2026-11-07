@@ -546,6 +546,24 @@ class Worker_CLI_Command {
 	}
 
 	/**
+	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
+	 *
+	 * Topology entries come from the `newspack_nodes/topologies` filter, not from
+	 * the operator — a malformed one must not take down an unrelated listing, so
+	 * this keeps the silent default. Operator flags go through
+	 * `CLI::require_flag_int()`.
+	 *
+	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key      Key to read.
+	 * @param int    $fallback Default when missing/non-scalar.
+	 * @return int The entry's value, or the fallback.
+	 */
+	private static function entry_int( $entry, string $key, int $fallback ): int {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
+		return Core::as_int( $value, $fallback );
+	}
+
+	/**
 	 * One warning per active topology that will not read, naming it and why —
 	 * an unknown name included, which the configured set leaves out.
 	 */
@@ -560,7 +578,9 @@ class Worker_CLI_Command {
 	 *
 	 * Useful for debugging: instantiates a `Worker_Base`, runs the topology, and
 	 * blocks until the worker exits on one of `Worker_Base`'s own stop triggers —
-	 * `max_runtime`, the memory watermark, a lost lock or a restart flag.
+	 * `max_runtime`, the memory watermark, a lost lock, a restart flag, or
+	 * `shutdown` and Ctrl-C. Under a topology's `var max_runtime = 0` only the
+	 * others end it.
 	 *
 	 * ## OPTIONS
 	 *
@@ -633,14 +653,7 @@ class Worker_CLI_Command {
 		// Bootstrap::spawn_coordinator() so the HMAC salt matches the runtime.
 		$coordinator = Bootstrap::spawn_coordinator();
 
-		$entry = Core::arr( $descriptor );
-		$wb    = new Worker_Base(
-			$this->base_dir(),
-			$type,
-			$partition,
-			stale_timeout: self::entry_int( $descriptor, 'stale_timeout', Lock_Node::STALE_TIMEOUT ),
-			on_demand_idle: Bootstrap::on_demand_idle_of( $entry )
-		);
+		$wb = Worker_Base::for_descriptor( $this->base_dir(), Core::arr( $descriptor ) );
 
 		$spawn_url = \function_exists( 'rest_url' )
 			? \rest_url( 'newspack-nodes/v1/workers/spawn' )
@@ -652,24 +665,6 @@ class Worker_CLI_Command {
 		// The debugging verb: the skip reason IS the diagnosis — print it.
 		$detail = $result['reason'] ?? '';
 		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] . ( '' !== $detail ? " ({$detail})" : '' ) );
-	}
-
-	/**
-	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
-	 *
-	 * Topology entries come from the `newspack_nodes/topologies` filter, not from
-	 * the operator — a malformed one must not take down an unrelated listing, so
-	 * this keeps the silent default. Operator flags go through
-	 * `CLI::require_flag_int()`.
-	 *
-	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
-	 * @param string $key      Key to read.
-	 * @param int    $fallback Default when missing/non-scalar.
-	 * @return int The entry's value, or the fallback.
-	 */
-	private static function entry_int( $entry, string $key, int $fallback ): int {
-		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
-		return Core::as_int( $value, $fallback );
 	}
 
 	/**

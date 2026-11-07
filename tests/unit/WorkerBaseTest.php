@@ -134,6 +134,37 @@ class WorkerBaseTest extends TestCase {
 		}
 	}
 
+	/**
+	 * A `max_runtime` of 0 never spends its budget, so a workstation can run
+	 * one worker for as long as it likes. Pinned 400 days past the start.
+	 */
+	public function test_a_zero_max_runtime_never_recycles(): void {
+		$saved = Worker_Base::$monotonic;
+		$w     = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 0 );
+		$w->acquire();
+		$w->set_start_time_for_test( 1000.0 );
+		try {
+			Worker_Base::$monotonic = static fn (): float => 1000.0 + 86400 * 400;
+			$this->assertTrue( $w->should_continue() );
+			$this->assertSame( '', $this->read_private( $w, 'stop_reason' ) );
+		} finally {
+			Worker_Base::$monotonic = $saved;
+		}
+	}
+
+	/** `shutdown` stops as SIGTERM does, and the successor still spawns. */
+	public function test_a_shutdown_stop_still_self_respawns(): void {
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 0 );
+		$w->acquire();
+		Core::$shutting_down = true;
+		try {
+			$this->assertFalse( $w->should_continue() );
+			$this->assertTrue( $w->should_self_respawn() );
+		} finally {
+			Core::$shutting_down = false;
+		}
+	}
+
 	public function test_should_continue_does_not_log_normal_shutdown(): void {
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
 		$w->acquire();

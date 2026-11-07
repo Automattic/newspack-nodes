@@ -290,6 +290,21 @@ describe( 'TopologySettingsPanel secure level', () => {
 		expect( interpreter.frontmatter ).toEqual( { on_demand_idle: '0' } );
 	} );
 
+	/** 0 never recycles; an empty field keeps the 595-second default. */
+	it( 'edits max_runtime with 595 as its placeholder and keeps 0', () => {
+		const { interpreter } = setup( { max_runtime: '1913' } );
+
+		const input = document.getElementById( 'ts-max-runtime' );
+		expect( input.value ).toBe( '1913' );
+		expect( input.getAttribute( 'placeholder' ) ).toBe( '595' );
+		expect( screen.queryByLabelText( /value for max_runtime/i ) ).toBe(
+			null
+		);
+
+		fireEvent.change( input, { target: { value: '0' } } );
+		expect( interpreter.frontmatter ).toEqual( { max_runtime: '0' } );
+	} );
+
 	it( 'keeps the on-demand pair out of the generic variable rows', () => {
 		setup( { on_demand_idle: '23' } );
 

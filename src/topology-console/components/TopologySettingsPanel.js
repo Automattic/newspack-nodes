@@ -3,10 +3,10 @@
  * file that is not a node: its `var name = value` frontmatter and its `secure`
  * line.
  *
- * `num_partitions`, `stale_timeout` and `on_demand_idle` get typed inputs
- * whose placeholder is the value the config falls back to, so an author sees
- * what a key inherits without leaving the panel. Every other var is a generic
- * name/value row.
+ * `num_partitions`, `stale_timeout`, `on_demand_idle` and `max_runtime` get
+ * typed inputs whose placeholder is the value the key falls back to, so an
+ * author sees what a key inherits without leaving the panel. Every other var
+ * is a generic name/value row.
  *
  * Edits go back through the draft's `replaceFrontmatter`, the editor operation
  * `DraftContext` documents for this case: TSL sets one entry per line, an
@@ -31,6 +31,7 @@ export const RECOGNIZED_KEYS = [
 	'num_partitions',
 	'stale_timeout',
 	'on_demand_idle',
+	'max_runtime',
 ];
 
 /**
@@ -49,6 +50,13 @@ const NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * spawns nothing extra and only misleads whoever reads the file.
  */
 const MAX_PARTITIONS = 8;
+
+/**
+ * Seconds a worker runs before yielding to a successor when `max_runtime` is
+ * unset, mirroring `Worker_Base::DEFAULT_MAX_RUNTIME`. The default lives in
+ * code, not config, so no prop carries it.
+ */
+const DEFAULT_MAX_RUNTIME = 595;
 
 /**
  * The frontmatter map as `[ name, value ]` pairs, in the map's own order.
@@ -397,6 +405,30 @@ export default function TopologySettingsPanel( {
 					{ __(
 						'0 = resident. Above 0, the worker exits after that long with every reporter idle, and a write to a partition it tails brings it back.',
 						'newspack-nodes'
+					) }
+				</small>
+			</label>
+
+			<label className="topology-settings-field" htmlFor="ts-max-runtime">
+				<span>{ __( 'Max runtime (s)', 'newspack-nodes' ) }</span>
+				<input
+					id="ts-max-runtime"
+					type="number"
+					min={ 0 }
+					value={ valueOf( 'max_runtime' ) }
+					placeholder={ String( DEFAULT_MAX_RUNTIME ) }
+					onChange={ ( e ) =>
+						setValue( 'max_runtime', clampInt( e.target.value, 0 ) )
+					}
+				/>
+				<small>
+					{ sprintf(
+						// translators: %d: default worker lifetime in seconds.
+						__(
+							'Empty = default (%d). 0 = the worker never recycles, so new code reaches it on a restart or `shutdown`.',
+							'newspack-nodes'
+						),
+						DEFAULT_MAX_RUNTIME
 					) }
 				</small>
 			</label>

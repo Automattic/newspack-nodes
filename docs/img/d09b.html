@@ -29,7 +29,7 @@
 <h2 style="margin-top:0"><span class="mono">topologies/my-pipeline.tsl</span>, line by line</h2>
 <div class="listing">
   <div class="ln"><span class="n">1</span><span class="mono"><span class="k">var</span> num_partitions = <span class="v">1</span></span></div>
-  <div class="why"><span><b>Frontmatter.</b> <span class="mono">num_partitions</span> sizes the worker pool. <span class="mono">stale_timeout</span> and <span class="mono">on_demand_idle</span> are the other two names the runtime acts on.</span></div>
+  <div class="why"><span><b>Frontmatter.</b> <span class="mono">num_partitions</span> sizes the worker pool. <span class="mono">stale_timeout</span>, <span class="mono">on_demand_idle</span> and <span class="mono">max_runtime</span> are the other three names the runtime acts on.</span></div>
   <div class="ln"><span class="n">2</span><span class="mono"><span class="k">make_node</span> Releases_Source   releases</span></div>
   <div class="why"><span><b>Source.</b> Emits canned items on a TICK request and replies with the count.</span></div>
   <div class="ln"><span class="n">3</span><span class="mono"><span class="k">make_node</span> Summarizer        summarizer</span></div>

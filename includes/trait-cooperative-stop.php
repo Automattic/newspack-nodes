@@ -83,7 +83,7 @@ trait Cooperative_Stop {
 	/** The held lock, or null before acquire / after release. */
 	protected ?Lock_Node $lock = null;
 
-	/** Seconds this process may run before yielding to its successor. */
+	/** Seconds this process may run before yielding to its successor; 0 never yields. */
 	protected int $max_runtime = self::DEFAULT_MAX_RUNTIME;
 
 	/**
@@ -145,7 +145,12 @@ trait Cooperative_Stop {
 			return $this->stop( $restart_reason, fault: Lock_Node::RESTART_REQUESTED !== $restart_reason );
 		}
 
-		if ( ( self::monotonic_now() - $this->start_time ) >= $this->max_runtime ) {
+		// SIGTERM or `shutdown`: a normal stop, so the successor still spawns.
+		if ( Core::$shutting_down ) {
+			return $this->stop( 'shutting down' );
+		}
+
+		if ( $this->max_runtime > 0 && ( self::monotonic_now() - $this->start_time ) >= $this->max_runtime ) {
 			return $this->stop( 'timeout', 'timeout' );
 		}
 

@@ -132,6 +132,7 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | `list_handles` | `Nodes/CommandInterpreter.pm`'s `list_fds` |
 | `list_profiles`, slowest average first with a `--total--` row | `Nodes/CommandInterpreter.pm`'s `list_profiles` |
 | `dmesg` | `Nodes/CommandInterpreter.pm`'s `dmesg` |
+| `shutdown`, which raises the flag SIGTERM raises, so the worker stops as any stop does and its successor spawns | `Nodes/CommandInterpreter.pm`'s `shutdown`, which sets `shutting_down` and removes every node |
 | `set_sink` | `Nodes/CommandInterpreter.pm`'s `connect_sink` |
 | `trace`, which sets `debug_state` | `Nodes/CommandInterpreter.pm`'s `debug_state` verb |
 | `move_node` / `move` / `mv` | `Nodes/CommandInterpreter.pm`'s `move_node`, aliased as `move` and `mv` |

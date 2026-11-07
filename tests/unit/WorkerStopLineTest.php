@@ -73,6 +73,7 @@ final class WorkerStopLineTest extends TestCase {
 		Worker_Base::$monotonic  = null;
 		Worker_Base::$db_probe   = null;
 		Worker_Base::$memory_usage = null;
+		Core::$shutting_down       = false;
 		if ( false !== $this->saved_memory_limit ) {
 			\ini_set( 'memory_limit', $this->saved_memory_limit );
 		}
@@ -98,6 +99,7 @@ final class WorkerStopLineTest extends TestCase {
 			'timeout'             => [ static fn ( StopLineWorker $w ) => $w->set_max_runtime_for_test( self::MAX_RUNTIME ), 'timeout', false ],
 			'memory'              => [ static fn () => Worker_Base::$memory_usage = static fn (): int => 2458 * 1048576, 'memory watermark (2458MB / 2731MB, 90%)', true ],
 			'db liveness'         => [ static fn ( StopLineWorker $w ) => $w->fail_db_checks_for_test(), 'db check failed 3 times', true ],
+			'shutting down'       => [ static fn () => Core::$shutting_down = true, 'shutting down', false ],
 			'idle'                => [ static fn ( StopLineWorker $w ) => ( new StopLineIdleProbe( \microtime( true ) - self::IDLE_SECONDS - 6 ) )->name( 'kiwi-probe' ), 'idle: no message for ' . self::IDLE_SECONDS . 's', false ],
 		];
 	}

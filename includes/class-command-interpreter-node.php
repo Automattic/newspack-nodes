@@ -668,6 +668,7 @@ class Command_Interpreter_Node extends Node {
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
+			'shutdown' => "shutdown\n    note: stops this process as SIGTERM does; the worker leaves as any stop does.\n",
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n    default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
 
@@ -723,6 +724,7 @@ class Command_Interpreter_Node extends Node {
 			'dump_metadata'   => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( \array_values( \array_map( Core::as_string( ... ), $args ) ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
 			'stats'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_stats( $self, self::arg_strings( $args ) ),
 			'uptime'          => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_uptime(),
+			'shutdown'        => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_shutdown(),
 			'trace'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_trace( $self, self::arg_strings( $args ) ),
 			'help'            => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_help( self::arg_strings( $args ), $envelope ),
 			'reply_to'        => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_reply_to( $self, self::arg_strings( $args ) ),
@@ -1307,6 +1309,16 @@ class Command_Interpreter_Node extends Node {
 			(string) $r['age'],
 			$what,
 		];
+	}
+
+	/**
+	 * `shutdown` — Tachikoma's: raise the flag SIGTERM raises, so the drain loop
+	 * ends this tick and the worker leaves the way a stop always does, its
+	 * successor spawned unless the stop's reason declines one.
+	 */
+	private static function cmd_shutdown(): string {
+		Core::$shutting_down = true;
+		return "shutting down\n";
 	}
 
 	/**

@@ -115,7 +115,7 @@ class Worker_Base {
 	 * @param string $base_dir       Runtime state root; `locks/` and `ipc/` hang off it.
 	 * @param string $worker_type    Worker type, the first half of the `{type}.p{N}` id.
 	 * @param int    $partition      Partition number, the second half.
-	 * @param int    $max_runtime    Seconds this process runs before yielding to a successor.
+	 * @param int    $max_runtime    Seconds this process runs before yielding to a successor; 0 never yields.
 	 * @param int    $stale_timeout  Seconds without a heartbeat before a peer may steal the lock.
 	 * @param int    $on_demand_idle Seconds every reporter must stay idle before this process exits; 0 stays resident.
 	 */
@@ -133,6 +133,43 @@ class Worker_Base {
 		$this->max_runtime    = $max_runtime;
 		$this->stale_timeout  = $stale_timeout;
 		$this->on_demand_idle = $on_demand_idle;
+	}
+
+	/**
+	 * The worker one `Bootstrap::expand_workers()` descriptor names, with the
+	 * three windows its topology declares. Both spawn paths build through it.
+	 *
+	 * @param string                 $base_dir   Runtime state root.
+	 * @param array<array-key,mixed> $descriptor One worker descriptor.
+	 * @throws \InvalidArgumentException When the descriptor names no type or partition.
+	 */
+	public static function for_descriptor( string $base_dir, array $descriptor ): self {
+		if ( ! isset( $descriptor['type'], $descriptor['partition'] ) ) {
+			throw new \InvalidArgumentException( 'a worker descriptor names its type and partition' );
+		}
+		return new self(
+			$base_dir,
+			Core::as_string( $descriptor['type'] ),
+			Core::as_int( $descriptor['partition'] ),
+			max_runtime: self::max_runtime_of( $descriptor ),
+			stale_timeout: Lock_Node::stale_timeout_of( $descriptor ),
+			on_demand_idle: Bootstrap::on_demand_idle_of( $descriptor )
+		);
+	}
+
+	/**
+	 * Seconds a worker runs before yielding to its successor; 0 never yields.
+	 *
+	 * Only a whole number counts. A descriptor declaring none, or a negative,
+	 * fractional or non-numeric value, takes `DEFAULT_MAX_RUNTIME`: a negative
+	 * budget reads as already spent, and a fraction truncated to 0 would run
+	 * the worker forever.
+	 *
+	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
+	 */
+	public static function max_runtime_of( array $descriptor ): int {
+		$seconds = \filter_var( $descriptor['max_runtime'] ?? null, FILTER_VALIDATE_INT );
+		return \is_int( $seconds ) && $seconds >= 0 ? $seconds : self::DEFAULT_MAX_RUNTIME;
 	}
 
 	/**

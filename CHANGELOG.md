@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A topology sets its workers' lifetime.** `var max_runtime = <seconds>` in a `.tsl`'s frontmatter replaces the 595-second recycle for that topology's workers, and 0 turns it off, so a worker on a workstation runs as long as it likes. A negative or non-numeric value takes the default. It reaches the worker through the catalog entry and each `Bootstrap::expand_workers()` descriptor, and `Worker_Base::for_descriptor()`, new, builds the worker for both the spawn endpoint and `wp nodes run`, which each built it by hand before.
+- **`shutdown`, Tachikoma's verb, in every command interpreter.** It raises the flag SIGTERM raises, so the worker logs `stopping — shutting down` and leaves the way any stop does: it asks for a successor, which the spawn throttle can defer to a peer's scan within 15 seconds of the last spawn, and under `wp nodes run` the process ends. SIGTERM now logs the same line. Like every base verb that changes something, it needs the manage capability.
+
 ## [2.148.0] - 2026-11-06
 
 ### Added

@@ -98,8 +98,8 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Build the `[topology, num_partitions, stale_timeout, on_demand_idle]`
-	 * catalog entry from a topology's frontmatter; null when the name does not
+	 * Build the `[topology, num_partitions, stale_timeout, on_demand_idle,
+	 * max_runtime]` catalog entry from a topology's frontmatter; null when the name does not
 	 * resolve to a `.tsl`.
 	 *
 	 * Every field is read with the VALIDATED `Core::num_int`, matching what
@@ -109,8 +109,10 @@ class Topology_Registry {
 	 * A `num_partitions` or `stale_timeout` declared zero or negative takes the
 	 * caller's default too, because neither can run: zero partitions make no fleet
 	 * at all, and a zero stale timeout makes every worker in the fleet read as
-	 * instantly stale, which is continuous respawn churn. `on_demand_idle` is
-	 * exempt — 0 is its meaningful "stay resident" value.
+	 * instantly stale, which is continuous respawn churn. `on_demand_idle` and
+	 * `max_runtime` are exempt: 0 means "stay resident" for the first and
+	 * "never recycle" for the second, which `Worker_Base::max_runtime_of()`
+	 * reads as a whole number only.
 	 *
 	 * @param string $name                   Topology name.
 	 * @param int    $default_num_partitions Partitions when the frontmatter declares none usable.
@@ -135,6 +137,7 @@ class Topology_Registry {
 			'num_partitions' => $partitions > 0 ? $partitions : $default_num_partitions,
 			'stale_timeout'  => $stale > 0 ? $stale : $default_stale_timeout,
 			'on_demand_idle' => \Newspack_Nodes\Bootstrap::on_demand_idle_of( $front, $default_on_demand_idle ),
+			'max_runtime'    => \Newspack_Nodes\Worker_Base::max_runtime_of( $front ),
 		];
 	}
 
@@ -548,13 +551,7 @@ class Topology_Registry {
 				// The seam accessor, so the HMAC salt matches the runtime.
 				$coordinator   = \Newspack_Nodes\Bootstrap::spawn_coordinator();
 				$topology_name = Core::as_string( $descriptor['topology'] );
-				$wb            = new \Newspack_Nodes\Worker_Base(
-					$base_dir,
-					Core::as_string( $descriptor['type'] ),
-					Core::as_int( $descriptor['partition'] ),
-					stale_timeout: Lock_Node::stale_timeout_of( $descriptor ),
-					on_demand_idle: \Newspack_Nodes\Bootstrap::on_demand_idle_of( $descriptor )
-				);
+				$wb            = \Newspack_Nodes\Worker_Base::for_descriptor( $base_dir, $descriptor );
 				$topology      = static function ( \Newspack_Nodes\Command_Interpreter_Node $interpreter, int $partition_arg ) use ( $topology_name ): void {
 					\Newspack_Nodes\Topology_Loader::load( $topology_name, $partition_arg, $interpreter );
 				};

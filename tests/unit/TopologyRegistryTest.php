@@ -415,6 +415,7 @@ class TopologyRegistryTest extends TestCase {
 				'num_partitions' => 5,
 				'stale_timeout'  => 900,
 				'on_demand_idle' => 0,
+				'max_runtime'    => Worker_Base::DEFAULT_MAX_RUNTIME,
 			],
 			Topology_Registry::synthesize_entry( 'aggregator', 5, 900, 0 )
 		);
@@ -438,6 +439,7 @@ class TopologyRegistryTest extends TestCase {
 				'num_partitions' => 3,
 				'stale_timeout'  => 120,
 				'on_demand_idle' => 0,
+				'max_runtime'    => Worker_Base::DEFAULT_MAX_RUNTIME,
 			],
 			Topology_Registry::synthesize_entry( 'aggregator' )
 		);
@@ -453,6 +455,7 @@ class TopologyRegistryTest extends TestCase {
 				'num_partitions' => 4,
 				'stale_timeout'  => 99,
 				'on_demand_idle' => 0,
+				'max_runtime'    => Worker_Base::DEFAULT_MAX_RUNTIME,
 			],
 			Topology_Registry::synthesize_entry( 'quiet', 4, 99 )
 		);
