@@ -4,7 +4,21 @@
  */
 
 import { render, fireEvent, cleanup } from '@testing-library/react';
+import { useState } from '@wordpress/element';
 import CommitInput from '../CommitInput';
+
+/**
+ * An onChange owner holding what the field reports, and handing it back as
+ * the field's value, trimmed as the field reports it.
+ *
+ * @return {import('react').ReactElement} The owner and its field.
+ */
+function EchoingOwner() {
+	const [ value, setValue ] = useState( '' );
+	return (
+		<CommitInput aria-label="name" value={ value } onChange={ setValue } />
+	);
+}
 
 /**
  * Mount the field inside a parent that records every key reaching it, as a
@@ -288,6 +302,39 @@ describe( 'CommitInput', () => {
 		expect( onChange ).not.toHaveBeenCalled();
 		press( input, 'Enter' );
 		expect( parentKeys ).not.toHaveBeenCalled();
+	} );
+
+	it( 'keeps a draft its owner echoes back trimmed, its trailing space included', () => {
+		const { container } = render( <EchoingOwner /> );
+		const input = container.querySelector( 'input' );
+		type( input, 'Quill L' );
+		type( input, 'Quill ' );
+		expect( input.value ).toBe( 'Quill ' );
+		type( input, 'Quill R' );
+		expect( input.value ).toBe( 'Quill R' );
+	} );
+
+	it( 'clears a refusal when its value comes to spell the draft it kept', () => {
+		const onCommit = jest.fn( () => 'Quill Ledger is already a perch' );
+		const props = { value: 'Quill', onCommit };
+		const { input, container, rerender } = mount( props );
+		type( input, 'Quill Ledger ' );
+		press( input, 'Enter' );
+		expect( container.querySelector( '[role="alert"]' ).textContent ).toBe(
+			'Quill Ledger is already a perch'
+		);
+		rerender( { ...props, value: 'Quill Ledger' } );
+		expect( input.value ).toBe( 'Quill Ledger ' );
+		expect( container.querySelector( '[role="alert"]' ) ).toBeNull();
+	} );
+
+	it( 'drops an open draft for a value that moves elsewhere in onChange mode', () => {
+		const onChange = jest.fn();
+		const { input, rerender } = mount( { value: 'Quill', onChange } );
+		type( input, 'Quill ' );
+		expect( onChange ).toHaveBeenLastCalledWith( 'Quill' );
+		rerender( { value: 'Ledger Quill', onChange } );
+		expect( input.value ).toBe( 'Ledger Quill' );
 	} );
 
 	it( 'drops a draft and its refusal when the value moves', () => {

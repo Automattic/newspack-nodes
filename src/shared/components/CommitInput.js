@@ -124,7 +124,9 @@ const picked = ( event, before, after, suggestions ) => {
  * there is nothing to commit, while Enter in a truly empty box reaches the
  * parent. Escape
  * drops the draft and the refusal, and stops there only when it dropped
- * something. A new `value` drops both too.
+ * something. A new `value` drops both too, but keeps a draft whose own
+ * text trimmed it is, as an `onChange` owner echoing each edit hands it
+ * back, so a space the reader typed or backspaced to stays in the box.
  *
  * Everything else — `id`, `className`, `placeholder`, `aria-label` — goes to
  * the input. A caller's `onKeyDown` runs after the field's own keys, which is
@@ -155,9 +157,14 @@ export default function CommitInput( {
 	// An inline-arrow caller would otherwise re-run the report every render.
 	const onRefusalRef = useRef( onRefusal );
 	onRefusalRef.current = onRefusal;
+	const draftRef = useRef( draft );
+	draftRef.current = draft;
 
+	// An owner echoing the draft's own trimmed text leaves its spaces in place.
 	useEffect( () => {
-		setDraft( null );
+		if ( draftRef.current?.trim() !== value ) {
+			setDraft( null );
+		}
 		setRefusal( null );
 	}, [ value ] );
 

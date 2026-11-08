@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The topology card's rate line and the inspector's telemetry rows are drawn on the shared sparkline geometry.** `NodeCard`'s `sparklinePath()` and `ProcessStats`' inspector path call `sparklinePoints()` and `linePath()` in place of two copies of the same scale-to-the-tallest arithmetic. Neither line moves.
 
+### Fixed
+
+- **`CommitInput` keeps a space its `onChange` owner echoes away.** An owner that hands each trimmed edit back as `value` reset the draft, so backspacing from `Acme B` to `Acme ` left `Acme` in the box and the next letter joined the word. A new `value` that is the draft's own text trimmed now leaves the draft in place, while any other new `value`, such as an outside edit, a pick the owner maps or a reset, still replaces it. Every new `value` still clears the refusal, a kept draft's included.
+
 ## [2.149.1] - 2026-11-07
 
 ### Changed
