@@ -560,6 +560,23 @@
 		}
 	}
 
+	// An inline sparkline: one line in the first chart colour, its latest
+	// value marked in the same colour.
+	.newspack-nodes-sparkline {
+		flex: none;
+		vertical-align: middle;
+
+		path {
+			fill: none;
+			stroke: var(--chart-1, var(--np-chart-1));
+			stroke-width: 1.5;
+		}
+
+		&__latest {
+			fill: var(--chart-1, var(--np-chart-1));
+		}
+	}
+
 	// The legend rows are native buttons without stock WordPress button
 	// paint, as the sortable header cells are: `aria-pressed` carries the
 	// pick, the role paints it, and a list taller than the chart scrolls.

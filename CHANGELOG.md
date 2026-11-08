@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A shared sparkline.** `@newspack-nodes/shared/components/Sparkline` draws a series as one inline line in a box of the pixels it is given, with no axis, legend or frame, its latest value marked, named by the caller's `label` and painted in the first chart colour by the `newspack-nodes-sparkline` role in the shared UI sheet. It draws nothing for an empty series. It is drawn on `@newspack-nodes/shared/utils/sparkline`, whose `sparklinePoints( values, { width, height, left, top, slots } )` scales a series to its tallest value, rests a value at or below zero on the floor and right-aligns a history shorter than its `slots`, and whose `linePath( points )` joins the points as one SVG path, null under two.
+
+### Changed
+
+- **The topology card's rate line and the inspector's telemetry rows are drawn on the shared sparkline geometry.** `NodeCard`'s `sparklinePath()` and `ProcessStats`' inspector path call `sparklinePoints()` and `linePath()` in place of two copies of the same scale-to-the-tallest arithmetic. Neither line moves.
+
 ## [2.149.1] - 2026-11-07
 
 ### Changed

@@ -13,6 +13,10 @@ import {
 	formatBytes,
 	formatGroupedCount,
 } from '@newspack-nodes/shared/utils/formatters';
+import {
+	linePath,
+	sparklinePoints,
+} from '@newspack-nodes/shared/utils/sparkline';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 import { FieldRow, Section } from './InspectorFields';
@@ -83,21 +87,9 @@ export function formatActivityWindow( nodeCount ) {
  * @return {?string} An SVG path, or null for fewer than two samples.
  */
 function inspectorSparklinePath( history, width, height ) {
-	if ( ! history || history.length < 2 ) {
-		return null;
-	}
-	const max = Math.max( ...history, 1e-9 );
-	const step = width / ( history.length - 1 );
 	return history
-		.map( ( v, i ) => {
-			const safeV = v > 0 ? v : 0;
-			const x = i * step;
-			const y = height - ( safeV / max ) * height;
-			return `${ i === 0 ? 'M' : 'L' } ${ x.toFixed( 2 ) },${ y.toFixed(
-				2
-			) }`;
-		} )
-		.join( ' ' );
+		? linePath( sparklinePoints( history, { width, height } ) )
+		: null;
 }
 
 /**

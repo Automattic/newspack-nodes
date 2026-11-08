@@ -9,6 +9,10 @@
 import { memo, useId } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
+import {
+	linePath,
+	sparklinePoints,
+} from '@newspack-nodes/shared/utils/sparkline';
 import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 
 /**
@@ -181,23 +185,18 @@ const SPARK_H = 16;
  * @return {?string} An SVG path `d`, or null under two samples — one point makes no line.
  */
 export function sparklinePath( history ) {
-	if ( ! history || history.length < 2 ) {
+	if ( ! history ) {
 		return null;
 	}
-	const max = Math.max( ...history, 1e-9 );
-	const step = SPARK_W / ( RATE_HISTORY_MAX - 1 );
-	const startIdx = RATE_HISTORY_MAX - history.length;
-	return history
-		.map( ( v, i ) => {
-			// Clamp negatives (counter reset) so they don't plot below the box.
-			const safeV = v > 0 ? v : 0;
-			const x = SPARK_X + ( startIdx + i ) * step;
-			const y = SPARK_Y + SPARK_H - ( safeV / max ) * SPARK_H;
-			return `${ i === 0 ? 'M' : 'L' } ${ x.toFixed( 2 ) },${ y.toFixed(
-				2
-			) }`;
+	return linePath(
+		sparklinePoints( history, {
+			width: SPARK_W,
+			height: SPARK_H,
+			left: SPARK_X,
+			top: SPARK_Y,
+			slots: RATE_HISTORY_MAX,
 		} )
-		.join( ' ' );
+	);
 }
 
 /**
