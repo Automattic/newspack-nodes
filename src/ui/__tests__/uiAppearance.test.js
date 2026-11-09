@@ -859,6 +859,63 @@ describe( 'canonical UI appearance', () => {
 		} );
 	} );
 
+	// @longform wp-admin sets `.wrap h1` (0,1,1) with its own size, weight,
+	// margin and padding, and the Intelligence page mounts inside `.wrap`.
+	it( 'sets the page title on the type scale, past wp-admin `.wrap h1`', () => {
+		const selector = '.topology-header > .topology-page-title';
+		const paintSelector = `${ CUSTOM_UI_ROOT } ${ selector }`;
+		const paint = exactSelectorRule( paintSelector );
+		expect(
+			compareSpecificity(
+				customRoleSpecificity( paintSelector ),
+				[ 0, 1, 1 ]
+			)
+		).toBeGreaterThan( 0 );
+		expect( paint?.declarations ).toMatchObject( {
+			'font-size': 'var(--np-text-l)',
+			'line-height': 'var(--np-lh-l)',
+			'font-weight': '600',
+		} );
+
+		const graphView = path.join(
+			ROOT,
+			'src/topology-console/styles/graph-view.scss'
+		);
+		let geometry;
+		postcss
+			.parse( sass.compile( graphView ).css, { from: graphView } )
+			.walkRules( ( rule ) => {
+				if ( normalize( rule.selector ) === selector ) {
+					geometry = declarations( rule );
+				}
+			} );
+		expect(
+			compareSpecificity( stateSpecificity( selector ), [ 0, 1, 1 ] )
+		).toBeGreaterThan( 0 );
+		expect( geometry ).toMatchObject( {
+			'align-self': 'center',
+			margin: '0',
+			padding: '0',
+		} );
+	} );
+
+	it( 'gives the narrow tab bar its one select at the full bar width', () => {
+		const tabHost = path.join( ROOT, 'src/shared/tabs/TabHost.scss' );
+		const found = {};
+		postcss
+			.parse( sass.compile( tabHost ).css, { from: tabHost } )
+			.walkRules( ( rule ) => {
+				found[ normalize( rule.selector ) ] = declarations( rule );
+			} );
+		expect( found[ '.nodes-tab-host__tabbar.is-narrow' ] ).toEqual( {
+			padding: 'var(--np-space-sm) var(--np-space-md)',
+		} );
+		expect( found[ '.nodes-tab-host__tabbar.is-narrow > *' ] ).toEqual( {
+			flex: '1 1 auto',
+			'min-width': '0',
+		} );
+	} );
+
 	it( 'owns native option paint in canonical controls', () => {
 		const option = exactSelectorRule( `${ UI_ROOT } select option` );
 

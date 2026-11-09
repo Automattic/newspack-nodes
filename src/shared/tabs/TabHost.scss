@@ -4,6 +4,16 @@
 	padding: 6px 10px 0;
 }
 
+// Under NARROW_PX the bar holds one select, as wide as the bar allows.
+.nodes-tab-host__tabbar.is-narrow {
+	padding: var(--np-space-sm) var(--np-space-md);
+
+	> * {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+}
+
 // The active tab's content region. Scrolls vertically by default so a long
 // list tab stays usable inside a fixed-height host; a flex child so it claims
 // the space below the tab bar. `is-full-bleed` is for a tab that manages its

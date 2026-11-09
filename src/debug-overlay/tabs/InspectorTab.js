@@ -20,6 +20,7 @@ import {
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
+import useNarrow from '../../shared/hooks/useNarrow';
 import { subscribeTabs, getTabsVersion } from '../../shared/tabs/tabRegistry';
 import { Core } from '../../runtime/core';
 import CanvasFrame from '../../topology-console/components/CanvasFrame';
@@ -126,7 +127,9 @@ export default function InspectorTab( {
 		getTabsVersion,
 		getTabsVersion
 	);
-	useEffect( measureTabBar, [ measureTabBar, tabsVersion ] );
+	// The bar folds into a select under NARROW_PX, at another height.
+	const narrow = useNarrow();
+	useEffect( measureTabBar, [ measureTabBar, tabsVersion, narrow ] );
 	useContainerRefit(
 		// The tab bar is the content pane's previous sibling, not a ref.
 		() =>

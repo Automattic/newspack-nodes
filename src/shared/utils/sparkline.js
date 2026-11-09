@@ -23,13 +23,21 @@ const PEAK_FLOOR = 1e-9;
  * @param {number}   [box.left]  Its left edge; 0 by default.
  * @param {number}   [box.top]   Its top edge; 0 by default.
  * @param {number}   [box.slots] The places across it; one per value by default.
+ * @param {number}   [box.peak]  The value its top stands for; the tallest value by default.
  * @return {Array<[number, number]>} Each value's x and y, oldest first.
  */
 export function sparklinePoints(
 	values,
-	{ width, height, left = 0, top = 0, slots = values.length }
+	{
+		width,
+		height,
+		left = 0,
+		top = 0,
+		slots = values.length,
+		peak: ceiling = Math.max( ...values ),
+	}
 ) {
-	const peak = Math.max( ...values, PEAK_FLOOR );
+	const peak = Math.max( ceiling, PEAK_FLOOR );
 	const step = 1 < slots ? width / ( slots - 1 ) : 0;
 	const first = slots - values.length;
 	return values.map( ( value, i ) => [

@@ -15,6 +15,7 @@ jest.mock( '../../hooks/useTimeChart', () => ( {
 import { render, fireEvent, act } from '@testing-library/react';
 import { MARGIN, setupTooltip } from '../../hooks/useTimeChart';
 import AreaTimeChart from '../AreaTimeChart';
+import { installViewport } from '../../test-utils/viewportWidth';
 
 const HEIGHT = 200;
 const KEY = 'test:area-chart';
@@ -527,5 +528,198 @@ describe( 'AreaTimeChart empty stretches', () => {
 		} );
 		const [ , band ] = bands( container );
 		expect( subpaths( band ) ).toBe( 1 );
+	} );
+} );
+
+describe( 'AreaTimeChart controls', () => {
+	it( 'names every corner control, keeping the stack label while its state flips', () => {
+		const { container } = mount();
+		const corner = [
+			...container.querySelectorAll(
+				'.newspack-nodes-chart__corner button'
+			),
+		];
+		expect( corner.map( ( b ) => b.getAttribute( 'aria-label' ) ) ).toEqual(
+			[ 'Stack Backlog', 'Expand Backlog' ]
+		);
+		act( () => fireEvent.click( stackButton( container ) ) );
+		expect( stackButton( container ).getAttribute( 'aria-label' ) ).toBe(
+			'Stack Backlog'
+		);
+		expect( stackButton( container ).getAttribute( 'aria-pressed' ) ).toBe(
+			'true'
+		);
+	} );
+} );
+
+describe( 'AreaTimeChart on a narrow screen', () => {
+	let viewport;
+	const answer = ( matches ) => {
+		viewport = installViewport( matches );
+	};
+	afterEach( () => viewport?.restore() );
+
+	it( 'puts the legend below the plot, following it in DOM order', () => {
+		answer( true );
+		const { container } = mount();
+		const row = container.querySelector( '.newspack-nodes-chart__row' );
+		expect( row.classList.contains( 'is-narrow' ) ).toBe( true );
+		const plot = row.querySelector( '.newspack-nodes-chart__plot' );
+		expect( plot.nextElementSibling.className ).toBe(
+			'newspack-nodes-chart-legend'
+		);
+	} );
+
+	it( 'keeps the legend beside the plot on a wide screen', () => {
+		answer( false );
+		const { container } = mount();
+		const row = container.querySelector( '.newspack-nodes-chart__row' );
+		expect( row.classList.contains( 'is-narrow' ) ).toBe( false );
+	} );
+} );
+
+describe( 'AreaTimeChart with a partial bucket', () => {
+	// jsdom lays nothing out, so `openFrame` falls back to 800px.
+	const INNER_W = 800 - MARGIN.left - MARGIN.right;
+	const weeks = [ '2026-10-12', '2026-10-19', '2026-10-26' ].map(
+		( day ) => new Date( day )
+	);
+	const seriesOver = ( label, counts ) => ( {
+		label,
+		values: weeks.map( ( date, i ) => ( { date, value: counts[ i ] } ) ),
+	} );
+	const weekly = [ seriesOver( 'offboarding', [ 3, 5, 4 ] ) ];
+	const pair = [ ...weekly, seriesOver( 'awards', [ 1, 2, 1 ] ) ];
+	const PARTIAL = {
+		bucket: '2026-11-02',
+		count: 11,
+		label: 'so far, week of 2 Nov',
+	};
+	const partialBar = ( container ) =>
+		container.querySelectorAll( '.newspack-nodes-chart__partial' );
+	const labelOf = ( container ) =>
+		container.querySelector( '.newspack-nodes-chart__partial-label' );
+	const xsOf = ( path ) =>
+		[
+			...path.getAttribute( 'd' ).matchAll( /(-?[\d.]+),(-?[\d.]+)/g ),
+		].map( ( m ) => Number( m[ 1 ] ) );
+	const stackedWith = ( props ) =>
+		mount( { stacked: true, partial: PARTIAL, ...props } );
+
+	it( 'draws one hatched bar at its count, labelled in the caller’s words', () => {
+		const { container } = stackedWith( { series: weekly } );
+		const bars = partialBar( container );
+		expect( bars ).toHaveLength( 1 );
+		const [ bar ] = bars;
+		const fill = /^url\(#(.+)\)$/.exec( bar.getAttribute( 'fill' ) );
+		const pattern = container.querySelector(
+			`pattern[id="${ fill[ 1 ] }"]`
+		);
+		expect( pattern.getAttribute( 'patternTransform' ) ).toBe(
+			'rotate(45)'
+		);
+		expect( Number( bar.getAttribute( 'y' ) ) ).toBeCloseTo( CEILING, 3 );
+		expect(
+			Number( bar.getAttribute( 'y' ) ) +
+				Number( bar.getAttribute( 'height' ) )
+		).toBeCloseTo( INNER_H, 3 );
+		expect( labelOf( container ).textContent ).toBe(
+			'so far, week of 2 Nov'
+		);
+	} );
+
+	it( 'centres the hatch line in its tile', () => {
+		const { container } = stackedWith( { series: weekly } );
+		const pattern = container.querySelector( 'pattern' );
+		const line = pattern.querySelector( 'line' );
+		const half = Number( pattern.getAttribute( 'width' ) ) / 2;
+		expect(
+			[ 'x1', 'x2' ].map( ( name ) =>
+				Number( line.getAttribute( name ) )
+			)
+		).toEqual( [ half, half ] );
+	} );
+
+	it( 'ends the bar at its bucket, its label anchored there, inside the plot', () => {
+		const { container } = stackedWith( { series: weekly } );
+		const [ bar ] = partialBar( container );
+		const right =
+			Number( bar.getAttribute( 'x' ) ) +
+			Number( bar.getAttribute( 'width' ) );
+		expect( right ).toBeCloseTo( INNER_W, 3 );
+		expect( right ).toBeLessThanOrEqual( INNER_W );
+		const label = labelOf( container );
+		expect( Number( label.getAttribute( 'x' ) ) ).toBeCloseTo( right, 3 );
+		expect( Number( label.getAttribute( 'x' ) ) ).toBeLessThanOrEqual(
+			INNER_W
+		);
+		expect( label.style.textAnchor ).toBe( 'end' );
+	} );
+
+	it( 'titles the bar with the caller’s label and the count', () => {
+		const { container } = stackedWith( { series: weekly } );
+		expect(
+			partialBar( container )[ 0 ].querySelector( 'title' ).textContent
+		).toBe( 'so far, week of 2 Nov: 11u' );
+	} );
+
+	it( 'draws the bar unlabelled when the caller names no label', () => {
+		const { container } = stackedWith( {
+			series: weekly,
+			partial: { bucket: '2026-11-02', count: 11 },
+		} );
+		const bars = partialBar( container );
+		expect( bars ).toHaveLength( 1 );
+		expect( labelOf( container ) ).toBeNull();
+		expect( bars[ 0 ].querySelector( 'title' ).textContent ).toBe( '11u' );
+		expect( container.querySelector( 'svg' ).textContent ).not.toContain(
+			'this week'
+		);
+	} );
+
+	it( 'ends the line at the last complete bucket, before the bar', () => {
+		const { container } = stackedWith( { series: weekly } );
+		const [ bar ] = partialBar( container );
+		const [ band ] = bands( container );
+		expect( Math.max( ...xsOf( band ) ) ).toBeLessThan(
+			Number( bar.getAttribute( 'x' ) )
+		);
+		// The partial bucket is never a slot a tooltip or a click reads.
+		expect( setupTooltip.mock.calls.at( -1 )[ 1 ].dates ).toEqual( weeks );
+	} );
+
+	it( 'draws a bar over a stack of every series', () => {
+		const { container } = stackedWith( { series: pair } );
+		expect( partialBar( container ) ).toHaveLength( 1 );
+	} );
+
+	it( 'hides the bar while overlaid, and leaves it out of the peak', () => {
+		const { container } = mount( { series: weekly, partial: PARTIAL } );
+		expect( partialBar( container ) ).toHaveLength( 0 );
+		expect( container.querySelector( 'pattern' ) ).toBeNull();
+		expect( highestPoint( bands( container )[ 0 ] ) ).toBeCloseTo(
+			CEILING,
+			3
+		);
+	} );
+
+	it( 'hides the bar while a pick leaves a series out, and leaves it out of the peak', () => {
+		const { container } = stackedWith( { series: pair } );
+		act( () =>
+			fireEvent.click(
+				container.querySelector( '.newspack-nodes-chart-legend button' )
+			)
+		);
+		expect( partialBar( container ) ).toHaveLength( 0 );
+		expect( highestPoint( bands( container )[ 0 ] ) ).toBeCloseTo(
+			CEILING,
+			3
+		);
+	} );
+
+	it( 'draws no bar without a partial bucket', () => {
+		const { container } = mount( { series: weekly, stacked: true } );
+		expect( partialBar( container ) ).toHaveLength( 0 );
+		expect( container.querySelector( 'pattern' ) ).toBeNull();
 	} );
 } );

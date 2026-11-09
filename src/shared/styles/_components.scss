@@ -480,7 +480,14 @@
 	// plot beside its legend, and the tooltip. The tooltip measures against
 	// the row but is positioned by the chart, so a flip clears the title.
 	.newspack-nodes-chart {
+		$control: 24px;
+		$corner-gap: 2px;
+
+		// As tall as a corner control and inset past both, so none covers it.
 		&__title {
+			min-height: $control;
+			padding-inline: 2 * $control + $corner-gap;
+			line-height: $control;
 			margin: 0 0 4px;
 			font-size: 12px;
 			font-weight: 600;
@@ -492,6 +499,17 @@
 			display: flex;
 			align-items: flex-start;
 			gap: 8px;
+
+			// Narrow, the legend wraps below the plot it follows in the DOM.
+			&.is-narrow {
+				flex-direction: column;
+				align-items: stretch;
+
+				.newspack-nodes-chart-legend {
+					flex: none;
+					width: 100%;
+				}
+			}
 		}
 
 		&__plot {
@@ -519,12 +537,17 @@
 			top: 0;
 			right: 0;
 			display: flex;
-			gap: 2px;
+			gap: $corner-gap;
 		}
 
 		// Bare icon buttons, lit while the bands stack or the chart expands.
 		&__stack,
 		&__expand {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: $control;
+			min-height: $control;
 			padding: 2px;
 			background: transparent;
 			border: 0;
@@ -541,6 +564,22 @@
 			&[aria-expanded="true"] {
 				color: var(--cyan-text, var(--np-text));
 			}
+		}
+
+		// The bucket still filling: a hatched bar in secondary ink, labelled.
+		&__partial {
+			stroke: var(--ink-3, var(--np-text-secondary));
+			stroke-width: 1;
+		}
+
+		&__partial-hatch {
+			stroke: var(--ink-3, var(--np-text-secondary));
+			stroke-width: 1.5;
+		}
+
+		&__partial-label {
+			fill: var(--ink-3, var(--np-text-secondary));
+			font-size: 10px;
 		}
 
 		// The caller's selected slots, shaded beneath the bands.
@@ -560,20 +599,25 @@
 		}
 	}
 
-	// An inline sparkline: one line in the first chart colour, its latest
-	// value marked in the same colour.
+	// An inline sparkline: one line in the secondary ink, its latest value in
+	// the accent, the usual range behind it in the accent's wash.
 	.newspack-nodes-sparkline {
 		flex: none;
 		vertical-align: middle;
 
 		path {
 			fill: none;
-			stroke: var(--chart-1, var(--np-chart-1));
+			stroke: var(--ink-3, var(--np-text-secondary));
 			stroke-width: 1.5;
+			stroke-linecap: round;
+		}
+
+		&__band {
+			fill: var(--cyan-subtle, var(--np-primary-subtle));
 		}
 
 		&__latest {
-			fill: var(--chart-1, var(--np-chart-1));
+			fill: var(--cyan, var(--np-primary));
 		}
 	}
 
@@ -597,6 +641,8 @@
 			align-items: center;
 			gap: 8px;
 			width: 100%;
+			min-width: 24px;
+			min-height: 24px;
 			padding: 2px 4px;
 			background: transparent;
 			border: 0;

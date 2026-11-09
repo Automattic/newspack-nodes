@@ -297,7 +297,7 @@ The center of it is **`TabHost`** ([`src/shared/tabs/TabHost.js`](../src/shared/
 
 The routing `host` is applied *after* `tabProps` spreads, so a caller cannot hand a tab the wrong surface even by putting `host` in `tabProps`.
 
-The bar itself is **`TabBar`** ([`src/shared/tabs/TabBar.js`](../src/shared/tabs/TabBar.js)), the WAI-ARIA tablist with arrow, Home and End keys. A page that holds its own view state, as the Intelligence page does, renders `TabBar` directly beside one panel of its own, whose `id` is `panelDomId( scope )` and whose `aria-labelledby` is `tabDomId( scope, activeId )`.
+The bar itself is **`TabBar`** ([`src/shared/tabs/TabBar.js`](../src/shared/tabs/TabBar.js)), the WAI-ARIA tablist with arrow, Home and End keys. Under `NARROW_PX` (600 px, from `@newspack-nodes/shared/hooks/useNarrow`) it renders one select labelled "View" instead, in the same `.nodes-tab-host__tabbar` wrapper, and focus inside the bar follows it across the breakpoint. A page that holds its own view state, as the Intelligence page does, renders `TabBar` directly beside one panel of its own, and spreads `useTabPanelProps( scope, activeId, shown )` onto it: a shown, wide bar's panel is a `tabpanel` labelled by the selected tab, and otherwise the panel carries only its `id`, which the select's `aria-controls` names.
 
 A tab is a descriptor in the registry ([`src/shared/tabs/tabRegistry.js`](../src/shared/tabs/tabRegistry.js)). `id`, `label`, `host` and `component` are required; `order`, `slug`, `param`, `gate`, `icon` and `fullBleed` are optional:
 

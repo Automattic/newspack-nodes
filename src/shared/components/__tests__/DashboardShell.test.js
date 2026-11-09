@@ -224,4 +224,85 @@ describe( 'DashboardShell', () => {
 		);
 		unmount();
 	} );
+
+	describe( 'with a title', () => {
+		// A version distinct from every default; jsdom fixes the host.
+		const VERSION = '9.8.7-probe';
+		const HOST = window.location.hostname;
+		// @longform Header reads the version as it loads, so the shell and the
+		// React beside it load again here, while the suite is still collected.
+		const savedData = window.NewspackNodesData;
+		window.NewspackNodesData = { version: VERSION };
+		let isolated;
+		jest.isolateModules( () => {
+			isolated = {
+				Shell: require( '../DashboardShell' ).default,
+				h: require( 'react' ).createElement,
+				portal: require( 'react-dom' ).createPortal,
+				render: require( '@testing-library/react' ).render,
+			};
+		} );
+		window.NewspackNodesData = savedData;
+
+		const renderShell = ( props ) =>
+			isolated.render(
+				isolated.h( isolated.Shell, {
+					storageKey: 'newspack-nodes:debug:probe-shell',
+					overflowY: 'auto',
+					children: () => null,
+					...props,
+				} )
+			);
+
+		it( 'titles the page with one h1 naming it', () => {
+			const { container, unmount } = renderShell( {
+				title: 'Probe Desk',
+			} );
+			const headings = container.querySelectorAll( 'h1' );
+			expect( headings ).toHaveLength( 1 );
+			expect( headings[ 0 ].textContent ).toBe( 'Probe Desk' );
+			expect(
+				container
+					.querySelector( '.topology-header' )
+					.contains( headings[ 0 ] )
+			).toBe( true );
+			unmount();
+		} );
+
+		it( 'leaves the version and the host to the debug overlay', () => {
+			const { container, unmount } = renderShell( {
+				title: 'Probe Desk',
+			} );
+			const header = container.querySelector( '.topology-header' );
+			expect( header.textContent ).not.toContain( VERSION );
+			expect( header.textContent ).not.toContain( HOST );
+			expect( header.querySelector( '.topology-brand' ) ).toBeNull();
+			unmount();
+		} );
+
+		it( 'stamps both beside a subtitle, so their absence above is the title', () => {
+			const { container, unmount } = renderShell( {
+				subtitle: 'Probe Surface',
+			} );
+			const header = container.querySelector( '.topology-header' );
+			expect( header.textContent ).toContain( VERSION );
+			expect( header.textContent ).toContain( HOST );
+			expect( container.querySelector( 'h1' ) ).toBeNull();
+			unmount();
+		} );
+
+		it( "keeps the header's right side a slot the page fills", () => {
+			const { container, unmount } = renderShell( {
+				title: 'Probe Desk',
+				children: ( slot ) =>
+					slot ? isolated.portal( 'SLOT_MARKER', slot ) : null,
+			} );
+			const slot = container.querySelector(
+				'.topology-header > .topology-header__controls'
+			);
+			expect( slot.textContent ).toBe( 'SLOT_MARKER' );
+			expect( slot.previousElementSibling.tagName ).toBe( 'H1' );
+			unmount();
+		} );
+	} );
 } );

@@ -7,7 +7,9 @@
  * ONE wordmark, `NEWSPACK::NODES`, whatever the host: the subtitle names the
  * SURFACE and the version stamps the plugin that owns it, so a reader learns
  * which page they are on and which release put it there without a second brand
- * competing with the first.
+ * competing with the first. A consumer's page that names itself passes a
+ * `title` instead, which takes the brand's place as the page's one `h1`; the
+ * debug overlay's own header still stamps the version and the host.
  *
  * The brand and the controls are exported separately so ONE header can serve
  * every tab of a host: `HeaderControls` is the control cluster alone, which a
@@ -307,10 +309,11 @@ export function HeaderControls( {
  * cluster inline or the empty slot the active tab portals its own controls
  * into. A host picks one of those two, never both.
  *
- * Props other than the three below are forwarded to `HeaderControls`, so a
+ * Props other than the four below are forwarded to `HeaderControls`, so a
  * caller rendering inline configures the cluster through this component.
  *
  * @param {Object}          props
+ * @param {string}          [props.title]           The page's own name, rendered as its `h1` in place of the brand, the subtitle, the version and the host.
  * @param {boolean}         [props.showBrand]       Render the brand + subtitle (default true).
  * @param {boolean}         [props.showControls]    Render the controls cluster inline (default true).
  * @param {string}          [props.subtitle]        Names the SURFACE this header rides, not the tab open on it — a shared header outlives any one tab. There is no default: a shared component cannot name one host's surface for another, and a wrong name is worse than none.
@@ -318,6 +321,7 @@ export function HeaderControls( {
  * @return {import('react').ReactElement} The header.
  */
 export default function Header( {
+	title = '',
 	showBrand = true,
 	showControls = true,
 	subtitle = '',
@@ -326,7 +330,8 @@ export default function Header( {
 } ) {
 	return (
 		<header className="topology-header">
-			{ showBrand && (
+			{ title && <h1 className="topology-page-title">{ title }</h1> }
+			{ ! title && showBrand && (
 				<>
 					<div className="topology-brand">
 						NEWSPACK

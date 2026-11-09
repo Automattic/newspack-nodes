@@ -13,6 +13,7 @@ import {
 	TM_ERROR,
 } from '../../runtime/message';
 import { replMaxHeight, measureTabBarHeight } from '../tabs/InspectorTab';
+import { installViewport } from '../../shared/test-utils/viewportWidth';
 
 // mock-prefixed holder: a ref the jest.mock factory can close over.
 const mockCaptured = { consoleShell: null, modal: null };
@@ -254,6 +255,48 @@ describe( 'InspectorTab interactions', () => {
 			expect( disconnect ).toHaveBeenCalled();
 		} finally {
 			delete window.ResizeObserver;
+			document.body.removeChild( tabbar );
+			document.body.removeChild( content );
+		}
+	} );
+
+	// @longform The bar changes height when it folds into a select, which
+	// resizes no window and may resize nothing the observer was given.
+	it( 'measures the tab bar again when it crosses the narrow breakpoint', () => {
+		const viewport = installViewport( false );
+		const tabbar = document.createElement( 'div' );
+		tabbar.className = 'nodes-tab-host__tabbar';
+		let barHeight = 41;
+		Object.defineProperty( tabbar, 'offsetHeight', {
+			get: () => barHeight,
+		} );
+		const content = document.createElement( 'div' );
+		content.className = 'nodes-tab-host__tab-content';
+		document.body.appendChild( tabbar );
+		document.body.appendChild( content );
+
+		try {
+			mountExospine();
+			const InspectorTab = require( '../tabs/InspectorTab' ).default;
+			render(
+				<InspectorTab
+					host="overlay"
+					storageKey="k"
+					frame={ { h: 600, w: 800 } }
+				/>,
+				{ container: content }
+			);
+			expect( mockCaptured.consoleShell.replProps.maxHeightPx ).toBe(
+				replMaxHeight( 600, 41 )
+			);
+
+			barHeight = 67;
+			act( () => viewport.setNarrow( true ) );
+			expect( mockCaptured.consoleShell.replProps.maxHeightPx ).toBe(
+				replMaxHeight( 600, 67 )
+			);
+		} finally {
+			viewport.restore();
 			document.body.removeChild( tabbar );
 			document.body.removeChild( content );
 		}

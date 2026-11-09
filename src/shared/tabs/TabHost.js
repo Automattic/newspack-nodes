@@ -31,7 +31,7 @@ import {
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { getTabs, subscribeTabs, getTabsVersion } from './tabRegistry';
-import TabBar, { tabDomId, panelDomId } from './TabBar';
+import TabBar, { useTabPanelProps } from './TabBar';
 import { getQueryParam, setQueryParam } from '../utils/queryParams';
 import './TabHost.scss';
 
@@ -124,11 +124,12 @@ export default function TabHost( {
 		onActiveTabChange?.( resolvedId );
 	}, [ resolvedId, onActiveTabChange ] );
 
+	const hasBar = tabs.length > 1;
+	const panelProps = useTabPanelProps( host, active?.id, hasBar );
+
 	if ( ! Active ) {
 		return emptyState;
 	}
-
-	const hasBar = tabs.length > 1;
 
 	/**
 	 * Select a tab, and retire the deep link so it never overrides the choice.
@@ -158,11 +159,7 @@ export default function TabHost( {
 				/>
 			) }
 			<div
-				id={ panelDomId( host ) }
-				role={ hasBar ? 'tabpanel' : undefined }
-				aria-labelledby={
-					hasBar ? tabDomId( host, active.id ) : undefined
-				}
+				{ ...panelProps }
 				className={ `nodes-tab-host__tab-content${
 					active.fullBleed ? ' is-full-bleed' : ''
 				}` }

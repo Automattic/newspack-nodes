@@ -18,7 +18,9 @@ export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
  *
  * The header is the shared one, so a dashboard reads as the same product as
  * the station: one `NEWSPACK::NODES` wordmark, and a subtitle naming which
- * surface you are on.
+ * surface you are on. A page that names itself passes a `title` instead,
+ * which becomes the page's one `h1` in the wordmark's place; the version and
+ * the host then show only in the debug overlay's own header.
  *
  * It also owns the ONE controls slot, exactly as the station does, and hands
  * it to `children` — a function, because the state behind those controls lives
@@ -67,7 +69,8 @@ export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
  * @param {string}                                        props.storageKey
  *                                                                              Debug-overlay key; scopes the persisted panel layout to this page, so
  *                                                                              two dashboards may never share one.
- * @param {string}                                        props.subtitle        Names this dashboard in the header, beside the one shared wordmark.
+ * @param {string}                                        [props.title]         The page's name, its one `h1`, in place of the wordmark and the subtitle.
+ * @param {string}                                        [props.subtitle]      Names this dashboard in the header, beside the one shared wordmark.
  * @param {import('react').CSSProperties['overflowY']}    props.overflowY       Vertical overflow for the scrolling area below the header.
  * @param {(slot: ?Element) => import('react').ReactNode} props.children        Called with the header's controls slot — null until it mounts — and returns the dashboard root(s) to frame.
  * @param {string}                                        [props.askDescriptor] The `?` picker descriptor for the page itself, on the scrolling area the ring traces. A page with no brief of its own passes none and stays unaskable.
@@ -75,6 +78,7 @@ export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
  */
 export default function DashboardShell( {
 	storageKey,
+	title,
 	subtitle,
 	overflowY,
 	askDescriptor = '',
@@ -106,6 +110,7 @@ export default function DashboardShell( {
 				} }
 			>
 				<Header
+					title={ title }
 					subtitle={ subtitle }
 					controlsSlotRef={ setHeaderControlsSlot }
 				/>

@@ -1908,6 +1908,18 @@
 	flex-shrink: 0;
 }
 
+// The child combinator outranks wp-admin's `.wrap h1` (0,1,1).
+.topology-header > .topology-page-title {
+	align-self: center;
+	margin: 0;
+	padding: 0;
+	// Yields width to the controls as the subtitle does, clipping past it.
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .topology-subtitle {
 	align-self: center;
 	padding-left: 16px;

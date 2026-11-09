@@ -1,6 +1,7 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import TabHost from '../TabHost';
 import { registerTab, resetTabs } from '../tabRegistry';
+import { installViewport } from '../../test-utils/viewportWidth';
 import fs from 'fs';
 import path from 'path';
 
@@ -449,6 +450,26 @@ describe( 'TabHost', () => {
 			expect( panel.getAttribute( 'aria-labelledby' ) ).toBe(
 				tabs[ 0 ].id
 			);
+		} );
+
+		it( 'leaves a narrow panel its id alone, which the select controls', () => {
+			registerTrio();
+			const viewport = installViewport( true );
+			try {
+				const { container, getByLabelText, queryByRole } = render(
+					<TabHost host="station" />
+				);
+				const panel = container.querySelector(
+					'.nodes-tab-host__tab-content'
+				);
+				expect( queryByRole( 'tabpanel' ) ).toBeNull();
+				expect( panel.hasAttribute( 'aria-labelledby' ) ).toBe( false );
+				expect(
+					getByLabelText( 'View' ).getAttribute( 'aria-controls' )
+				).toBe( panel.id );
+			} finally {
+				viewport.restore();
+			}
 		} );
 
 		it( 'roves tabindex: only the active tab is tabbable', () => {

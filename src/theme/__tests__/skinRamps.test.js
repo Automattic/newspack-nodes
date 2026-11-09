@@ -130,6 +130,7 @@ const NP_CHART_OVERRIDES = Object.fromEntries(
 const ALLOWED_DERIVED_OVERRIDES = {
 	newspack: {
 		...NP_CHART_OVERRIDES,
+		'--cyan-subtle': 'var(--np-primary-subtle)',
 		'--font-terminal': 'var(--np-font-mono)',
 		'--modal-radius': 'var(--np-radius-md)',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
@@ -138,6 +139,7 @@ const ALLOWED_DERIVED_OVERRIDES = {
 	},
 	'newspack-brand': {
 		...NP_CHART_OVERRIDES,
+		'--cyan-subtle': 'var(--np-primary-subtle)',
 		'--font-terminal': '"jetbrains mono", ui-monospace, monospace',
 		'--modal-radius': 'var(--np-radius-md)',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
@@ -2975,14 +2977,171 @@ describe( "WordPress's accent follows the skin", () => {
 	);
 
 	it.each( NEWSPACK_SKINS )(
-		"%s takes its accent from WordPress's admin color scheme",
+		'%s binds its accent wash to the spec’s Cobalt wash',
 		( slug ) => {
-			expect( skinMaps.get( slug ) ).toMatchObject( {
-				'--cyan': 'var(--wp-admin-theme-color)',
-				'--cyan-dark': 'var(--wp-admin-theme-color-darker-10)',
-			} );
+			expect( skinMaps.get( slug )[ '--cyan-subtle' ] ).toBe(
+				'var(--np-primary-subtle)'
+			);
+			expect(
+				resolvedColor( effectiveSkin( slug ), '--cyan-subtle' )
+			).toEqual( parseColor( '#dfe7f4' ) );
 		}
 	);
+
+	it.each( NEWSPACK_SKINS )(
+		'%s binds its accent to Cobalt, whatever the admin color scheme',
+		( slug ) => {
+			expect( skinMaps.get( slug ) ).toMatchObject( {
+				'--cyan': 'var(--np-primary)',
+				'--cyan-dark': 'var(--np-primary-hover)',
+			} );
+			for ( const scheme of Object.keys( WP_ADMIN_SCHEMES ) ) {
+				const skin = effectiveSkin( slug, scheme );
+				expect( [
+					scheme,
+					resolvedColor( skin, '--cyan' ),
+					resolvedColor( skin, '--cyan-dark' ),
+				] ).toEqual( [
+					scheme,
+					parseColor( '#003da5' ),
+					parseColor( '#00296e' ),
+				] );
+			}
+		}
+	);
+} );
+
+describe( 'The chart and sparkline roles', () => {
+	/**
+	 * Every declaration the UI sheet gives a role, merged in source order.
+	 *
+	 * @param {string} suffix The selector's end, after the UI scope.
+	 * @return {Object} Property => value.
+	 */
+	const role = ( suffix ) =>
+		Object.assign(
+			{},
+			...uiRules
+				.filter( ( rule ) =>
+					rule.selectors.some( ( selector ) =>
+						selector.endsWith( suffix )
+					)
+				)
+				.map( ( rule ) => rule.declarations )
+		);
+
+	it( 'marks the latest point in the accent and the band in its wash', () => {
+		expect( role( '.newspack-nodes-sparkline__latest' ).fill ).toBe(
+			'var(--cyan, var(--np-primary))'
+		);
+		expect( role( '.newspack-nodes-sparkline__band' ).fill ).toBe(
+			'var(--cyan-subtle, var(--np-primary-subtle))'
+		);
+	} );
+
+	it( 'draws the sparkline line in the secondary ink, Graphite by default', () => {
+		expect( role( '.newspack-nodes-sparkline path' ).stroke ).toBe(
+			'var(--ink-3, var(--np-text-secondary))'
+		);
+		expect( themeTokens[ '--np-text-secondary' ] ).toBe( '#6c6c6c' );
+	} );
+
+	/**
+	 * The sparkline line's contrast on one of its surfaces in a skin.
+	 *
+	 * @param {string} slug    The skin.
+	 * @param {string} surface The surface's token.
+	 * @return {number} The ratio, to three places.
+	 */
+	const lineOn = ( slug, surface ) => {
+		const skin = effectiveSkin( slug );
+		return Number(
+			contrast(
+				resolvedColor( skin, '--ink-3' ),
+				resolvedColor( skin, surface )
+			).toFixed( 3 )
+		);
+	};
+
+	// Nord's line on its band is an open question for Chris.
+	const OPEN = [ [ 'nord', '--cyan-subtle' ] ];
+
+	it.each(
+		EXPECTED_SKINS.flatMap( ( slug ) =>
+			[ '--paper', '--cyan-subtle' ]
+				.filter(
+					( surface ) =>
+						! OPEN.some(
+							( [ s, t ] ) => s === slug && t === surface
+						)
+				)
+				.map( ( surface ) => [ slug, surface ] )
+		)
+	)(
+		'%s draws the sparkline line at 3:1 or more on %s',
+		( slug, surface ) => {
+			expect( lineOn( slug, surface ) ).toBeGreaterThanOrEqual( 3 );
+		}
+	);
+
+	it.failing.each( OPEN )(
+		'%s draws the sparkline line at 3:1 or more on %s',
+		( slug, surface ) => {
+			expect( lineOn( slug, surface ) ).toBeGreaterThanOrEqual( 3 );
+		}
+	);
+
+	it( 'clears the corner controls: the title is as tall as one', () => {
+		const button = role( '.newspack-nodes-chart__stack' );
+		const title = role( '.newspack-nodes-chart__title' );
+		const corner = role( '.newspack-nodes-chart__corner' );
+		const px = ( value ) => Number.parseFloat( value );
+		expect( corner.top ).toBe( '0' );
+		expect( px( title[ 'min-height' ] ) ).toBeGreaterThanOrEqual(
+			px( button[ 'min-height' ] )
+		);
+		expect( px( title[ 'padding-inline' ] ) ).toBeGreaterThanOrEqual(
+			2 * px( button[ 'min-width' ] ) + px( corner.gap )
+		);
+	} );
+
+	it( 'caps the sparkline line round, so a lone measured value shows', () => {
+		expect(
+			role( '.newspack-nodes-sparkline path' )[ 'stroke-linecap' ]
+		).toBe( 'round' );
+	} );
+
+	it.each( [
+		'.newspack-nodes-chart__stack',
+		'.newspack-nodes-chart__expand',
+		'.newspack-nodes-chart-legend__item',
+	] )( 'gives %s a 24 px target', ( selector ) => {
+		expect( role( selector ) ).toMatchObject( {
+			'min-width': '24px',
+			'min-height': '24px',
+		} );
+	} );
+
+	it( 'stacks a narrow row, its legend full width below the plot', () => {
+		expect(
+			role( '.newspack-nodes-chart__row.is-narrow' )[ 'flex-direction' ]
+		).toBe( 'column' );
+		expect(
+			role( '.is-narrow .newspack-nodes-chart-legend' )
+		).toMatchObject( { flex: 'none', width: '100%' } );
+	} );
+
+	it( 'hatches the partial bar and inks its label in text tokens', () => {
+		expect( role( '.newspack-nodes-chart__partial' ).stroke ).toBe(
+			'var(--ink-3, var(--np-text-secondary))'
+		);
+		expect( role( '.newspack-nodes-chart__partial-hatch' ).stroke ).toBe(
+			'var(--ink-3, var(--np-text-secondary))'
+		);
+		expect( role( '.newspack-nodes-chart__partial-label' ).fill ).toBe(
+			'var(--ink-3, var(--np-text-secondary))'
+		);
+	} );
 } );
 
 describe( 'Links rest in the skin', () => {

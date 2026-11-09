@@ -29,6 +29,18 @@
  * read at release, and fires no click. `selectedSlots` shades the caller's
  * selection beneath the bands.
  *
+ * `partial` names the current bucket, still filling, its count so far and the
+ * caller's label for it. It is drawn as a hatched bar ending at its bucket,
+ * after the last slot, labelled only when the caller names a label, and never
+ * as a point on the line, so `series` holds only complete buckets; the bar
+ * takes no slot index, so a tooltip or a click never reads it. Its count is a
+ * total, which compares only with a stack of every series, so the bar, and
+ * its share of the axis, show only while the chart is stacked and no pick
+ * leaves a series out.
+ *
+ * On a narrow screen (`useNarrow`) the legend moves below the plot, which it
+ * always follows in DOM order.
+ *
  * Every label arrives already translated. The component words only its own
  * two toggles, so `__()` keeps its literal arguments at each call site. That is
  * also why the tooltip's column total rides on `totalLabel` rather than on a
@@ -36,8 +48,8 @@
  * bands are stacked, since a sum of overlaid averages is not a total.
  */
 
-import { memo, useCallback, useMemo } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { memo, useCallback, useId, useMemo } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 import * as d3 from 'd3';
 import {
 	drawAxes,
@@ -47,6 +59,7 @@ import {
 	useTimeChart,
 } from '../hooks/useTimeChart';
 import { useChartExpand } from '../hooks/useChartExpand';
+import useNarrow from '../hooks/useNarrow';
 import { usePersistedFlag } from '../hooks/usePersistedState';
 import { useLegend } from '../hooks/useSeriesSelection';
 import ChartLegend from './ChartLegend';
@@ -56,6 +69,15 @@ const TOOLTIP_ROWS = 12;
 
 /** Pixel radius of the dot marking a measured slot between two gaps. */
 const LONE_POINT_RADIUS = 2;
+
+/** The partial bar's width, as a share of one slot's column. */
+const PARTIAL_BAR_SHARE = 0.5;
+
+/** The spacing of the partial bar's hatch lines, in pixels. */
+const HATCH_PX = 4;
+
+/** The gap between the partial bar's top and its label, in pixels. */
+const PARTIAL_LABEL_GAP = 4;
 
 /**
  * One slot's value on one series; a missing or unmeasured (null) slot reads
@@ -93,6 +115,71 @@ const peakOf = ( list, stacked ) => {
 		}
 	}
 	return peak;
+};
+
+/**
+ * The current bucket's bar: hatched at 45 degrees, half a column wide and
+ * ending at the bucket's x, so it stays inside the plot, labelled above when a
+ * label is given and titled with that label and its count. The
+ * `newspack-nodes-chart__partial` role paints the hatch and the label.
+ *
+ * @param {Object} svg            The chart's SVG selection, which holds the hatch.
+ * @param {Object} g              The plot-area group.
+ * @param {Object} params         Configuration.
+ * @param {string} params.id      The hatch pattern's page-unique id.
+ * @param {number} params.x       The bucket's x.
+ * @param {number} params.top     The count's y.
+ * @param {number} params.innerH  The plot's height.
+ * @param {number} params.column  One slot column's width.
+ * @param {string} params.value   The count, formatted for the axis.
+ * @param {string} [params.label] The bar's translated label; none draws it unlabelled.
+ */
+const drawPartial = (
+	svg,
+	g,
+	{ id, x, top, innerH, column, value, label }
+) => {
+	svg.append( 'defs' )
+		.append( 'pattern' )
+		.attr( 'id', id )
+		.attr( 'width', HATCH_PX )
+		.attr( 'height', HATCH_PX )
+		.attr( 'patternUnits', 'userSpaceOnUse' )
+		.attr( 'patternTransform', 'rotate(45)' )
+		.append( 'line' )
+		.attr( 'class', 'newspack-nodes-chart__partial-hatch' )
+		.attr( 'x1', HATCH_PX / 2 )
+		.attr( 'x2', HATCH_PX / 2 )
+		.attr( 'y2', HATCH_PX );
+	const width = column * PARTIAL_BAR_SHARE;
+	g.append( 'rect' )
+		.attr( 'class', 'newspack-nodes-chart__partial' )
+		.attr( 'x', x - width )
+		.attr( 'y', top )
+		.attr( 'width', width )
+		.attr( 'height', innerH - top )
+		.attr( 'fill', `url(#${ id })` )
+		.attr( 'pointer-events', 'none' )
+		.append( 'title' )
+		.text(
+			label
+				? sprintf(
+						// translators: 1: the caller's label for the bucket, 2: its count.
+						__( '%1$s: %2$s', 'newspack-nodes' ),
+						label,
+						value
+				  )
+				: value
+		);
+	if ( ! label ) {
+		return;
+	}
+	g.append( 'text' )
+		.attr( 'class', 'newspack-nodes-chart__partial-label' )
+		.attr( 'x', x )
+		.attr( 'y', top - PARTIAL_LABEL_GAP )
+		.style( 'text-anchor', 'end' )
+		.text( label );
 };
 
 /**
@@ -135,6 +222,7 @@ const ExpandIcon = () => (
  * @param {import('../hooks/useTimeChart').SlotClick}                            [props.onSlotClick]   Takes a click's nearest slot, as an index into `series[0].values`, and whether cmd or ctrl made it additive.
  * @param {import('../hooks/useTimeChart').SlotRange}                            [props.onSlotRange]   Takes a drag's first and last slot, `fromIndex <= toIndex`, as indexes into `series[0].values`, and whether cmd or ctrl held at release made it additive; absent, a drag is a click.
  * @param {ReadonlySet<number>}                                                  [props.selectedSlots] Indexes into `series[0].values` to shade; absent or empty shades none.
+ * @param {{bucket: (string|Date), count: number, label: ?string}}               [props.partial]       The current bucket, after the last slot, its count so far, and its translated label, without which the bar is unlabelled; absent draws no bar.
  * @return {import('react').ReactElement} Rendered chart.
  */
 function AreaTimeChart( {
@@ -152,6 +240,7 @@ function AreaTimeChart( {
 	onSlotClick,
 	onSlotRange,
 	selectedSlots,
+	partial,
 } ) {
 	if ( ! storageKey ) {
 		throw new TypeError( 'AreaTimeChart: storageKey is required' );
@@ -166,6 +255,8 @@ function AreaTimeChart( {
 		stackedDefault
 	);
 	const stacked = stackable ? picked : stackedDefault;
+	const narrow = useNarrow();
+	const hatchId = `newspack-nodes-hatch-${ useId().replace( /\W/g, '' ) }`;
 
 	const { legendItems, drawn, selected, onSelect } = useLegend(
 		series,
@@ -191,7 +282,7 @@ function AreaTimeChart( {
 				return;
 			}
 
-			const { g, innerW, innerH } = openFrame(
+			const { svg, g, innerW, innerH } = openFrame(
 				refs.containerRef.current,
 				height
 			);
@@ -201,13 +292,24 @@ function AreaTimeChart( {
 			const totalAt = ( idx, over ) =>
 				over.reduce( ( sum, s ) => sum + valueAt( s, idx ), 0 );
 
+			// A total compares only with a stack of every series.
+			const shown =
+				partial && stacked && drawn.length === series.length
+					? partial
+					: null;
+			const partialDate = shown && new Date( shown.bucket );
 			const x = d3
 				.scaleTime()
-				.domain( d3.extent( dates ) )
+				.domain(
+					d3.extent( shown ? [ ...dates, partialDate ] : dates )
+				)
 				.range( [ 0, innerW ] );
 
 			// The axis and its unit follow what is drawn.
-			const peak = peakOf( drawn, stacked );
+			const peak = Math.max(
+				peakOf( drawn, stacked ),
+				shown?.count ?? 0
+			);
 			const yFormat = yFormatFor( peak );
 			// 10% headroom clears the peak band; an all-zero one gets [0,1].
 			const y = d3
@@ -219,7 +321,7 @@ function AreaTimeChart( {
 				x,
 				y,
 				innerH,
-				tickCount: dates.length,
+				tickCount: dates.length + ( shown ? 1 : 0 ),
 				yFormat,
 				yLabel,
 			} );
@@ -280,6 +382,18 @@ function AreaTimeChart( {
 				} );
 			} );
 
+			if ( shown ) {
+				drawPartial( svg, g, {
+					id: hatchId,
+					x: x( partialDate ),
+					top: y( shown.count ),
+					innerH,
+					column: innerW / ( dates.length + 1 ),
+					value: yFormat( shown.count ),
+					label: shown.label,
+				} );
+			}
+
 			setupTooltip( g, {
 				innerW,
 				innerH,
@@ -328,6 +442,8 @@ function AreaTimeChart( {
 			onSlotClick,
 			onSlotRange,
 			selectedSlots,
+			partial,
+			hatchId,
 		]
 	);
 
@@ -348,6 +464,11 @@ function AreaTimeChart( {
 						type="button"
 						className="newspack-nodes-chart__stack"
 						aria-pressed={ stacked }
+						aria-label={ sprintf(
+							// translators: %s: the chart's title.
+							__( 'Stack %s', 'newspack-nodes' ),
+							title
+						) }
 						title={
 							stacked
 								? __( 'Overlay the series', 'newspack-nodes' )
@@ -366,7 +487,11 @@ function AreaTimeChart( {
 					<ExpandIcon />
 				</button>
 			</div>
-			<div className="newspack-nodes-chart__row">
+			<div
+				className={ `newspack-nodes-chart__row${
+					narrow ? ' is-narrow' : ''
+				}` }
+			>
 				<div
 					ref={ containerRef }
 					className="newspack-nodes-chart__plot"

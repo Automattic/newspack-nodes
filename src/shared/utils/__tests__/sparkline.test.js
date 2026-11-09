@@ -43,6 +43,15 @@ describe( 'sparklinePoints', () => {
 		);
 	} );
 
+	it( 'scales against a peak the caller names above the tallest value', () => {
+		expect(
+			sparklinePoints( [ 2, 5 ], { width: 30, height: 40, peak: 8 } )
+		).toEqual( [
+			[ 0, 30 ],
+			[ 30, 15 ],
+		] );
+	} );
+
 	it( 'puts one value at the left of the box', () => {
 		expect( sparklinePoints( [ 4 ], { width: 12, height: 9 } ) ).toEqual( [
 			[ 0, 0 ],

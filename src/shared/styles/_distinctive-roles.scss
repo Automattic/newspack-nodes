@@ -86,6 +86,14 @@
 		}
 	}
 
+	// The child combinator outranks wp-admin's `.wrap h1` (0,1,1).
+	.topology-header > .topology-page-title {
+		color: var(--ink, var(--np-text));
+		font-size: var(--np-text-l);
+		line-height: var(--np-lh-l);
+		font-weight: 600;
+	}
+
 	.topology-subtitle {
 		border-left: 1px solid var(--ink-4, var(--np-border-strong));
 		color: var(--ink-3, var(--np-text-secondary));
