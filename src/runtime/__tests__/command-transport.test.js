@@ -595,3 +595,102 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		).resolves.toEqual( [] );
 	} );
 } );
+
+/**
+ * A POST made while the page is hidden or being left rides `keepalive`, so the
+ * unload cannot cancel it. `pagehide` fires BEFORE the page turns hidden, so a
+ * POST its handler makes sees a visible page and still rides it; `pageshow`
+ * ends that. The browser refuses a keepalive body past its 64 KiB budget
+ * outright, so a larger one goes without and says it may not survive.
+ */
+describe( 'the command transport — a hidden page', () => {
+	/** 32768 two-byte characters: exactly the 65536-byte budget. */
+	const AT_BUDGET = 'é'.repeat( 32768 );
+
+	let warn;
+
+	const showPage = ( state ) =>
+		Object.defineProperty( document, 'visibilityState', {
+			configurable: true,
+			get: () => state,
+		} );
+
+	const postOne = async ( line ) => {
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: true, text: async () => '' } );
+		await commandTransport( {
+			baseUrl: '/wp-json/',
+			nonce: 'KIWI-NONCE',
+		} ).postBatch( [ newMessage() ], [ line ] );
+		return global.fetch.mock.calls[ 0 ][ 1 ];
+	};
+
+	beforeEach( () => {
+		warn = jest.spyOn( Core, 'printLessOften' ).mockImplementation();
+	} );
+
+	afterEach( () => {
+		warn.mockRestore();
+		delete document.visibilityState;
+		window.dispatchEvent( new Event( 'pageshow' ) );
+	} );
+
+	it( 'sends a hidden page’s POST with keepalive', async () => {
+		showPage( 'hidden' );
+		const sent = await postOne( '["kakapo-2291"]' );
+		expect( sent.keepalive ).toBe( true );
+		expect( sent.body ).toBe( '["kakapo-2291"]' );
+		expect( warn ).not.toHaveBeenCalled();
+	} );
+
+	it( 'keeps keepalive for a body of exactly the budget, in bytes', async () => {
+		showPage( 'hidden' );
+		const sent = await postOne( AT_BUDGET );
+		expect( sent.keepalive ).toBe( true );
+		expect( warn ).not.toHaveBeenCalled();
+	} );
+
+	it( 'sends a hidden page’s oversize POST without keepalive, and says so', async () => {
+		showPage( 'hidden' );
+		const sent = await postOne( `${ AT_BUDGET }x` );
+		expect( sent.keepalive ).toBe( false );
+		expect( warn ).toHaveBeenCalledWith(
+			'WARNING: /command POST of a page hidden or left exceeds the 65536-byte keepalive budget and may not survive the unload',
+			' - 65537 bytes'
+		);
+	} );
+
+	it( 'sends with keepalive once pagehide fires, the page still visible', async () => {
+		showPage( 'visible' );
+		window.dispatchEvent( new Event( 'pagehide' ) );
+		const sent = await postOne( '["takahe-6604"]' );
+		expect( sent.keepalive ).toBe( true );
+	} );
+
+	it( 'sends without keepalive again once the page is shown', async () => {
+		showPage( 'visible' );
+		window.dispatchEvent( new Event( 'pagehide' ) );
+		window.dispatchEvent( new Event( 'pageshow' ) );
+		const sent = await postOne( '["takahe-6604"]' );
+		expect( sent.keepalive ).toBe( false );
+	} );
+
+	it( 'sends a left page’s oversize POST without keepalive, and says so', async () => {
+		showPage( 'visible' );
+		window.dispatchEvent( new Event( 'pagehide' ) );
+		const sent = await postOne( `${ AT_BUDGET }xy` );
+		expect( sent.keepalive ).toBe( false );
+		expect( warn ).toHaveBeenCalledWith(
+			'WARNING: /command POST of a page hidden or left exceeds the 65536-byte keepalive budget and may not survive the unload',
+			' - 65538 bytes'
+		);
+	} );
+
+	it( 'sends a visible page’s POST without keepalive', async () => {
+		showPage( 'visible' );
+		const sent = await postOne( '["kakapo-2291"]' );
+		expect( sent.keepalive ).toBe( false );
+		expect( warn ).not.toHaveBeenCalled();
+	} );
+} );

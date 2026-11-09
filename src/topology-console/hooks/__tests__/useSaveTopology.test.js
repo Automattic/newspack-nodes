@@ -73,3 +73,11 @@ it( 'returns a stable save callback across renders', () => {
 	rerender();
 	expect( result.current.save ).toBe( first );
 } );
+
+it( 'declares its save a write, sent on removal', async () => {
+	renderHook( () => useSaveTopology() );
+	await act( async () => {} );
+	expect( Core.node( 'topologies:save:fetch' ).sends_on_removal ).toBe(
+		true
+	);
+} );

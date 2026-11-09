@@ -45,6 +45,24 @@ const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
 const DROPPED_HEAD_CHARS = 120;
 
 /**
+ * Bytes the Fetch standard lets a `keepalive` request body carry: its 64 KiB
+ * in-flight budget. The browser refuses a larger keepalive body outright.
+ */
+const KEEPALIVE_BUDGET_BYTES = 65536;
+
+/**
+ * Whether the page is being left: set by `pagehide`, cleared by `pageshow`.
+ * `pagehide` fires before the page turns hidden, so visibility alone misses a
+ * POST its handlers make. Each bundle's copy of this module keeps its own.
+ */
+let leaving = false;
+if ( 'undefined' !== typeof window ) {
+	// Capture, so the flag is set before any page listener on window sends.
+	window.addEventListener( 'pagehide', () => ( leaving = true ), true );
+	window.addEventListener( 'pageshow', () => ( leaving = false ) );
+}
+
+/**
  * What a boundary node's `client` must provide: POST a batch as JSONL and
  * resolve the replies it earns.
  *
@@ -156,6 +174,28 @@ function refusalReply( sent, status, code ) {
 }
 
 /**
+ * Whether a POST must outlive the page: one sent while it is hidden or being
+ * left, which the unload would otherwise cancel. A body past the keepalive
+ * budget goes without, and says it may not survive.
+ *
+ * @param {number} size The body's length in bytes.
+ * @return {boolean} The `keepalive` the POST is sent with.
+ */
+function keepaliveFor( size ) {
+	if ( ! leaving && 'hidden' !== document.visibilityState ) {
+		return false;
+	}
+	if ( size <= KEEPALIVE_BUDGET_BYTES ) {
+		return true;
+	}
+	Core.printLessOften(
+		`WARNING: /command POST of a page hidden or left exceeds the ${ KEEPALIVE_BUDGET_BYTES }-byte keepalive budget and may not survive the unload`,
+		` - ${ size } bytes`
+	);
+	return false;
+}
+
+/**
  * A transport bound to one REST base and nonce.
  *
  * @param {Object}                 o              The binding.
@@ -184,8 +224,9 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 	 *   Replies, and the refusal when the substrate turned the batch away.
 	 */
 	const post = async ( body, outCount, mayRenewNonce = true ) => {
+		const size = byteLength( body );
 		// Outbound boundary accounting: request bytes + message count.
-		IoTelemetry.recordOut( byteLength( body ), outCount );
+		IoTelemetry.recordOut( size, outCount );
 
 		const r = await fetch( `${ baseUrl }newspack-nodes/v1/command`, {
 			method: 'POST',
@@ -194,6 +235,7 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 				'X-WP-Nonce': currentNonce,
 			},
 			body,
+			keepalive: keepaliveFor( size ),
 		} );
 		const text = await r.text();
 		// @longform

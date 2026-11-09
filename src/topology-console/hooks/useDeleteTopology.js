@@ -32,6 +32,7 @@ export function useDeleteTopology( onDone ) {
 		group: TOPOLOGIES_CI,
 		ci: TOPOLOGIES_CI,
 		command: 'delete',
+		sendsOnRemoval: true,
 		onDone,
 	} );
 

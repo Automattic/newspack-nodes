@@ -439,8 +439,8 @@ class IoTelemetryImpl {
 	}
 }
 
-if ( ! window[ GLOBAL_KEY ] ) {
-	window[ GLOBAL_KEY ] = new IoTelemetryImpl();
+if ( ! globalThis[ GLOBAL_KEY ] ) {
+	globalThis[ GLOBAL_KEY ] = new IoTelemetryImpl();
 }
 
 /**
@@ -449,6 +449,7 @@ if ( ! window[ GLOBAL_KEY ] ) {
  * The console, the debug overlay and each dashboard inline their own copy of
  * this module, so a module-scoped instance would give every bundle private
  * counters and leave each chart drawing a fraction of the page's traffic.
- * Parking the instance on `window` is what makes them one accumulator.
+ * Parking the instance on `globalThis`, which a page's is `window`, is what
+ * makes them one accumulator.
  */
-export const IoTelemetry = window[ GLOBAL_KEY ];
+export const IoTelemetry = globalThis[ GLOBAL_KEY ];

@@ -1,4 +1,4 @@
-import { FetcherNode } from '../fetcher-node';
+import { FetcherNode, sendQueuedWrites } from '../fetcher-node';
 import {
 	ensureSession,
 	forgetSession,
@@ -803,6 +803,136 @@ describe( 'FetcherNode — a reply that echoes no arguments', () => {
 } );
 
 /**
+ * A Fetcher declared to send on removal — a write — sends the asks it still
+ * holds queued on its way out, as `_http` posts what it still holds: a write
+ * the operator made in the task that tears the graph down (a tab switch
+ * flushing its undo window) is not lost. Anything else, a read whatever its
+ * retry window, sends nothing, because nobody is left to read its answer.
+ */
+describe( 'FetcherNode — removed', () => {
+	const mount = ( sendsOnRemoval, retryAfterS = 0 ) => {
+		const f = new FetcherNode();
+		f.name = 'numbat:reject:fetch';
+		f.arguments = [ 'numbat:reject:in', 'reject_link' ];
+		f.target = 'numbat:shell/_http/intelligence';
+		f.command_args = () => null;
+		f.retry_after_s = retryAfterS;
+		f.sends_on_removal = sendsOnRemoval;
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		return { f, sent };
+	};
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+		Core.reset();
+	} );
+
+	it( 'is declared, never on by default', () => {
+		expect( new FetcherNode().sends_on_removal ).toBe( false );
+	} );
+
+	it( 'sends every queued write, addressed to its target', () => {
+		const { f, sent } = mount( true );
+		f.send( [ '--item=numbat-2206' ], 'numbat-2206' );
+		f.send( [ '--item=bilby-5519' ] );
+
+		f.removeNode();
+
+		expect( sent.map( ( m ) => m[ VALUE ] ) ).toEqual( [
+			expect.objectContaining( {
+				name: 'reject_link',
+				arguments: [ '--item=numbat-2206' ],
+			} ),
+			expect.objectContaining( {
+				name: 'reject_link',
+				arguments: [ '--item=bilby-5519' ],
+			} ),
+		] );
+		expect( sent.map( ( m ) => m[ FROM ] ) ).toEqual( [
+			'numbat:reject:in/numbat-2206',
+			'numbat:reject:in',
+		] );
+		expect( sent.map( ( m ) => m[ TO ] ) ).toEqual( [
+			'numbat:shell/_http/intelligence',
+			'numbat:shell/_http/intelligence',
+		] );
+	} );
+
+	it( 'sends only the writes that never went out', () => {
+		const { f, sent } = mount( true );
+		f.send( [ '--item=numbat-2206' ] );
+		f.fill( newMessage() );
+		f.send( [ '--item=bilby-5519' ] );
+
+		f.removeNode();
+
+		expect( sent.map( ( m ) => m[ VALUE ].arguments ) ).toEqual( [
+			[ '--item=numbat-2206' ],
+			[ '--item=bilby-5519' ],
+		] );
+	} );
+
+	it( 'mints nothing when no write is queued, whatever it is configured to ask', () => {
+		const { f, sent } = mount( true );
+		f.command_args = [ '--item=quoll-3381' ];
+
+		f.removeNode();
+
+		expect( sent ).toEqual( [] );
+	} );
+
+	it( 'sends no queued read', () => {
+		const { f, sent } = mount( false, 7 );
+		f.send( [ '--item=numbat-2206' ] );
+
+		f.removeNode();
+
+		expect( sent ).toEqual( [] );
+	} );
+
+	it( 'sends no queued read that never re-asks, undeclared', () => {
+		const { f, sent } = mount( false, 0 );
+		f.send( [ '--item=numbat-2206' ] );
+
+		f.removeNode();
+
+		expect( sent ).toEqual( [] );
+	} );
+
+	it( 'says how many writes it could not send without a session', async () => {
+		forgetSession();
+		__setAuthFetch( async () => null );
+		const warn = jest.spyOn( Core, 'printLessOften' ).mockImplementation();
+		const { f, sent } = mount( true );
+		f.send( [ '--item=numbat-2206' ] );
+		f.send( [ '--item=bilby-5519' ] );
+		f.send( [ '--item=quoll-3381' ] );
+
+		f.removeNode();
+		await nextTask();
+
+		expect( sent ).toEqual( [] );
+		expect( warn ).toHaveBeenCalledWith(
+			'WARNING: numbat:reject:fetch: queued reject_link commands not sent, no command session',
+			' - 3 unsent'
+		);
+		warn.mockRestore();
+	} );
+
+	it( 'is unregistered once it has sent', () => {
+		const { f } = mount( true );
+		f.send( [ '--item=numbat-2206' ] );
+
+		f.removeNode();
+
+		expect( Core.node( 'numbat:reject:fetch' ) ).toBeNull();
+		expect( f.sink ).toBeNull();
+	} );
+} );
+
+/**
  * `withdraw()` is how a view stops wanting an answer without asking anew: the
  * operator emptied the search box, so there is no newer question to supersede
  * the old one. It sends nothing and cancels nothing on the wire; the request
@@ -1019,5 +1149,63 @@ describe( 'FetcherNode — an ask parked for want of a session', () => {
 		expect( answered ).toEqual( [
 			expect.objectContaining( { payload: { rid: 'kakapo-6610' } } ),
 		] );
+	} );
+} );
+
+/**
+ * `sendQueuedWrites()` is the page-wide send for a page being left, which
+ * removes nothing and may see neither a tick nor the next task: every write
+ * Fetcher's queued asks go out, posted in the same task, whether or not the
+ * Timer behind it is armed. Reads stay where they are.
+ */
+describe( 'sendQueuedWrites', () => {
+	afterEach( () => Core.reset() );
+
+	const fetcherFor = ( interpreter, verb, sendsOnRemoval ) => {
+		const f = interpreter.makeNode( 'Fetcher', `takahe:${ verb }:fetch`, [
+			`takahe:${ verb }:in`,
+			verb,
+		] );
+		f.target = `${ names.HTTP }/intelligence`;
+		f.command_args = () => null;
+		f.retry_after_s = 0;
+		f.sends_on_removal = sendsOnRemoval;
+		return f;
+	};
+
+	test( 'posts every declared write still queued, in this task, with no tick', () => {
+		const wire = makeFakeCommandWire( () => undefined );
+		global.fetch = wire;
+		const { interpreter } = mountExospine();
+		Core.node( names.ROUTER ).stopTimer();
+		const write = fetcherFor( interpreter, 'reject_link', true );
+		const read = fetcherFor( interpreter, 'ask', false );
+		write.send( [ '--item=takahe-6604' ] );
+		read.send( [ '--question=takahe-6605' ] );
+
+		sendQueuedWrites();
+
+		expect( wire.batches.flat().map( ( m ) => m[ VALUE ] ) ).toEqual( [
+			expect.objectContaining( {
+				name: 'reject_link',
+				arguments: [ '--item=takahe-6604' ],
+			} ),
+		] );
+		expect( read.outbox[ 0 ].askedAt ).toBe( 0 );
+	} );
+
+	test( 'sends nothing a second time', () => {
+		const wire = makeFakeCommandWire( () => undefined );
+		global.fetch = wire;
+		const { interpreter } = mountExospine();
+		Core.node( names.ROUTER ).stopTimer();
+		fetcherFor( interpreter, 'reject_link', true ).send( [
+			'--item=takahe-6604',
+		] );
+
+		sendQueuedWrites();
+		sendQueuedWrites();
+
+		expect( wire.batches ).toHaveLength( 1 );
 	} );
 } );

@@ -341,18 +341,21 @@ export function useTopologyManager( opts = {} ) {
 		group: GROUP,
 		ci: WORKERS_CI,
 		command: 'restart',
+		sendsOnRemoval: true,
 		onDone: onMutationDone,
 	} );
 	const activateOnce = useCommandOnce( {
 		group: GROUP,
 		ci: TOPOLOGIES_CI,
 		command: 'activate',
+		sendsOnRemoval: true,
 		onDone: onMutationDone,
 	} );
 	const deactivateOnce = useCommandOnce( {
 		group: GROUP,
 		ci: TOPOLOGIES_CI,
 		command: 'deactivate',
+		sendsOnRemoval: true,
 		onDone: onMutationDone,
 	} );
 

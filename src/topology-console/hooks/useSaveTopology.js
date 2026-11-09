@@ -38,6 +38,7 @@ export function useSaveTopology( onDone ) {
 		group: TOPOLOGIES_CI,
 		ci: TOPOLOGIES_CI,
 		command: 'save',
+		sendsOnRemoval: true,
 		onDone,
 	} );
 

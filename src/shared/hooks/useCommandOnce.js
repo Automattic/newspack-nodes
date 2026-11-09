@@ -26,6 +26,11 @@
  * already have applied, and two rows deleted in the same second are two
  * commands that both have to go.
  *
+ * `sendsOnRemoval` declares a WRITE whose queued sends must still go when the
+ * hook unmounts or the page is left: the Fetcher sends them as it is removed,
+ * and `sendQueuedWrites()` on `pagehide`. It is never inferred from `retry`,
+ * because a read may decline retries too, and a read sent then answers nobody.
+ *
  * `abandon()` withdraws what is outstanding without asking anything new — a
  * search box emptied under its search has no newer question to supersede the
  * old one. The request still completes; its answer reaches neither `onDone`
@@ -94,28 +99,30 @@ const SUBJECT_MAX = 128;
  * Mounts one command's Fetcher, receiver and result node onto the batched tick,
  * and hands back the `run()` that sends it. See the module overview above.
  *
- * @param {Object}    o             Options.
- * @param {string}    o.command     The verb to send.
- * @param {string}    o.group       The surface sending it, whose
- *                                  `<group>:shell` Tap it passes.
- * @param {string}    [o.ci]        The server CI mount the command lives on; omit
- *                                  for an interpreter command, which has none.
- * @param {string}    [o.scope]     Names this command's own nodes; defaults to
- *                                  `<ci>:<command>`, and only needs giving when
- *                                  two hooks would otherwise collide on it.
- * @param {OnDone}    [o.onDone]    Runs once per reply. `args` are the ones it
- *                                  answered and `subject` is what it was ABOUT,
- *                                  both read off the reply itself.
- * @param {boolean}   [o.retry]     True for an idempotent READ; see above.
- * @param {SubjectOf} [o.subjectOf] What this send is ABOUT. It rides in the
- *                                  reply's ADDRESS (FROM becomes
- *                                  `<receiver>/<subject>`, so the answer arrives
- *                                  with the subject as its remaining TO), which
- *                                  is how ONE node answers about many rows with
- *                                  no table. Defaults to the first token;
- *                                  override it for a command whose first token is
- *                                  not a subject, such as a whole document (a
- *                                  rule as JSON).
+ * @param {Object}    o                  Options.
+ * @param {string}    o.command          The verb to send.
+ * @param {string}    o.group            The surface sending it, whose
+ *                                       `<group>:shell` Tap it passes.
+ * @param {string}    [o.ci]             The server CI mount the command lives on; omit
+ *                                       for an interpreter command, which has none.
+ * @param {string}    [o.scope]          Names this command's own nodes; defaults to
+ *                                       `<ci>:<command>`, and only needs giving when
+ *                                       two hooks would otherwise collide on it.
+ * @param {OnDone}    [o.onDone]         Runs once per reply. `args` are the ones it
+ *                                       answered and `subject` is what it was ABOUT,
+ *                                       both read off the reply itself.
+ * @param {boolean}   [o.retry]          True for an idempotent READ; see above.
+ * @param {boolean}   [o.sendsOnRemoval] True for a WRITE whose queued sends
+ *                                       must still go on unmount or pagehide.
+ * @param {SubjectOf} [o.subjectOf]      What this send is ABOUT. It rides in the
+ *                                       reply's ADDRESS (FROM becomes
+ *                                       `<receiver>/<subject>`, so the answer arrives
+ *                                       with the subject as its remaining TO), which
+ *                                       is how ONE node answers about many rows with
+ *                                       no table. Defaults to the first token;
+ *                                       override it for a command whose first token is
+ *                                       not a subject, such as a whole document (a
+ *                                       rule as JSON).
  * @return {{run: (args: string[]) => void, abandon: () => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
  *   A screen serving many rows reads each answer through `onDone`, which
  *   names the subject it was about; what is returned here is the last one.
@@ -128,6 +135,7 @@ export function useCommandOnce( {
 	scope = ci ? `${ ci }:${ command }` : command,
 	onDone,
 	retry = false,
+	sendsOnRemoval = false,
 	subjectOf = ( args ) => args[ 0 ] ?? null,
 	...rest
 } ) {
@@ -177,6 +185,7 @@ export function useCommandOnce( {
 			} );
 			// A read re-asks a request that went missing; a write never does.
 			Core.node( fetcher ).retry_after_s = retry ? RETRY_AFTER_S : 0;
+			Core.node( fetcher ).sends_on_removal = sendsOnRemoval;
 		},
 		timerName: `${ scope }:timer`,
 		teeName: `${ scope }:tee`,

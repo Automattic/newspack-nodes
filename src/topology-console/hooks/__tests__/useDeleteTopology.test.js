@@ -80,3 +80,11 @@ it( 'hands a command refusal to onDone rather than a result', async () => {
 	expect( onDone.mock.calls[ 0 ][ 0 ].error ).toContain( REASON );
 	expect( onDone.mock.calls[ 0 ][ 0 ].result ).toBeNull();
 } );
+
+it( 'declares its delete a write, sent on removal', async () => {
+	renderHook( () => useDeleteTopology() );
+	await act( async () => {} );
+	expect( Core.node( 'topologies:delete:fetch' ).sends_on_removal ).toBe(
+		true
+	);
+} );

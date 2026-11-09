@@ -90,6 +90,7 @@ export function useSessionsGraph( { onAnswer } = {} ) {
 		group: GROUP,
 		ci: SESSIONS_CI,
 		command: 'revoke',
+		sendsOnRemoval: true,
 		onDone: answered( 'revoke' ),
 	} );
 	const { run: runCreate } = create;

@@ -1724,6 +1724,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		group: TOPOLOGIES_CI,
 		ci: TOPOLOGIES_CI,
 		command: 'activate',
+		sendsOnRemoval: true,
 		onDone: ( { error, result, args } ) => {
 			if ( error ) {
 				setToast( { kind: 'error', text: error } );

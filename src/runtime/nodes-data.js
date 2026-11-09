@@ -52,7 +52,7 @@ let nonceRefreshPromise = null;
 export function nodesData() {
 	/** @type {NodesLocalizedData} */
 	const data =
-		( typeof window !== 'undefined' &&
+		( 'undefined' !== typeof window &&
 			/** @type {NodesDataWindow} */ ( window ).NewspackNodesData ) ||
 		{};
 	return {

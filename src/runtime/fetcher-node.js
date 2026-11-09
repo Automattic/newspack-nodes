@@ -2,6 +2,7 @@ import { markLocal, readyToMint } from './command-auth';
 import { Core } from './core';
 import { Node } from './node';
 import { replyAddress, replySubject } from './reply-subject';
+import names from './reserved-node-names.json';
 import {
 	asString,
 	newMessage,
@@ -121,6 +122,15 @@ export class FetcherNode extends Node {
 		 * @type {number}
 		 */
 		this.retry_after_s = RETRY_AFTER_S;
+		/**
+		 * Whether the asks still queued go on the wire when the node is
+		 * removed or the page is left: what a WRITE declares, because its
+		 * caller is gone by then and the change must still land. Off for a
+		 * read, whatever its retry window, since nobody is left to read it.
+		 *
+		 * @type {boolean}
+		 */
+		this.sends_on_removal = false;
 	}
 
 	/**
@@ -321,32 +331,6 @@ export class FetcherNode extends Node {
 	}
 
 	/**
-	 * Put one ask on the wire, addressed so its reply comes back naming it, and
-	 * stamp when it went — the stamp is part of the send, so every ask a
-	 * caller puts on the wire starts its window. `markLocal()` taints the
-	 * message LOCAL and signs it here, because the node that MINTS a command is
-	 * what signs it (ADR-15).
-	 *
-	 * @param {Ask}    ask The outbox entry to send.
-	 * @param {number} now Seconds, read once for the whole trigger.
-	 */
-	_ask( ask, now ) {
-		ask.askedAt = now;
-		// @longform The reply routes back along FROM, and the Router peels it
-		// one segment at a time — so a subject appended here arrives at the
-		// receiver AS the remaining TO. That is how ONE node answers about
-		// many subjects with no table: `vault:test:in/tw0` lands on
-		// `vault:test:in` reading TO `tw0`, and the Tee onward to the view
-		// carries the rest of the path with it.
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = replyAddress( this.receiver, ask.path );
-		m[ VALUE ] = { name: this.verb, arguments: ask.args };
-		markLocal( m );
-		super.fill( m );
-	}
-
-	/**
 	 * Take the answered ask out of the outbox and notify `settled`.
 	 *
 	 * A transport refusal is not an answer: the batch never reached the command,
@@ -398,6 +382,70 @@ export class FetcherNode extends Node {
 	}
 
 	/**
+	 * Send what a write still holds queued before the node goes, as `_http`
+	 * posts what it still holds: a write made in the task that tears the graph
+	 * down — an undo window flushed by a tab switch — otherwise dies with the
+	 * outbox. Only a node declaring `sends_on_removal` sends.
+	 */
+	removeNode() {
+		this.sendQueued();
+		super.removeNode();
+	}
+
+	/**
+	 * Put every queued ask on the wire now, through the configured target,
+	 * minting nothing new, when the node declares `sends_on_removal`. With no
+	 * signing session nothing can go, and the line it logs says how much was
+	 * lost, as `_http` audits what its removal drops.
+	 */
+	sendQueued() {
+		if ( ! this.sends_on_removal ) {
+			return;
+		}
+		const queued = this.outbox.filter( ( ask ) => 0 === ask.askedAt );
+		if ( 0 === queued.length ) {
+			return;
+		}
+		if ( ! readyToMint() ) {
+			Core.printLessOften(
+				`WARNING: ${ this.name }: queued ${ this.verb } commands not sent, no command session`,
+				` - ${ queued.length } unsent`
+			);
+			return;
+		}
+		const now = Core.now();
+		for ( const ask of queued ) {
+			this._ask( ask, now );
+		}
+	}
+
+	/**
+	 * Put one ask on the wire, addressed so its reply comes back naming it, and
+	 * stamp when it went — the stamp is part of the send, so every ask a
+	 * caller puts on the wire starts its window. `markLocal()` taints the
+	 * message LOCAL and signs it here, because the node that MINTS a command is
+	 * what signs it (ADR-15).
+	 *
+	 * @param {Ask}    ask The outbox entry to send.
+	 * @param {number} now Seconds, read once for the whole trigger.
+	 */
+	_ask( ask, now ) {
+		ask.askedAt = now;
+		// @longform The reply routes back along FROM, and the Router peels it
+		// one segment at a time — so a subject appended here arrives at the
+		// receiver AS the remaining TO. That is how ONE node answers about
+		// many subjects with no table: `vault:test:in/tw0` lands on
+		// `vault:test:in` reading TO `tw0`, and the Tee onward to the view
+		// carries the rest of the path with it.
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = replyAddress( this.receiver, ask.path );
+		m[ VALUE ] = { name: this.verb, arguments: ask.args };
+		markLocal( m );
+		super.fill( m );
+	}
+
+	/**
 	 * Withdraw every standing ask and send nothing: how a view stops wanting an
 	 * answer without asking anew, as `send( …, true )` drops what it replaces.
 	 * A request already on the wire still completes, but its answer finds no
@@ -432,4 +480,21 @@ export class FetcherNode extends Node {
 			commands: [],
 		};
 	}
+}
+
+/**
+ * Send every write's queued asks and post them in this task, for a page being
+ * left: no node is removed then, a hidden tab's Timer may be stopped, and
+ * neither the tick a send asks for nor `_http`'s next-task flush may come. Each
+ * Fetcher declaring `sends_on_removal` sends through `sendQueued()`, then
+ * `_http` posts the batch at once. Call it after the sends that queue them.
+ */
+export function sendQueuedWrites() {
+	for ( const node of Core.nodes.values() ) {
+		// By the declared field: each bundle inlines its own FetcherNode class.
+		if ( true === node.sends_on_removal ) {
+			node.sendQueued();
+		}
+	}
+	Core.node( names.HTTP )?.flush();
 }

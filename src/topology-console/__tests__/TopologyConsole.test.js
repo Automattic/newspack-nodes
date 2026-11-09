@@ -901,6 +901,14 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
 
+	it( 'declares its activate a write, sent on removal', async () => {
+		render( <TopologyConsole /> );
+		await publishMeta();
+		expect(
+			Core.node( 'topologies:activate:fetch' ).sends_on_removal
+		).toBe( true );
+	} );
+
 	it( 'starts in view mode by default', async () => {
 		const { getByTestId } = render( <TopologyConsole /> );
 		await publishMeta();

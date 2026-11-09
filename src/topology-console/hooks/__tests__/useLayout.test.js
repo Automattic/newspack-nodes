@@ -141,3 +141,10 @@ it( 'keeps a get and a save apart while both are outstanding', async () => {
 		positions: {},
 	} );
 } );
+
+it( 'declares its save a write sent on removal, and its get not', async () => {
+	renderHook( () => useLayout( {} ) );
+	await act( async () => {} );
+	expect( Core.node( 'layouts:save:fetch' ).sends_on_removal ).toBe( true );
+	expect( Core.node( 'layouts:get:fetch' ).sends_on_removal ).toBe( false );
+} );

@@ -116,18 +116,21 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		group: GROUP,
 		ci: VAULT_CI,
 		command: 'add',
+		sendsOnRemoval: true,
 		onDone: answered( 'add' ),
 	} );
 	const update = useCommandOnce( {
 		group: GROUP,
 		ci: VAULT_CI,
 		command: 'update',
+		sendsOnRemoval: true,
 		onDone: answered( 'update' ),
 	} );
 	const remove = useCommandOnce( {
 		group: GROUP,
 		ci: VAULT_CI,
 		command: 'delete',
+		sendsOnRemoval: true,
 		onDone: answered( 'delete' ),
 	} );
 	// The probe is read-only: it changes nothing the table would show.

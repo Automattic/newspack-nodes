@@ -197,3 +197,17 @@ it( 'creates with the label positional and scope/ttl named', async () => {
 	] );
 	expect( create[ FROM ] ).toBe( 'sessions:create:in/laptop%20mcp%20client' );
 }, 30000 );
+
+// @longform A revoke must land however the page is left. A create mints a
+// bearer key shown once, in the reply, so one sent with nobody left to read it
+// would only leave a key no one holds.
+it( 'declares its revoke sent on removal, and its create not', async () => {
+	renderHook( () => useSessionsGraph() );
+	await act( async () => {} );
+	expect( Core.node( 'sessions:revoke:fetch' ).sends_on_removal ).toBe(
+		true
+	);
+	expect( Core.node( 'sessions:create:fetch' ).sends_on_removal ).toBe(
+		false
+	);
+} );

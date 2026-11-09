@@ -53,6 +53,7 @@ export function useLayout( { onFetched, onSaved } = {} ) {
 		group: LAYOUTS_CI,
 		ci: LAYOUTS_CI,
 		command: 'save',
+		sendsOnRemoval: true,
 		onDone: onSaved,
 	} );
 

@@ -848,6 +848,57 @@ describe( 'useCommandOnce', () => {
 		await waitFor( () => expect( held.length ).toBe( 2 ) );
 	} );
 
+	// @longform The tick `run()` asks for comes a microtask later, after an
+	// unmount in the same task has removed the Fetcher, so the write leaves
+	// with the Fetcher's removal instead: a tab switch flushing an undo window.
+	it( 'sends a write run in the task its hook unmounts', async () => {
+		const { result, unmount } = mount( {
+			ci: 'vault',
+			command: 'delete',
+			sendsOnRemoval: true,
+		} );
+		await act( async () => {} );
+		act( () => {
+			result.current.run( [ 'bandicoot-7712' ] );
+			unmount();
+		} );
+		await settle();
+
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
+			name: 'delete',
+			arguments: [ 'bandicoot-7712' ],
+		} );
+		expect( Core.node( 'vault:delete:fetch' ) ).toBeNull();
+	} );
+
+	it( 'drops an undeclared command run in the task its hook unmounts', async () => {
+		const { result, unmount } = mount( {
+			ci: 'performance',
+			command: 'ask',
+		} );
+		await act( async () => {} );
+		act( () => {
+			result.current.run( [ 'bandicoot-7712' ] );
+			unmount();
+		} );
+		await settle();
+
+		expect( replyFor ).not.toHaveBeenCalled();
+	} );
+
+	it( 'drops a read run in the task its hook unmounts', async () => {
+		const { result, unmount } = renderGet();
+		await act( async () => {} );
+		act( () => {
+			result.current.run( [ 'bandicoot-7712' ] );
+			unmount();
+		} );
+		await settle();
+
+		expect( replyFor ).not.toHaveBeenCalled();
+	} );
+
 	// @longform An emptied search box asks no new question, so nothing
 	// supersedes the old one. `abandon()` withdraws it: the request still
 	// completes on the wire, and its answer stops at the gate.

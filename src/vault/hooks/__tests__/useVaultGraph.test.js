@@ -541,3 +541,17 @@ function findCommand( batches, verb ) {
 	}
 	return null;
 }
+
+describe( 'useVaultGraph — writes declared', () => {
+	it( 'declares its three writes to send on removal, and its probe not', async () => {
+		installWire();
+		renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+		expect(
+			[ 'add', 'update', 'delete', 'test' ].map(
+				( verb ) =>
+					Core.node( `vault:${ verb }:fetch` ).sends_on_removal
+			)
+		).toEqual( [ true, true, true, false ] );
+	} );
+} );

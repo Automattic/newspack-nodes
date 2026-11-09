@@ -487,20 +487,20 @@ class CoreImpl {
 	}
 }
 
-/** Window property the one live `CoreImpl` is parked on. */
+/** The `globalThis` property the one live `CoreImpl` is parked on. */
 const GLOBAL_KEY = '__newspackNodesCore';
-if ( ! window[ GLOBAL_KEY ] ) {
-	window[ GLOBAL_KEY ] = new CoreImpl();
+if ( ! globalThis[ GLOBAL_KEY ] ) {
+	globalThis[ GLOBAL_KEY ] = new CoreImpl();
 }
 
 /** Window property holding the one `pageshow` listener, apart from Core. */
 const PAGESHOW_KEY = '__newspackNodesPageshow';
-if ( ! window[ PAGESHOW_KEY ] ) {
+if ( 'undefined' !== typeof window && ! window[ PAGESHOW_KEY ] ) {
 	// A restored page can resume with React's scheduler stalled: start afresh.
 	window[ PAGESHOW_KEY ] = ( event ) => {
 		if ( event.persisted ) {
 			const reload =
-				window[ GLOBAL_KEY ].reload ??
+				globalThis[ GLOBAL_KEY ].reload ??
 				( () => window.location.reload() );
 			reload();
 		}
@@ -514,6 +514,6 @@ if ( ! window[ PAGESHOW_KEY ] ) {
  * The console, the debug overlay and each dashboard inline their own copy of
  * this module, so a module-scoped instance would give every bundle a private
  * graph whose nodes could not address each other's. Parking the instance on
- * `window` is what makes them one graph.
+ * `globalThis`, which a page's is `window`, is what makes them one graph.
  */
-export const Core = window[ GLOBAL_KEY ];
+export const Core = globalThis[ GLOBAL_KEY ];
