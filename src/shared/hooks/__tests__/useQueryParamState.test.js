@@ -269,6 +269,85 @@ describe( 'useQueryParamState', () => {
 	} );
 } );
 
+describe( 'useQueryParamState with push', () => {
+	const TABS = [ 'digest', 'review', 'folders' ];
+	const restoreTab = ( raw ) => ( TABS.includes( raw ) ? raw : 'digest' );
+	const encodeTab = ( tab ) => ( 'digest' === tab ? null : tab );
+	const mount = () =>
+		renderHook( () =>
+			useQueryParamState( 'tab', restoreTab, encodeTab, { push: true } )
+		);
+	let pushSpy;
+	let replaceSpy;
+
+	beforeEach( () => {
+		setLocation( '/wp-admin/admin.php?page=intel&watch=w7' );
+		pushSpy = jest.spyOn( window.history, 'pushState' );
+		replaceSpy = jest.spyOn( window.history, 'replaceState' );
+	} );
+
+	afterEach( () => {
+		pushSpy.mockRestore();
+		replaceSpy.mockRestore();
+	} );
+
+	it( 'pushes each change, keeping every other param', () => {
+		const { result, unmount } = mount();
+		expect( pushSpy ).not.toHaveBeenCalled();
+
+		act( () => result.current[ 1 ]( 'review' ) );
+		act( () => result.current[ 1 ]( 'review' ) );
+		act( () => result.current[ 1 ]( 'folders' ) );
+
+		expect( pushSpy ).toHaveBeenCalledTimes( 2 );
+		expect( replaceSpy ).not.toHaveBeenCalled();
+		expect( param( 'tab' ) ).toBe( 'folders' );
+		expect( param( 'watch' ) ).toBe( 'w7' );
+		unmount();
+	} );
+
+	it( 'drops a value restore rejected on mount without a Back entry', () => {
+		setLocation( '/wp-admin/admin.php?page=intel&tab=%3Cscript%3E' );
+		replaceSpy.mockClear();
+		const { result, unmount } = mount();
+
+		expect( result.current[ 0 ] ).toBe( 'digest' );
+		expect( window.location.search ).toBe( '?page=intel' );
+		expect( pushSpy ).not.toHaveBeenCalled();
+		unmount();
+	} );
+
+	it( 'restores the entry Back or Forward lands on, writing nothing', () => {
+		const { result, unmount } = mount();
+		act( () => result.current[ 1 ]( 'folders' ) );
+		pushSpy.mockClear();
+		replaceSpy.mockClear();
+
+		setLocation( '/wp-admin/admin.php?page=intel&watch=w7&tab=review' );
+		replaceSpy.mockClear();
+		act( () => {
+			window.dispatchEvent( new PopStateEvent( 'popstate' ) );
+		} );
+
+		expect( result.current[ 0 ] ).toBe( 'review' );
+		expect( param( 'tab' ) ).toBe( 'review' );
+		expect( pushSpy ).not.toHaveBeenCalled();
+		expect( replaceSpy ).not.toHaveBeenCalled();
+		unmount();
+	} );
+
+	it( 'stops answering popstate once unmounted', () => {
+		const { result, unmount } = mount();
+		act( () => result.current[ 1 ]( 'folders' ) );
+		unmount();
+
+		setLocation( '/wp-admin/admin.php?page=intel&tab=review' );
+		window.dispatchEvent( new PopStateEvent( 'popstate' ) );
+
+		expect( result.current[ 0 ] ).toBe( 'folders' );
+	} );
+} );
+
 describe( 'useQueryParamList', () => {
 	const UA = 'ua=Mozilla/5.0 (X11, Linux) a&b+c, d=e';
 	const keepKnown = ( raw ) => raw.filter( ( v ) => v.includes( '=' ) );

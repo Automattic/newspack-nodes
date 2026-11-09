@@ -9,7 +9,9 @@
  * its own. `useQueryParamList` is the twin for a list, written as one repeated
  * `?param=` per item. Every hook here takes a last `{ written }` option that
  * holds its value off the bar while the view it belongs to is shut, so a
- * caller never hand-writes a gated encoder.
+ * caller never hand-writes a gated encoder, and a `push` option that makes the
+ * value navigation instead: each change after mount pushes a Back entry, and
+ * Back or Forward restores the value the landed entry names.
  *
  * A page can still push entries of its own — a `?url=`-style navigation — and
  * each carries the filters current when it was pushed. The view keeps its
@@ -20,7 +22,7 @@
  * alias.
  */
 
-import { useState, useEffect } from '@wordpress/element';
+import { useState, useEffect, useRef } from '@wordpress/element';
 import {
 	getQueryParam,
 	getQueryParams,
@@ -31,13 +33,19 @@ import {
  * Own a value mirrored into `?param=`.
  *
  * @template T
- * @param {string}                param     Query-string parameter name.
- * @param {(raw: ?string) => T}   restore   Decode and validate the param's
- *                                          value; receives null when absent.
- * @param {(value: T) => ?string} encode    The param's value; null or ''
- *                                          omits it.
- * @param {{written?: boolean}}   [options] `written` false holds the value
- *                                          off the bar; true by default.
+ * @param {string}                              param     Query-string parameter
+ *                                                        name.
+ * @param {(raw: ?string) => T}                 restore   Decode and validate the
+ *                                                        param's value; receives
+ *                                                        null when absent.
+ * @param {(value: T) => ?string}               encode    The param's value; null
+ *                                                        or '' omits it.
+ * @param {{written?: boolean, push?: boolean}} [options] `written` false holds
+ *                                                        the value off the bar,
+ *                                                        true by default; `push`
+ *                                                        makes each change a
+ *                                                        Back entry, false by
+ *                                                        default.
  * @return {[T, import('react').Dispatch<import('react').SetStateAction<T>>]}
  *   The value and React's own setter.
  */
@@ -57,13 +65,20 @@ export function useQueryParamState( param, restore, encode, options ) {
  * so an item may hold any character.
  *
  * @template T
- * @param {string}                 param     Query-string parameter name.
- * @param {(raw: string[]) => T}   restore   Decode and validate every value
- *                                           the param holds; receives [] when
- *                                           absent.
- * @param {(value: T) => string[]} encode    The param's values; [] omits it.
- * @param {{written?: boolean}}    [options] `written` false holds the list
- *                                           off the bar; true by default.
+ * @param {string}                              param     Query-string parameter
+ *                                                        name.
+ * @param {(raw: string[]) => T}                restore   Decode and validate
+ *                                                        every value the param
+ *                                                        holds; receives []
+ *                                                        when absent.
+ * @param {(value: T) => string[]}              encode    The param's values; []
+ *                                                        omits it.
+ * @param {{written?: boolean, push?: boolean}} [options] `written` false holds
+ *                                                        the list off the bar,
+ *                                                        true by default; `push`
+ *                                                        makes each change a
+ *                                                        Back entry, false by
+ *                                                        default.
  * @return {[T, import('react').Dispatch<import('react').SetStateAction<T>>]}
  *   The value and React's own setter.
  */
@@ -93,6 +108,11 @@ export function useQueryParamList( param, restore, encode, options ) {
  * the bar names it again once `written` turns true. A value naming nothing
  * keeps its key as `written` flips, so it neither writes nor re-subscribes.
  *
+ * `push` makes the value navigation: the mount write still replaces, every
+ * later change pushes, and Back or Forward re-reads the landed entry through
+ * `restore` in place of writing the live value over it. That entry already
+ * names what was restored, so the write that follows finds nothing to change.
+ *
  * @template T
  * @param {string}                           param             Param name.
  * @param {(name: string) => *}              read              `getQueryParam`
@@ -108,6 +128,9 @@ export function useQueryParamList( param, restore, encode, options ) {
  * @param {boolean}                          [options.written] Whether the bar
  *                                                             names the value;
  *                                                             true by default.
+ * @param {boolean}                          [options.push]    Whether a change
+ *                                                             is a Back entry;
+ *                                                             false by default.
  * @return {[T, import('react').Dispatch<import('react').SetStateAction<T>>]}
  *   The value and React's own setter.
  */
@@ -117,17 +140,26 @@ function useMirroredParam(
 	empty,
 	restore,
 	encode,
-	{ written = true } = {}
+	{ written = true, push = false } = {}
 ) {
 	const [ value, setValue ] = useState( () => restore( read( param ) ) );
 	const key = JSON.stringify( barValue( written ? encode( value ) : empty ) );
+	const mounted = useRef( false );
+	const reread = useRef( null );
+	reread.current = () => setValue( restore( read( param ) ) );
 
 	useEffect( () => {
-		const write = () => setQueryParams( { [ param ]: JSON.parse( key ) } );
+		const write = () =>
+			setQueryParams(
+				{ [ param ]: JSON.parse( key ) },
+				{ push: push && mounted.current }
+			);
 		write();
-		window.addEventListener( 'popstate', write );
-		return () => window.removeEventListener( 'popstate', write );
-	}, [ param, key ] );
+		mounted.current = true;
+		const answer = push ? () => reread.current() : write;
+		window.addEventListener( 'popstate', answer );
+		return () => window.removeEventListener( 'popstate', answer );
+	}, [ param, key, push ] );
 
 	return [ value, setValue ];
 }
