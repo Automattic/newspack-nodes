@@ -67,9 +67,9 @@ test( 'canonical modal selectors reach the real nested ModalShell portal', () =>
 
 	expectModalPaint(
 		document.body.querySelector( '.newspack-nodes-modal' ),
-		document.body.querySelector( '.topology-modal__header' ),
-		document.body.querySelector( '.topology-modal__title' ),
-		document.body.querySelector( '.topology-modal__close' )
+		document.body.querySelector( '.newspack-nodes-modal__header' ),
+		document.body.querySelector( '.newspack-nodes-modal__title' ),
+		document.body.querySelector( '.newspack-nodes-modal__close' )
 	);
 } );
 

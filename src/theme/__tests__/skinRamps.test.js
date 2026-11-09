@@ -131,7 +131,7 @@ const ALLOWED_DERIVED_OVERRIDES = {
 	newspack: {
 		...NP_CHART_OVERRIDES,
 		'--font-terminal': 'var(--np-font-mono)',
-		'--modal-radius': '6px',
+		'--modal-radius': 'var(--np-radius-md)',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
 		'--muted-text': '#717171',
 		'--status-text': '#666',
@@ -139,7 +139,7 @@ const ALLOWED_DERIVED_OVERRIDES = {
 	'newspack-brand': {
 		...NP_CHART_OVERRIDES,
 		'--font-terminal': '"jetbrains mono", ui-monospace, monospace',
-		'--modal-radius': '6px',
+		'--modal-radius': 'var(--np-radius-md)',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
 		'--muted-text': '#717171',
 		'--status-text': '#666',
@@ -1491,7 +1491,7 @@ describe( 'theme skin ramps', () => {
 			expect( effectiveSkin( slug ) ).toMatchObject( {
 				'--button-radius': '5px',
 				'--field-radius': '0',
-				'--modal-radius': '6px',
+				'--modal-radius': 'var(--np-radius-md)',
 				'--modal-shadow': NEWSPACK_MODAL_SHADOW,
 			} );
 		}
@@ -1722,6 +1722,12 @@ describe( 'theme skin ramps', () => {
 		const modalCloseHover = productionRule( ( selector ) =>
 			selector.includes( '.newspack-nodes-modal__close:hover' )
 		);
+		// The hover repaints only the fill; the close's own rule keeps its ink.
+		const modalClose = productionRule(
+			( selector ) =>
+				selector.includes( '.newspack-nodes-modal__close' ) &&
+				! selector.includes( ':hover' )
+		);
 		const topologySave = productionRule(
 			( selector ) =>
 				selector.includes( '.topology-mode__btn--save' ) &&
@@ -1746,7 +1752,16 @@ describe( 'theme skin ramps', () => {
 			[ pausedHover, '--brass-dark', '--on-brass-dark' ],
 			[ active, '--cyan', '--on-cyan' ],
 			[ activeHover, '--cyan-dark', '--on-cyan-dark' ],
-			[ modalCloseHover, '--oxide', '--on-oxide' ],
+			[
+				{
+					declarations: {
+						background: modalCloseHover?.declarations.background,
+						color: modalClose?.declarations.color,
+					},
+				},
+				'--hover',
+				'--ink',
+			],
 			[ topologySave, '--sage', '--on-sage' ],
 			[ errorBanner, '--oxide', '--on-oxide' ],
 		].map( ( [ rule, background, foreground ] ) => ( {

@@ -5,7 +5,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useEffect, useRef } from '@wordpress/element';
-import Modal, { ModalPortal } from '../Modal';
+import Modal, { ModalHeader, ModalPortal } from '../Modal';
 
 test( 'it renders a labelled dialog carrying the canonical modal role', () => {
 	render(
@@ -19,6 +19,98 @@ test( 'it renders a labelled dialog carrying the canonical modal role', () => {
 	expect( dialog.getAttribute( 'aria-modal' ) ).toBe( 'true' );
 	expect( dialog.className ).toContain( 'newspack-nodes-modal' );
 	expect( screen.getByText( 'body' ) ).toBeTruthy();
+} );
+
+test( 'its header holds the title and a labelled icon close as siblings', () => {
+	const onClose = jest.fn();
+	render(
+		<Modal ariaLabel="Quarry notes 62" onClose={ () => {} }>
+			<ModalHeader title="Quarry notes 62" onClose={ onClose } />
+		</Modal>
+	);
+
+	const title = screen.getByText( 'Quarry notes 62' );
+	const close = screen.getByRole( 'button', { name: 'Close' } );
+	const header = title.parentElement;
+	expect( header.tagName ).toBe( 'HEADER' );
+	expect( header.className ).toBe( 'newspack-nodes-modal__header' );
+	expect( title.className ).toBe( 'newspack-nodes-modal__title' );
+	expect( close.parentElement ).toBe( header );
+	expect( close.className ).toBe( 'newspack-nodes-modal__close' );
+	expect( close.getAttribute( 'type' ) ).toBe( 'button' );
+	expect( close.textContent ).toBe( '' );
+	expect( close.querySelector( 'svg' ).getAttribute( 'viewBox' ) ).toBe(
+		'0 0 24 24'
+	);
+
+	fireEvent.click( close );
+	expect( onClose ).toHaveBeenCalledTimes( 1 );
+} );
+
+test( 'its header carries a long title whole in the title attribute', () => {
+	const long =
+		'Rebalance every partition of the heron-ledger-archive fleet onto the egret spokes';
+	render(
+		<Modal ariaLabel={ long } onClose={ () => {} }>
+			<ModalHeader title={ long } onClose={ () => {} } />
+		</Modal>
+	);
+
+	const title = document.querySelector( '.newspack-nodes-modal__title' );
+	expect( title.textContent ).toBe( long );
+	expect( title.getAttribute( 'title' ) ).toBe( long );
+} );
+
+test( 'a dialog headed by ModalHeader is named by its title alone', () => {
+	render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader title="Quarry ledger 81" onClose={ () => {} } />
+		</Modal>
+	);
+
+	const dialog = screen.getByRole( 'dialog', { name: 'Quarry ledger 81' } );
+	const title = dialog.querySelector( 'h2.newspack-nodes-modal__title' );
+	expect( dialog.hasAttribute( 'aria-label' ) ).toBe( false );
+	expect( title.id ).not.toBe( '' );
+	expect( dialog.getAttribute( 'aria-labelledby' ) ).toBe( title.id );
+} );
+
+test( 'its header labels the close in the words the caller hands it', () => {
+	render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader
+				title="t"
+				onClose={ () => {} }
+				closeLabel="Cerrar 81"
+			/>
+		</Modal>
+	);
+
+	expect( screen.getByRole( 'button', { name: 'Cerrar 81' } ) ).toBeTruthy();
+} );
+
+test( 'its header refuses to render outside a dialog that it can name', () => {
+	const quiet = jest.spyOn( console, 'error' ).mockImplementation( () => {} );
+	try {
+		expect( () =>
+			render( <ModalHeader title="t" onClose={ () => {} } /> )
+		).toThrow( 'ModalHeader' );
+	} finally {
+		quiet.mockRestore();
+	}
+} );
+
+test( 'its header hands the close button to the ref it is given', () => {
+	const ref = { current: null };
+	render(
+		<Modal ariaLabel="x" onClose={ () => {} }>
+			<ModalHeader title="t" onClose={ () => {} } closeRef={ ref } />
+		</Modal>
+	);
+
+	expect( ref.current ).toBe(
+		screen.getByRole( 'button', { name: 'Close' } )
+	);
 } );
 
 test( 'escape closes it', () => {

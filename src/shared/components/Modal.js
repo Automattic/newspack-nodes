@@ -1,7 +1,15 @@
-import { createPortal, useRef } from '@wordpress/element';
+import {
+	createContext,
+	createPortal,
+	useContext,
+	useId,
+	useRef,
+} from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import { useDismissable } from '../hooks/useDismissable';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { submitProps } from '../utils/submitProps';
+import CloseIcon from './CloseIcon';
 import './Modal.scss';
 
 /**
@@ -37,6 +45,69 @@ export function ModalPortal( { children } ) {
 }
 
 /**
+ * The id a dialog shell names itself by: the shell points `aria-labelledby`
+ * at it, and the `ModalHeader` inside gives it to its title. `Modal` provides
+ * it; a shell that draws its own box provides `useId()` the same way.
+ *
+ * @type {import('react').Context<string|null>}
+ */
+export const ModalTitleId = createContext( null );
+
+/**
+ * The one dialog header: the title, then an icon button running `onClose`,
+ * as siblings of the canonical `.newspack-nodes-modal__header`, whose row
+ * layout, title type and close geometry the shared `_modal.scss` owns. The
+ * title names the dialog, through the id `ModalTitleId` provides, and holds
+ * one line, ellipsised, with its whole text in its `title` attribute. A
+ * dialog that focuses its close button first hands `closeRef` in.
+ *
+ * `closeLabel` defaults to the substrate's "Close", which only a substrate
+ * bundle translates; a consumer hands in its own, translated in its own text
+ * domain, as it does `LogStreamViewer`'s `pickerLabel`.
+ *
+ * @param {Object}                                 props
+ * @param {string}                                 props.title        The dialog's title, and its name.
+ * @param {() => void}                             props.onClose      Runs on a click of the close button.
+ * @param {import('react').Ref<HTMLButtonElement>} [props.closeRef]   Takes the close button.
+ * @param {string}                                 [props.closeLabel] The close button's name.
+ * @return {import('react').ReactElement} The header.
+ * @throws {Error} Outside a dialog providing `ModalTitleId`, which would be left unnamed.
+ */
+export function ModalHeader( {
+	title,
+	onClose,
+	closeRef,
+	closeLabel = __( 'Close', 'newspack-nodes' ),
+} ) {
+	const titleId = useContext( ModalTitleId );
+	if ( null === titleId ) {
+		throw new Error(
+			'ModalHeader renders inside a dialog that provides ModalTitleId'
+		);
+	}
+	return (
+		<header className="newspack-nodes-modal__header">
+			<h2
+				id={ titleId }
+				className="newspack-nodes-modal__title"
+				title={ title }
+			>
+				{ title }
+			</h2>
+			<button
+				type="button"
+				ref={ closeRef }
+				className="newspack-nodes-modal__close"
+				aria-label={ closeLabel }
+				onClick={ onClose }
+			>
+				<CloseIcon />
+			</button>
+		</header>
+	);
+}
+
+/**
  * The shared plain-DOM modal shell (no `@wordpress/components`): a backdrop and
  * a `role="dialog"` box carrying the canonical `.newspack-nodes-modal` role, so
  * every dashboard's dialog looks identical without declaring its own selectors.
@@ -60,7 +131,8 @@ export function ModalPortal( { children } ) {
  * `type="button"`.
  *
  * @param {Object}                    props
- * @param {string}                    props.ariaLabel           Accessible dialog label.
+ * @param {string}                    [props.ariaLabel]         The name of a dialog with no `ModalHeader`;
+ *                                                              one headed by it is named by its title.
  * @param {() => void}                props.onClose             Dismiss handler (ESC / backdrop).
  * @param {string}                    [props.className]         Extra classes on the dialog box.
  * @param {string}                    [props.backdropClassName] Extra classes on the BACKDROP — where
@@ -80,6 +152,7 @@ export default function Modal( {
 	children,
 } ) {
 	const dialogRef = useRef( null );
+	const titleId = useId();
 	useDismissable( dialogRef, onClose );
 	useFocusTrap( dialogRef );
 	const Box = onSubmit ? 'form' : 'div';
@@ -96,9 +169,12 @@ export default function Modal( {
 					role="dialog"
 					aria-modal="true"
 					aria-label={ ariaLabel }
+					aria-labelledby={ ariaLabel ? undefined : titleId }
 					{ ...( onSubmit && submitProps( onSubmit ) ) }
 				>
-					{ children }
+					<ModalTitleId.Provider value={ titleId }>
+						{ children }
+					</ModalTitleId.Provider>
 				</Box>
 			</div>
 		</ModalPortal>

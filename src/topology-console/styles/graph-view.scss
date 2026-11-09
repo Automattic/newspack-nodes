@@ -2575,30 +2575,9 @@
 	flex-direction: column;
 }
 
-.topology-modal__header {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	padding: 8px 8px 8px 14px;
-}
-
-.topology-modal__title {
-	flex: 1 1 auto;
-	min-width: 0;
-	font-size: 15px;
-}
-
-// Close-control geometry; the canonical modal owner paints its states.
-.topology-modal__close {
-	flex: 0 0 auto;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 24px;
-	height: 24px;
-	padding: 0;
-	font-size: 18px;
-	line-height: 1;
+// The shared sheet lays the header out; the console's panel pads it.
+.topology-modal > .newspack-nodes-modal__header {
+	padding: 8px 8px 8px 16px;
 }
 
 .topology-modal__body {

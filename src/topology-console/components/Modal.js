@@ -5,7 +5,7 @@
  * stock dialogs built on them — a confirmation, a single-line prompt, and the
  * new-node form a palette drop opens.
  *
- * Every dialog closes three ways: its × button, ESC, and a mousedown outside
+ * Every dialog closes three ways: its close button, ESC, and a mousedown outside
  * the panel. Each focuses on mount where the answer begins — the confirm
  * button for a yes/no, the text input with its initial value selected for the
  * two that take typing — so a dialog can be answered without the mouse. The
@@ -15,13 +15,18 @@
 import {
 	cloneElement,
 	useEffect,
+	useId,
 	useLayoutEffect,
 	useRef,
 	useState,
 } from '@wordpress/element';
 import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
 import { useFocusTrap } from '@newspack-nodes/shared/hooks/useFocusTrap';
-import { ModalPortal } from '@newspack-nodes/shared/components/Modal';
+import {
+	ModalHeader,
+	ModalPortal,
+	ModalTitleId,
+} from '@newspack-nodes/shared/components/Modal';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField, useFieldRefusals } from './CtorField';
 import { serializeCtorArgs } from '../utils/tslArgs';
@@ -39,12 +44,18 @@ const PANEL_GUTTER = 16;
  */
 export const MODAL_MIN_W = 360;
 
-// @longform Chrome the caps cannot shrink, measured off graph-view.scss: a 40px
-// header (24px close control + 8px padding each side) over a 51px actions row
-// (30px button + 10px padding each side + a 1px border). The body absorbs every
-// other squeeze — it carries `min-height: 0` and scrolls — so these two are the
-// dialog's irreducible height.
-const MODAL_CHROME_H = 40 + 51;
+// @longform The header: the shared sheet's 32px title line and close,
+// graph-view.scss's 8px padding each side and a 1px rule. styleOwnership.test
+// derives it from those stylesheets and fails when either moves.
+const MODAL_HEADER_H = 49;
+
+// The actions row: a 30px button, 10px padding each side and a 1px border.
+const MODAL_ACTIONS_H = 51;
+
+// @longform Chrome the caps cannot shrink. The body absorbs every other
+// squeeze — it carries `min-height: 0` and scrolls — so the header and the
+// actions row are the dialog's irreducible height.
+const MODAL_CHROME_H = MODAL_HEADER_H + MODAL_ACTIONS_H;
 
 // @longform Below either floor plus its gutters a panel cannot contain a dialog
 // however tight the caps are, and `useDebugFrame` lets one be dragged down to
@@ -76,6 +87,7 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  *
  * The dialog panel carries two class families: `topology-modal*` for the
  * console's geometry, `newspack-nodes-modal*` for the canonical shared paint.
+ * Its header is the shared `ModalHeader`, laid out by the shared sheet.
  *
  * Given `onSubmit`, the panel itself is the dialog's `<form>` (see
  * `submitProps`); a wrapper inside it would break the panel's flex column and
@@ -100,6 +112,7 @@ export function ModalShell( {
 	children,
 } ) {
 	const ref = useRef( null );
+	const titleId = useId();
 	// Sentinel at the render site: a dialog's panel is the one it is nested in.
 	const anchorRef = useRef( null );
 	const [ panelRect, setPanelRect ] = useState( null );
@@ -185,24 +198,14 @@ export function ModalShell( {
 					ref={ ref }
 					role="dialog"
 					aria-modal="true"
-					aria-label={ title }
+					aria-labelledby={ titleId }
 					style={ modalStyle }
 					{ ...( onSubmit && submitProps( onSubmit ) ) }
 				>
-					<header className="topology-modal__header newspack-nodes-modal__header">
-						<span className="topology-modal__title newspack-nodes-modal__title">
-							{ title }
-						</span>
-						<button
-							type="button"
-							className="topology-modal__close newspack-nodes-modal__close"
-							aria-label={ __( 'Close', 'newspack-nodes' ) }
-							onClick={ onDismiss }
-						>
-							{ '×' }
-						</button>
-					</header>
-					{ children }
+					<ModalTitleId.Provider value={ titleId }>
+						<ModalHeader title={ title } onClose={ onDismiss } />
+						{ children }
+					</ModalTitleId.Provider>
 				</Panel>
 			</div>
 		</ModalPortal>

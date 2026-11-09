@@ -1302,7 +1302,7 @@ describe( 'canonical appearance ownership', () => {
 		for ( const selector of [
 			':is(.topology-app, .topology-modal) .button.is-compact',
 			'.topology-edit-row__input',
-			'.topology-modal__close',
+			'.topology-modal > .newspack-nodes-modal__header',
 			'.topology-modal__input',
 		] ) {
 			expect( selectors ).toContain( selector );
@@ -1311,14 +1311,13 @@ describe( 'canonical appearance ownership', () => {
 		for ( const legacySelector of [
 			'.topology-app .button.is-compact',
 			'.topology-app .topology-edit-row__input',
-			'.topology-app .topology-modal__close',
 			'.topology-app .topology-modal__input',
 		] ) {
 			expect( selectors ).not.toContain( legacySelector );
 		}
 		expect(
 			selectors.filter( ( selector ) =>
-				selector.includes( '.topology-modal__close:hover' )
+				/\.topology-modal__(?:header|title|close)\b/.test( selector )
 			)
 		).toEqual( [] );
 	} );
@@ -1373,14 +1372,13 @@ describe( 'canonical appearance ownership', () => {
 				'color',
 				'font-family',
 			],
-			'.topology-modal__close': [
+			'.topology-modal > .newspack-nodes-modal__header': [
 				'background',
 				'border',
-				'border-radius',
+				'border-bottom',
 				'color',
-				'cursor',
-				'font-family',
-				'transition',
+				'display',
+				'font-size',
 			],
 			'.topology-modal__input': [
 				'background',
@@ -2050,13 +2048,54 @@ describe( 'canonical appearance ownership', () => {
 			} )
 		);
 		expect(
-			declarationsForSelector( graphStylesheet, '.topology-modal__close' )
-		).toEqual(
-			expect.objectContaining( {
-				width: '24px',
-				height: '24px',
-				padding: '0',
-			} )
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-modal > .newspack-nodes-modal__header'
+			)
+		).toEqual( { padding: '8px 8px 8px 16px' } );
+
+		// @longform ModalShell's MODAL_HEADER_H is the console header's height:
+		// the taller of the shared title line and close, the console's own
+		// vertical padding and the shared header rule. Let the stylesheets move
+		// and the anchor gate admits a panel the dialog cannot fit inside.
+		const sharedModal = compile(
+			path.join( NODES_SRC, 'shared/styles/_modal.scss' )
+		);
+		const inShared = ( role ) =>
+			declarationsForSelector(
+				sharedModal,
+				`:where(.newspack-nodes-ui) .newspack-nodes-modal .newspack-nodes-modal__${ role }`
+			);
+		const px = ( value ) => {
+			expect( value ).toMatch( /^\d+px$/ );
+			return Number.parseInt( value, 10 );
+		};
+		const themeToken = ( name ) =>
+			fs
+				.readFileSync(
+					path.join( NODES_SRC, 'theme/newspack-theme.scss' ),
+					'utf8'
+				)
+				.match( new RegExp( `${ name }:\\s*([^;]+);` ) )[ 1 ];
+		const lineHeight = inShared( 'title' )[ 'line-height' ];
+		expect( lineHeight ).toBe( 'var(--np-lh-m)' );
+		const [ padTop, , padBottom ] = declarationsForSelector(
+			graphStylesheet,
+			'.topology-modal > .newspack-nodes-modal__header'
+		).padding.split( ' ' );
+		expect(
+			numericConstant(
+				path.join( NODES_SRC, 'topology-console/components/Modal.js' ),
+				'MODAL_HEADER_H'
+			)
+		).toBe(
+			Math.max(
+				px( themeToken( '--np-lh-m' ) ),
+				px( inShared( 'close' ).height )
+			) +
+				px( padTop ) +
+				px( padBottom ) +
+				px( inShared( 'header' )[ 'border-bottom' ].split( ' ' )[ 0 ] )
 		);
 
 		const modalStylesheet = compile(
@@ -2072,9 +2111,41 @@ describe( 'canonical appearance ownership', () => {
 				width: '90%',
 				'max-width': '640px',
 				'max-height': '90vh',
-				padding: '24px',
+				padding: 'var(--np-space-lg)',
 			} )
 		);
+		expect(
+			declarationsForSelector(
+				modalStylesheet,
+				'.newspack-nodes-modal__backdrop > .newspack-nodes-modal > .newspack-nodes-modal__header'
+			)
+		).toEqual( {
+			'margin-bottom': 'var(--np-space-md)',
+			'padding-bottom': 'var(--np-space-md)',
+		} );
+		expect(
+			declarationsForSelector(
+				modalStylesheet,
+				'.newspack-nodes-modal__backdrop > .newspack-nodes-modal h4'
+			)
+		).toBeUndefined();
+
+		const alertStylesheet = compile(
+			path.join( NODES_SRC, 'event-dashboards/styles/topology-row.scss' )
+		);
+		const alertChromeRules = [];
+		alertStylesheet.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some( ( selector ) =>
+					/\.nodes-tm__alert(?:-title\b|-actions\b|\b.*\.newspack-nodes-modal__header)/.test(
+						selector
+					)
+				)
+			) {
+				alertChromeRules.push( rule.selector );
+			}
+		} );
+		expect( alertChromeRules ).toEqual( [] );
 	} );
 
 	// One column: side by side, a long "Open <name>.tsl" overflows its half.

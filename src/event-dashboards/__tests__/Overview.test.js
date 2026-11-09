@@ -750,7 +750,9 @@ describe( 'Overview — remaining interactions', () => {
 		act( () => onError( { name: 'alpha', message: 'boom' } ) );
 		expect( container.querySelector( '.nodes-tm__alert' ) ).not.toBeNull();
 		fireEvent.click(
-			container.querySelector( '.nodes-tm__alert-actions .button' )
+			container.querySelector(
+				'.nodes-tm__alert .newspack-nodes-modal__actions .button'
+			)
 		);
 		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeNull();
 	} );
@@ -771,9 +773,10 @@ describe( 'Overview — remaining interactions', () => {
 			} )
 		);
 		const dialog = container.querySelector( '.nodes-tm__alert' );
-		expect( dialog.getAttribute( 'aria-label' ) ).toBe(
-			'Activated “alpha”, with a warning'
-		);
+		expect(
+			document.getElementById( dialog.getAttribute( 'aria-labelledby' ) )
+				.textContent
+		).toBe( 'Activated “alpha”, with a warning' );
 		expect( dialog.textContent ).toContain(
 			'these active topologies could not be checked for conflicts: broken-4410'
 		);

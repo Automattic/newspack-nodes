@@ -810,6 +810,55 @@ describe( 'canonical UI appearance', () => {
 		).toEqual( [] );
 	} );
 
+	it( 'lays every modal header out as one row: title left, close right', () => {
+		const root = `${ CUSTOM_UI_ROOT } .newspack-nodes-modal`;
+		expect(
+			exactSelectorRule( `${ root } .newspack-nodes-modal__header` )
+				?.declarations
+		).toEqual(
+			expect.objectContaining( {
+				display: 'flex',
+				'align-items': 'center',
+				gap: 'var(--np-space-md)',
+			} )
+		);
+		expect(
+			exactSelectorRule( `${ root } .newspack-nodes-modal__header` )
+				?.declarations
+		).not.toHaveProperty( 'justify-content' );
+		const title = exactSelectorRule(
+			`${ root } .newspack-nodes-modal__title`
+		)?.declarations;
+		expect( title ).toMatchObject( {
+			flex: '1 1 auto',
+			'min-width': '0',
+			margin: '0',
+			'font-size': 'var(--np-text-m)',
+			'line-height': 'var(--np-lh-m)',
+			'font-weight': '600',
+			'white-space': 'nowrap',
+			overflow: 'hidden',
+			'text-overflow': 'ellipsis',
+		} );
+		expect( title ).not.toHaveProperty( 'overflow-wrap' );
+		expect(
+			exactSelectorRule( `${ root } .newspack-nodes-modal__close:hover` )
+				?.declarations
+		).toEqual( { background: 'var(--hover,var(--np-surface-muted))' } );
+		expect(
+			exactSelectorRule( `${ root } .newspack-nodes-modal__close` )
+				?.declarations
+		).toMatchObject( {
+			flex: 'none',
+			display: 'inline-flex',
+			width: '32px',
+			height: '32px',
+			padding: '0',
+			border: '0',
+			background: 'transparent',
+		} );
+	} );
+
 	it( 'owns native option paint in canonical controls', () => {
 		const option = exactSelectorRule( `${ UI_ROOT } select option` );
 

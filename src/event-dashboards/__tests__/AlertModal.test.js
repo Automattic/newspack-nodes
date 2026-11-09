@@ -33,14 +33,16 @@ describe( 'AlertModal', () => {
 		expect( document.activeElement ).toBe( opener );
 	} );
 
-	it( 'keeps Tab on its one button', () => {
+	it( 'keeps Tab inside the dialog, wrapping from OK to its close', () => {
 		const { getByRole } = render(
 			<AlertModal title="t" message="m" onClose={ jest.fn() } />
 		);
 		const ok = getByRole( 'button', { name: 'OK' } );
 
 		expect( fireEvent.keyDown( ok, { key: 'Tab' } ) ).toBe( false );
-		expect( document.activeElement ).toBe( ok );
+		expect( document.activeElement ).toBe(
+			getByRole( 'button', { name: 'Close' } )
+		);
 	} );
 
 	it( 'renders the OK button with the canonical .button class, not a bespoke one', () => {
@@ -66,6 +68,41 @@ describe( 'AlertModal', () => {
 		);
 	} );
 
+	it( 'heads the alert with the shared header, and closes on its icon', () => {
+		const onClose = jest.fn();
+		const { getByRole } = render(
+			<AlertModal
+				title="Egret fleet refused"
+				message="boom"
+				onClose={ onClose }
+			/>
+		);
+		const header = getByRole( 'alertdialog' ).querySelector(
+			':scope > header.newspack-nodes-modal__header'
+		);
+
+		const title = header.querySelector( 'h2.newspack-nodes-modal__title' );
+		expect( title.textContent ).toBe( 'Egret fleet refused' );
+		expect(
+			getByRole( 'alertdialog', { name: 'Egret fleet refused' } )
+		).toBe( header.parentElement );
+		expect( header.parentElement.hasAttribute( 'aria-label' ) ).toBe(
+			false
+		);
+		fireEvent.click( header.querySelector( 'button[aria-label="Close"]' ) );
+		expect( onClose ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'lays its OK out in the shared actions row alone', () => {
+		const { getByRole } = render(
+			<AlertModal title="t" message="m" onClose={ jest.fn() } />
+		);
+
+		expect(
+			getByRole( 'button', { name: 'OK' } ).parentElement.className
+		).toBe( 'newspack-nodes-modal__actions' );
+	} );
+
 	it( 'closes on backdrop mouse down', () => {
 		const onClose = jest.fn();
 		const { container } = render(
@@ -77,7 +114,7 @@ describe( 'AlertModal', () => {
 		);
 
 		fireEvent.mouseDown(
-			container.querySelector( '.nodes-tm__alert-backdrop' )
+			container.querySelector( '.newspack-nodes-modal__backdrop' )
 		);
 		expect( onClose ).toHaveBeenCalledTimes( 1 );
 	} );

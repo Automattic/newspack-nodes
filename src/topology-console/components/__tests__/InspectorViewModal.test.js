@@ -241,7 +241,9 @@ test( 'ESC dismisses the modal', () => {
 test( 'the close button dismisses the modal', () => {
 	const onDismiss = jest.fn();
 	render( <InspectorViewModal view="timeline" onDismiss={ onDismiss } /> );
-	fireEvent.click( document.body.querySelector( '.topology-modal__close' ) );
+	fireEvent.click(
+		document.body.querySelector( '.newspack-nodes-modal__close' )
+	);
 	expect( onDismiss ).toHaveBeenCalledTimes( 1 );
 } );
 

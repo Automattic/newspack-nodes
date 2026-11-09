@@ -36,12 +36,12 @@ describe( 'OpenTopologyModal', () => {
 			'topology-modal newspack-nodes-modal topology-modal--wide'
 		);
 		expect(
-			frame.querySelector( '.topology-modal__header' ).className
-		).toBe( 'topology-modal__header newspack-nodes-modal__header' );
+			frame.querySelector( ':scope > .newspack-nodes-modal__header' )
+		).not.toBeNull();
 		// Portaled through the shared shell, so it carries the skin root.
 		expect( frame.closest( '.newspack-nodes-skin-root' ) ).not.toBeNull();
 		expect(
-			frame.querySelector( '.topology-modal__close' )
+			frame.querySelector( '.newspack-nodes-modal__close' )
 		).not.toBeNull();
 	} );
 

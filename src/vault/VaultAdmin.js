@@ -29,7 +29,7 @@ import { useVaultGraph } from './hooks/useVaultGraph';
 import './vault-admin.scss';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
-import Modal from '@newspack-nodes/shared/components/Modal';
+import Modal, { ModalHeader } from '@newspack-nodes/shared/components/Modal';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
 /**
@@ -322,8 +322,8 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 	};
 
 	return (
-		<Modal ariaLabel={ title } onClose={ onClose } onSubmit={ handleSave }>
-			<h4 className="newspack-nodes-modal__title">{ title }</h4>
+		<Modal onClose={ onClose } onSubmit={ handleSave }>
+			<ModalHeader title={ title } onClose={ onClose } />
 			<table className="form-table" style={ { maxWidth: '600px' } }>
 				<tbody>
 					<tr>

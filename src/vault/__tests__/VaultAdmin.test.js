@@ -320,6 +320,29 @@ describe( 'VaultAdmin', () => {
 		expect( addServer ).not.toHaveBeenCalled();
 	} );
 
+	it( 'heads the server dialog with the shared header, and closes on its icon', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+
+		const dialog = document.querySelector( '[role="dialog"]' );
+		const header = dialog.querySelector(
+			':scope > header.newspack-nodes-modal__header'
+		);
+		const title = header.querySelector( 'h2.newspack-nodes-modal__title' );
+		expect( title.textContent ).toBe( 'Add New Server' );
+		expect( dialog.hasAttribute( 'aria-label' ) ).toBe( false );
+		expect( dialog.getAttribute( 'aria-labelledby' ) ).toBe( title.id );
+		await act( async () => {
+			header
+				.querySelector( 'button[aria-label="Close"]' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+		} );
+
+		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+		expect( addServer ).not.toHaveBeenCalled();
+	} );
+
 	it( 'closes the add modal after a successful add', async () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();

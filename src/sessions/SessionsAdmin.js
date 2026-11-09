@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useSessionsGraph } from './hooks/useSessionsGraph';
-import Modal from '@newspack-nodes/shared/components/Modal';
+import Modal, { ModalHeader } from '@newspack-nodes/shared/components/Modal';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
 import './sessions-admin.scss';
@@ -347,14 +347,11 @@ function CreateSessionModal( {
 	};
 
 	return (
-		<Modal
-			ariaLabel={ __( 'Issue a session', 'newspack-nodes' ) }
-			onClose={ onCancel }
-			onSubmit={ handleCreate }
-		>
-			<h4 className="newspack-nodes-modal__title">
-				{ __( 'Issue a Session', 'newspack-nodes' ) }
-			</h4>
+		<Modal onClose={ onCancel } onSubmit={ handleCreate }>
+			<ModalHeader
+				title={ __( 'Issue a Session', 'newspack-nodes' ) }
+				onClose={ onCancel }
+			/>
 			<table className="form-table" style={ { maxWidth: '600px' } }>
 				<tbody>
 					<tr>
@@ -462,13 +459,11 @@ function CreateSessionModal( {
  */
 function IssuedKeyModal( { session, onClose } ) {
 	return (
-		<Modal
-			ariaLabel={ __( 'Session key', 'newspack-nodes' ) }
-			onClose={ onClose }
-		>
-			<h4 className="newspack-nodes-modal__title">
-				{ __( 'Session key', 'newspack-nodes' ) }
-			</h4>
+		<Modal onClose={ onClose }>
+			<ModalHeader
+				title={ __( 'Session key', 'newspack-nodes' ) }
+				onClose={ onClose }
+			/>
 			<p>
 				{ __(
 					'Copy this now. It is shown once and cannot be recovered from the listing.',

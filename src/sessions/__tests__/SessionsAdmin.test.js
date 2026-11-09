@@ -348,6 +348,64 @@ it( 'discloses the issued key once, in place of the form', () => {
 	expect( document.querySelector( '#new-session-label' ) ).toBeNull();
 } );
 
+// The dialog's title and its close sit in the one shared header.
+const sharedHeaderOf = () => {
+	const dialog = document.querySelector( '[role="dialog"]' );
+	const header = dialog.querySelector(
+		':scope > header.newspack-nodes-modal__header'
+	);
+	expect( dialog.hasAttribute( 'aria-label' ) ).toBe( false );
+	expect( dialog.getAttribute( 'aria-labelledby' ) ).toBe(
+		header.querySelector( 'h2' ).id
+	);
+	return header;
+};
+
+const clickHeaderClose = ( header ) =>
+	act( () =>
+		header
+			.querySelector( 'button[aria-label="Close"]' )
+			.dispatchEvent( new Event( 'click', { bubbles: true } ) )
+	);
+
+it( 'heads the create dialog with the shared header, and closes on its icon', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+
+	const header = sharedHeaderOf();
+	expect(
+		header.querySelector( 'h2.newspack-nodes-modal__title' ).textContent
+	).toBe( 'Issue a Session' );
+	clickHeaderClose( header );
+
+	expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+	expect( createSession ).not.toHaveBeenCalled();
+} );
+
+it( 'heads the issued-key dialog with the shared header, and closes on its icon', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+	setInput( document.querySelector( '#new-session-label' ), 'heron desk' );
+	act( () => dialogButton( /issue session/i ).click() );
+	answer( 'create', {
+		subject: 'heron desk',
+		result: {
+			handle: 'h-6610',
+			secret: 's-6610',
+			scope: 'read',
+			expires_in: 1200,
+		},
+	} );
+
+	const header = sharedHeaderOf();
+	expect(
+		header.querySelector( 'h2.newspack-nodes-modal__title' ).textContent
+	).toBe( 'Session key' );
+	clickHeaderClose( header );
+
+	expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+} );
+
 it( 'keeps the form open on a refusal, with the reason on it', () => {
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );

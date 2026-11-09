@@ -1378,7 +1378,7 @@ describe( 'distinctive canonical roles', () => {
 		expect( close.classList.contains( 'button' ) ).toBe( false );
 		expect( matchingDeclarations( close ) ).toMatchObject( {
 			background: 'transparent',
-			border: '1px solid transparent',
+			border: '0',
 			color: 'var(--ink,var(--np-text))',
 		} );
 

@@ -595,7 +595,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click( getByText( 'Runtime' ) );
 		fireEvent.click(
-			document.body.querySelector( '.topology-modal__close' )
+			document.body.querySelector( '.newspack-nodes-modal__close' )
 		);
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 		Core.reset();

@@ -7,32 +7,47 @@
 		border-radius: var(--modal-radius, var(--np-modal-radius));
 		box-shadow: var(--modal-shadow, var(--np-modal-shadow));
 
+		// One header row for every dialog: a one-line title, then the close.
 		.newspack-nodes-modal__header {
+			display: flex;
+			align-items: center;
+			gap: var(--np-space-md);
 			background: var(--paper-2, var(--np-surface-subtle));
 			border-bottom: 1px solid
 				var(--paper-shadow, var(--np-border-strong));
 		}
 
 		.newspack-nodes-modal__title {
+			flex: 1 1 auto;
+			min-width: 0;
+			margin: 0;
 			color: var(--ink, var(--np-text));
+			font-size: var(--np-text-m);
+			line-height: var(--np-lh-m);
+			font-weight: 600;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
 		}
 
+		// A bare icon button; the glyph is the 24px `close` icon.
 		.newspack-nodes-modal__close {
+			flex: none;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 32px;
+			height: 32px;
+			padding: 0;
+			border: 0;
+			border-radius: var(--np-radius-sm);
 			background: transparent;
-			border: 1px solid transparent;
-			border-radius: var(--button-radius, 5px);
 			color: var(--ink, var(--np-text));
 			cursor: pointer;
-			font-family: var(--font-mono, var(--np-font-mono));
-			transition:
-				color 0.1s,
-				border-color 0.1s,
-				background 0.1s;
+			transition: background 0.1s;
 
 			&:hover {
-				background: var(--oxide, var(--np-error));
-				border-color: var(--oxide, var(--np-error));
-				color: var(--on-oxide, var(--np-on-status));
+				background: var(--hover, var(--np-surface-muted));
 			}
 		}
 	}

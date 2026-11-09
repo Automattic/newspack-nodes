@@ -27,11 +27,11 @@
 	max-width: 640px;
 	max-height: 90vh;
 	overflow-y: auto;
-	padding: 24px;
+	padding: var(--np-space-lg);
 
-	h4 {
-		margin-top: 0;
-		font-size: 18px;
+	> .newspack-nodes-modal__header {
+		margin-bottom: var(--np-space-md);
+		padding-bottom: var(--np-space-md);
 	}
 
 	// WP's form-table caps itself narrow; a dialog gives it the whole width.

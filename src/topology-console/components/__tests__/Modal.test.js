@@ -33,15 +33,27 @@ describe( 'ModalShell', () => {
 		expect( baseElement.querySelector( '.topology-modal' ).className ).toBe(
 			'topology-modal newspack-nodes-modal'
 		);
+		const header = baseElement.querySelector(
+			'.topology-modal > .newspack-nodes-modal__header'
+		);
 		expect(
-			baseElement.querySelector( '.topology-modal__header' ).className
-		).toBe( 'topology-modal__header newspack-nodes-modal__header' );
-		expect(
-			baseElement.querySelector( '.topology-modal__title' ).className
-		).toBe( 'topology-modal__title newspack-nodes-modal__title' );
-		expect(
-			baseElement.querySelector( '.topology-modal__close' ).className
-		).toBe( 'topology-modal__close newspack-nodes-modal__close' );
+			[ ...header.children ].map( ( child ) => child.className )
+		).toEqual( [
+			'newspack-nodes-modal__title',
+			'newspack-nodes-modal__close',
+		] );
+	} );
+
+	it( 'is named by its header title alone', () => {
+		const { getByRole } = render(
+			<ModalShell title="Kestrel ledger 52" onDismiss={ () => {} } />
+		);
+
+		const dialog = getByRole( 'dialog', { name: 'Kestrel ledger 52' } );
+		expect( dialog.hasAttribute( 'aria-label' ) ).toBe( false );
+		expect( dialog.getAttribute( 'aria-labelledby' ) ).toBe(
+			dialog.querySelector( 'h2.newspack-nodes-modal__title' ).id
+		);
 	} );
 
 	it( 'wraps Tab from its last control back inside the panel', () => {
@@ -105,15 +117,17 @@ describe( 'ModalShell', () => {
 		expect( outer ).not.toHaveBeenCalled();
 	} );
 
-	it( 'renders an X close button in the corner that invokes onDismiss', () => {
+	it( 'renders an icon close button in the corner that invokes onDismiss', () => {
 		const onDismiss = jest.fn();
 		const { baseElement } = render(
 			<ModalShell title="x" onDismiss={ onDismiss }>
 				<div />
 			</ModalShell>
 		);
-		const close = baseElement.querySelector( '.topology-modal__close' );
-		expect( close ).not.toBeNull();
+		const close = baseElement.querySelector(
+			'.newspack-nodes-modal__close'
+		);
+		expect( close.querySelector( 'svg' ) ).not.toBeNull();
 		expect( close.getAttribute( 'aria-label' ) ).toBe( 'Close' );
 		fireEvent.click( close );
 		expect( onDismiss ).toHaveBeenCalled();
@@ -523,10 +537,11 @@ describe( 'PromptModal', () => {
 		const others = [
 			...panelForm( baseElement ).querySelectorAll( 'button' ),
 		].filter( ( b ) => b !== getByText( 'Save' ) );
-		expect( others.map( ( b ) => b.textContent ) ).toEqual( [
-			'×',
-			'Cancel',
-		] );
+		expect(
+			others.map(
+				( b ) => b.textContent || b.getAttribute( 'aria-label' )
+			)
+		).toEqual( [ 'Close', 'Cancel' ] );
 		others.forEach( ( b ) => expect( b.type ).toBe( 'button' ) );
 	} );
 
