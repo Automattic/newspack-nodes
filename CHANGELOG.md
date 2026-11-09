@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `ToggleControl` inside a substrate dashboard draws its thumb on its track again.** The shared checkbox rule in `src/shared/styles/_controls.scss` now reads `input[type="checkbox"]:not(.components-form-toggle__input)`. Before, it tied wp-components' own rule for the toggle's hidden input on specificity and won by loading later, so that input showed as a visible 16px box in the flow and pushed the thumb out of the track. Plain checkboxes and `CheckboxControl` keep the shared box, and `src/ui/__tests__/checkboxReach.test.js` checks all three against the real components.
+
 ## [2.150.0] - 2026-11-09
 
 ### Added

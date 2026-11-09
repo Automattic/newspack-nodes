@@ -301,7 +301,9 @@ describe( 'canonical UI appearance', () => {
 
 		const checkbox = parsedRule(
 			controlsStylesheet,
-			( selector ) => 'input[type="checkbox"]' === selector
+			( selector ) =>
+				'input[type="checkbox"]:not(.components-form-toggle__input)' ===
+				selector
 		);
 		expect( checkbox?.declarations.width ).toBe( '16px' );
 		expect( checkbox?.declarations.height ).toBe( '16px' );
@@ -361,7 +363,7 @@ describe( 'canonical UI appearance', () => {
 				'12px' === rule.declarations[ 'font-size' ]
 		);
 		const checkbox = exactSelectorRule(
-			`${ UI_ROOT } input[type=checkbox]`
+			`${ UI_ROOT } input[type=checkbox]:not(.components-form-toggle__input)`
 		);
 		expect( checkbox?.declarations.width ).toBe( '16px' );
 		expect( checkbox?.declarations.height ).toBe( '16px' );

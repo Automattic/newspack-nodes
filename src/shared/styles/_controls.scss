@@ -107,7 +107,8 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		display: none;
 	}
 
-	input[type="checkbox"] {
+	// ToggleControl hides its own input and draws the track and thumb itself.
+	input[type="checkbox"]:not(.components-form-toggle__input) {
 		appearance: none;
 		width: 16px;
 		height: 16px;
