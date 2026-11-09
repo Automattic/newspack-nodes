@@ -1215,9 +1215,10 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
-	/** A handler a driver threw through answers its code and none of its values. */
+	/** A handler a driver threw through answers a worker's manage caller its code and none of its values. */
 	public function test_a_driver_exception_replies_without_its_values(): void {
-		$interpreter = new Command_Interpreter_Node();
+		Core::$var['topology'] = 'weka-worker-7746';
+		$interpreter           = new Command_Interpreter_Node();
 		$sink        = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
 		$interpreter->commands(

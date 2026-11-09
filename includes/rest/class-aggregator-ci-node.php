@@ -326,7 +326,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 							'idle'       => $idle,
 							'total'      => \count( $snapshot ),
 							'server_now' => \time(),
-							'unreadable' => \array_map( Core::message_of( ... ), $unreadable ),
+							'unreadable' => Core::caller_messages( $unreadable ),
 						];
 					},
 				],

@@ -199,7 +199,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		[ $declared, $refused ]    = Log_Cleaner::declared_log_partitions( $readable );
 		$logs                      = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides, $declared, $probe['partitions'] );
 		$logs_at                   = Core::right_now();
-		$messages                  = Core::message_of( ... );
 
 		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
 		$log_partitions = \count( Core::dir_entries( $log_base, '*', only_dirs: true ) );
@@ -208,8 +207,8 @@ class Workers_CI_Node extends Service_CI_Node {
 
 		$envelope = [
 			'workers'        => $workers,
-			'unreadable'     => \array_map( $messages, $unreadable ),
-			'refused_producers' => \array_map( $messages, $refused ),
+			'unreadable'     => Core::caller_messages( $unreadable ),
+			'refused_producers' => Core::caller_messages( $refused ),
 			'consumers'      => $probe['rows'],
 			'unparseable_lines' => $probe['unparseable_lines'],
 			'logs'           => $logs,

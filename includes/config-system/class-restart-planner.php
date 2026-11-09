@@ -72,7 +72,7 @@ class Restart_Planner {
 				$notices = Core::arr( \get_user_meta( $user, self::NOTICE_META, true ) );
 				foreach ( Worker_Should_Stop::causes_of( $e ) as $cause ) {
 					/* translators: 1: comma-separated setting keys, 2: why the running workers were not told. */
-					$notices[] = \sprintf( \__( 'Changed %1$s, but the running workers were not told: %2$s', 'newspack-nodes' ), $fields, Core::message_of( $cause ) );
+					$notices[] = \sprintf( \__( 'Changed %1$s, but the running workers were not told: %2$s', 'newspack-nodes' ), $fields, Core::caller_message( $cause, 'settings' ) );
 				}
 				\update_user_meta( $user, self::NOTICE_META, $notices );
 			}

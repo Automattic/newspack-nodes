@@ -318,8 +318,8 @@ class Command_Interpreter_Node extends Node {
 					if ( $noreply || $e instanceof Worker_Should_Stop ) {
 						throw $e;
 					}
-					// Handler errors are pre-escaped; the sink re-escapes.
-					$result    = Core::message_of( $e ) . "\n";
+					// An engine error's own words go to a MANAGE caller alone.
+					$result    = Core::caller_message( $e, $cmd_name ) . "\n";
 					$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 				}
 			}

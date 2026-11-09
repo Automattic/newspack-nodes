@@ -164,7 +164,8 @@ class Settings_Renderer {
 	 * instantiated by any ACTIVE topology reports no consumer, which is the
 	 * honest answer — nothing will be restarted. Otherwise the column names the
 	 * topologies. An active topology that will not read leaves the impact
-	 * unknown, and the column says so with the failure rather than taking the
+	 * unknown, and the column says so with the failure, as far as
+	 * `Core::caller_message()` lets the reader see it, rather than taking the
 	 * whole page down; a stop propagates.
 	 *
 	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
@@ -187,7 +188,7 @@ class Settings_Renderer {
 			return \sprintf(
 				/* translators: %s: why the active topologies could not be read. */
 				\__( 'Restart impact unknown: %s', 'newspack-nodes' ),
-				$e->getMessage()
+				Core::caller_message( $e, 'settings' )
 			);
 		}
 		if ( [] === $topologies ) {

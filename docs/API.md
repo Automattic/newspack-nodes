@@ -621,7 +621,9 @@ notification and is answered with a bodiless 202; a body that is not JSON-RPC
 2.0 answers `-32600` with a null id, and an unknown method or a tool the session
 may not call answers `-32601`. A tool's argument object rides to its command as
 `--name=value` tokens, a list as one token a member, and a command's refusal comes
-back as a tool result with `isError` true. Every reply leaves as JSON encoded
+back as a tool result with `isError` true, in the words
+[`Core::caller_message()`](../includes/class-core.php) lets the session read
+(see [Error words](#error-words)). Every reply leaves as JSON encoded
 with `JSON_HEX_TAG` inside one `<site-data>` fence, so a payload cannot close
 the tag, and `initialize` serves `FENCE_NOTE`, the sentence saying what the tag
 means, ahead of the door's own instructions and its caveat. The server's
@@ -1397,6 +1399,24 @@ the palette and the Inspector consume the same schema. Auth gating is uniform:
 the endpoint requires the READ floor AND a valid command signature, and each
 command's declared role decides the rest. A refusal THROWS —
 `Command_Interpreter_Node::interpret()` wraps it as `TM_COMMAND|TM_ERROR`.
+
+<a id="error-words"></a>**Error words.** The reply's text is
+[`Core::caller_message( $e, <command> )`](../includes/class-core.php). A
+deliberate refusal, an `\Exception`, reads as thrown to every caller. An engine
+`\Error` (a TypeError, ValueError, ArgumentCountError, DivisionByZeroError, …)
+or a driver's exception (`PDOException`, `mysqli_sql_exception`), anywhere down
+the `getPrevious()` chain or among a `Failures`' members, can name files, lines
+and database paths, so its own words reach only a caller who may run a MANAGE
+command (`Capabilities::command_holds()`): a logged-in user holding manage
+under the session scope in force, or a worker's command whose session allows
+it. Every other caller, a manage user under a `read` or `tune` session and an
+anonymous request outside a worker included, reads
+`<command>: internal error; the reason is in the server's log`, and the class,
+message, file and line of each link go to stderr — a worker's log, or PHP's
+error log in a request — once per command while `print_less_often()`'s window
+holds. A `Worker_Should_Stop` and a TM_NOREPLY command's failure re-throw
+instead. The same rule answers an MCP tool error, a `Log_Sources` unavailable
+row and the `unreadable` rows of `workers` and `aggregator summary`.
 `raw-logs read_message` and `read_block` refuse a malformed position that way too,
 and `read_message` answers a position holding no record as a result whose
 `message` is null (see [Log Sources](#log-sources)).

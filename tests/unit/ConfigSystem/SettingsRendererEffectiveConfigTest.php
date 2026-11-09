@@ -89,6 +89,18 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertSame( 'No restart (workers re-read within ~15s)', $rows['num_partitions']['restart'] );
 	}
 
+	/** An engine fault behind the restart column reads as one fixed line below manage. */
+	public function test_an_engine_fault_in_the_restart_column_reads_fixed_below_manage(): void {
+		\update_option( 'newspack_nodes_topologies', [ 'combined', 'fault-lab-4471' ] );
+		$this->write_tsl( 'fault-lab-4471', "make_node Engine_Fault tomtit-4471\n" );
+		Config::reset();
+		$GLOBALS['_wp_test_current_user_id'] = 4471;
+
+		$rows = $this->rows_by_key();
+
+		$this->assertSame( 'Restart impact unknown: settings: internal error; the reason is in the server\'s log', $rows['max_segments']['restart'] );
+	}
+
 	public function test_unstored_setting_reports_file_default_and_no_overlay(): void {
 		$rows = $this->rows_by_key();
 		$this->assertStringContainsString( 'file default', $rows['max_segments']['stored'] );

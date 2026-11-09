@@ -325,6 +325,28 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( 'count 0 echoes nothing', $reply['result']['content'][0]['text'] );
 	}
 
+	/** An engine error reaches a read session as one fixed line, and stderr keeps the reason. */
+	public function test_an_engine_error_reaches_a_read_session_as_a_fixed_line(): void {
+		[ $door, $bearer ] = $this->door( Capabilities::READ );
+		$captured          = $this->capture_stderr();
+
+		$reply = $this->call( $door, $bearer, 'fixture_echo', [ 'word' => 'kea', 'count' => 7317 ], 12 );
+
+		$this->assertTrue( $reply['result']['isError'] );
+		$this->assertSame( 'echo_args: internal error; the reason is in the server\'s log', $reply['result']['content'][0]['text'] );
+		$this->assertCount( 1, self::stderr_lines( $captured, 'echo_args: internal error: TypeError: ' ) );
+	}
+
+	/** A manage session reads the engine error as it was thrown. */
+	public function test_an_engine_error_reaches_a_manage_session_in_its_own_words(): void {
+		[ $door, $bearer ] = $this->door( Capabilities::MANAGE );
+
+		$reply = $this->call( $door, $bearer, 'fixture_echo', [ 'word' => 'kea', 'count' => 7317 ], 13 );
+
+		$this->assertTrue( $reply['result']['isError'] );
+		$this->assertStringContainsString( 'must be of type int, string given', $reply['result']['content'][0]['text'] );
+	}
+
 	/** A refusal's escaped quotes reach the agent as plain text. */
 	public function test_a_refusal_message_reaches_the_agent_unescaped(): void {
 		[ $door, $bearer ] = $this->door();

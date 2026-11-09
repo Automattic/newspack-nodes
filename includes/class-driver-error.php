@@ -72,9 +72,17 @@ final class Driver_Error {
 	 * @return string The message.
 	 */
 	public static function of( \Throwable $e ): string {
-		return $e instanceof \PDOException || $e instanceof \mysqli_sql_exception
-			? self::shape( $e->getCode(), $e->getMessage() )
-			: $e->getMessage();
+		return self::is_driver( $e ) ? self::shape( $e->getCode(), $e->getMessage() ) : $e->getMessage();
+	}
+
+	/**
+	 * Whether a database driver threw it: a `PDOException` or a
+	 * `mysqli_sql_exception`, subclasses included.
+	 *
+	 * @param \Throwable $e What was thrown.
+	 */
+	public static function is_driver( \Throwable $e ): bool {
+		return $e instanceof \PDOException || $e instanceof \mysqli_sql_exception;
 	}
 
 	/**

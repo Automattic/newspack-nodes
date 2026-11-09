@@ -266,6 +266,17 @@ class LogSourcesTest extends TestCase {
 
 	// ── availability ───────────────────────────────────────────────────────
 
+	public function test_an_engine_fault_reads_as_a_fixed_line_to_a_read_caller(): void {
+		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::READ;
+		$fault = new \ValueError( 'kakapo_4410(): Argument #2 must be positive in /srv/kakapo/x.php on line 7' );
+
+		$this->assertSame(
+			[ 'key' => 'sources:kakapo-4410', 'label' => 'kakapo-4410', 'available' => false, 'error' => 'kakapo-4410: internal error; the reason is in the server\'s log' ],
+			Log_Sources::error_row( 'kakapo-4410', $fault, 'sources:kakapo-4410' )
+		);
+		$this->assertSame( 'kakapo-4410 refused', Log_Sources::error_row( 'kakapo-4410', new \RuntimeException( 'kakapo-4410 refused' ) )['error'] );
+	}
+
 	public function test_is_available_checks_the_file_for_file_mode(): void {
 		$path = "{$this->tmp}/live-31.log";
 		\file_put_contents( $path, "x\n" );

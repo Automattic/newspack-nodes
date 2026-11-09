@@ -129,13 +129,26 @@ class Capabilities {
 	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map does not name.
 	 */
 	public static function require_command( string $role ): void {
-		$allowed = 0 !== Core::current_user_id()
-			? self::can( $role )
-			: self::scope_covers( self::$session_scope ?? self::MANAGE, $role );
-		if ( ! $allowed ) {
+		if ( ! self::command_holds( $role ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new \RuntimeException( "permission denied: {$role} capability required" );
 		}
+	}
+
+	/**
+	 * Whether the command being handled may run at $role: the logged-in
+	 * user's `can()`, else, in a worker, the session's ceiling alone, a
+	 * command carrying none running at MANAGE. `require_command()` refuses
+	 * on it, and `Core::caller_message()` asks it before it lets an engine
+	 * error's own words go back.
+	 *
+	 * @param string $role One of READ|TUNE|MANAGE.
+	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map does not name.
+	 */
+	public static function command_holds( string $role ): bool {
+		return 0 !== Core::current_user_id()
+			? self::can( $role )
+			: self::scope_covers( self::$session_scope ?? self::MANAGE, $role );
 	}
 
 	/**

@@ -293,6 +293,22 @@ class AggregatorCITest extends TestCase {
 		$this->assertStringContainsString( "unknown topology 'vole-unregistered'", $summary['unreadable']['vole-unregistered'] );
 	}
 
+	public function test_an_engine_fault_in_a_topology_reaches_a_read_caller_as_a_fixed_line(): void {
+		$this->seed_group_topology( [ 'tw0' ] );
+		\file_put_contents( "{$this->tmp}/topologies/marmot-hub.tsl", "make_node Engine_Fault weta-7712\n" );
+		Topology_Registry::reset_basename_cache();
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator', 'marmot-hub' ];
+		\Newspack_Nodes\Config::reset();
+		CommandHarness::reset();
+		Core::$memd                                  = new InMemoryMemcached();
+		$GLOBALS['_wp_test_current_user_can']        = [ 'manage_options' => true ];
+		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::READ;
+
+		$summary = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+
+		$this->assertSame( [ 'marmot-hub' => 'marmot-hub: internal error; the reason is in the server\'s log' ], $summary['unreadable'] );
+	}
+
 	public function test_list_servers_ignores_non_remote_source_nodes(): void {
 		// The rewrite node and the group itself are in the graph too; only the
 		// Remote_Source children become snapshot entries.

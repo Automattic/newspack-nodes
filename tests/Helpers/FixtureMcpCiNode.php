@@ -7,7 +7,8 @@ use Newspack_Nodes\Service_CI_Node;
 
 /**
  * The service CI behind `Fixture_Mcp_Door`: one command at each role. `echo_args`
- * reads and answers its bound args, refusing a `count` of 0; `poke` needs
+ * reads and answers its bound args, refusing a `count` of 0 and raising an
+ * engine TypeError for a `count` of 7317; `poke` needs
  * tune; `wipe` declares no role, so it needs manage.
  */
 class Fixture_Mcp_CI_Node extends Service_CI_Node {
@@ -62,6 +63,9 @@ class Fixture_Mcp_CI_Node extends Service_CI_Node {
 	private static function echo_args( array $args ): array {
 		if ( 0 === ( $args['count'] ?? null ) ) {
 			throw new \RuntimeException( 'count 0 echoes nothing' );
+		}
+		if ( 7317 === ( $args['count'] ?? null ) ) {
+			( static fn ( int $n ): int => $n )( $args['word'] );
 		}
 		return $args;
 	}

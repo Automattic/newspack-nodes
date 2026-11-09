@@ -115,7 +115,8 @@ class Log_Sources {
 
 	/**
 	 * The unavailable picker row for what could not be read, keyed by the
-	 * stamp it names, or by none when it does not name a log.
+	 * stamp it names, or by none when it does not name a log. A throwable
+	 * reads as `Core::caller_message()` lets this caller read it.
 	 *
 	 * @param string            $label Source, topology or dir name.
 	 * @param \Throwable|string $error What reading it threw, or why it was refused.
@@ -126,7 +127,7 @@ class Log_Sources {
 		return ( null === $key ? [] : [ 'key' => $key ] ) + [
 			'label'     => $label,
 			'available' => false,
-			'error'     => \is_string( $error ) ? $error : Core::message_of( $error ),
+			'error'     => \is_string( $error ) ? $error : Core::caller_message( $error, $label ),
 		];
 	}
 

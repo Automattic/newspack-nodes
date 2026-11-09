@@ -161,7 +161,8 @@ abstract class Mcp_Door {
 
 	/**
 	 * Run one tool. A command's refusal comes back as an MCP tool error rather than
-	 * a transport error — the call reached the server and was answered.
+	 * a transport error — the call reached the server and was answered. An
+	 * engine error's own words reach a manage session alone (`Core::caller_message()`).
 	 *
 	 * @param mixed                  $id     JSON-RPC id.
 	 * @param array<array-key,mixed> $params The `tools/call` params.
@@ -187,7 +188,7 @@ abstract class Mcp_Door {
 		} catch ( \Throwable $e ) {
 			return self::result( $id, [
 				'isError' => true,
-				'content' => [ [ 'type' => 'text', 'text' => Core::message_of( $e ) ] ],
+				'content' => [ [ 'type' => 'text', 'text' => Core::caller_message( $e, $tool['verb'] ) ] ],
 			] );
 		}
 

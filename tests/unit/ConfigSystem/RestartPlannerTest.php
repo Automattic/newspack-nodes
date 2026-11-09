@@ -433,6 +433,22 @@ class RestartPlannerTest extends TestCase {
 		$this->assertSame( '', $second );
 	}
 
+	/** A notice names an engine error's own words to a manage holder alone. */
+	public function test_a_notice_holds_an_engine_errors_words_back_from_a_tune_user(): void {
+		$this->listened_site();
+		$this->write_tsl( 'combined', "make_node Engine_Fault ruru-6630\n" );
+		Topology_Registry::reset_basename_cache();
+		$GLOBALS['_wp_test_current_user_id'] = 6630;
+		\do_action( 'updated_option', 'newspack_nodes_lifetime' );
+		\do_action( 'shutdown' );
+
+		\ob_start();
+		\do_action( 'admin_notices' );
+		$notice = (string) \ob_get_clean();
+		$this->assertStringContainsString( \esc_html( 'Changed lifetime, but the running workers were not told: settings: internal error; the reason is in the server\'s log' ), $notice );
+		$this->assertStringNotContainsString( 'EngineFaultNode.php', $notice );
+	}
+
 	public function test_two_plugins_naming_one_short_key_keep_both_restarts(): void {
 		$locks = $this->listened_site();
 		$field = static fn ( array|string $restart ): Field => new Field(

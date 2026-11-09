@@ -256,6 +256,24 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	/** An engine fault behind an unreadable topology reaches a read caller as a fixed line. */
+	public function test_an_engine_fault_in_a_topology_reaches_a_read_caller_as_a_fixed_line(): void {
+		$base  = $this->arrange_base_dir();
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents( "{$stock}/request-workers.tsl", "make_node Engine_Fault weta-8823\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::READ;
+
+		try {
+			$meta = self::dump_metadata();
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+		}
+
+		$this->assertSame( [ 'request-workers' => 'request-workers: internal error; the reason is in the server\'s log' ], $meta['unreadable'] );
+	}
+
 	public function test_dump_graph_reports_a_topology_including_a_dormant_providers_name(): void {
 		// aggregator-eve.tsl includes `aggregator`; when the plugin providing
 		// `aggregator` is dormant, the include is unresolvable. That topology

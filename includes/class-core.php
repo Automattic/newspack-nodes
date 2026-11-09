@@ -367,36 +367,6 @@ class Core {
 	}
 
 	/**
-	 * Emit on first sight, then suppress (re-windowed by prune_logs). The
-	 * throttle key is $text — the stable FIRST arg — ONLY; $extra is variable
-	 * payload printed on the first occurrence but never folded into the key, so
-	 * a flood of one category with differing values (Tachikoma's `$text, @extra`)
-	 * collapses to one line instead of one per distinct value.
-	 *
-	 * This static form keys PROCESS-wide, so two callers passing the same $text
-	 * share one entry. `Node::print_less_often()` keys the same
-	 * `$recent_log_timers` map by the midfixed text, so each node throttles on
-	 * its own.
-	 */
-	public static function print_less_often( string $text, string ...$extra ): void {
-		$timestamp = self::$recent_log_timers[ $text ] ?? null;
-		if ( null === $timestamp ) {
-			self::stderr( $text . \implode( '', $extra ) );
-			self::$recent_log_timers[ $text ] = self::$now;
-		}
-	}
-
-	/**
-	 * The one entry point for a diagnostic line: stamp the process midfix, keep
-	 * a timestamped copy in the `dmesg` ring, and hand the midfixed line to the
-	 * handler, which stamps its own timestamp. An empty string is dropped rather
-	 * than stamped, so the ring holds only real lines.
-	 */
-	public static function stderr( string $text ): void {
-		self::diagnostic( $text, self::STDERR_KEYWORD );
-	}
-
-	/**
 	 * `stderr()` without the handler: the line, composed alike, reaches the
 	 * `dmesg` ring and the `newspack_nodes/stderr` seam under `$keyword`, and
 	 * never `error_log`. For a routine line an event logger records apart
@@ -409,144 +379,6 @@ class Core {
 	 */
 	public static function stderr_to_seam( string $text, string $keyword ): void {
 		self::diagnostic( $text, $keyword );
-	}
-
-	/**
-	 * Midfix one line, ring it, and hand it to `_stderr()`.
-	 *
-	 * @param string $text    The line; an empty one is dropped.
-	 * @param string $keyword What a logger files it under; only `STDERR_KEYWORD`
-	 *                        reaches the handler, and so `error_log`.
-	 * @throws \Throwable What a seam listener or the handler threw.
-	 */
-	private static function diagnostic( string $text, string $keyword ): void {
-		if ( '' === $text ) {
-			return;
-		}
-		$line = self::log_midfix( $text );
-		if ( self::$error_log_only ) {
-			if ( self::STDERR_KEYWORD === $keyword ) {
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				\error_log( \rtrim( $line ) );
-			}
-			return;
-		}
-		self::$recent_log[] = self::log_prefix( $line );
-		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
-		while ( \count( self::$recent_log ) > 100 ) {
-			\array_shift( self::$recent_log );
-		}
-		self::_stderr( $line, keyword: $keyword );
-	}
-
-	/**
-	 * Run the stderr handler for one line, and fire the `newspack_nodes/stderr`
-	 * firehose action beside it. Both run under the $in_stderr re-entry guard: a
-	 * listener that itself calls stderr() hits this guard and short-circuits to
-	 * error_log, so it can't recurse or re-fire the action; a line filed under
-	 * another keyword than `STDERR_KEYWORD` skips the handler, and is dropped
-	 * there instead. Worker-context listeners must write via a Topic/Partition
-	 * directly, never back through stderr(). The function_exists gate keeps
-	 * Core loadable in WP-less bootstraps.
-	 *
-	 * The handler runs whatever a listener threw, so the line still lands, and
-	 * both failures escape afterwards through `Worker_Should_Stop::raise()`.
-	 *
-	 * @param string $text    The line.
-	 * @param bool   $raw     The caller composed the line, prefix included.
-	 * @param string $keyword What the seam's listeners file it under.
-	 * @throws \Throwable What the listener or the handler threw.
-	 */
-	public static function _stderr( string $text, bool $raw = false, string $keyword = self::STDERR_KEYWORD ): void {
-		$handled = self::STDERR_KEYWORD === $keyword;
-		if ( self::$in_stderr ) {
-			if ( $handled ) {
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				\error_log( \rtrim( $text ) );
-			}
-			return;
-		}
-		self::$in_stderr = true;
-		try {
-			Worker_Should_Stop::raise(
-				Worker_Should_Stop::attempt(
-					static function () use ( $text, $keyword ): void {
-						if ( \function_exists( 'do_action' ) ) {
-							\do_action( 'newspack_nodes/stderr', $text, $keyword );
-						}
-					},
-					// A handler declaring only $text ignores the extra arg.
-					static function () use ( $text, $raw, $handled ): void {
-						if ( $handled ) {
-							( self::$stderr_handler )( $text, $raw );
-						}
-					},
-				)
-			);
-		} finally {
-			// Reset even if handler throws, else stderr latches to fallback.
-			self::$in_stderr = false;
-		}
-	}
-
-	/**
-	 * Per-line process-identity midfix: `<site host> <argv0>[<pid>][<uptime>s]: `.
-	 *
-	 * With no text, returns the bare midfix. With text, chomps a
-	 * trailing newline, prepends the midfix to every line, and appends one
-	 * trailing newline.
-	 */
-	public static function log_midfix( ?string $text = null ): string {
-		$uptime = (int) ( Core::$now - Core::$init_time );
-		return self::apply_midfix(
-			self::log_host() . ' ' . self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ',
-			$text
-		);
-	}
-
-	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
-	public static function argv0(): string {
-		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
-			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by Spawn_Controller after HMAC auth, or by Bootstrap on the reconcile pass.
-			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
-		}
-		return \PHP_SAPI;
-	}
-
-	/**
-	 * Site identity for the log midfix — the host of `home_url()`.
-	 *
-	 * `gethostname()` names the MACHINE, and on shared hosting that is a pool
-	 * box every site on it reports identically
-	 * (`pool195-106-36.bur.atomicsites.net`), so an aggregated log cannot tell
-	 * whose worker wrote a line. The site's own host can. Memoized because
-	 * `home_url()` reads an option and runs filters, and this is on every
-	 * logged line; falls back to the machine name before WordPress is loaded.
-	 */
-	private static function log_host(): string {
-		if ( '' !== self::$log_host ) {
-			return self::$log_host;
-		}
-		$host = '';
-		if ( \function_exists( 'home_url' ) && \function_exists( 'wp_parse_url' ) ) {
-			$host = Core::as_string( \wp_parse_url( \home_url(), \PHP_URL_HOST ) );
-		}
-		self::$log_host = '' !== $host ? $host : ( \gethostname() ?: 'unknown' );
-		return self::$log_host;
-	}
-
-	/**
-	 * Stamp $midfix on the start of every LINE of $text (Perl m///mg), chomped
-	 * and re-terminated with exactly one newline; null $text yields the bare
-	 * midfix. The ONE application rule — Core names the process and Node names
-	 * the node, but they format the result identically.
-	 */
-	public static function apply_midfix( string $midfix, ?string $text ): string {
-		if ( null === $text ) {
-			return $midfix;
-		}
-		$text = \rtrim( $text, "\n" );
-		return $midfix . \str_replace( "\n", "\n" . $midfix, $text ) . "\n";
 	}
 
 	/**
@@ -609,33 +441,6 @@ class Core {
 	public static function right_now(): float {
 		self::$now = null !== self::$clock ? ( self::$clock )() : \microtime( true );
 		return self::$now;
-	}
-
-	/**
-	 * Per-line timestamp prefix: `Y-m-d H:i:s UTC `.
-	 *
-	 * With no text, returns the bare prefix. With text, chomps a
-	 * trailing newline, prepends the prefix to every line, and appends one
-	 * trailing newline.
-	 */
-	public static function log_prefix( ?string $text = null ): string {
-		$prefix = self::format_utc( \time() ) . ' ';
-		if ( null === $text ) {
-			return $prefix;
-		}
-		$text = \rtrim( $text, "\n" );
-		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
-		return $text . "\n";
-	}
-
-	/**
-	 * A unix time as `Y-m-d H:i:s UTC`, the one spelling every log line, CLI
-	 * row and health message uses.
-	 *
-	 * @param int $ts Unix time.
-	 */
-	public static function format_utc( int $ts ): string {
-		return \gmdate( 'Y-m-d H:i:s', $ts ) . ' UTC';
 	}
 
 	/** Replace the sink `_stderr()` writes to; `$stderr_handler` carries the signature. */
@@ -1002,6 +807,315 @@ class Core {
 	}
 
 	/**
+	 * `caller_message()` over what several names threw, each line keyed, and
+	 * its log line keyed, by the name it answers.
+	 *
+	 * @api Consumed by sibling plugins through the CIs' `unreadable` rows.
+	 * @param array<array-key,\Throwable> $caught Name => what it threw; PHP keys a numeric name as an int.
+	 * @return array<array-key,string> Name => what the caller may read.
+	 * @throws \InvalidArgumentException Through `cap_for()`, on a broken capability map.
+	 */
+	public static function caller_messages( array $caught ): array {
+		$said = [];
+		foreach ( $caught as $name => $e ) {
+			$said[ $name ] = self::caller_message( $e, (string) $name );
+		}
+		return $said;
+	}
+
+	/**
+	 * What a caller may read of a throwable. A deliberate refusal, an
+	 * `\Exception`, reads as `message_of()` to everyone. An engine `\Error`
+	 * or a driver's exception, anywhere down the `getPrevious()` chain or
+	 * among a `Failures`' members, names files, lines and database paths, so
+	 * its words go back only to a caller who may run a MANAGE command
+	 * (`Capabilities::command_holds()`, under the session scope in force):
+	 * a logged-in user who holds it, or a worker's command whose session
+	 * allows it. An anonymous request outside a worker holds nothing, and
+	 * it and everyone else read
+	 * `<what>: internal error; the reason is in the server's log`. Either
+	 * way the class, message, file and line go to stderr — a worker's log,
+	 * or PHP's error log in a request — once per `$what` while
+	 * `print_less_often()`'s window holds, so a caller cannot flood it.
+	 *
+	 * @api Consumed by sibling plugins: pyrobase (`REST\RenderController`, `Runtime\Imager`).
+	 * @param \Throwable $e    What was thrown.
+	 * @param string     $what The command or surface it answers, which keys the log line.
+	 * @throws \InvalidArgumentException Through `cap_for()`, on a broken capability map.
+	 */
+	public static function caller_message( \Throwable $e, string $what ): string {
+		$said = self::message_of( $e );
+		if ( ! self::is_internal( $e ) ) {
+			return $said;
+		}
+		self::print_less_often( "{$what}: internal error: ", self::described_chain( $e ) );
+		// With no user, only a worker speaks for the site.
+		$operator = ( 0 !== self::current_user_id() || null !== self::bound_topology() )
+			&& Capabilities::command_holds( Capabilities::MANAGE );
+		return $operator ? $said : "{$what}: internal error; the reason is in the server's log";
+	}
+
+	/**
+	 * The fleet `Topology_Loader` bound beside the partition, or null outside
+	 * a worker, because only a worker binds one.
+	 */
+	public static function bound_topology(): ?string {
+		$topology = self::$var['topology'] ?? null;
+		return \is_string( $topology ) && '' !== $topology ? $topology : null;
+	}
+
+	/**
+	 * The logged-in WordPress user's id: 0 when nobody is logged in — a worker,
+	 * WP-Cron, WP-CLI without `--user` — and 0 where WordPress is not loaded.
+	 */
+	public static function current_user_id(): int {
+		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
+	}
+
+	/**
+	 * `<class>: <message> (<file>:<line>)` for a throwable and each one down
+	 * its previous chain, joined by `; previous: `.
+	 *
+	 * @param \Throwable $e What was thrown.
+	 */
+	private static function described_chain( \Throwable $e ): string {
+		$parts = [];
+		for ( $at = $e; null !== $at; $at = $at->getPrevious() ) {
+			$parts[] = $at::class . ': ' . self::message_of( $at ) . ' (' . $at->getFile() . ':' . $at->getLine() . ')';
+		}
+		return \implode( '; previous: ', $parts );
+	}
+
+	/**
+	 * A throwable's message as plain text, its HTML entities decoded. Most
+	 * throws here pass their message through `esc_html()`, which this
+	 * reverses; a message thrown as plain text, as `refuse_angle_partition()`
+	 * throws one, carries no entities and comes back as it was, unless it
+	 * spells one out literally. A database driver's is shaped first
+	 * (`Driver_Error::of()`), because a command's reply can leave the site.
+	 *
+	 * @param \Throwable $e What was thrown.
+	 */
+	public static function message_of( \Throwable $e ): string {
+		return \html_entity_decode( Driver_Error::of( $e ), \ENT_QUOTES );
+	}
+
+	/**
+	 * Emit on first sight, then suppress (re-windowed by prune_logs). The
+	 * throttle key is $text — the stable FIRST arg — ONLY; $extra is variable
+	 * payload printed on the first occurrence but never folded into the key, so
+	 * a flood of one category with differing values (Tachikoma's `$text, @extra`)
+	 * collapses to one line instead of one per distinct value.
+	 *
+	 * This static form keys PROCESS-wide, so two callers passing the same $text
+	 * share one entry. `Node::print_less_often()` keys the same
+	 * `$recent_log_timers` map by the midfixed text, so each node throttles on
+	 * its own.
+	 */
+	public static function print_less_often( string $text, string ...$extra ): void {
+		$timestamp = self::$recent_log_timers[ $text ] ?? null;
+		if ( null === $timestamp ) {
+			self::stderr( $text . \implode( '', $extra ) );
+			self::$recent_log_timers[ $text ] = self::$now;
+		}
+	}
+
+	/**
+	 * The one entry point for a diagnostic line: stamp the process midfix, keep
+	 * a timestamped copy in the `dmesg` ring, and hand the midfixed line to the
+	 * handler, which stamps its own timestamp. An empty string is dropped rather
+	 * than stamped, so the ring holds only real lines.
+	 */
+	public static function stderr( string $text ): void {
+		self::diagnostic( $text, self::STDERR_KEYWORD );
+	}
+
+	/**
+	 * Midfix one line, ring it, and hand it to `_stderr()`.
+	 *
+	 * @param string $text    The line; an empty one is dropped.
+	 * @param string $keyword What a logger files it under; only `STDERR_KEYWORD`
+	 *                        reaches the handler, and so `error_log`.
+	 * @throws \Throwable What a seam listener or the handler threw.
+	 */
+	private static function diagnostic( string $text, string $keyword ): void {
+		if ( '' === $text ) {
+			return;
+		}
+		$line = self::log_midfix( $text );
+		if ( self::$error_log_only ) {
+			if ( self::STDERR_KEYWORD === $keyword ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				\error_log( \rtrim( $line ) );
+			}
+			return;
+		}
+		self::$recent_log[] = self::log_prefix( $line );
+		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
+		while ( \count( self::$recent_log ) > 100 ) {
+			\array_shift( self::$recent_log );
+		}
+		self::_stderr( $line, keyword: $keyword );
+	}
+
+	/**
+	 * Run the stderr handler for one line, and fire the `newspack_nodes/stderr`
+	 * firehose action beside it. Both run under the $in_stderr re-entry guard: a
+	 * listener that itself calls stderr() hits this guard and short-circuits to
+	 * error_log, so it can't recurse or re-fire the action; a line filed under
+	 * another keyword than `STDERR_KEYWORD` skips the handler, and is dropped
+	 * there instead. Worker-context listeners must write via a Topic/Partition
+	 * directly, never back through stderr(). The function_exists gate keeps
+	 * Core loadable in WP-less bootstraps.
+	 *
+	 * The handler runs whatever a listener threw, so the line still lands, and
+	 * both failures escape afterwards through `Worker_Should_Stop::raise()`.
+	 *
+	 * @param string $text    The line.
+	 * @param bool   $raw     The caller composed the line, prefix included.
+	 * @param string $keyword What the seam's listeners file it under.
+	 * @throws \Throwable What the listener or the handler threw.
+	 */
+	public static function _stderr( string $text, bool $raw = false, string $keyword = self::STDERR_KEYWORD ): void {
+		$handled = self::STDERR_KEYWORD === $keyword;
+		if ( self::$in_stderr ) {
+			if ( $handled ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				\error_log( \rtrim( $text ) );
+			}
+			return;
+		}
+		self::$in_stderr = true;
+		try {
+			Worker_Should_Stop::raise(
+				Worker_Should_Stop::attempt(
+					static function () use ( $text, $keyword ): void {
+						if ( \function_exists( 'do_action' ) ) {
+							\do_action( 'newspack_nodes/stderr', $text, $keyword );
+						}
+					},
+					// A handler declaring only $text ignores the extra arg.
+					static function () use ( $text, $raw, $handled ): void {
+						if ( $handled ) {
+							( self::$stderr_handler )( $text, $raw );
+						}
+					},
+				)
+			);
+		} finally {
+			// Reset even if handler throws, else stderr latches to fallback.
+			self::$in_stderr = false;
+		}
+	}
+
+	/**
+	 * Per-line timestamp prefix: `Y-m-d H:i:s UTC `.
+	 *
+	 * With no text, returns the bare prefix. With text, chomps a
+	 * trailing newline, prepends the prefix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_prefix( ?string $text = null ): string {
+		$prefix = self::format_utc( \time() ) . ' ';
+		if ( null === $text ) {
+			return $prefix;
+		}
+		$text = \rtrim( $text, "\n" );
+		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
+		return $text . "\n";
+	}
+
+	/**
+	 * A unix time as `Y-m-d H:i:s UTC`, the one spelling every log line, CLI
+	 * row and health message uses.
+	 *
+	 * @param int $ts Unix time.
+	 */
+	public static function format_utc( int $ts ): string {
+		return \gmdate( 'Y-m-d H:i:s', $ts ) . ' UTC';
+	}
+
+	/**
+	 * Per-line process-identity midfix: `<site host> <argv0>[<pid>][<uptime>s]: `.
+	 *
+	 * With no text, returns the bare midfix. With text, chomps a
+	 * trailing newline, prepends the midfix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_midfix( ?string $text = null ): string {
+		$uptime = (int) ( Core::$now - Core::$init_time );
+		return self::apply_midfix(
+			self::log_host() . ' ' . self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ',
+			$text
+		);
+	}
+
+	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
+	public static function argv0(): string {
+		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by Spawn_Controller after HMAC auth, or by Bootstrap on the reconcile pass.
+			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
+		}
+		return \PHP_SAPI;
+	}
+
+	/**
+	 * Site identity for the log midfix — the host of `home_url()`.
+	 *
+	 * `gethostname()` names the MACHINE, and on shared hosting that is a pool
+	 * box every site on it reports identically
+	 * (`pool195-106-36.bur.atomicsites.net`), so an aggregated log cannot tell
+	 * whose worker wrote a line. The site's own host can. Memoized because
+	 * `home_url()` reads an option and runs filters, and this is on every
+	 * logged line; falls back to the machine name before WordPress is loaded.
+	 */
+	private static function log_host(): string {
+		if ( '' !== self::$log_host ) {
+			return self::$log_host;
+		}
+		$host = '';
+		if ( \function_exists( 'home_url' ) && \function_exists( 'wp_parse_url' ) ) {
+			$host = Core::as_string( \wp_parse_url( \home_url(), \PHP_URL_HOST ) );
+		}
+		self::$log_host = '' !== $host ? $host : ( \gethostname() ?: 'unknown' );
+		return self::$log_host;
+	}
+
+	/**
+	 * Stamp $midfix on the start of every LINE of $text (Perl m///mg), chomped
+	 * and re-terminated with exactly one newline; null $text yields the bare
+	 * midfix. The ONE application rule — Core names the process and Node names
+	 * the node, but they format the result identically.
+	 */
+	public static function apply_midfix( string $midfix, ?string $text ): string {
+		if ( null === $text ) {
+			return $midfix;
+		}
+		$text = \rtrim( $text, "\n" );
+		return $midfix . \str_replace( "\n", "\n" . $midfix, $text ) . "\n";
+	}
+
+	/**
+	 * Whether a throwable carries an engine error or a driver's exception,
+	 * itself, down its previous chain or among a `Failures`' members.
+	 *
+	 * @param \Throwable $e What was thrown.
+	 */
+	private static function is_internal( \Throwable $e ): bool {
+		for ( $at = $e; null !== $at; $at = $at->getPrevious() ) {
+			if ( $at instanceof \Error || Driver_Error::is_driver( $at ) ) {
+				return true;
+			}
+			foreach ( $at instanceof Failures ? $at->all() : [] as $member ) {
+				if ( self::is_internal( $member ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Run `$work` as the span `$label`, through `$around_span` when a logger
 	 * installed one, bare otherwise.
 	 *
@@ -1044,29 +1158,6 @@ class Core {
 	 */
 	public static function live_now(): float {
 		return null !== self::$clock ? ( self::$clock )() : \microtime( true );
-	}
-
-	/**
-	 * A throwable's message as plain text, its HTML entities decoded. Most
-	 * throws here pass their message through `esc_html()`, which this
-	 * reverses; a message thrown as plain text, as `refuse_angle_partition()`
-	 * throws one, carries no entities and comes back as it was, unless it
-	 * spells one out literally. A database driver's is shaped first
-	 * (`Driver_Error::of()`), because a command's reply can leave the site.
-	 *
-	 * @param \Throwable $e What was thrown.
-	 */
-	public static function message_of( \Throwable $e ): string {
-		return \html_entity_decode( Driver_Error::of( $e ), \ENT_QUOTES );
-	}
-
-	/**
-	 * The fleet `Topology_Loader` bound beside the partition, or null outside
-	 * a worker, because only a worker binds one.
-	 */
-	public static function bound_topology(): ?string {
-		$topology = self::$var['topology'] ?? null;
-		return \is_string( $topology ) && '' !== $topology ? $topology : null;
 	}
 
 	/**
@@ -1172,14 +1263,6 @@ class Core {
 			$paths[] = $path;
 		}
 		return $paths;
-	}
-
-	/**
-	 * The logged-in WordPress user's id: 0 when nobody is logged in — a worker,
-	 * WP-Cron, WP-CLI without `--user` — and 0 where WordPress is not loaded.
-	 */
-	public static function current_user_id(): int {
-		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 	}
 
 	/** True while the stderr handler is on the stack; `Event_Framework::stop_check()` reads it to skip a log-write stop. */
