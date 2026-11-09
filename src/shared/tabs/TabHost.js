@@ -17,9 +17,11 @@
  * full-height canvas) opts out via `.is-full-bleed`.
  *
  * With `syncUrl` the host also owns the page's query string: the initial tab
- * comes from `?tab=<slug>`, the resolved tab is mirrored back through
- * `replaceState`, and a tab's declared `param` survives only while that tab is
- * showing. The overlay and every other consumer stay URL-free.
+ * comes from `?tab=<slug>`, the load canonicalizes it through `replaceState`,
+ * each tab switch pushes one Back entry, and Back or Forward shows the tab the
+ * landed entry names. A tab's declared `param` survives only while that tab is
+ * showing, so the pushed entry drops the param of the tab left behind. The
+ * overlay and every other consumer stay URL-free.
  *
  * Canonical in newspack-nodes; consumed via the `@newspack-nodes/shared` alias.
  */
@@ -32,7 +34,7 @@ import {
 import { __ } from '@wordpress/i18n';
 import { getTabs, subscribeTabs, getTabsVersion } from './tabRegistry';
 import TabBar, { useTabPanelProps } from './TabBar';
-import { getQueryParam, setQueryParam } from '../utils/queryParams';
+import { getQueryParam, setQueryParams } from '../utils/queryParams';
 import './TabHost.scss';
 
 /**
@@ -47,7 +49,7 @@ import './TabHost.scss';
  * @param {*}                     [props.emptyState]        Rendered when the
  *                                                          host has no tabs.
  * @param {(id?: string) => void} [props.onActiveTabChange] Called with the resolved active tab id on mount and on every switch, and with `undefined` while the host has no tabs — lets a host key sibling chrome (the station's debug overlay) on which tab is showing. A switch reports from the click and again from the effect behind it, so the handler tolerates a repeated id.
- * @param {boolean}               [props.syncUrl]           Mirror the active tab into `?tab=<slug>` via replaceState; the initial tab is read from `?tab=`. Default false (overlay + other consumers stay URL-free).
+ * @param {boolean}               [props.syncUrl]           Mirror the active tab into `?tab=<slug>`: the initial tab is read from `?tab=`, a switch pushes a history entry, and popstate shows the tab the entry names. Default false (overlay + other consumers stay URL-free).
  * @return {*} The tab bar and the selected tab, or the empty state.
  */
 export default function TabHost( {
@@ -109,14 +111,25 @@ export default function TabHost( {
 		if ( ! syncUrl || ! resolvedSlug || deepLinkPending ) {
 			return;
 		}
-		setQueryParam( 'tab', resolvedSlug );
-		// Drop the other tabs' params: the URL carries the active tab's alone.
-		for ( const t of getTabs( host ) ) {
-			if ( t.param && t.slug !== resolvedSlug ) {
-				setQueryParam( t.param, null );
-			}
-		}
+		setQueryParams( tabQuery( host, resolvedSlug ) );
 	}, [ syncUrl, resolvedSlug, host, deepLinkPending ] );
+
+	// Back or Forward shows the tab the landed entry names.
+	useEffect( () => {
+		if ( ! syncUrl ) {
+			return;
+		}
+		const restore = () => {
+			const hosted = getTabs( host );
+			const slug = getQueryParam( 'tab' );
+			pickedRef.current = true;
+			setActiveId(
+				( hosted.find( ( t ) => t.slug === slug ) || hosted[ 0 ] )?.id
+			);
+		};
+		window.addEventListener( 'popstate', restore );
+		return () => window.removeEventListener( 'popstate', restore );
+	}, [ syncUrl, host ] );
 
 	// Report the RESOLVED active id so the host always learns the real tab.
 	const resolvedId = active?.id;
@@ -139,9 +152,16 @@ export default function TabHost( {
 	 * storage key and REPL flag are both per-tab — has to re-render in the same
 	 * commit the new tab mounts, not one commit later.
 	 *
+	 * With `syncUrl` a switch pushes its entry here, before the new tab mounts,
+	 * so the tab's own mount write lands on its entry and not the one left.
+	 *
 	 * @param {string} id Id of the tab to show.
 	 */
 	const pick = ( id ) => {
+		const next = tabs.find( ( t ) => t.id === id );
+		if ( syncUrl && next && id !== active.id ) {
+			setQueryParams( tabQuery( host, next.slug ), { push: true } );
+		}
 		pickedRef.current = true;
 		setActiveId( id );
 		onActiveTabChange?.( id );
@@ -169,4 +189,21 @@ export default function TabHost( {
 			</div>
 		</>
 	);
+}
+
+/**
+ * The query a tab's entry carries: its slug, and every other tab's param gone.
+ *
+ * @param {'overlay'|'station'} host Which registry scope is showing.
+ * @param {string}              slug The active tab's slug.
+ * @return {Object<string, ?string>} The params `setQueryParams` writes.
+ */
+function tabQuery( host, slug ) {
+	const query = { tab: slug };
+	for ( const t of getTabs( host ) ) {
+		if ( t.param && t.slug !== slug ) {
+			query[ t.param ] = null;
+		}
+	}
+	return query;
 }

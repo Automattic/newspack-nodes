@@ -1,3 +1,4 @@
+/* global PopStateEvent */
 import { render, fireEvent, act } from '@testing-library/react';
 import TabHost from '../TabHost';
 import { registerTab, resetTabs } from '../tabRegistry';
@@ -408,15 +409,182 @@ describe( 'TabHost', () => {
 				expect( params.get( 'topology' ) ).toBeNull();
 			} );
 
-			it( 'switching uses replaceState, not pushState', () => {
-				registerThree();
-				const pushSpy = jest.spyOn( window.history, 'pushState' );
-				const { getByRole } = render(
-					<TabHost host="station" syncUrl />
-				);
-				fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );
-				expect( pushSpy ).not.toHaveBeenCalled();
-				pushSpy.mockRestore();
+			describe( 'history', () => {
+				let pushSpy;
+				let replaceSpy;
+				const back = ( url ) =>
+					act( () => {
+						window.history.replaceState( null, '', url );
+						window.dispatchEvent( new PopStateEvent( 'popstate' ) );
+					} );
+
+				beforeEach( () => {
+					pushSpy = jest.spyOn( window.history, 'pushState' );
+					replaceSpy = jest.spyOn( window.history, 'replaceState' );
+				} );
+
+				afterEach( () => {
+					pushSpy.mockRestore();
+					replaceSpy.mockRestore();
+				} );
+
+				it( 'pushes one entry per tab switch, naming the new tab', () => {
+					registerThree();
+					const { getByRole } = render(
+						<TabHost host="station" syncUrl />
+					);
+					fireEvent.click(
+						getByRole( 'tab', { name: 'Topologies' } )
+					);
+					expect( pushSpy ).toHaveBeenCalledTimes( 1 );
+					expect( pushSpy.mock.calls[ 0 ][ 2 ] ).toBe(
+						'/?tab=topologies'
+					);
+				} );
+
+				it( 'pushes nothing when the active tab is picked again', () => {
+					registerThree();
+					const { getByRole } = render(
+						<TabHost host="station" syncUrl />
+					);
+					fireEvent.click( getByRole( 'tab', { name: 'Console' } ) );
+					expect( pushSpy ).not.toHaveBeenCalled();
+				} );
+
+				it( 'writes no entry on load, deep link included', () => {
+					window.history.replaceState(
+						{},
+						'',
+						'/?tab=raw-logs&log=firehose&topology=alpha'
+					);
+					registerThree();
+					render( <TabHost host="station" syncUrl /> );
+					expect( pushSpy ).not.toHaveBeenCalled();
+					expect( window.location.search ).toBe(
+						'?tab=raw-logs&log=firehose'
+					);
+				} );
+
+				it( 'writes no entry when a deep-linked tab registers late', () => {
+					window.history.replaceState( {}, '', '/?tab=raw-logs' );
+					registerTab( {
+						id: 'topology-manager',
+						label: 'Topologies',
+						host: 'station',
+						slug: 'topologies',
+						order: 10,
+						component: ManagerTab,
+					} );
+					const { queryByTestId } = render(
+						<TabHost host="station" syncUrl />
+					);
+					act( () =>
+						registerTab( {
+							id: 'raw-logs',
+							label: 'Raw Logs',
+							host: 'station',
+							slug: 'raw-logs',
+							order: 20,
+							component: RawLogsTab,
+						} )
+					);
+					expect( queryByTestId( 'raw-logs' ) ).not.toBeNull();
+					expect( pushSpy ).not.toHaveBeenCalled();
+				} );
+
+				it( 'Back and Forward restore the tab each entry names', () => {
+					registerThree();
+					const { getByRole, queryByTestId } = render(
+						<TabHost host="station" syncUrl />
+					);
+					fireEvent.click( getByRole( 'tab', { name: 'Raw Logs' } ) );
+					expect( queryByTestId( 'raw-logs' ) ).not.toBeNull();
+
+					back( '/?tab=console' );
+					expect( queryByTestId( 'console' ) ).not.toBeNull();
+					expect( queryByTestId( 'raw-logs' ) ).toBeNull();
+
+					back( '/?tab=raw-logs' );
+					expect( queryByTestId( 'raw-logs' ) ).not.toBeNull();
+					expect( pushSpy ).toHaveBeenCalledTimes( 1 );
+				} );
+
+				it( 'restores a tab without rewriting the landed entry', () => {
+					registerThree();
+					const { getByRole, queryByTestId } = render(
+						<TabHost host="station" syncUrl />
+					);
+					fireEvent.click(
+						getByRole( 'tab', { name: 'Topologies' } )
+					);
+					replaceSpy.mockClear();
+					back( '/?tab=console&topology=alpha' );
+					expect( queryByTestId( 'console' ) ).not.toBeNull();
+					expect( replaceSpy ).toHaveBeenCalledTimes( 1 );
+					expect( pushSpy ).toHaveBeenCalledTimes( 1 );
+					expect( window.location.search ).toBe(
+						'?tab=console&topology=alpha'
+					);
+				} );
+
+				it( "drops the left tab's param from the pushed entry alone", () => {
+					window.history.replaceState(
+						{},
+						'',
+						'/?tab=console&topology=alpha'
+					);
+					registerThree();
+					const { getByRole, queryByTestId } = render(
+						<TabHost host="station" syncUrl />
+					);
+					fireEvent.click( getByRole( 'tab', { name: 'Raw Logs' } ) );
+					expect( pushSpy ).toHaveBeenCalledTimes( 1 );
+					expect( pushSpy.mock.calls[ 0 ][ 2 ] ).toBe(
+						'/?tab=raw-logs'
+					);
+
+					back( '/?tab=console&topology=alpha' );
+					expect( queryByTestId( 'console' ) ).not.toBeNull();
+					expect(
+						new URLSearchParams( window.location.search ).get(
+							'topology'
+						)
+					).toBe( 'alpha' );
+				} );
+
+				it( 'answers no popstate without syncUrl', () => {
+					registerThree();
+					const { getByRole, queryByTestId } = render(
+						<TabHost host="station" />
+					);
+					fireEvent.click( getByRole( 'tab', { name: 'Raw Logs' } ) );
+					back( '/?tab=console' );
+					expect( queryByTestId( 'raw-logs' ) ).not.toBeNull();
+					expect( pushSpy ).not.toHaveBeenCalled();
+				} );
+
+				it( 'stops answering popstate once unmounted', () => {
+					registerThree();
+					const addSpy = jest.spyOn( window, 'addEventListener' );
+					const removeSpy = jest.spyOn(
+						window,
+						'removeEventListener'
+					);
+					const { unmount } = render(
+						<TabHost host="station" syncUrl />
+					);
+					const listener = addSpy.mock.calls.find(
+						( [ type ] ) => 'popstate' === type
+					)?.[ 1 ];
+					unmount();
+					expect( listener ).toBeDefined();
+					expect( removeSpy ).toHaveBeenCalledWith(
+						'popstate',
+						listener
+					);
+					addSpy.mockRestore();
+					removeSpy.mockRestore();
+				} );
 			} );
 		} );
 	} );
