@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { longestCommonPrefix } from '../../runtime/completion-node';
 import { loadHistory, saveHistory } from '../core/consolePersistence';
+import { streamStatusLabel } from '../utils/streamStatus';
 
 /** Targets that keep `/` for themselves: form controls and editables. */
 const TYPING_TARGETS =
@@ -58,13 +59,6 @@ function splitTrailingToken( value ) {
 }
 
 /** Connection-status pill label for each stream state. */
-const STATUS_LABELS = {
-	connecting: __( 'CONNECTING', 'newspack-nodes' ),
-	open: __( 'CONNECTED', 'newspack-nodes' ),
-	error: __( 'DISCONNECTED', 'newspack-nodes' ),
-	closed: __( 'CLOSED', 'newspack-nodes' ),
-};
-
 /** localStorage key the operator's transcript height persists under. */
 const HEIGHT_STORAGE_KEY = 'newspack-nodes:topology-console:repl-height';
 
@@ -228,8 +222,7 @@ export default function ReplFooter( {
 		inputRef.current?.focus();
 	};
 
-	const statusLabel =
-		STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase();
+	const statusLabel = streamStatusLabel( streamStatus );
 
 	// Auto-scroll to the newest entry when the open transcript grows.
 	useEffect( () => {

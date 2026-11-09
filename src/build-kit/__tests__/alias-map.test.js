@@ -11,6 +11,7 @@ const {
 	esbuildAlias,
 	jestModuleNameMapper,
 	assertNoRetiredOverrides,
+	sassImporter,
 } = require( '../alias-map.cjs' );
 
 // Distinct from BOTH real defaults — the substrate's own `src` and a consumer's
@@ -120,5 +121,35 @@ describe( 'assertNoRetiredOverrides', () => {
 				NEWSPACK_NODES_SRC: '/some/substrate/src',
 			} )
 		).not.toThrow();
+	} );
+} );
+
+describe( 'sassImporter', () => {
+	const { findFileUrl } = sassImporter( BASE );
+
+	it( 'resolves a shared partial under the base it is given', () => {
+		const found = findFileUrl( '@newspack-nodes/shared/styles/tokens' );
+		expect( found ).toBeInstanceOf( URL );
+		expect( found.pathname ).toBe(
+			path.join( BASE, 'shared/styles/tokens' )
+		);
+	} );
+
+	it( 'resolves the bare alias and every alias the map declares', () => {
+		expect( findFileUrl( '@newspack-nodes/shared' ).pathname ).toBe(
+			path.join( BASE, 'shared' )
+		);
+		expect( findFileUrl( '@newspack-nodes/runtime' ).pathname ).toBe(
+			path.join( BASE, 'runtime/index.js' )
+		);
+	} );
+
+	it( 'leaves every other url to Sass, a lookalike prefix included', () => {
+		expect( findFileUrl( 'tokens' ) ).toBeNull();
+		expect( findFileUrl( '@newspack-nodes/sharedx/a' ) ).toBeNull();
+	} );
+
+	it( 'requires a base rather than falling back to a guess', () => {
+		expect( () => sassImporter() ).toThrow( /base/i );
 	} );
 } );

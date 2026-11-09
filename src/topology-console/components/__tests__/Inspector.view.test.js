@@ -1048,7 +1048,7 @@ describe( 'Inspector (view mode)', () => {
 			true
 		);
 		expect( type.classList.contains( 'is-accent' ) ).toBe( true );
-		expect( container.textContent ).toMatch( /LIVE/ );
+		expect( type.textContent ).toMatch( /· Live$/ );
 	} );
 
 	it( 'keeps zero selected-node throughput muted while accenting nonzero totals', () => {
@@ -1116,9 +1116,18 @@ describe( 'Inspector (view mode)', () => {
 		expect( zeroValues.read.textContent ).toBe( '0 B' );
 	} );
 
-	it( 'shows status uppercased when streamStatus is not open', () => {
-		const { container } = renderNode( { streamStatus: 'connecting' } );
-		expect( container.textContent ).toMatch( /CONNECTING/ );
+	it( 'names a stream that is not open in sentence case, as the REPL footer does', () => {
+		for ( const [ streamStatus, label ] of [
+			[ 'connecting', 'Connecting' ],
+			[ 'error', 'Disconnected' ],
+			[ 'stalled', 'Stalled' ],
+		] ) {
+			const { container, unmount } = renderNode( { streamStatus } );
+			expect(
+				container.querySelector( '.topology-insp__type' ).textContent
+			).toMatch( new RegExp( `· ${ label }$` ) );
+			unmount();
+		}
 	} );
 
 	it( 'live mode renders the targets editor from node.targets; chip × calls onRemoveEdge with the FULL target, dropdown calls onConnect', () => {
@@ -1270,7 +1279,9 @@ describe( 'Inspector (view mode)', () => {
 	it( 'renders LIVE without crashing when streamStatus is undefined (overlay case)', () => {
 		// Overlay omits streamStatus (no SSE); absent must read as live.
 		const { container } = renderNode( { streamStatus: undefined } );
-		expect( container.textContent ).toMatch( /LIVE/ );
+		expect(
+			container.querySelector( '.topology-insp__type' ).textContent
+		).toMatch( /· Live$/ );
 	} );
 
 	it( 'lists first target under "target →" and the rest under "also →"', () => {

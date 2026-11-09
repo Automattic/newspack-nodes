@@ -21,6 +21,11 @@ describe( 'createJestConfig', () => {
 		expect( cfg.transform ).toEqual( { '\\.m?[jt]sx?$': 'babel-jest' } );
 	} );
 
+	test( 'hands every test the base it maps, as NEWSPACK_NODES_SRC', () => {
+		const cfg = createJestConfig( { aliasBase } );
+		expect( cfg.globals ).toEqual( { NEWSPACK_NODES_SRC: aliasBase } );
+	} );
+
 	test( 'maps the @newspack-nodes/* surface against aliasBase', () => {
 		const m = createJestConfig( { aliasBase } ).moduleNameMapper;
 		expect( m[ '^@newspack-nodes/runtime$' ] ).toBe(

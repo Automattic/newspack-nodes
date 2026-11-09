@@ -60,6 +60,8 @@ function createJestConfig( {
 		],
 		testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
 		moduleNameMapper,
+		// The base every alias maps, which a stylesheet test's importer takes.
+		globals: { NEWSPACK_NODES_SRC: aliasBase },
 		// babel-jest over .mjs so its node: imports resolve.
 		transform: { '\\.m?[jt]sx?$': 'babel-jest' },
 	};

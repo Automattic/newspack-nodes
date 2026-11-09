@@ -1,8 +1,8 @@
 /* @jest-environment node */
 
+/* global NEWSPACK_NODES_SRC */
 import fs from 'fs';
 import path from 'path';
-import { pathToFileURL } from 'url';
 import {
 	compare as compareSpecificity,
 	selectorSpecificity,
@@ -393,19 +393,10 @@ const walkFiles = ( root, accept ) =>
 		return accept( entry.name ) ? [ absolute ] : [];
 	} );
 
-const SHARED_ALIAS = '@newspack-nodes/shared';
-const sharedImporter = {
-	findFileUrl( url ) {
-		if (
-			url !== SHARED_ALIAS &&
-			! url.startsWith( `${ SHARED_ALIAS }/` )
-		) {
-			return null;
-		}
-		const relative = url.slice( SHARED_ALIAS.length ).replace( /^\/+/, '' );
-		return pathToFileURL( path.join( ROOT, 'src/shared', relative ) );
-	},
-};
+const { sassImporter } = require( '../../build-kit/alias-map.cjs' );
+
+// The aliases resolved against the base the jest config hands every test.
+const sharedImporter = sassImporter( NEWSPACK_NODES_SRC );
 
 const productionStylePaths = new Set( [ THEME_SCSS, UI_SCSS, GRAPH_SCSS ] );
 for ( const file of walkFiles( path.join( ROOT, 'src' ), ( name ) =>

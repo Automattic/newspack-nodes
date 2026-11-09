@@ -19,14 +19,17 @@
  * imports. Each consumer's build.mjs lives at a different filesystem location,
  * and a sibling builds against a newspack-nodes checkout that has NO
  * node_modules, so this module must not resolve those packages relative to
- * itself. It imports only node builtins.
+ * itself. It imports only node builtins and its sibling alias map, whose
+ * `aliasImporter()` resolves the aliases inside Sass.
  */
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import aliasMap from './alias-map.cjs';
+
+const { aliasImporter } = aliasMap;
 
 /**
  * The substrate version, stamped as a banner comment into every bundle the kit
@@ -186,36 +189,6 @@ function wpExternalsPlugin( usedHandles ) {
 					};
 				}
 			);
-		},
-	};
-}
-
-/**
- * Build a Sass importer resolving the `@newspack-nodes/*` aliases inside `@use`
- * and `@forward`.
- *
- * Sass runs its own load resolution and never sees esbuild's `alias` map, so a
- * bare `@use '@newspack-nodes/shared/styles/x'` would fail. The importer swaps
- * the alias prefix for its mapped absolute path and hands the rest back to
- * Sass's normal partial resolution (`_x.scss`). The longest key wins, so a
- * future `@newspack-nodes/shared/styles` entry cannot be shadowed by the
- * shorter `@newspack-nodes/shared` prefix; returning null defers to Sass.
- *
- * @param {Object<string,string>} alias esbuild alias map, specifier → absolute
- *                                      path.
- * @return {Object} Sass importer exposing `findFileUrl`.
- */
-function aliasImporter( alias ) {
-	const keys = Object.keys( alias ).sort( ( a, b ) => b.length - a.length );
-	return {
-		findFileUrl( url ) {
-			for ( const key of keys ) {
-				if ( url === key || url.startsWith( `${ key }/` ) ) {
-					const rest = url.slice( key.length );
-					return pathToFileURL( path.resolve( alias[ key ] + rest ) );
-				}
-			}
-			return null;
 		},
 	};
 }

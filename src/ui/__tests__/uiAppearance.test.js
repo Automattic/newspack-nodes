@@ -1323,7 +1323,7 @@ describe( 'canonical UI appearance', () => {
 		] );
 	} );
 
-	it( 'owns status-pill typography and compact variants without neutral surface paint', () => {
+	it( 'owns status-pill typography in sentence case and compact variants without neutral surface paint', () => {
 		const badge = exactSelectorRule(
 			`${ CUSTOM_UI_ROOT } .newspack-nodes-status-badge`
 		);
@@ -1343,8 +1343,6 @@ describe( 'canonical UI appearance', () => {
 			'border-radius': 'var(--np-radius-sm)',
 			'font-size': '10px',
 			'font-weight': '600',
-			'text-transform': 'uppercase',
-			'letter-spacing': '0.3px',
 		} );
 		expect( small?.declarations ).toEqual( {
 			padding: '2px 6px',

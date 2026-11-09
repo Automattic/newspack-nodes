@@ -117,14 +117,13 @@
 		}
 	}
 
+	// A badge's words keep their own sentence case, as every label does.
 	.newspack-nodes-status-badge {
 		display: inline-block;
 		padding: 2px 8px;
 		border-radius: var(--np-radius-sm);
 		font-size: 10px;
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
 
 		&.is-pill {
 			border-radius: var(--np-radius-full);

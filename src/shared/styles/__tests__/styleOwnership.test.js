@@ -1,8 +1,8 @@
 /* @jest-environment node */
 
+/* global NEWSPACK_NODES_SRC */
 import fs from 'fs';
 import path from 'path';
-import { pathToFileURL } from 'url';
 import * as sass from 'sass';
 // Babel/Jest already installs the parser used for source-level JSX ownership.
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -24,28 +24,12 @@ const TRIAGE_VIEW = path.join(
 	NODES_SRC,
 	'topology-console/components/triage-view.scss'
 );
-const SHARED_ALIAS = '@newspack-nodes/shared';
+const { sassImporter } = require( '../../../build-kit/alias-map.cjs' );
+
+// The aliases resolved against the base the jest config hands every test.
+const SHARED_IMPORTER = sassImporter( NEWSPACK_NODES_SRC );
 const graphStylesheet = postcss.parse(
-	sass.compile( GRAPH_VIEW, {
-		importers: [
-			{
-				findFileUrl( url ) {
-					if (
-						url !== SHARED_ALIAS &&
-						! url.startsWith( `${ SHARED_ALIAS }/` )
-					) {
-						return null;
-					}
-					const relative = url
-						.slice( SHARED_ALIAS.length )
-						.replace( /^\/+/, '' );
-					return pathToFileURL(
-						path.join( NODES_SRC, 'shared', relative )
-					);
-				},
-			},
-		],
-	} ).css,
+	sass.compile( GRAPH_VIEW, { importers: [ SHARED_IMPORTER ] } ).css,
 	{ from: GRAPH_VIEW }
 );
 const inspectorViewsStylesheet = postcss.parse(
@@ -184,19 +168,6 @@ const APPEARANCE_PROPERTY =
 const isAppearanceProperty = ( property ) =>
 	! [ 'border-collapse', 'border-spacing' ].includes( property ) &&
 	APPEARANCE_PROPERTY.test( property );
-const SHARED_IMPORTER = {
-	findFileUrl( url ) {
-		if (
-			url !== SHARED_ALIAS &&
-			! url.startsWith( `${ SHARED_ALIAS }/` )
-		) {
-			return null;
-		}
-		const relative = url.slice( SHARED_ALIAS.length ).replace( /^\/+/, '' );
-		return pathToFileURL( path.join( NODES_SRC, 'shared', relative ) );
-	},
-};
-
 const walkScss = ( root ) =>
 	fs.readdirSync( root, { withFileTypes: true } ).flatMap( ( entry ) => {
 		const absolute = path.join( root, entry.name );

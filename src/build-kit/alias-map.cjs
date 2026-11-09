@@ -22,6 +22,7 @@
  */
 
 const path = require( 'node:path' );
+const { pathToFileURL } = require( 'node:url' );
 
 /**
  * Where each alias points, relative to the substrate `src` directory. The single
@@ -62,6 +63,50 @@ function esbuildAlias( base ) {
 		alias[ `@newspack-nodes/${ name }` ] = path.join( base, target );
 	}
 	return alias;
+}
+
+/**
+ * A Sass importer resolving the `@newspack-nodes/*` aliases inside `@use`
+ * and `@forward`, which Sass resolves itself and esbuild's `alias` never
+ * reaches. It swaps an alias prefix for its mapped absolute path and hands the
+ * rest back to Sass's partial resolution (`_x.scss`); the longest key wins, so
+ * a longer alias is never shadowed by a shorter one, and any other url
+ * answers null, deferring to Sass. It answers a URL of the global `URL`, the
+ * class Sass checks against, which jsdom replaces.
+ *
+ * @param {Object<string,string>} alias esbuild alias map, specifier → absolute path.
+ * @return {{findFileUrl: (url: string) => ?URL}} The importer.
+ */
+function aliasImporter( alias ) {
+	const keys = Object.keys( alias ).sort( ( a, b ) => b.length - a.length );
+	return {
+		findFileUrl( url ) {
+			const key = keys.find(
+				( one ) => url === one || url.startsWith( `${ one }/` )
+			);
+			return key
+				? new URL(
+						pathToFileURL(
+							path.resolve(
+								alias[ key ] + url.slice( key.length )
+							)
+						).href
+				  )
+				: null;
+		},
+	};
+}
+
+/**
+ * The Sass importer for the aliases a base maps (`aliasImporter()` over
+ * `esbuildAlias()`), as a stylesheet test compiles against the base its jest
+ * config hands it as `NEWSPACK_NODES_SRC`.
+ *
+ * @param {string} base Absolute path to the substrate `src` directory.
+ * @return {{findFileUrl: (url: string) => ?URL}} The importer.
+ */
+function sassImporter( base ) {
+	return aliasImporter( esbuildAlias( base ) );
 }
 
 /**
@@ -119,6 +164,8 @@ function assertNoRetiredOverrides( env ) {
 
 module.exports = {
 	esbuildAlias,
+	aliasImporter,
+	sassImporter,
 	jestModuleNameMapper,
 	assertNoRetiredOverrides,
 };

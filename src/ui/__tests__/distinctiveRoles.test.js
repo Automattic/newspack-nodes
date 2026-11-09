@@ -704,9 +704,9 @@ describe( 'distinctive canonical roles', () => {
 			expect( declarations ).toMatchObject( {
 				'border-radius': 'var(--np-radius-full)',
 				'font-weight': '600',
-				'letter-spacing': '0.3px',
-				'text-transform': 'uppercase',
 			} );
+			expect( declarations ).not.toHaveProperty( 'text-transform' );
+			expect( declarations ).not.toHaveProperty( 'letter-spacing' );
 			expectUsesSentinel(
 				provenance,
 				'border-radius',

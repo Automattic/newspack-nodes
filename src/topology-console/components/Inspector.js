@@ -56,6 +56,7 @@ import {
 	formatGroupedCount,
 } from '@newspack-nodes/shared/utils/formatters';
 import { processStats } from '../utils/processStats';
+import { streamStatusLabel } from '../utils/streamStatus';
 import { isConfigurableCommand } from '../utils/editorLines';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeField } from '../../runtime/react';
@@ -2013,8 +2014,8 @@ export default function Inspector( {
 					/>
 					Command_Interpreter ·{ ' ' }
 					{ live
-						? __( 'LIVE', 'newspack-nodes' )
-						: streamStatus.toUpperCase() }
+						? __( 'Live', 'newspack-nodes' )
+						: streamStatusLabel( streamStatus ) }
 				</div>
 				<ProcessStatsHeader
 					nodes={ parsed.nodes }
@@ -2380,8 +2381,8 @@ export default function Inspector( {
 				/>
 				{ type } ·{ ' ' }
 				{ live
-					? __( 'LIVE', 'newspack-nodes' )
-					: streamStatus.toUpperCase() }
+					? __( 'Live', 'newspack-nodes' )
+					: streamStatusLabel( streamStatus ) }
 			</div>
 			{ node.owner && (
 				<OwnedNote owner={ node.owner } onOpen={ onOpenNode } />

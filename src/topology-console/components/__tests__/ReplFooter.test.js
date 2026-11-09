@@ -52,18 +52,20 @@ describe( 'ReplFooter', () => {
 		expect( prompt.textContent ).toMatch( /\/_http\/demo\.p0>/ );
 	} );
 
-	it( 'maps streamStatus to CONNECTING/CONNECTED/DISCONNECTED/CLOSED', () => {
+	it( 'names each streamStatus in sentence case', () => {
 		const cases = [
-			[ 'connecting', /CONNECTING/ ],
-			[ 'open', /CONNECTED/ ],
-			[ 'error', /DISCONNECTED/ ],
-			[ 'closed', /CLOSED/ ],
+			[ 'connecting', 'Connecting' ],
+			[ 'open', 'Connected' ],
+			[ 'error', 'Disconnected' ],
+			[ 'closed', 'Closed' ],
 		];
-		for ( const [ status, regex ] of cases ) {
+		for ( const [ status, label ] of cases ) {
 			const { container, unmount } = render(
 				<ReplFooter { ...baseProps } streamStatus={ status } />
 			);
-			expect( container.textContent ).toMatch( regex );
+			expect(
+				container.querySelector( '.topology-repl__status' ).textContent
+			).toBe( label );
 			unmount();
 		}
 	} );
@@ -73,7 +75,7 @@ describe( 'ReplFooter', () => {
 		const { container } = render( <ReplFooter { ...overlayProps } /> );
 		expect(
 			container.querySelector( '.topology-repl__status' ).textContent
-		).toBe( 'CONNECTED' );
+		).toBe( 'Connected' );
 		expect(
 			container
 				.querySelector( '.topology-repl__dot' )
@@ -81,11 +83,13 @@ describe( 'ReplFooter', () => {
 		).toBe( true );
 	} );
 
-	it( 'uppercases unknown statuses verbatim', () => {
+	it( 'names an unknown status in sentence case, never upper case', () => {
 		const { container } = render(
-			<ReplFooter { ...baseProps } streamStatus="weird" />
+			<ReplFooter { ...baseProps } streamStatus="stalled" />
 		);
-		expect( container.textContent ).toMatch( /WEIRD/ );
+		expect(
+			container.querySelector( '.topology-repl__status' ).textContent
+		).toBe( 'Stalled' );
 	} );
 
 	it( 'disables input when canSend=false', () => {
