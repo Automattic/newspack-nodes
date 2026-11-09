@@ -100,12 +100,13 @@ dir="$tmp/tree"
 mkdir -p "$dir/includes" "$dir/vendor/lib" "$dir/node_modules/lib" \
 	"$dir/build" "$dir/release" "$dir/coverage/report" "$dir/.phpstan/cache" \
 	"$dir/tests/fixtures" "$dir/src/__fixtures__" "$dir/tests/templates" \
-	"$dir/docs/specs/mocks"
+	"$dir/docs/specs/mocks" "$dir/foundation-blocks/Blocks/Validation/Includes"
 printf 'A row is no reader.\n' > "$dir/includes/hit.md"
 for f in vendor/lib/a.md node_modules/lib/a.md build/a.md release/a.md \
 	coverage/report/a.md .phpstan/cache/a.md tests/fixtures/a.md \
 	src/__fixtures__/a.md tests/templates/a.html CHANGELOG.md LICENSE.md \
-	tests/INVENTORY.md docs/specs/mocks/a.html; do
+	tests/INVENTORY.md docs/specs/mocks/a.html \
+	foundation-blocks/Blocks/Validation/Includes/a.html; do
 	printf 'A row is no reader.\n' > "$dir/$f"
 done
 run_gate "$dir"
