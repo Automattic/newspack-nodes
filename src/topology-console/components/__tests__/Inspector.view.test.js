@@ -1503,7 +1503,7 @@ describe( 'Inspector (view mode)', () => {
 		).toBeNull();
 	} );
 
-	it( 'adds a Class Commands section when the class schema declares commands', () => {
+	it( 'adds a Class Commands and Requests section when the class schema declares commands', () => {
 		const { container } = renderNode( {
 			catalog: [
 				{
@@ -1519,7 +1519,7 @@ describe( 'Inspector (view mode)', () => {
 			'Commands',
 			'Messages',
 			'Toggles',
-			'Class Commands',
+			'Class Commands and Requests',
 		] );
 	} );
 

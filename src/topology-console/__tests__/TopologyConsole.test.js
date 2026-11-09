@@ -4108,7 +4108,7 @@ describe( 'TopologyConsole boot', () => {
 						name: 'n1',
 						class: 'Echo',
 						origin: [ 'shared' ],
-						verbs: [ { verb: 'set_seeded', args: [ '0' ] } ],
+						commands: [ { verb: 'set_seeded', args: [ '0' ] } ],
 					},
 				],
 				edges: [],

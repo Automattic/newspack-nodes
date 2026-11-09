@@ -104,7 +104,7 @@ describe( 'useDraftInterpreter', () => {
 						name: 'meerkat',
 						class: 'Job_Worker',
 						origin: [ 'shared-stats' ],
-						verbs: [
+						commands: [
 							{
 								verb: 'set_stats_target',
 								args: [ '<wombat:sink>' ],

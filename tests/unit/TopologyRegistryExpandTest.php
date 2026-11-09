@@ -60,7 +60,7 @@ class TopologyRegistryExpandTest extends TestCase {
 					'args' => [ '"Engineers care about uptime"' ],
 				],
 			],
-			$byName['vicuna-jobs']['verbs']
+			$byName['vicuna-jobs']['commands']
 		);
 	}
 
@@ -164,7 +164,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		// the node record so the console can show what's ticked. A set_*target
 		// stays an EDGE, never a command.
 		$this->write_tsl(
-			'wombat-verbs',
+			'wombat-commands',
 			"make_node Partition zebra:partition /var/wombat/zebra.log 4096 1 2 0\n"
 			. "make_node Echo giraffe-errors\n"
 			. "cmd zebra:partition:config void_warranty\n"
@@ -172,7 +172,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "cmd zebra:partition:config set_errors_target giraffe-errors\n"
 		);
 
-		$out    = Topology_Analyzer::expand( [ 'wombat-verbs' ] );
+		$out    = Topology_Analyzer::expand( [ 'wombat-commands' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -183,10 +183,10 @@ class TopologyRegistryExpandTest extends TestCase {
 				[ 'verb' => 'void_warranty', 'args' => [] ],
 				[ 'verb' => 'with_index', 'args' => [ 'quokka-idx' ] ],
 			],
-			$byName['zebra:partition']['verbs']
+			$byName['zebra:partition']['commands']
 		);
 		$this->assertContains(
-			[ 'from' => 'zebra:partition', 'to' => 'giraffe-errors', 'origin' => [ 'wombat-verbs' ], 'roles' => [ 'config' ], 'config_slots' => [ 'set_errors_target' ] ],
+			[ 'from' => 'zebra:partition', 'to' => 'giraffe-errors', 'origin' => [ 'wombat-commands' ], 'roles' => [ 'config' ], 'config_slots' => [ 'set_errors_target' ] ],
 			$out['edges']
 		);
 	}

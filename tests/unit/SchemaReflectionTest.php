@@ -1051,7 +1051,7 @@ class SchemaReflectionTest extends TestCase {
 		return $message;
 	}
 
-	public function test_a_declared_request_handler_answers_its_command(): void {
+	public function test_a_declared_request_handler_answers_its_request(): void {
 		$node    = $this->request_node();
 		$capture = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$node->name( 'kea-probe' );

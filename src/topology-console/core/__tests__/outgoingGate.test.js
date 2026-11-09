@@ -100,7 +100,7 @@ describe( 'OutgoingGateNode', () => {
 		expect( () => gate.fill( cmd( 'demo.p0' ) ) ).not.toThrow();
 	} );
 
-	it( 'names the dropped verb on stderr when it has no sink', () => {
+	it( 'names the dropped command’s verb on stderr when it has no sink', () => {
 		const spy = jest.spyOn( Core, 'stderr' ).mockImplementation();
 		const gate = new OutgoingGateNode();
 		gate.fill( cmd( '', 'connect_node' ) );

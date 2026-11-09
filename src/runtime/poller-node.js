@@ -156,7 +156,7 @@ export class PollerNode extends ReactBridge( TimerNode ) {
 	 * what it last published. A reply about what was asked before names that
 	 * subject, so `answersSubject()` drops it.
 	 *
-	 * @param {string[]} args    The verb's argument tokens.
+	 * @param {string[]} args    The command's argument tokens.
 	 * @param {?string}  subject What it asks about, ridden on FROM; null for none.
 	 */
 	ask( args, subject ) {

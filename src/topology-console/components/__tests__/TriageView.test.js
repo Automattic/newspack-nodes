@@ -679,8 +679,9 @@ test( 'scrolls only the records, keeping the count and the actions in view', () 
 } );
 
 test( 'paints the queue commands as the rows paint theirs', () => {
-	// Refresh and Purge act on the queue as Requeue acts on a record, so
-	// all three take the compact command role rather than a dialog's role.
+	// Refresh and Purge act on the queue as Requeue acts on a record, so all
+	// three take the compact role the command buttons take, rather than the
+	// role a dialog's buttons take.
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);

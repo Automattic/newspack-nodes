@@ -168,7 +168,7 @@ final class Table_Client {
 	 *
 	 * @param string $table The Table's registered name.
 	 * @param string $verb  `GET`, `SCARD` or `SMOVE`.
-	 * @param string $args  The verb's arguments.
+	 * @param string $args  The request's arguments.
 	 * @return list<array<int,mixed>>|null Null on a TM_ERROR, a missing count, or a count the data replies miss.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
@@ -292,7 +292,7 @@ final class Table_Client {
 	 *
 	 * @param string       $table The Table's registered name.
 	 * @param string       $verb  `SREM` or `RM`.
-	 * @param list<string> $args  The verb's arguments ahead of the keys.
+	 * @param list<string> $args  The request's arguments ahead of the keys.
 	 * @param list<string> $keys   Keys.
 	 * @param bool         $failed Set true when the write did not answer.
 	 * @return list<string> The keys the write took effect on.

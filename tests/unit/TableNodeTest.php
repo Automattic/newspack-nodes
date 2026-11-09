@@ -522,7 +522,7 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
-	public function test_a_request_naming_an_unknown_command_is_refused_to_its_asker(): void {
+	public function test_a_request_naming_an_unknown_verb_is_refused_to_its_asker(): void {
 		// A silent drop would read as an empty table; a refusal says why.
 		[ $table, $sink ] = $this->table();
 		$logged           = [];

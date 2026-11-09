@@ -859,7 +859,7 @@ describe( 'worker-status:transform — segment tracking from the live logs', () 
 } );
 
 describe( 'worker-status:transform — non-metadata replies', () => {
-	test( 'ignores a reply for a verb other than dump_graph', () => {
+	test( 'ignores a reply to any command but dump_graph', () => {
 		const sink = capture();
 		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;

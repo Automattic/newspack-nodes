@@ -103,10 +103,10 @@ class CommandEndpointScopeTest extends TestCase {
 
 	/**
 	 * The role is per command, not a whole-table pin: every dashboard on the site
-	 * drives a read-only builtin through this same interpreter, so a blanket
+	 * drives a read-only base command through this same interpreter, so a blanket
 	 * MANAGE would make the lowered door buy the read surface nothing.
 	 */
-	public function test_a_read_only_caller_still_reaches_the_read_builtins(): void {
+	public function test_a_read_only_caller_still_reaches_the_read_base_commands(): void {
 		$this->relax_read();
 		$GLOBALS['_wp_test_current_user_id']  = 4133;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'manage_options' => false ];

@@ -111,7 +111,7 @@ describe( 'command rows carry their provenance', () => {
 						name: 'jobs',
 						class: 'Job_Worker',
 						origin: [ 'shared' ],
-						verbs: [ { verb: 'set_seeded', args: [ '0' ] } ],
+						commands: [ { verb: 'set_seeded', args: [ '0' ] } ],
 					},
 				],
 				edges: [],

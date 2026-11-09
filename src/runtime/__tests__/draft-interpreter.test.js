@@ -391,7 +391,7 @@ describe( 'a document that configures a borrowed node', () => {
 			{
 				name: 'meerkat',
 				class: 'Flame_Builder',
-				verbs: [ { verb: 'set_window', args: [ '900' ] } ],
+				commands: [ { verb: 'set_window', args: [ '900' ] } ],
 				origin: [ 'shared-flames' ],
 			},
 		],

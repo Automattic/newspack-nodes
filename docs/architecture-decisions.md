@@ -1069,7 +1069,7 @@ it goes. `inspect` signs one command whose verb has a READ base role, the one ru
 `Command_Interpreter_Node::base_role( $verb )` answers, and addresses it to the worker's own
 interpreter or to a `<node>:config` interpreter, whose path holds no `/`; it refuses any
 other verb or path before a channel opens, and signs nothing for a refused one. The caller
-supplies only the worker, the verb's arguments and the interpreter, so the signature buys a
+supplies only the worker, the command and the interpreter, so the signature buys a
 read the caller's own role already admits. The rule sits on the server, in the code that
 signs, never in anything the caller sends.
 
@@ -1622,7 +1622,7 @@ string. A Row_Table's `ROWS` carries a list of row ops the same way, VALUE
 answers as every Table write does, a bare `TM_RESPONSE` `ROWS <written>`, or a
 `TM_ERROR` carrying the arm's message; a Row_Table refuses every keyed request, a keyed
 Table refuses `ROWS`, and a mount refuses it as it refuses every write. Each of the three declares it on its `requests` entry, `'value' => 'struct'`, and
-every sender reads that declaration: the console's command dialog sends `TM_REQUEST | TM_STRUCT`
+every sender reads that declaration: the console's request dialog sends `TM_REQUEST | TM_STRUCT`
 for such an entry alone, and never infers one from the types of its args. `topologies mount_tables` mounts Tables into a request graph and
 declares MANAGE, as `connect_worker_input` does. A Table a command below MANAGE mounts to read
 stays mounted for the rest of that POST: a later command or request in it reads through the same
@@ -2068,7 +2068,7 @@ Tables or `dl_purge` its dead letters.
 runs, against the role its schema declares: the `capability` of the command's `commands` entry —
 a service CI's own schema, or for a `:config` interpreter its patron's schema — and MANAGE when the entry
 declares none. A command that is not named by any schema — the base interpreter's vocabulary, and the `help`
-every interpreter answers — demands MANAGE, except the read-only builtins `READ_VERBS` lists,
+every interpreter answers — demands MANAGE, except the read-only base commands `READ_VERBS` lists,
 which answer READ. One function, `Capabilities::require_command()`, makes the decision:
 
 - where a WordPress user is current, `Capabilities::can( $role )`: the user's capability,

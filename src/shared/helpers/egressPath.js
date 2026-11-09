@@ -16,7 +16,7 @@ import { shellGroup } from '../../runtime/exospine';
  * @param {string} group The surface the command belongs to, which names the
  *                       Tap it passes: `url` for `url:shell`.
  * @param {string} [ci]  The server CI mount owning the command. Omit it for a
- *                       command-interpreter command such as `dump_metadata`:
+ *                       base interpreter command such as `dump_metadata`:
  *                       the path then stops at `_http`, and the command
  *                       reaches the server with an empty TO for
  *                       `_command_interpreter` to run itself.

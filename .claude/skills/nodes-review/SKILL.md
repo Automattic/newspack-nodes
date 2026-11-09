@@ -146,7 +146,7 @@ Flag NAMES come from `Message::TYPE_NAMES` through `Message::type_labels()`, mir
 - Defaults apply **per position when the token list runs short**. The class property default and the schema `default` should agree, so the value is the same either way.
 - Per ADR-5, event-loop and filesystem work stays out of both the constructor AND `arguments()` for request-scope nodes.
 - Programmatic dependencies (objects, callables, streams) are public properties the caller assigns after construction, never constructor parameters — `make_node` filters non-scalar args because they cannot round-trip. `Workers_CI_Node::$cli` is the reference.
-- The schema keys are `'arguments'` and `'commands'`. A diff reading or writing a `'ctor'` or `'verbs'` key on a `node_schema()` is a regression. (`Topology_Analyzer`'s graph payload has its own unrelated `verbs` key; that one is fine.)
+- The schema keys are `'arguments'` and `'commands'`. A diff reading or writing a `'ctor'` or `'verbs'` key on a `node_schema()` is a regression. (`Topology_Analyzer`'s graph payload names each node's invocations under `commands`, a list of `{ verb, args }`, unrelated to the schema's `commands` declarations.)
 
 ### 8c. `dump_config` round-trip
 

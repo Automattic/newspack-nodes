@@ -435,10 +435,10 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * caller whitelists the payload itself, which keeps raw remote JSON off our
 	 * surfaces.
 	 *
-	 * @param string                 $dest      Vault server id — the session identity.
-	 * @param array<array-key,mixed> $server    Decrypted vault server config.
-	 * @param string                 $to        Target node path on the spoke.
-	 * @param string                 $verb      Command verb name.
+	 * @param string                 $dest         Vault server id — the session identity.
+	 * @param array<array-key,mixed> $server       Decrypted vault server config.
+	 * @param string                 $to           Target node path on the spoke.
+	 * @param string                 $verb         Command verb name.
 	 * @param list<string>           $command_args Argument tail (Command_Args grammar).
 	 * @return array<array-key,mixed> The reply's `payload` array.
 	 * @throws \RuntimeException On any transport, auth, or envelope failure.

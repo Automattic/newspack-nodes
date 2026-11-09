@@ -120,7 +120,7 @@ final class CommandRoleGateTest extends TestCase {
 		$this->assertNull( $this->table->lookup( 'sku-4473' ) );
 	}
 
-	public function test_a_base_builtin_that_only_reads_answers_a_read_session_and_the_rest_refuse(): void {
+	public function test_a_base_command_that_only_reads_answers_a_read_session_and_the_rest_refuse(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( 'lab-9:base' );
 		Capabilities::$session_scope = Capabilities::READ;

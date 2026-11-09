@@ -99,9 +99,9 @@ export function useVaultGraph( { onAnswer } = {} ) {
 	 * that earned it, then re-`list()` after a write. A mutation shows in the
 	 * table at once; the cadence is only the retry.
 	 *
-	 * @param {'add'|'update'|'delete'|'test'} verb The verb being answered for.
+	 * @param {'add'|'update'|'delete'|'test'} verb The verb of the commands being answered.
 	 * @return {(answer: {subject: ?string, error: ?string}) => void} The
-	 *   handler `useCommandOnce` runs once per reply to that verb.
+	 *   handler `useCommandOnce` runs once per reply to that verb's commands.
 	 */
 	const answered =
 		( verb ) =>

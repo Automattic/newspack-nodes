@@ -8,7 +8,7 @@
  * `paused` gate. The live `cursor` ({segment,offset}) is informational only and does NOT
  * drive selection — frame ids are offsetlog segment ids, an independent number
  * space from the source-partition cursor segment. Each transport button calls
- * onTransport( verb, args ), args the verb's tokens.
+ * onTransport( verb, args ), args the command's argument tokens.
  */
 
 import { render, fireEvent } from '@testing-library/react';

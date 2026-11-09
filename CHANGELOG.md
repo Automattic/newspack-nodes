@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Every argument a cockpit tool offers carries a description.** 22 command args across the substrate CIs gained a `description`, which `tools/list` serves as the tool arg's description through `{declared}`; a `{declared}` arg its command does not describe throws `\LogicException` there. The args still undescribed belong to the seven `Nodes_Mcp_Door::NOT_TOOLS` commands.
 - **The topology card's rate line and the inspector's telemetry rows are drawn on the shared sparkline geometry.** `NodeCard`'s `sparklinePath()` and `ProcessStats`' inspector path call `sparklinePoints()` and `linePath()` in place of two copies of the same scale-to-the-tallest arithmetic. Neither line moves.
 
+- **Messages and labels that named a whole command say `command`.** `Command_Args::bind()` and its JS twin refuse an undeclared option as `unknown option --<name>; this command takes --…`, where they said `this verb takes`. `Mcp_Door` throws `<tool> offers --<arg>, which its command does not declare` and `<tool> reads --<arg>'s declared description, which its command does not give`. `Schema_Reflection` throws `<name>: an unlist command declares no noun` and `<what>: the command declares no arg to carry its value`. The `secure` help line reads `each level removes management commands`, and the `set_read_capability` and `Vault_Group` descriptions say command where they said verb. The topology console's live inspector titles its schema section `Class Commands and Requests`, because its buttons send requests too; the edit form's section, which holds commands alone, is `Class Commands`, and reads `No commands registered.` when it is empty, where both sections were titled `Verbs` and the empty one read `No verbs registered.`. Each edit-form command checkbox's DOM id is `topology-command-<name>`, where it was `topology-verb-<name>`.
 ### Renamed
 
 A verb is a command's name alone, and a command is a name with its arguments, so every identifier naming a whole command says `command`. Each old name is gone, with no alias; [upgrading.md](docs/upgrading.md) lists the rewrite.
@@ -36,6 +37,11 @@ A verb is a command's name alone, and a command is a name with its arguments, so
 | `VerbHarness` (tests) | `CommandHarness` | The test fixture firing a command at a service CI |
 | CSS block `topology-edit-verb` and its elements | `topology-edit-command` | The topology editor's command rows |
 
+| `Dead_Letter_Queue::deadletter_verbs()` | `deadletter_commands()` | The dead-letter commands a reader's schema spreads in |
+| `Durable_Reader::time_travel_verbs()` | `time_travel_commands()` | The time-travel commands a reader's schema spreads in |
+| `Durable_Reader::pump_verbs()` | `pump_commands()` | The pump commands a reader's schema spreads in |
+| `HTTP_Out_Node::probe_command()`'s `$verb_args` | `$command_args` | The argument tail the probe sends |
+| The `verbs` key on each node record `topologies expand` and `topologies get` answer | `commands` | The `{ verb, args }` invocations a topology aims at the node |
 ### Fixed
 
 - **`CommitInput` keeps a space its `onChange` owner echoes away.** An owner that hands each trimmed edit back as `value` reset the draft, so backspacing from `Acme B` to `Acme ` left `Acme` in the box and the next letter joined the word. A new `value` that is the draft's own text trimmed now leaves the draft in place, while any other new `value`, such as an outside edit, a pick the owner maps or a reset, still replaces it. Every new `value` still clears the refusal, a kept draft's included.

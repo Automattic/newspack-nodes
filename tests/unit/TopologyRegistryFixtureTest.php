@@ -100,22 +100,22 @@ class TopologyRegistryFixtureTest extends TestCase {
 				[ 'verb' => 'with_index', 'args' => [ 'request-index' ] ],
 				[ 'verb' => 'void_warranty', 'args' => [] ],
 			],
-			$byName['requests:partition']['verbs']
+			$byName['requests:partition']['commands']
 		);
 		// `command` alias, bare (no :config) form.
 		$this->assertSame(
 			[ [ 'verb' => 'void_warranty', 'args' => [] ] ],
-			$byName['errors:partition']['verbs']
+			$byName['errors:partition']['commands']
 		);
 		// `command_node` alias.
 		$this->assertSame(
 			[ [ 'verb' => 'void_warranty', 'args' => [] ] ],
-			$byName['completed:partition']['verbs']
+			$byName['completed:partition']['commands']
 		);
 		// `cmd` canonical, non-target config command.
 		$this->assertSame(
 			[ [ 'verb' => 'set_multi_writer', 'args' => [ 'true' ] ] ],
-			$byName['fanout']['verbs']
+			$byName['fanout']['commands']
 		);
 	}
 

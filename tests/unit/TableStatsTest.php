@@ -136,7 +136,7 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( 1, $this->table->stats()['GET']['errors'] );
 	}
 
-	public function test_an_unknown_command_counts_no_row(): void {
+	public function test_an_unknown_verb_counts_no_row(): void {
 		$this->ask( 1000000, "FROB kea-41\n" );
 		$this->assertSame( self::zeroes(), $this->table->stats() );
 	}
@@ -151,7 +151,7 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( self::zeroes(), $this->table->stats() );
 	}
 
-	public function test_counters_tally_a_seeded_mix_of_commands(): void {
+	public function test_counters_tally_a_seeded_mix_of_requests(): void {
 		$this->ask( 1250000, [ 'ADD' => [ 'sku-41' => [ 'a' ], 'sku 42' => [ 'b' ], 'sku-43' => [ 'c', 37 ] ] ] );
 		$this->ask( 750000, "GET sku-41\n" );
 		$this->ask( 500000, [ 'ADD' => [ 'sku-41' => [ 'x' ], 'sku-44' => [ 'y' ] ] ] );
@@ -211,7 +211,7 @@ final class TableStatsTest extends TestCase {
 		);
 	}
 
-	public function test_a_command_that_throws_still_counts_its_call_and_time(): void {
+	public function test_a_request_that_throws_still_counts_its_call_and_time(): void {
 		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3', null );
 		$owl->store( 'sku-41', 'owl-41' );
 		try {

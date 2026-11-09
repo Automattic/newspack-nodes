@@ -123,7 +123,7 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "GET: backend read failed\n" ] ], self::shape( $this->ask( "GET sku-41\n" ) ) );
 	}
 
-	public function test_a_scan_is_refused_as_an_unknown_command(): void {
+	public function test_a_scan_is_refused_as_an_unknown_verb(): void {
 		$this->table->store( 'urltoken:ab:wolf:c1', 'c1' );
 		$this->assertSame( [ [ Message::TM_ERROR, '', "SCAN: unknown verb\n" ] ], self::shape( $this->ask( "SCAN urltoken:ab:wo 5\n" ) ) );
 	}
@@ -139,11 +139,11 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( 'kea-4471', $this->table->lookup( 'sku-4471' ) );
 	}
 
-	public function test_a_structured_command_sent_as_a_string_is_refused_with_what_it_carries(): void {
+	public function test_a_structured_request_sent_as_a_string_is_refused_with_what_it_carries(): void {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "ADD: needs a map of key => [ value, ttl ]\n" ] ], self::shape( $this->ask( "ADD sku-41\n" ) ) );
 	}
 
-	public function test_a_declared_string_command_no_reply_answers_is_refused_as_such(): void {
+	public function test_a_declared_string_request_no_reply_answers_is_refused_as_such(): void {
 		$peeking = new class() extends Table_Node {
 			public static function node_schema(): array {
 				$schema               = parent::node_schema();
@@ -214,7 +214,7 @@ final class TableProtocolTest extends TestCase {
 		$this->assertNull( $this->table->lookup( 'sku-42' ) );
 	}
 
-	public function test_an_unknown_command_is_refused_to_the_asker_and_logged_with_its_origin(): void {
+	public function test_an_unknown_verb_is_refused_to_the_asker_and_logged_with_its_origin(): void {
 		$logged = [];
 		\add_action(
 			'newspack_nodes/stderr',
@@ -785,7 +785,7 @@ final class TableProtocolTest extends TestCase {
 		return Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $this->sink );
 	}
 
-	public function test_a_mount_refuses_every_write_command(): void {
+	public function test_a_mount_refuses_every_write_request(): void {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$mount  = $this->mounted_kea();
 		$struct = Message::TM_REQUEST | Message::TM_STRUCT;

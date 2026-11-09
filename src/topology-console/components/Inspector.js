@@ -83,8 +83,8 @@ function isConsumerNode( node ) {
  * Whether the node's configuration belongs to the console rather than the user.
  *
  * A reserved anchor is auto-mounted by the runtime, so rename, delete,
- * constructor and command affordances stay hidden: editing them would describe a
- * node the next boot rebuilds anyway. `_repl` is matched by id as well, so it
+ * constructor and command affordances stay hidden: editing them would describe
+ * a node the next boot rebuilds anyway. `_repl` is matched by id as well, so it
  * stays locked even when its metadata carries no `reserved` flag.
  *
  * @param {Object} node Node metadata from the graph.
@@ -408,10 +408,11 @@ function NameField( { node, takenNames, onRenameNode } ) {
 }
 
 /**
- * One editable command in the Class Commands section. A plain command renders a checkbox that
- * toggles its invocation; a `multiple` command renders one headed row per call,
- * each removable. The two shapes need different callbacks, so each callback is
- * optional and only the one its shape uses is ever called.
+ * One editable command in the Class Commands section. A plain command renders
+ * a checkbox that toggles its invocation; a `multiple` command renders one
+ * headed row per call, each removable. The two shapes need different
+ * callbacks, so each callback is optional and only the one its shape uses is
+ * ever called.
  *
  * @param {Object}                             props
  * @param {Object}                             props.spec         Command entry from the class schema — name, description, args.
@@ -853,8 +854,8 @@ function LockedMultipleCommand( { spec, invocations } ) {
  * The constructor is read-only and there is no rename or delete: those
  * arguments belong to the topology that defines the node, and editing them
  * here would write a line this file cannot own. Routing stays editable, and
- * so do the command calls this document aims at it — `CommandsSection` locks the
- * seeded half by itself.
+ * so do the command calls this document aims at it — `CommandsSection` locks
+ * the seeded half by itself.
  *
  * @param {Object}   props
  * @param {Object}   props.node               The selected borrowed node.
@@ -883,7 +884,7 @@ function LockedForm( {
 		node.ctorArgs || [],
 		argumentSpecs.length
 	);
-	// Read-only mirror of the edit Class Commands: same filter, no editing.
+	// Read-only mirror of the edit form's Class Commands: same filter.
 	const commandSpecs = ( schema?.commands || [] ).filter(
 		isConfigurableCommand
 	);
@@ -1152,10 +1153,10 @@ function CommandsSection( {
 /**
  * The edit-mode form for a node this document declares.
  *
- * Identity, Routing, Constructor and Class Commands, every one of them generated from
- * the class schema. A reserved anchor keeps its header alone: the runtime
- * mounts it, so a rename, a deletion or a changed argument would describe a
- * node the next boot rebuilds from its own definition.
+ * Identity, Routing, Constructor and Class Commands, every one of them
+ * generated from the class schema. A reserved anchor keeps its header alone:
+ * the runtime mounts it, so a rename, a deletion or a changed argument would
+ * describe a node the next boot rebuilds from its own definition.
  *
  * @param {Object}   props
  * @param {Object}   props.node               The selected draft node.
@@ -1443,7 +1444,7 @@ function CommandArgModal( {
 }
 
 /**
- * One command from the class schema, as a button.
+ * One command or request from the class schema, as a button.
  *
  * An argument-free command fires on the click; one that takes arguments opens
  * `CommandArgModal` first. The label is the bare verb name either way, so a
@@ -2822,7 +2823,10 @@ export default function Inspector( {
 						.filter( ( n ) => n && n !== node.id );
 					return (
 						<Section
-							title={ __( 'Class Commands', 'newspack-nodes' ) }
+							title={ __(
+								'Class Commands and Requests',
+								'newspack-nodes'
+							) }
 						>
 							<div className="topology-insp__actions">
 								{ commands.map( ( spec ) => (

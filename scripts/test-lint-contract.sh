@@ -54,7 +54,7 @@ assert_clean() {
 
 bare='$ok = Capabilities::require( '"'"'tune'"'"' );'
 scope='$ok = scope_covers( Capabilities::$session_scope, 3 );'
-verb='$ok = Capabilities::require_command( '"'"'tune'"'"' );'
+command='$ok = Capabilities::require_command( '"'"'tune'"'"' );'
 gate_line='$ok = Capabilities::require( '"'"'tune'"'"' );'
 
 d=$( fixture require includes/class-widget.php "$bare" )
@@ -63,7 +63,7 @@ assert_flags "Capabilities::require( is flagged" "$d" "[scope-check-in-handler]"
 d=$( fixture qualified includes/class-widget.php '$ok = \Newspack_Nodes\Capabilities::require( '"'"'tune'"'"' );' )
 assert_flags "a qualified Capabilities::require( is flagged" "$d" "[scope-check-in-handler]"
 
-d=$( fixture verb includes/class-widget.php "$verb" )
+d=$( fixture command includes/class-widget.php "$command" )
 assert_clean "Capabilities::require_command( is not flagged" "$d"
 
 d=$( fixture owner includes/class-capabilities.php "$gate_line" )

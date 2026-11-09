@@ -113,7 +113,7 @@ class ServiceCITest extends TestCase {
 
 	public function test_auto_injected_help_is_also_gated(): void {
 		// `help` is injected by the base commands() accessor, not declared in the
-		// schema: a read-only builtin, it demands READ, never nothing.
+		// schema: a read-only base command, it demands READ, never nothing.
 		$result = CommandHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
 		$this->assertSame( "permission denied: read capability required\n", $result );
 	}

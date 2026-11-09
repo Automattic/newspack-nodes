@@ -346,6 +346,8 @@ describe( 'Inspector sidecars', () => {
 		);
 		expect( title( container ) ).toBe( source );
 		expect( screen.queryByText( 'allow_large_writes' ) ).toBeNull();
-		expect( screen.queryByText( 'Class Commands' ) ).toBeNull();
+		expect(
+			screen.queryByText( 'Class Commands and Requests' )
+		).toBeNull();
 	} );
 } );

@@ -289,7 +289,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * spawn. Catch it at the boundary instead.
 	 *
 	 * @param string $tsl The body being saved.
-	 * @param list<array{name:string,class:string,fans_out:bool,args:list<string>,verbs:list<array{verb:string,args:list<string>}>,origin:list<string>,via:list<string>}> $borrowed_nodes expand()'s node records; only `name`, `class` and `args` are read.
+	 * @param list<array{name:string,class:string,fans_out:bool,args:list<string>,commands:list<array{verb:string,args:list<string>}>,origin:list<string>,via:list<string>}> $borrowed_nodes expand()'s node records; only `name`, `class` and `args` are read.
 	 * @throws \RuntimeException On a conflicting redeclaration.
 	 */
 	private static function assert_no_borrowed_node_conflict( string $tsl, array $borrowed_nodes ): void {

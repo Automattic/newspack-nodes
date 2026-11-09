@@ -6,8 +6,8 @@
  * TM_BYTESTREAM through `TTY_In_Node`; `Topology_Loader` feeds a whole topology
  * file in through `eval_script()`. Both land in `parse()`, which interpolates
  * `<var>` and `<ns:key>` tokens, tokenizes quote-aware, runs the builtins that
- * touch only shell state, and mints a Message for every other command. The two
- * contexts differ in two switches: `want_reply( false )` marks each command
+ * touch only shell state, and mints a Message for every other statement. The
+ * two contexts differ in two switches: `want_reply( false )` marks each command
  * TM_NOREPLY because a booting worker has no console for the reply, and
  * `fatal_errors( true )` turns a broken include or an unterminated quote into a
  * throw so a mangled `.tsl` never half-builds a graph.
@@ -520,7 +520,7 @@ class Shell_Node extends Node {
 	 *
 	 * Null covers everything that mints nothing: a blank or comment line, a line
 	 * held as a backslash or open-quote continuation, a builtin that only moved
-	 * shell state, and a command that answered with a usage or decode error.
+	 * shell state, and a statement refused with a usage or decode error.
 	 *
 	 * @param string $line One statement, already split on unquoted `;`.
 	 * @return array<int,mixed>|null The 7-field positional Message, or null.
@@ -783,7 +783,7 @@ class Shell_Node extends Node {
 
 	/**
 	 * `debug_level [ 0 | 1 | 2 ]` — dials the `_output` Dumper's rendering,
-	 * after Shell.pm:154. A bare command toggles 0↔1.
+	 * after Shell.pm:154. Bare, it toggles 0↔1.
 	 *
 	 * Refuses anything that is not a level, as Shell.pm's `^\d+$` and the JS
 	 * twin's usage line both do: a cast would read `abc` as 0 and quietly turn

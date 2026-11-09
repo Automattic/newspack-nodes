@@ -82,7 +82,7 @@ const ASK_EXPIRY_S = 120;
 export class FetcherNode extends Node {
 	/**
 	 * Predeclare the configured fields the `arguments` setter fills — where the
-	 * server's reply routes back to, which verb to send, and that verb's
+	 * server's reply routes back to, which verb to send and with which
 	 * arguments — plus the outbox those asks stand in and the retry window that
 	 * re-asks an unanswered one.
 	 */
@@ -101,7 +101,7 @@ export class FetcherNode extends Node {
 		 */
 		this.verb = '';
 		/**
-		 * The verb's argument tokens, or the fire-time getter described in the
+		 * The command's argument tokens, or the fire-time getter described in the
 		 * class docblock. `''` is the unconfigured state.
 		 *
 		 * @type {string|string[]|(() => ?string[])}
@@ -245,7 +245,7 @@ export class FetcherNode extends Node {
 	/**
 	 * `send( args, path, true )`, then trigger it now.
 	 *
-	 * @param {*}       args   The verb's argument tokens.
+	 * @param {*}       args   The command's argument tokens.
 	 * @param {?string} [path] The subject, as `send()` takes it.
 	 * @return {Ask} The ask just parked.
 	 */
@@ -258,7 +258,7 @@ export class FetcherNode extends Node {
 	/**
 	 * Park an ask for the next trigger to send.
 	 *
-	 * @param {*}       args        The verb's argument tokens; a non-array sends none.
+	 * @param {*}       args        The command's argument tokens; a non-array sends none.
 	 * @param {?string} [path]      The subject this ask is about: it rides on
 	 *                              FROM as one escaped segment, so the reply
 	 *                              arrives naming it. Null addresses the bare

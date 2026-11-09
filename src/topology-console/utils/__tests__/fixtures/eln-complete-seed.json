@@ -7,7 +7,7 @@
 				"class": "Topic_Probe",
 				"fans_out": false,
 				"args": [ "15" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance", "job-hub" ],
 				"via": [ "performance", "request-builder", "topic-probe" ]
 			},
@@ -24,7 +24,7 @@
 					"86400",
 					"86400"
 				],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance", "job-hub" ],
 				"via": [ "performance", "request-builder", "topic-probe" ]
 			},
@@ -37,7 +37,7 @@
 					"<config:offsets_dir>/<topology>.firehose.p{partition}",
 					"<config:deadletter_dir>/<topology>.firehose.p{partition}"
 				],
-				"verbs": [
+				"commands": [
 					{
 						"verb": "add_snapshot_node",
 						"args": [ "request-builder" ]
@@ -59,7 +59,7 @@
 				"class": "Partition",
 				"fans_out": false,
 				"args": [ "<config:logs_dir>/alerts.p0" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "request-builder" ]
 			},
@@ -68,7 +68,7 @@
 				"class": "Partition",
 				"fans_out": false,
 				"args": [ "<config:logs_dir>/errors.p0" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "request-builder" ]
 			},
@@ -77,7 +77,7 @@
 				"class": "Partition",
 				"fans_out": false,
 				"args": [ "<config:logs_dir>/gyroscope.p0", "1048576" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "request-builder" ]
 			},
@@ -86,7 +86,7 @@
 				"class": "Partition",
 				"fans_out": false,
 				"args": [ "<config:logs_dir>/completed.p0", "1048576" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "request-builder" ]
 			},
@@ -95,7 +95,7 @@
 				"class": "Partition",
 				"fans_out": false,
 				"args": [ "<config:logs_dir>/requests.p{partition}" ],
-				"verbs": [
+				"commands": [
 					{
 						"verb": "void_warranty",
 						"args": []
@@ -109,7 +109,7 @@
 				"class": "Request_Builder",
 				"fans_out": false,
 				"args": [ "100", "3" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "request-builder" ]
 			},
@@ -118,7 +118,7 @@
 				"class": "Tee",
 				"fans_out": true,
 				"args": [],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "request-builder" ]
 			},
@@ -127,7 +127,7 @@
 				"class": "Table_Probe",
 				"fans_out": false,
 				"args": [ "15" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "flame-builder", "table-probe" ]
 			},
@@ -144,7 +144,7 @@
 					"86400",
 					"86400"
 				],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "flame-builder", "table-probe" ]
 			},
@@ -157,7 +157,7 @@
 					"<config:offsets_dir>/<topology>.requests.p{partition}",
 					"<config:deadletter_dir>/<topology>.requests.p{partition}"
 				],
-				"verbs": [
+				"commands": [
 					{
 						"verb": "add_snapshot_node",
 						"args": [ "flame-builder" ]
@@ -171,7 +171,7 @@
 				"class": "Flame_Builder",
 				"fans_out": false,
 				"args": [],
-				"verbs": [
+				"commands": [
 					{
 						"verb": "configure_stats",
 						"args": []
@@ -189,7 +189,7 @@
 				"class": "Partition",
 				"fans_out": false,
 				"args": [ "<config:logs_dir>/flames.p{partition}" ],
-				"verbs": [
+				"commands": [
 					{
 						"verb": "void_warranty",
 						"args": []
@@ -207,7 +207,7 @@
 				"class": "Table",
 				"fans_out": false,
 				"args": [ "evlog:p{partition}", "<eln:stats_ttl>", "sqlite" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "flame-builder" ]
 			},
@@ -220,7 +220,7 @@
 					"<eln:stats_url_ttl>",
 					"sqlite"
 				],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "flame-builder" ]
 			},
@@ -233,7 +233,7 @@
 					"<eln:stats_url_fine_ttl>",
 					"sqlite"
 				],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "performance" ],
 				"via": [ "performance", "flame-builder" ]
 			},
@@ -246,7 +246,7 @@
 					"<config:offsets_dir>/<topology>.jobintake.p{partition}",
 					"<config:deadletter_dir>/<topology>.jobintake.p{partition}"
 				],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "job-hub" ],
 				"via": [ "job-hub", "job-router", "job-intake" ]
 			},
@@ -255,7 +255,7 @@
 				"class": "Partition",
 				"fans_out": false,
 				"args": [ "<config:logs_dir>/jobs.p{partition}", "67108864" ],
-				"verbs": [
+				"commands": [
 					{
 						"verb": "void_warranty",
 						"args": []
@@ -269,7 +269,7 @@
 				"class": "Job_Router",
 				"fans_out": false,
 				"args": [],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "job-hub" ],
 				"via": [ "job-hub", "job-router" ]
 			},
@@ -278,7 +278,7 @@
 				"class": "Age_Sieve",
 				"fans_out": false,
 				"args": [ "900", "1" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "job-hub" ],
 				"via": [ "job-hub", "job-router" ]
 			},
@@ -291,7 +291,7 @@
 					"<config:offsets_dir>/<topology>.jobs.p{partition}",
 					"<config:deadletter_dir>/<topology>.jobs.p{partition}"
 				],
-				"verbs": [
+				"commands": [
 					{
 						"verb": "set_line_mode",
 						"args": [ "true" ]
@@ -305,7 +305,7 @@
 				"class": "Job_Worker",
 				"fans_out": false,
 				"args": [],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "job-hub" ],
 				"via": [ "job-hub", "job-worker" ]
 			},
@@ -322,7 +322,7 @@
 					"86400",
 					"86400"
 				],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "job-hub" ],
 				"via": [ "job-hub", "job-worker" ]
 			},
@@ -331,7 +331,7 @@
 				"class": "Job_Probe",
 				"fans_out": false,
 				"args": [ "15" ],
-				"verbs": [],
+				"commands": [],
 				"origin": [ "job-hub" ],
 				"via": [ "job-hub", "job-worker" ]
 			}

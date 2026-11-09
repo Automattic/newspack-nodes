@@ -1003,7 +1003,8 @@ returns [`Topology_Analyzer::expand()`](../includes/class-topology-analyzer.php)
 `Vault_Group` as written: no derived member, in `nodes`, `edges` or `hulls`. The topology
 console's editor seeds from that form; every other reader gets the members. Either form draws
 the group's own `pair` edges, the ones its child class declares, on the group. A node
-carries `name`, `class`, `fans_out`, `args`, `verbs`, `origin` and `via`; an edge carries
+carries `name`, `class`, `fans_out`, `args`, `commands`, `origin` and `via` — each of
+`commands` a `{ verb, args }` invocation the topology aims at the node; an edge carries
 `from`, `to`, `origin`, `roles` — `connect`, `config`, `pair`, or several — and, where a
 config role exists, `config_slots` naming the setter verbs that made it. A `pair` edge runs
 from a `Remote_Source`, or a `Vault_Group` of them, to the target one of its

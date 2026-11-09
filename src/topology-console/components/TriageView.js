@@ -179,7 +179,7 @@ export default function TriageView( { node, onAction } ) {
 	 * that changed with it would refetch the list on each one.
 	 *
 	 * @param {string}                                   verb    Verb name, `dl_list`, `dl_show`, `dl_requeue`, `dl_remove` or `dl_purge`.
-	 * @param {string[]}                                 args    The verb's argument tokens; empty when it takes none.
+	 * @param {string[]}                                 args    The command's argument tokens; empty when it takes none.
 	 * @param {(payload: any, isError: boolean) => void} onReply Runs on the reply, unless the modal has closed.
 	 */
 	const runCommand = useCallback(

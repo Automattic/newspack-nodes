@@ -1324,9 +1324,9 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * This Table's durable arm, for a command only a durable backend answers.
+	 * This Table's durable arm, for an operation only a durable backend answers.
 	 *
-	 * @param string $verb The verb, for the refusal.
+	 * @param string $verb The operation's name, for the refusal.
 	 * @return Durable_Arm The arm.
 	 * @throws \RuntimeException On a volatile backend.
 	 */
@@ -1335,7 +1335,7 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Why a command only a durable backend answers is refused here.
+	 * Why an operation only a durable backend answers is refused here.
 	 *
 	 * @return string `needs a durable backend; <table> is <backend>`.
 	 */

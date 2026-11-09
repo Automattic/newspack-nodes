@@ -316,7 +316,7 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'sendLine of a wire command surfaces a stderr warning naming the dropped verb when there is NO command interpreter', () => {
+	it( 'sendLine of a wire command surfaces a stderr warning naming the dropped command’s verb when there is NO command interpreter', () => {
 		// No Tap/interpreter → shell.sink null; surface via Core.stderr.
 		mountExospine();
 		const shell = new ShellNode();

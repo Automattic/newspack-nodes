@@ -90,7 +90,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * what keeps `../etc/passwd` out of the path. A caller needing a wider
 	 * charset passes its own.
 	 *
-	 * @param string $name    Name — a verb's bound `name` argument.
+	 * @param string $name    Name — a command's bound `name` argument.
 	 * @param string $pattern Regex with delimiters; defaults to the file-name-safe shape.
 	 * @return string The validated name.
 	 * @throws \RuntimeException When $name does not match $pattern.

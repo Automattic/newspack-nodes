@@ -74,7 +74,7 @@ class Topology_Analyzer {
 	 * @param list<string> $include_names  Directly-declared includes.
 	 * @param bool         $group_children False leaves each Vault_Group as written, with none of its members.
 	 *
-	 * @return array{nodes: list<array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}>, edges: list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
+	 * @return array{nodes: list<array{name: string,class: string,fans_out: bool,args: list<string>,commands: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}>, edges: list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
@@ -165,7 +165,7 @@ class Topology_Analyzer {
 	 *
 	 * @param array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
-	 * @param array<string,array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}> $nodes Node map, by reference.
+	 * @param array<string,array{name: string,class: string,fans_out: bool,args: list<string>,commands: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}> $nodes Node map, by reference.
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}>      $edges Edge-state map, by reference.
 	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The commands sent to each node's `:config`, by reference (`declare_node()`).
 	 */
@@ -182,13 +182,13 @@ class Topology_Analyzer {
 			}
 			$class          = $values[1] ?? '';
 			$nodes[ $name ] = [
-				'name'   => $name,
-				'class'  => $class,
+				'name'     => $name,
+				'class'    => $class,
 				'fans_out' => self::type_fans_out( $class ),
-				'args'   => \array_slice( $spans, 3 ),
-				'verbs'  => [],
-				'origin' => $origins,
-				'via'    => $statement['via'],
+				'args'     => \array_slice( $spans, 3 ),
+				'commands' => [],
+				'origin'   => $origins,
+				'via'      => $statement['via'],
 			];
 			return;
 		}
@@ -221,7 +221,7 @@ class Topology_Analyzer {
 			}
 			// Every other command rides on the node so the console can show it.
 			if ( isset( $nodes[ $node_name ] ) ) {
-				$nodes[ $node_name ]['verbs'][] = [
+				$nodes[ $node_name ]['commands'][] = [
 					'verb' => $inner_verb,
 					'args' => \array_slice( $spans, 3 ),
 				];

@@ -77,10 +77,10 @@ export class OutgoingGateNode extends Node {
 	 * it — a Tap delivers its passthrough, then raises its copies' failures —
 	 * and a missed edit hides the Reset Graph chip.
 	 *
-	 * A missing sink names the dropped verb on stderr rather than throwing as
-	 * the base `fill()` does. The gate runs under a REPL keystroke, and
-	 * `Core.stderr` puts the line in the transcript, where an uncaught error
-	 * out of the dispatch would leave the operator nothing.
+	 * A missing sink names the dropped command's verb on stderr rather than
+	 * throwing as the base `fill()` does. The gate runs under a REPL keystroke,
+	 * and `Core.stderr` puts the line in the transcript, where an uncaught
+	 * error out of the dispatch would leave the operator nothing.
 	 *
 	 * The counter advances only on a forwarded message, so it counts sends
 	 * rather than attempts.
@@ -106,7 +106,7 @@ export class OutgoingGateNode extends Node {
 
 	/**
 	 * Whether the gate has a sink to send into: a composer refuses rather than
-	 * fill a gate that would only name the dropped verb on stderr.
+	 * fill a gate that would only name the dropped command's verb on stderr.
 	 *
 	 * @return {boolean} True once a sink is wired.
 	 */

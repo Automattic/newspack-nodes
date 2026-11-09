@@ -141,7 +141,7 @@ and the reresolver its `RERESOLVE` request (`newspack-intelligence/includes/clas
 None of these is a `TM_COMMAND` dispatched through the interpreter's command table — they're `TM_REQUEST` triggers handled directly in the node's own `fill()` (`if ( $type & Message::TM_REQUEST )`). The schema split mirrors the wire split, and the Inspector keeps them visually distinct ([`src/topology-console/components/Inspector.js`](../src/topology-console/components/Inspector.js)):
 
 ```jsx
-<Section title={ __( 'Class Commands', 'newspack-nodes' ) }>
+<Section title={ __( 'Class Commands and Requests', 'newspack-nodes' ) }>
 	<div className="topology-insp__actions">
 		{ commands.map( ( spec ) => (
 			<CommandButton … kind="command" … />
@@ -153,7 +153,7 @@ None of these is a `TM_COMMAND` dispatched through the interpreter's command tab
 </Section>
 ```
 
-Empty both lists and the Class Commands section returns `null`, which is how a `hidden` schema erases the whole panel rather than leaving an empty heading. Both button kinds are labelled with the bare verb name; the `kind` shows in the tooltip, which reads `Send TM_REQUEST <name>` for a request whose spec declares no description of its own. The kind also decides three things at dispatch ([`src/topology-console/hooks/useGraphHandlers.js`](../src/topology-console/hooks/useGraphHandlers.js)):
+Empty both lists and the Class Commands and Requests section returns `null`, which is how a `hidden` schema erases the whole panel rather than leaving an empty heading. Both button kinds are labelled with the bare verb name; the `kind` shows in the tooltip, which reads `Send TM_REQUEST <name>` for a request whose spec declares no description of its own. The kind also decides three things at dispatch ([`src/topology-console/hooks/useGraphHandlers.js`](../src/topology-console/hooks/useGraphHandlers.js)):
 
 | | `kind="command"` | `kind="request"` |
 |---|---|---|
@@ -165,7 +165,7 @@ A request whose entry declares `'value' => 'struct'` is **structured**: a Table'
 
 So select your `releases` source in the console, hit the **TICK** button, and you've driven the pipeline from the canvas — the same trigger the toy guide types as `request_node releases TICK` at the REPL, now a button. Declaring a `requests` entry is all it takes; the inspector wiring is free.
 
-Both kinds share the Class Commands panel with a fixed row of operator actions that are not declared by any schema: `dump_node` and `dump_config`, a raw `send`, `tell`, `send_struct` or `send_eof` into the node, a `trace` that sets its Dumper level, and — on a fan-out node — a Tail that appends the console's own reply path to the node's targets as a bare `connect_node <node>`, dropped again by Disconnect. Register and Unregister are the exception, since the `registrations` field above decides what they offer.
+Both kinds share the Class Commands and Requests panel with a fixed row of operator actions that are not declared by any schema: `dump_node` and `dump_config`, a raw `send`, `tell`, `send_struct` or `send_eof` into the node, a `trace` that sets its Dumper level, and — on a fan-out node — a Tail that appends the console's own reply path to the node's targets as a bare `connect_node <node>`, dropped again by Disconnect. Register and Unregister are the exception, since the `registrations` field above decides what they offer.
 
 The takeaway for a real dashboard: your operator-facing **actions** (admin commands the CI answers) go in `commands`; your pipeline **triggers** (the runtime pokes that make data flow) go in `requests`. Both render, as different kinds, because they *are* different kinds on the wire.
 

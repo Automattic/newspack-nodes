@@ -37,7 +37,7 @@ const NO_ARGS = [];
  * @param {string}          options.name        The node's registered name.
  * @param {string|Function} [options.nodeClass] What `makeNode` builds, a registered name or the class itself: `Poller` by default.
  * @param {string}          options.verb        The verb it asks.
- * @param {string[]}        [options.args]      The verb's argument tokens.
+ * @param {string[]}        [options.args]      The command's argument tokens.
  * @param {string}          [options.field]     The field it publishes: `reply` by default.
  * @param {?string}         [options.subject]   What it asks about, ridden on FROM; null for none.
  * @param {boolean}         [options.enabled]   False mounts nothing. Default true.

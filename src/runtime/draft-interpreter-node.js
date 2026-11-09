@@ -245,7 +245,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			node.sink = this;
 			this._seeded.set(
 				record.name,
-				( record.verbs ?? [] ).map( ( v ) => ( {
+				( record.commands ?? [] ).map( ( v ) => ( {
 					verb: v.verb,
 					args: v.args ?? [],
 					viaConfig: v.viaConfig ?? true,

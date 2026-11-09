@@ -20,13 +20,13 @@ const REMOVE_VERBS = new Set( [ 'remove_node', 'remove', 'rm' ] );
 const MOVE_VERBS = new Set( [ 'move_node', 'move', 'mv' ] );
 
 /**
- * Every verb that structurally mutates the graph: the create, remove and move
- * verbs, the wiring pair, `set_sink` and the listener pair `register` and
- * `unregister`, each with its interpreter aliases.
+ * Every verb whose commands structurally mutate the graph: the create, remove
+ * and move verbs, the wiring pair, `set_sink` and the listener pair `register`
+ * and `unregister`, each with its interpreter aliases.
  *
  * The gate announces a forward without inspecting it, so this set is where a
- * verb becomes "structural". An interpreter command that rewires the graph and is
- * missing here leaves its edit invisible to the Reset Graph chip.
+ * verb becomes "structural". A command that rewires the graph, and whose verb
+ * is missing here, leaves its edit invisible to the Reset Graph chip.
  */
 const MUTATING_VERBS = new Set( [
 	...CREATE_VERBS,

@@ -2081,8 +2081,8 @@ class Command_Interpreter_Node extends Node {
 	 * @param list<string> $args
 	 */
 	private static function cmd_reply_to( Command_Interpreter_Node $self, array $args ): string {
-		$path      = $args[0] ?? '';
-		$verb      = $args[1] ?? '';
+		$path         = $args[0] ?? '';
+		$verb         = $args[1] ?? '';
 		$command_args = \array_slice( $args, 2 );
 		if ( '' === $path || '' === $verb ) {
 			throw new \RuntimeException( 'usage: reply_to <node path> <command>' );

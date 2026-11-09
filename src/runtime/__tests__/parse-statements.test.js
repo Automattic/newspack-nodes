@@ -93,7 +93,7 @@ describe( 'parseStatements', () => {
 		] );
 	} );
 
-	it( 'a bare make_node inside a cwd is a command to that node, like any command', () => {
+	it( 'a bare make_node inside a cwd is a command to that node, like any other command', () => {
 		const stmts = parseStatements( 'cd deep\nmake_node Topic leaf' );
 		expect( stmts[ 0 ].values ).toEqual( [
 			'command_node',

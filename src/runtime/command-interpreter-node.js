@@ -642,7 +642,7 @@ export class CommandInterpreterNode extends Node {
 	 * the inverse of command_node. The synthetic command carries FROM=<path>,
 	 * and TO=FROM replies do the rest.
 	 *
-	 * @param {string[]} args Command tokens: reply path, verb, then the verb's args.
+	 * @param {string[]} args Command tokens: reply path, verb, then the command's args.
 	 * @return {string} '' when it ran, or the nesting-refusal line.
 	 */
 	_cmdReplyTo( args ) {

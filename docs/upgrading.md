@@ -18,6 +18,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   | `self::verbs_with_handlers( $class )` (`Schema_Reflection`) | `self::commands_with_handlers( $class )` |
   | `VerbHarness::fire()` (tests) | `CommandHarness::fire()` |
   | `.topology-edit-verb`, `.topology-edit-verb__head`, `__args`, `__add`, `__remove`, `.topology-edit-verb-group` | `.topology-edit-command`, `.topology-edit-command__head`, `__args`, `__add`, `__remove`, `.topology-edit-command-group` |
+  | `self::deadletter_verbs()` (`Dead_Letter_Queue`) | `self::deadletter_commands()` |
+  | `self::time_travel_verbs()` (`Durable_Reader`) | `self::time_travel_commands()` |
+  | `self::pump_verbs()` (`Durable_Reader`) | `self::pump_commands()` |
+  | `HTTP_Out_Node::probe_command( $dest, $server, $to, $verb, $verb_args )` | `HTTP_Out_Node::probe_command( $dest, $server, $to, $verb, $command_args )` |
+  | a `Topology_Analyzer` graph record's `verbs` list (`{ verb, args }` per invocation), read by `topologies get` and `expand` callers | its `commands` list, the same entries |
 
   A stylesheet overriding the topology editor's command rows retargets the new
   block.
@@ -127,7 +132,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   <id>`, not `no session with handle <id>`, and `--all` prints `Revoked every
   session and connection.`
 - **A labelled session is `read` or `tune`.** `wp nodes session issue`, the
-  `sessions create` command and a `POST /auth` carrying a `label` default to
+  `sessions create` verb and a `POST /auth` carrying a `label` default to
   `tune` and refuse `manage`. A script issuing a labelled `manage` session
   asks for `tune`, which every event-logger and intelligence tool accepts; a session that must hold
   `manage` is the unlabelled one `POST /auth` mints for a dashboard or a hub.
@@ -331,7 +336,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `wp nodes gc` only while an active topology declares it.
 
 - **`num_partitions` above 8 is clamped to 8 and refused by the settings
-  command.** `Spawn_Coordinator::MAX_PARTITIONS` is 8, so a topology declaring
+  verb.** `Spawn_Coordinator::MAX_PARTITIONS` is 8, so a topology declaring
   more spawns 8 workers, the settings page stores at most 8, `settings set
   num_partitions 9` fails with `invalid value for setting`, and the spawn route
   answers `400 invalid_partition` for partition 8 and up. Lower any stored
@@ -394,13 +399,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `command_targets()`. The `pairs` argument is gone from the broker schemas.
   `tests/fixtures/pair-split.json` and its test go with them.
 
-- **`Node::command_targets( $commands )` is new**, the command twin of
+- **`Node::command_targets( $commands )` is new**, the verb twin of
   `declared_targets()`: a class answers the destinations the ordered list of
   commands sent to its `:config` leaves, and throws on a command it
   refuses. `Topology_Analyzer::graph_for()` and `expand()` name a broker's
   accepted sources under `sources`, where `graph_for()` named them `pairs`.
   `Remote_Broker_Node::fold_source()` is the one source rule, which the
-  runtime commands, `sources_of()` and the browser's `foldSource()` apply.
+  runtime verbs, `sources_of()` and the browser's `foldSource()` apply.
 
 - **A source refusal does not name a class, and every removal speaks one family.**
   `add_source` refuses `add_source '<source>' names a source no spoke can
@@ -422,7 +427,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A `Vault_Group` records its commands in the order sent.** A command that
   changed a child's configuration is recorded and replayed in sequence, so
   a `remove_source` replays after the `add_source` it undoes. Only a repeat
-  of the latest record is dropped; a `toggle` or `setter` command still keeps its
+  of the latest record is dropped; a `toggle` or `setter` verb still keeps its
   last write alone.
 
 - **The browser's `RemoteLink` declares one source per stamp, and a view
@@ -438,7 +443,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
     `_stream:<stamp>`; the views on a stamp are that Tee's `target` list,
     and `link.parked` lists the paused ones as `{ stamp, target }`.
   - `link.addSource( stamp, target )` and `link.removeSource( stamp,
-    target )` are the `add_source` and `remove_source` commands' handlers: a
+    target )` are the `add_source` and `remove_source` verbs' handlers: a
     second target for a declared stamp, or a view on a stamp a source sent
     elsewhere, is refused.
 
@@ -936,7 +941,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`Crawler_Node`'s `vault_id` positional is `vault_group`.** `make_node
   Crawler <name> <ttl> <vault_id> …` becomes `make_node Crawler <name> <ttl>
   <vault_group> …`, with the group named as for `Curl_Node`.
-- **`Crawler_Node`'s `set_delay_ms` and `set_concurrency` commands are removed,
+- **`Crawler_Node`'s `set_delay_ms` and `set_concurrency` verbs are removed,
   and so is its `{name}:config` interpreter.** Set `delay_ms` and
   `concurrency` on the `make_node` line, and delete any `cmd
   <crawler>:config set_delay_ms` or `set_concurrency` line, which names no
@@ -1141,9 +1146,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   null. A callback declaring `bool $timed` raises a `TypeError` on the first
   capacity eviction: declare `?float $due` and test `null !== $due` where you
   tested `$timed`. A callback reading neither may keep two parameters.
-- **`Capabilities::require()` is gone.** A command needs no gate of its own:
+- **`Capabilities::require()` is gone.** A verb needs no gate of its own:
   declare its `capability`, and `dispatch()` refuses a caller below it. Code
-  outside a command that must refuse calls `Capabilities::require_verb( $role )`,
+  outside a verb that must refuse calls `Capabilities::require_verb( $role )`,
   which asks `can()` where a user is logged in and the session's scope alone
   otherwise; code that only tests calls `can()`.
 - **`SSE_Slot_Pool::user_id()` is `Core::current_user_id()`.**
@@ -1181,11 +1186,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   is unreachable and expires on its TTL. Command sessions were already stored
   under the bare handle and survive; none of the stock topologies in any Newspack plugin
   declares a `wpdb` Table.
-- **`dispatch()` gates every command by the role its schema declares (ADR-26).**
-  A `:config` command on your node that declares no `capability` now demands
+- **`dispatch()` gates every verb by the role its schema declares (ADR-26).**
+  A `:config` verb on your node that declares no `capability` now demands
   MANAGE, where it demanded nothing; a READ or TUNE session reaching it in a
   worker is refused `permission denied: manage capability required`. Declare
-  `'capability' => Capabilities::READ` on a command that only reports, and `TUNE`
+  `'capability' => Capabilities::READ` on a verb that only reports, and `TUNE`
   on one a tune session has a reason to call. Delete any role check inside a
   handler: `Service_CI_Node::require_manage_options()` is gone, and calling it
   is an `Error`. Nothing reads `Command_Interpreter_Node::$required_capability`
@@ -1244,26 +1249,26 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   on its own config and base; the base is for the consumer to remove.
 - **Release nodes 2.77.0, event-logger-nodes 0.111.0 and intelligence 0.12.0
   together, and deploy them together.** The binder below hands every
-  schema-declared command its arguments by name, and the two consumers' released
+  schema-declared verb its arguments by name, and the two consumers' released
   handlers read tokens, so there is no order in which updating one plugin at a
   time works, and there is no compat path to bridge it. A host that updates only one of
   the three sees these fail until the other two land:
-  - nodes alone — event-logger-nodes 0.110.0's Performance commands (`overview`,
+  - nodes alone — event-logger-nodes 0.110.0's Performance verbs (`overview`,
     `urls`, `dump_url`, `url_breakdown`, `search_requests`, `grep_requests`,
     `dump_request`, `ask`, `set`) and `rules delete` answer
     `Call to undefined method Newspack_Nodes\Command_Args::parse()` or
     `Service_CI_Node::require_option_int()` as a TM_ERROR, and
     `request-builder:config set_inflight_target` reads no argument; intelligence
-    0.11.0's source commands (`add_repo`, `add_url`, `set_vault_id`,
-    `set_config_version`) and LLM config commands (`set_api_url`, `set_vault_id`,
+    0.11.0's source verbs (`add_repo`, `add_url`, `set_vault_id`,
+    `set_config_version`) and LLM config verbs (`set_api_url`, `set_vault_id`,
     `set_model`, `set_feature`, `add_profile`) read an empty argument, so each
     stores a blank or refuses.
   - event-logger-nodes 0.111.0 or intelligence 0.12.0 alone — the plugin's
     `version_at_least( '2.77.0' )` floor fails against nodes 2.76.0, and it
-    stays dormant behind its admin notice, with its commands and workers down.
+    stays dormant behind its admin notice, with its verbs and workers down.
 
   Put all three zips on the host, then restart the workers once.
-- **A command whose schema declares `args` receives them bound, by NAME.**
+- **A verb whose schema declares `args` receives them bound, by NAME.**
   `Command_Interpreter_Node::dispatch()` binds the tokens against the declared
   `args` before the handler runs — a service CI's commands and every `:config`
   command alike
@@ -1297,12 +1302,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   - Fix any declaration that disagrees with its handler: an arg read as
     required declares `'required' => true`; a list of trailing positionals
     declares its arg `variadic`; an int declares `'type' => 'int'`.
-  - A `toggle` or `setter` command must declare its one arg; one declaring none
+  - A `toggle` or `setter` verb must declare its one arg; one declaring none
     throws `\LogicException` when its node wires its `:config` interpreter.
   - A test that calls a handler closure straight off `commands()` with a token
     list now hands it raw tokens where it expects names; go through
     `$interpreter->dispatch( '<verb>', [ …tokens ] )`, or pass the bound shape.
-  - A producer sending an option the command does not declare, or one token too
+  - A producer sending an option the verb does not declare, or one token too
     many, is refused where it was ignored. Name every arg the schema declares
     and nothing else.
   - A `secret` arg must be named: `<name> must be named: write --<name>=<value>`.
@@ -1314,12 +1319,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
     `Command_Args::default_of( array $spec )` is the one default rule;
     `Schema_Reflection::resolve_default()` is gone.
 
-  A command with no `args` key still receives its raw tokens. Raise your
+  A verb with no `args` key still receives its raw tokens. Raise your
   `version_at_least()` floor to 2.77.0: an older substrate hands the new
   handlers raw tokens.
 - **`Settings_Sync_Node::add_setting()` takes three strings:**
   `add_setting( string $local, string $to, string $remote )`, where it took a
-  token array. The TSL command is unchanged.
+  token array. The TSL verb is unchanged.
 - **`Sessions::forget()` returns `?bool`:** whether it dropped a lease or a
   directory row, or null when the cache did not answer.
   `Command_Auth::revoke_session()` returns `?bool` on the same terms, and
@@ -1338,7 +1343,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A `<ns:key>` token whose resolver answers a PHP bool resolves to `1` or
   `0`,** where `false` resolved to `''`. A `bool` arg binds both; a blank
   would read as unsupplied.
-- **A `make_node` positional follows the command placeholder rule.** A blank
+- **A `make_node` positional follows the verb placeholder rule.** A blank
   token for a `required` positional is `Missing required argument: <name>`,
   where it assigned `''`, and a blank `bool` positional takes its default, as a
   blank `int` or `float` did. A `bool` positional refuses a word outside
@@ -1349,7 +1354,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `Table_Client::members( $table, $set_keys, $limit, $failed )`.** Nothing
   existing changes shape. A consumer calling either raises its
   `version_at_least()` floor to 2.76.0, and names `sqlite` or `wpdb` for the
-  Table: a volatile Table refuses both requests with
+  Table: a volatile Table refuses both verbs with
   `TM_ERROR "<VERB>: needs a durable backend; <table> is <backend>"`,
   which the client reads as a failed read and an add that landed nothing. A
   `sqlite` file gains its `members` table when its worker next opens it, so
@@ -1363,7 +1368,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   and answers one message per set: its members in member order, or, past the
   limit, `OVER <limit>` and none, which `Table_Client::members()` returns as
   `null` for that set.
-- **A structure on any request but `MSET`, `ADD` and `SADD` is refused as
+- **A structure on any verb but `MSET`, `ADD` and `SADD` is refused as
   `only MSET, ADD and SADD take a structure`,** where it read
   `only MSET and ADD take a structure`. A caller matching the old text
   matches the new.
@@ -1407,7 +1412,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   <name> <namespace> <ttl> [ <backend> ]` refuses a missing TTL, and
   `Table_Node::table( $ns, $ttl )` has no default, so pass the lifetime an
   entry takes when its write names none. A TTL below 1 is refused everywhere a
-  Table reads one — `arguments()`, `table()`, `touch()`, the `TOUCH` request, an
+  Table reads one — `arguments()`, `table()`, `touch()`, the `TOUCH` verb, an
   `MSET` or `ADD` item, and `Bootstrap::node_tables()` — because a Table entry
   always expires. A `Cache_Backend` arm called directly still stores a TTL of
   0 as no expiry.
@@ -1424,7 +1429,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   failed. A caller that read `TM_ERROR` as "absent" reads the count instead,
   or asks through `Table_Client::get_multi()`, which returns the found values
   and sets `$failed` on an error. Every reply echoes the request's ID, and a
-  request the Table cannot answer draws a `TM_ERROR` reading `<VERB>: <why>`
+  verb the Table cannot answer draws a `TM_ERROR` reading `<VERB>: <why>`
   where it was dropped with no reply.
 - **A keyless `TM_STRUCT` or `TM_BYTESTREAM` sent to a Table is refused,** no
   longer passed through, and so is one whose KEY holds whitespace. Route
@@ -1449,7 +1454,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   refuses two active topologies declaring one Table differently, whatever its
   backend. Declare each `sqlite` Table in one active topology.
 - **A request graph reaches a Table only through `topologies mount_tables
-  <topology>`,** a MANAGE command that mounts every Table the topology declares
+  <topology>`,** a MANAGE verb that mounts every Table the topology declares
   as `{table}.p{N}` for reads alone. A client sends it ahead of the request it
   enables in the same POST, as it sends `connect_worker_input` ahead of a
   worker command; PHP mounts through `Bootstrap::mount_table( $names )`.
@@ -1509,11 +1514,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `CLI::attach_to_worker()`, which still throws `invalid reader id`.
 - **An `$around_dispatch` wrapper receives a fourth argument, `$command`,** a
   `\Closure(): string` rendering the command line — `/<name>> <verb> <args>`,
-  tokens quoted, and only the id and the option names of a command whose schema
+  tokens quoted, and only the id and the option names of a verb whose schema
   declares any argument `secret`. Call it only when you record it. One composing over an earlier
   wrapper hands it on unrendered — `$inner( $ci, $verb, $run, $command )` —
   or the inner one loses it.
-- **A command argument carrying a credential declares `'secret' => true`,** or
+- **A verb argument carrying a credential declares `'secret' => true`,** or
   it is logged verbatim. A declared one logs as `--<name>=<redacted>`. Better, take
   none: a credential belongs in the Vault, and a node names the Vault id.
 - **The Vault refuses a `url` carrying userinfo, or one that will not parse,**
@@ -1560,7 +1565,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   TM_ERROR rather than an empty graph.
 - **A topology with any failing line fails the load** instead of booting a
   partial graph. That covers a `make_node` the interpreter refuses, a `cmd`
-  or `command_node` whose command throws or whose path does not name a node
+  or `command_node` whose verb throws or whose path does not name a node
   (`NOT_AVAILABLE: <path> <verb>`), a Shell refusal such as a `usage:` line
   or a bad `var`, a quote left open at end of file, and an `include` that
   does not name a registered topology, will not open, or cycles. Every line still
@@ -1602,7 +1607,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   carries them under `refused_producers`.
 - **An unreadable active topology refuses the retention sweep out loud.**
   `Log_Cleaner::cleanup_orphan_partitions()` — the reconcile pass's
-  `retention` step and `wp nodes gc` — and the `workers dump_cleanup` command
+  `retention` step and `wp nodes gc` — and the `workers dump_cleanup` verb
   raise its failure, where the sweep skipped with a line; nothing is
   deleted. The `aggregator summary` slice names each such topology under
   `unreadable`, and `wp nodes status` and `types` warn naming it.
@@ -1710,7 +1715,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `subscribe=sources/php` where you sent `subscribe=php`, with `positions`
   keyed by `sources/php`. Each frame's FROM opens with `sources/<name>`. One
   stream may now carry registry sources beside partitions.
-- **The `taillog` command is gone.** List the registry with `cmd raw-logs list_logs`
+- **The `taillog` verb is gone.** List the registry with `cmd raw-logs list_logs`
   (each source is a `sources/<name>` row), size one with `cmd raw-logs dump_log
   sources/<name>`, and read one record with `cmd raw-logs read_message
   sources/<name> <segment>:<offset>`. The last-N-KB tail has no replacement; the
@@ -1935,11 +1940,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   [`Dead_Letter_Queue::cmd_dl_list()`](../includes/trait-dead-letter-queue.php),
   `cmd_dl_show()` and `show_deadletter()` return arrays, and a browser reply
   handler reads `payload` as an object.
-- **A refusing command replies TM_ERROR, never an `error:` line.** `dl_list`,
+- **A refusing verb replies TM_ERROR, never an `error:` line.** `dl_list`,
   `dl_show`, `dl_requeue`, `dl_purge`, `seek_frame`, the Table's `get` and `rm`
   and Settings_Sync's `add_setting` each answered a refusal as an ordinary reply
   starting `error:`, which every reader that tests TM_ERROR took for success.
-  They now throw, as every other command does, and the interpreter replies TM_ERROR
+  They now throw, as every other verb does, and the interpreter replies TM_ERROR
   with the bare message: `no dead-letter queue configured`, `no frame at segment
   5344`, `usage: add_setting <local_option> <TO> <remote_option>`. A caller that
   matched the `error:` prefix tests the TM_ERROR bit instead; a PHP caller of
@@ -2048,7 +2053,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `vault list` and `sessions list` keep their names, because each row there is
   flat.
 
-- **Three service commands are RENAMED verb first: `workers cleanup_status` is
+- **Three service verbs are RENAMED verb first: `workers cleanup_status` is
   `workers dump_cleanup`, `aggregator servers_status` is `aggregator
   list_servers`, and `raw-logs log_status` is `raw-logs dump_log`.** The
   runtime's own builtins set the grammar (`list_nodes`, `dump_node`,
@@ -2121,7 +2126,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`allowed_users` narrows every capability role, not the admin menus alone.**
   A populated list now governs `/command`, `/auth`, `/messages/stream`,
   `/log/stream`, the spawn endpoint's external path and every capability-gated
-  command. Two consequences for a site that already sets it. Any SERVICE account
+  verb. Two consequences for a site that already sets it. Any SERVICE account
   reaching this site over the REST plane — the log aggregator's hub user, an
   `HTTP_Out` credential in another site's Vault — must be added to the list, or
   it starts answering 401. And the list applies to an authenticated actor only:
@@ -2151,7 +2156,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A `Fetcher` never mints a new ask while one is outstanding.** An ask goes onto the
   node's `outbox` when it is sent and leaves when a reply settles it, and the
   trigger reads the outbox before minting. A dashboard that drove a Fetcher on a
-  fixed refresh no longer queues identical asks behind a slow command. Two valves
+  fixed refresh no longer queues identical asks behind a slow verb. Two valves
   bound the wait: `retry_after_s` re-arms an ask whose answer never came — 15
   seconds on the node, 5 for a `useCommandOnce` read, 0 for a write, which is
   never re-asked — and `ASK_EXPIRY_S` (120s) is the outer bound on how long any
@@ -2294,7 +2299,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   in `fill()` ([ADR-19](architecture-decisions.md#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)).
   `Node::target_list()` is the one scalar-or-array-to-list normalization.
 
-- **`LogStreamViewNode` handles the `select` control itself.** A subclass that
+- **`LogStreamViewNode` handles the `select` control verb itself.** A subclass that
   declared its own drops it: the base resets the seek tracker, clears the ring, and
   arms breadcrumb tracking on the `dir` the payload names — `''` widens back to a
   glob and disarms. Report the arming from `seekTracking()` rather than implementing
@@ -2311,9 +2316,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   per-plugin copy of a time axis, its 8-tick cap, its 45-degree label rotation and
   its rotated Y title.
 
-- **A `node_schema()` command can declare a string `setter`, the twin of `toggle`.**
+- **A `node_schema()` verb can declare a string `setter`, the twin of `toggle`.**
   Name the property and one closure factory synthesizes both the handler and the
-  `dump_config` fragment; a hand-rolled trim-and-assign closure per command is no
+  `dump_config` fragment; a hand-rolled trim-and-assign closure per verb is no
   longer needed. A dumped `toggle` reads `true` rather than `1`, and `truthy()`
   accepts either coming back, so an older dump replays unchanged.
 
@@ -2368,10 +2373,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 ## 2.32.0
 
 - **Commands ride the router tick; `useRequestNode`, `useReconcile` and the `Request`
-  node class are gone.** A dashboard used to mint its own POST per awaited command from
+  node class are gone.** A dashboard used to mint its own POST per awaited verb from
   a React callback, outside the `lock`/`flush` bracket the Router opens around each
   tick. Send through a Fetcher fanned from a hitchhiking Timer instead — `useCommandOnce`
-  for one command with an answer to wait on, `useBatchedPoll` for a slice:
+  for one verb with an answer to wait on, `useBatchedPoll` for a slice:
 
   ```js
   // before
@@ -2388,7 +2393,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`answerFor( subject )` is gone: the subject rides in the reply ADDRESS.** A
   minter appends what it is asking about to its own FROM — `vault:test:in/spoke-01`
   — the server echoes `TO = FROM`, `_router` peels the receiver, and the answer
-  arrives naming the row. So ONE node per command still serves ten rows: split by JOB,
+  arrives naming the row. So ONE node per verb still serves ten rows: split by JOB,
   never by SUBJECT ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)).
   A subject is one path segment, escaped going out and read back on arrival.
 
@@ -2453,10 +2458,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## 2.31.0
 
-- **`POST /v1/command` demands READ at the door, and every command declares its own
+- **`POST /v1/command` demands READ at the door, and every verb declares its own
   role.** Authority is cut by BLAST RADIUS: `read` changes nothing, `tune` writes
   values a schema already bounds, `manage` takes the site down or hands out access.
-  Declare the role in `node_schema()` (`'capability' => 'read'`); a command declaring
+  Declare the role in `node_schema()` (`'capability' => 'read'`); a verb declaring
   none gets MANAGE, the strictest. The base interpreter is pinned to MANAGE by the
   controller, with a READ exception list for the builtins every dashboard drives
   (`taillog`, `dump_metadata`, `list_nodes`, `uptime`, …). All three roles still
@@ -2789,7 +2794,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   means no restart), but it now renders under the same label as `[]`.
 
 - **A `settings set` command that does not change the value is a no-op.**
-  `Settings_CI`'s `set` command now compares against the stored value first and
+  `Settings_CI`'s `set` verb now compares against the stored value first and
   skips the write, the `Config::reset()`, the restart request and the reload
   request when they match. It still returns the same post-set snapshot, so no
   caller changes. This is what a hub's `Settings_Sync` sweep needs: it re-pushes
@@ -2805,7 +2810,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   requested`, which sent operators looking for a restart nobody ran.
 
 - **A failed SSE slot heartbeat now names the state it found.** The
-  `workers heartbeat` command still errors with `SSE slot lease not owned`, now
+  `workers heartbeat` verb still errors with `SSE slot lease not owned`, now
   suffixed with `: pointer_missing`, `: slot_released`,
   `: pointer_owner_mismatch`, `: liveness_missing`, `: backend_read_error` or
   `: recovered_during_inspection`. A client matching on the exact old string
@@ -2833,7 +2838,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   read boundary, so adding a record length to it seeks into the middle of a
   record. A client that sends `positions` and no `Last-Event-ID` is unaffected.
 
-- **The `aggregator` `summary` command gained an `idle` count.** `connected` now
+- **The `aggregator` `summary` verb gained an `idle` count.** `connected` now
   means actively streaming, `idle` means closed at EOF and due back, and both
   are up — a dashboard that renders `connected / total` will under-report a
   healthy fleet. Add `idle` to the numerator. The per-partition snapshot gained
@@ -3005,12 +3010,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   tree; cd to where you want the file, or move it after. 2.9.0 above returns
   `scaffold node` to `includes/`, so the rule holds for `scaffold topology`
   alone, which drops a loose `<name>.tsl.php` wherever you stand.
-- **The `runtime_stats` command is removed.** It bundled `list_timers`,
+- **The `runtime_stats` verb is removed.** It bundled `list_timers`,
   `list_handles` and the Router profile table into one struct for the devtools
   views, and its profile third had silently fallen behind the text command's
   columns. Each of those three commands now takes `-s`, returning the same rows its
   table is built from: `list_timers -s`, `list_handles -s`, `list_profiles -s`.
-- **Command errors are newline-terminated.** `interpret()` appends `\n` to the
+- **Verb errors are newline-terminated.** `interpret()` appends `\n` to the
   TM_ERROR payload in both the PHP and JS interpreters, so a REPL that prints
   the payload verbatim does not run the message into the next prompt. Anything
   matching an error payload exactly needs the trailing newline.
@@ -3104,16 +3109,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## 0.48.0
 
-- **Profiling commands collapsed into one `profile` toggle.** `enable_profiling` and `disable_profiling` are removed (no alias): bare `profile` toggles, `profile on` / `profile off` set idempotently. Anything invoking the old pair gets an unknown-command error. `list_profiles` is unchanged.
+- **Profiling verbs collapsed into one `profile` toggle.** `enable_profiling` and `disable_profiling` are removed (no alias): bare `profile` toggles, `profile on` / `profile off` set idempotently. Anything invoking the old pair gets an unknown-command error. `list_profiles` is unchanged.
 
-- **CommandInterpreter command `debug_state` renamed to `trace`.** The per-node/interpreter trace toggle is now the `trace` command (`trace [ <node> [ <level> ] ]`); the old `debug_state` name is gone (no alias). Anything invoking `debug_state` at the REPL or over the wire gets an unknown-command error — use `trace`. The `debug_state` node *property* and the `dump_metadata` `debug_state` field are unchanged.
+- **CommandInterpreter verb `debug_state` renamed to `trace`.** The per-node/interpreter trace toggle is now the `trace` verb (`trace [ <node> [ <level> ] ]`); the old `debug_state` name is gone (no alias). Anything invoking `debug_state` at the REPL or over the wire gets an unknown-command error — use `trace`. The `debug_state` node *property* and the `dump_metadata` `debug_state` field are unchanged.
 
 ## 0.47.1
 
-- **Dashboards / hub commands** — `Aggregator_CI` dropped its dead `status`, `health`, and `servers` commands. Anything invoking them gets an unknown-verb error; read `summary` and `servers_status` instead.
+- **Dashboards / hub verbs** — `Aggregator_CI` dropped its dead `status`, `health`, and `servers` verbs. Anything invoking them gets an unknown-verb error; read `summary` and `servers_status` instead.
 - **JS runtime** — the `Core.reinit` global is retired; the overlay's Reset-Graph capability is now the `Core.rebuildable` boolean.
 - **Node schemas** — a `node_schema()` argument whose `<config:…>` default does not resolve to a registered key (unknown namespace, unowned key, non-scalar) now throws instead of silently coercing to `''`. If a node stops constructing, its schema default names a key that no longer exists — check the retention keys in particular (`min_segments` / `max_segments` / `min_lifetime` / `max_lifetime`). Topology-line interpolation is unchanged (an unowned token still interpolates to `''`, Tachikoma parity).
 
 ## 0.47.0
 
-- **Command envelopes and `arguments()`** — TM_COMMAND `arguments` and node-constructor `arguments` are a flat token array (`list<string>` argv) end to end, no longer a single space-joined string. Command handlers receive `array $args` and index it; `Node::arguments()` / `parse_schema_args()` take and return token arrays; anything minting a command envelope by hand passes a token list. `Command_Args::parse()` / `format()` speak tokens on both sides; the only join-back-to-a-line lives in `Node::serialize_args()` / JS `serializeArg`. TM_INFO / TM_REQUEST / TM_BYTESTREAM VALUEs are unchanged.
+- **Command envelopes and `arguments()`** — TM_COMMAND `arguments` and node-constructor `arguments` are a flat token array (`list<string>` argv) end to end, no longer a single space-joined string. Verb handlers receive `array $args` and index it; `Node::arguments()` / `parse_schema_args()` take and return token arrays; anything minting a command envelope by hand passes a token list. `Command_Args::parse()` / `format()` speak tokens on both sides; the only join-back-to-a-line lives in `Node::serialize_args()` / JS `serializeArg`. TM_INFO / TM_REQUEST / TM_BYTESTREAM VALUEs are unchanged.

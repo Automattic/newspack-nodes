@@ -188,7 +188,7 @@ describe( 'a broker’s add_source lines', () => {
 						fans_out: false,
 						origin: [ 'hub-base' ],
 						via: [ 'hub-base' ],
-						verbs: [
+						commands: [
 							{
 								verb: 'add_source',
 								args: [ 'wren.p2', 'sink-w' ],
@@ -263,7 +263,7 @@ describe( 'a broker’s add_source lines', () => {
 						fans_out: false,
 						origin: [ 'hub-base' ],
 						via: [ 'hub-base' ],
-						verbs: [
+						commands: [
 							{
 								verb: 'add_source',
 								args: [ 'egret.p0', 'sink-q' ],
@@ -297,7 +297,7 @@ describe( 'a broker’s add_source lines', () => {
 						fans_out: false,
 						origin: [ 'hub-base' ],
 						via: [ 'hub-base' ],
-						verbs: [
+						commands: [
 							{
 								verb: 'add_source',
 								args: [ 'egret.p0', 'sink-q' ],
