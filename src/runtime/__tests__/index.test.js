@@ -1,4 +1,5 @@
 import * as runtime from '../index';
+import { raise } from '../failures';
 
 test( 'public surface exports everything used by dashboards', () => {
 	expect( runtime.Node ).toBeDefined();
@@ -17,4 +18,8 @@ test( 'public surface exports everything used by dashboards', () => {
 	expect( runtime.TYPE ).toBe( 0 );
 	expect( runtime.TM_COMMAND ).toBe( 8 );
 	expect( runtime.newMessage ).toBeDefined();
+} );
+
+test( 'public surface exports the one raise every fan-out throws through', () => {
+	expect( runtime.raise ).toBe( raise );
 } );

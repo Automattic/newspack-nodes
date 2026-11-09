@@ -47,6 +47,7 @@ export { DumperNode } from './dumper-node';
 export { UptimeNode } from './uptime-node';
 export { commandTransport, defaultTransport } from './command-transport';
 export { formatCommandArgs } from './command-args';
+export { raise } from './failures';
 export {
 	useNodeState,
 	useNodeField,
