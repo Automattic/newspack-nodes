@@ -104,7 +104,9 @@ Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage
 # wait advances the clock rather than blocking. Filter while iterating.
 # tests/run-coverage.sh runs the same configuration under PCOV, through
 # scripts/lib/coverage-php.sh, and writes the clover the per-class gate reads.
-cd tests && ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest
+# WP_ABSPATH names the WordPress install whose block parser and schema
+# validator the composition tests load; they fail at setup without it.
+cd tests && WP_ABSPATH=/var/www/html ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest
 
 # Lint. lint:php is phpcs plus the PHP comment gate; lint:js is eslint, the JS
 # comment gate and the contract linter; lint:scss is stylelint plus the

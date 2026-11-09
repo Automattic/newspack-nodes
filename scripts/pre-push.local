@@ -33,6 +33,9 @@ push_gates() {
 
 container_gates() { :; }
 
+# The WordPress install whose parsers the suite loads; the hook passes it on.
+export WP_ABSPATH=/var/www/html
+
 # PHPUnit runs straight from the /services mount, never /usr/src.
 # shellcheck disable=SC2034 # scripts/pre-push reads every constant
 {

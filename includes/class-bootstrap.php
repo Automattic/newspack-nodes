@@ -64,16 +64,17 @@ class Bootstrap {
 	 * @var array<string,class-string<Service_CI_Node>>
 	 */
 	public const SUBSTRATE_CIS = [
-		'classes'    => Rest\Classes_CI_Node::class,
-		'layouts'    => Rest\Layouts_CI_Node::class,
-		'topologies' => Rest\Topologies_CI_Node::class,
-		'raw-logs'   => Rest\Raw_Logs_CI_Node::class,
-		'vault'      => Rest\Vault_CI_Node::class,
-		'aggregator' => Rest\Aggregator_CI_Node::class,
-		'settings'   => Rest\Settings_CI_Node::class,
-		'status'     => Rest\Status_CI_Node::class,
-		'sessions'   => Rest\Sessions_CI_Node::class,
-		'workers'    => Rest\Workers_CI_Node::class,
+		'classes'      => Rest\Classes_CI_Node::class,
+		'layouts'      => Rest\Layouts_CI_Node::class,
+		'compositions' => Rest\Compositions_CI_Node::class,
+		'topologies'   => Rest\Topologies_CI_Node::class,
+		'raw-logs'     => Rest\Raw_Logs_CI_Node::class,
+		'vault'        => Rest\Vault_CI_Node::class,
+		'aggregator'   => Rest\Aggregator_CI_Node::class,
+		'settings'     => Rest\Settings_CI_Node::class,
+		'status'       => Rest\Status_CI_Node::class,
+		'sessions'     => Rest\Sessions_CI_Node::class,
+		'workers'      => Rest\Workers_CI_Node::class,
 	];
 
 	/**

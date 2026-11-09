@@ -2937,8 +2937,8 @@ six things:
 Three doors declare on it: event-logger-nodes' at `/newspack-event-logger-nodes/v1/mcp`,
 newspack-intelligence's at `/newspack-intelligence/v1/mcp`, and the substrate's own
 [`Nodes_Mcp_Door`](../includes/class-nodes-mcp-door.php) at `/newspack-nodes/v1/mcp`,
-which fronts the ten service CIs `Bootstrap::SUBSTRATE_CIS` names, every command but
-`vault add` and `vault update`, which declare a secret, and the five
+which fronts the eleven service CIs `Bootstrap::SUBSTRATE_CIS` names, every command but
+`vault add` and `vault update`, which declare a secret, and the eight
 `Nodes_Mcp_Door::NOT_TOOLS` lists.
 
 `Mcp_Door::declared_tools( $node, $class, $prefix, $except, $text )` is how a door builds

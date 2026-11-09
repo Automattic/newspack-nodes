@@ -2383,7 +2383,7 @@ class BootstrapTest extends TestCase {
 		Bootstrap::mount_request_graph();
 
 		$this->assertSame(
-			[ 'classes', 'layouts', 'topologies', 'raw-logs', 'vault', 'aggregator', 'settings', 'status', 'sessions', 'workers' ],
+			[ 'classes', 'layouts', 'compositions', 'topologies', 'raw-logs', 'vault', 'aggregator', 'settings', 'status', 'sessions', 'workers' ],
 			\array_keys( Bootstrap::SUBSTRATE_CIS )
 		);
 		foreach ( Bootstrap::SUBSTRATE_CIS as $name => $class ) {

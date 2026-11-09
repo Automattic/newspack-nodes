@@ -645,7 +645,8 @@ throws `\LogicException`, so a door cannot drift from the commands it fronts.
 over each node in `Bootstrap::SUBSTRATE_CIS`, the table the substrate mounts
 its [service CIs](#service-cis) from, with the hyphen in `raw-logs` written as
 an underscore, so a command added to one of those classes is a tool with no
-edit to the door. A session sees the tools its scope covers:
+edit to the door. No `compositions` command is a tool, because a layout is page
+furniture, not data. A session sees the tools its scope covers:
 
 | Role | Tools |
 |---|---|
@@ -829,7 +830,7 @@ answers its own caller rather than let a node wait out its deadline:
 
 ### Service CIs
 
-The substrate mounts ten service CIs through `newspack_nodes/request_graph_ready`
+The substrate mounts eleven service CIs through `newspack_nodes/request_graph_ready`
 ([`newspack_nodes_mount_substrate_cis()`](../newspack-nodes.php) in `newspack-nodes.php`), one per
 entry in `Bootstrap::SUBSTRATE_CIS`, the table of mount name to class that
 [the substrate's MCP door](#the-substrates-door) reads too. Each is a
@@ -843,6 +844,7 @@ role rather than the loosest.
 |-----------|-------|--------------|
 | `classes` | [`Classes_CI_Node`](../includes/rest/class-classes-ci-node.php) | `dump` (read) |
 | `layouts` | [`Layouts_CI_Node`](../includes/rest/class-layouts-ci-node.php) | `get` (read), `save` (tune) |
+| `compositions` | [`Compositions_CI_Node`](../includes/rest/class-compositions-ci-node.php) | `get` (read), `save`, `restore` (tune) |
 | `topologies` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php) | `dump` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input`, `mount_tables` (manage) |
 | `raw-logs` | [`Raw_Logs_CI_Node`](../includes/rest/class-raw-logs-ci-node.php) | `list_logs`, `dump_log`, `read_message`, `read_block` (read; a log carrying a read-capability marker also needs its capability, [ADR-39](architecture-decisions.md#adr-39-a-log-declares-the-capability-a-raw-read-of-it-needs)) |
 | `vault` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php) | `list`, `get`, `add`, `update`, `delete`, `test` (manage) |
@@ -1118,6 +1120,40 @@ overlay's Inspector and each station tab graph included, persists positions to
 `localStorage` through the same hook and never reaches the server, so a
 dashboard wanting layout to survive a change of browser wires these two commands up
 itself.
+
+**`compositions` stores block layouts.** A consumer declares the blocks and
+the contexts it composes on the
+[`newspack_nodes/compositions`](#filters) filter, and a
+layout is serialized block markup holding only those blocks' delimiters and
+their JSON attributes. Each context keeps one option,
+`newspack_nodes_composition:<context>`, not autoloaded, holding
+`{ markup, actor, ts }` or, after `restore`, the tombstone
+`{ removed: true, actor, ts }`. Every command answers
+[`Composition_Store::read()`](../includes/class-composition-store.php)'s
+shape, `{ context, source, blocks, saved_ts, actor }`: `source` is `saved` or
+`default`, `blocks` a tree of `{ name, attributes, inner }` with each block's
+attributes laid over their declared defaults, and `saved_ts` and `actor` say
+when the record was written and by whom, null for a context with no record.
+[`Composition::validate()`](../includes/class-composition.php) runs on every
+read, the default included, and on every save, so a stored layout a later
+version no longer reads is refused rather than replaced by the default. It
+refuses, naming the block and the field, markup past `MAX_MARKUP_BYTES` (4096),
+a block the context does not admit, any HTML, a block holding blocks that is
+not a container, a container below the top level, a second `multiple: false`
+block, an undeclared attribute or one its schema refuses, more blocks than the
+context's `max_blocks`, and anything the context's `check` refuses. `save`
+stores the whole tree, every attribute written, with no whitespace between
+delimiters, holding the escaped result to the same 4096 bytes; each attribute
+and each declared default takes its schema's type through
+`rest_sanitize_value_from_schema()`; and `actor` is the caller's login, else
+`Capabilities::$session_label`. `Composition_Store::seed()` writes only a
+context that has no record, after every rule but `check`, so neither a saved
+layout nor a restore is ever reset. `Composition::editor( $context, $handle )`
+mounts the editor for a `tune` caller alone: it runs
+`Block_Editor_Bootstrap::load_canvas( $context )`, enqueues the consumer's
+registered bundle `$handle` and localizes `Composition::schemas( $context )` on
+it as `NewspackNodesComposition`; for any other caller it does none of it and
+answers false.
 
 Every `Command_Interpreter_Node` separately exposes `dump_metadata` for the
 per-node canvas snapshot the topology console renders, keyed by node name:
@@ -2056,6 +2092,7 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/topologies` | `array $topologies` — name => entry | [`Bootstrap::get_topology_catalog()`](../includes/class-bootstrap.php) and `Topologies_CI_Node`. [`Topology_Registry::publish_catalog`](../includes/class-topology-registry.php) populates it from every registered `.tsl` dir, and raises a dir that will not list, naming it, rather than publish a catalog short of its topologies. It runs at the default priority 10 and skips any name already in the array, so a consumer pinning a topology's `num_partitions`, `stale_timeout`, `on_demand_idle` or `max_runtime` must hook BELOW 10 for its entry to stand; above 10 it receives the synthesized entry and replaces it. Never return `[]` transiently — see below. |
 | `newspack_nodes/job_handlers` | `array $handlers` — name => callable | [`Job_Worker_Node::load_handlers_from_filters()`](../includes/class-job-worker-node.php). A name failing `HANDLER_NAME_PATTERN` or a non-callable value is skipped, never refused, so one bad registration cannot cost a worker every other handler. |
 | `newspack_nodes/remote_job_handlers` | `array $handlers` | The same, for entries whose `k` selects the remote map. |
+| `newspack_nodes/compositions` | `array $declarations` — namespace => `{ blocks, contexts }` | [`Composition::declarations()`](../includes/class-composition.php), once a process on first use. `blocks` is name => `{ title, contexts: list<string>, attributes: { name => JSON schema with a default }, container?: bool, multiple?: bool }`; `contexts` is name => `{ default: string, max_blocks: int, check?: \Closure }`, `default` the absolute path of the consumer's markup file and `check( string $block, array $attributes, string $context ): void` throwing `\RuntimeException` to refuse. Every name sits under `<namespace>/`. A `container` holds blocks and stands only at the top level; `multiple: false` lets a block stand once. A declaration outside its namespace, an attribute with no `type` or `default` or a default its own schema refuses, a block naming an undeclared context, and a context whose default file is missing each throw `\LogicException` naming the namespace and the key, refusing the whole set; a throw memoizes nothing, so the next call applies the filter again. |
 | `newspack_nodes/job_worker/before_job` | `bool $run, string $handler, string $id, array $message` | `Job_Worker_Node`. Return `false` to DECLINE the job. |
 | `newspack_nodes/capability_map` | `array $map` — role => WP capability | [`Capabilities::cap_for()`](../includes/class-capabilities.php). The baseline is [`Roles::defaults()`](../includes/class-roles.php): all three roles map to `manage_options` until a site installs the granular capabilities, and then to `newspack_nodes_{read,tune,manage}`. Return all three roles — the union form `fn ( $map ) => [ 'read' => 'edit_posts' ] + $map`, never a bare `[ 'read' => … ]`; see below. |
 | `newspack_nodes/oauth_resources` | `array $resources` — canonical resource URIs | [`Oauth_Server`](../includes/class-oauth-server.php). Declare each resource the OAuth server issues sessions for, such as an MCP door's URL; its RFC 9728 metadata is served for a declared resource alone. Non-string entries are dropped, and a non-array result declares nothing. |

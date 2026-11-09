@@ -141,8 +141,10 @@ See [API.md](docs/API.md) for the request/response shapes.
 WP stubs and an in-memory memcache double remove the infrastructure, so both
 suites run on a bare laptop, macOS included. The PHP half needs the `memcached`
 extension, because that double subclasses `\Memcached`, but it never needs a server.
+It also needs `WP_ABSPATH` naming a WordPress install, whose block parser and
+schema validator the composition tests load.
 `npm install && composer install && npm run build` sets up a fresh clone;
-`cd tests && ../vendor/bin/phpunit --enforce-time-limit` runs the PHP half and
+`cd tests && WP_ABSPATH=/var/www/html ../vendor/bin/phpunit --enforce-time-limit` runs the PHP half and
 `npm run test:js` the JavaScript half. Use the vendored PHPUnit rather than a
 system one — composer constrains it to 10.x, and a newer major dies on the
 bootstrap.

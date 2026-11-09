@@ -27,15 +27,17 @@ class Nodes_Mcp_Door extends Mcp_Door {
 	 * and `mount_tables` mount nodes into this request's graph, which ends with
 	 * the reply. `workers heartbeat` refreshes an SSE slot an MCP session never
 	 * holds, and `raw-logs read_block` answers its block to the envelope's
-	 * FROM, which a door's call does not carry.
+	 * FROM, which a door's call does not carry. Every `compositions` command
+	 * is left out, because a layout is page furniture, not data.
 	 *
 	 * @var array<string,list<string>>
 	 */
 	public const NOT_TOOLS = [
-		'sessions'   => [ 'create' ],
-		'topologies' => [ 'connect_worker_input', 'mount_tables' ],
-		'workers'    => [ 'heartbeat' ],
-		'raw-logs'   => [ 'read_block' ],
+		'sessions'     => [ 'create' ],
+		'topologies'   => [ 'connect_worker_input', 'mount_tables' ],
+		'workers'      => [ 'heartbeat' ],
+		'raw-logs'     => [ 'read_block' ],
+		'compositions' => [ 'get', 'save', 'restore' ],
 	];
 
 	/** The glossary `initialize` serves between the fence note and the caveat. */

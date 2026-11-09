@@ -10,7 +10,7 @@ use Newspack_Nodes\Tests\TestCase;
 
 /**
  * The substrate's own MCP door, the cockpit: every command the substrate's
- * service CIs declare is a tool but the seven `NOT_TOOLS` names, and a
+ * service CIs declare is a tool but the `NOT_TOOLS` names, and a
  * session sees only the tools its scope covers.
  */
 #[CoversClass( Nodes_Mcp_Door::class )]
@@ -135,6 +135,15 @@ class NodesMcpDoorTest extends TestCase {
 				$this->call( $door, $bearer, $tool, [] )['error'] ?? null,
 				$tool
 			);
+		}
+	}
+
+	/** A layout is page furniture, so no session is offered a `compositions` tool. */
+	public function test_no_compositions_tool_is_listed_at_any_role(): void {
+		$this->assertArrayHasKey( 'compositions', \Newspack_Nodes\Bootstrap::SUBSTRATE_CIS );
+		foreach ( [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ] as $scope ) {
+			$listed = \array_filter( $this->listed_names( $scope ), static fn ( string $name ): bool => \str_starts_with( $name, 'compositions_' ) );
+			$this->assertSame( [], $listed, $scope );
 		}
 	}
 

@@ -1006,6 +1006,26 @@ if ( ! function_exists( 'wp_enqueue_script' ) ) {
 		];
 	}
 }
+if ( ! function_exists( 'wp_register_script' ) ) {
+	function wp_register_script( string $handle, $src = '', array $deps = [], $ver = false, $args = [] ): bool {
+		$GLOBALS['_registered_scripts'][ $handle ] = [
+			'src'     => $src,
+			'deps'    => $deps,
+			'version' => $ver,
+		];
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_script_is' ) ) {
+	// `registered` reads wp_register_script(); any other list reads the handles
+	// a test marks in $GLOBALS['_wp_test_enqueued_handles'].
+	function wp_script_is( string $handle, string $list = 'enqueued' ): bool {
+		if ( 'registered' === $list ) {
+			return isset( $GLOBALS['_registered_scripts'][ $handle ] );
+		}
+		return ! empty( $GLOBALS['_wp_test_enqueued_handles'][ $handle ] );
+	}
+}
 if ( ! function_exists( 'wp_enqueue_style' ) ) {
 	function wp_enqueue_style(
 		string $handle,
