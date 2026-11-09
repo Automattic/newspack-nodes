@@ -133,7 +133,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 * palette beside the other service CIs.
 	 *
 	 * `arguments` is empty: `make_node` hands this node nothing, and the
-	 * per-verb `args` are what the console renders.
+	 * per-command `args` are what the console renders.
 	 *
 	 * @api Used by substrate.
 	 * @return array<string,mixed>
@@ -166,7 +166,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 					'name'        => 'revoke',
 					'description' => 'Revoke a session by handle, or a connection by grant id with every session it minted; each key stops verifying immediately.',
 					'capability'  => Capabilities::MANAGE,
-					'args'        => [ [ 'name' => 'id', 'type' => 'string', 'required' => true ] ],
+					'args'        => [ [ 'name' => 'id', 'type' => 'string', 'required' => true, 'description' => 'A session handle, or a connection\'s grant id.' ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_revoke( $args ),
 				],
 			],

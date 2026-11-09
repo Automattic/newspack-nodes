@@ -69,31 +69,6 @@ class CLI {
 	}
 
 	/**
-	 * Resolve the IPC channel of a `{type}.p{N}` reader id through
-	 * `Spawn_Coordinator::worker_channel()`, and wake an on-demand worker that
-	 * is asleep.
-	 *
-	 * @param string $worker_id Worker id in `{type}.p{N}` form.
-	 * @return array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}
-	 * @throws \InvalidArgumentException When the id will not parse, or does not
-	 *                                   name a running or wakeable worker.
-	 * @throws \Throwable The endpoint's refusal of the wake.
-	 */
-	public function attach_to_worker( string $worker_id ): array {
-		$channel = Spawn_Coordinator::worker_channel( $this->base_dir, $worker_id );
-		if ( null !== $channel ) {
-			Spawn_Coordinator::wake_channel( $this->base_dir, $channel, Core::right_now() );
-			return $channel;
-		}
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would mangle the text.
-		throw new \InvalidArgumentException(
-			null === self::parse_worker_id( $worker_id )
-				? 'invalid reader id: ' . Core::terminal_safe( $worker_id ) . ' (expected {type}.p{N})'
-				: "no worker '" . Core::terminal_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
-		);
-	}
-
-	/**
 	 * One row per reader in the topicprobe tail — the lean per-reader position
 	 * and rate that `wp nodes status` and the Workers dashboard both render.
 	 *
@@ -495,30 +470,6 @@ class CLI {
 	}
 
 	/**
-	 * Parse `{type}.p{N}` into [type, partition], the inverse of `worker_id()`.
-	 *
-	 * The type match is greedy, so a dotted topology name keeps its dots and
-	 * only the FINAL `.p{N}` reads as the partition: `foo.bar.p3` is partition 3
-	 * of `foo.bar`, never partition 3 of `foo` inside something called `bar`.
-	 *
-	 * Only a spelling `worker_id()` can write parses. The type carries no `/`
-	 * and no NUL, because the id is one path segment of the lock and IPC trees
-	 * and one segment of a node path; the partition carries no leading zero,
-	 * because `x.p03` would resolve to the lock `x.p3` holds while naming an
-	 * IPC tree that is never read.
-	 *
-	 * @param string $worker_id Worker id.
-	 * @return array{0:string,1:int}|null Type and partition; null when the id
-	 *                                    does not spell a worker id.
-	 */
-	public static function parse_worker_id( string $worker_id ): ?array {
-		if ( ! \preg_match( '/^([^\/\x00]+)\.p(0|[1-9][0-9]*)$/D', $worker_id, $m ) ) {
-			return null;
-		}
-		return [ $m[1], (int) $m[2] ];
-	}
-
-	/**
 	 * Every lock dir's row, judged against the stale threshold its OWN
 	 * topology declares in `$topologies`, never a flat one: a topology that
 	 * lifts its threshold because its work is legitimately slow would
@@ -603,11 +554,140 @@ class CLI {
 	}
 
 	/**
+	 * Send each ask its command over its worker's command channel, signed as
+	 * the attached REPL signs, and wait up to `$timeout_s` seconds for the
+	 * replies: the one round trip `wp nodes tables` and `workers inspect` make.
+	 * Every command goes FROM `_output/_cli:{pid}-{nonce}/{receiver}/{key}`,
+	 * the nonce twelve random hex digits minted per call, so the channel's
+	 * gate keeps only this call's
+	 * replies, never a late one to an earlier call the same php-fpm process
+	 * served, and each reaches the one receiver with its key as the TO left
+	 * behind. An ask's `to` is the path inside its worker, '' for the
+	 * worker's own interpreter.
+	 *
+	 * One channel opens per distinct worker, through `attach_to_worker()`,
+	 * which wakes a sleeping on-demand one. A request graph's `_router` and
+	 * `_command_interpreter` are ridden where they stand and built where they
+	 * do not, through `Bootstrap::request_graph()`, and so is the worker's
+	 * input Partition a `topologies connect_worker_input` earlier in the same
+	 * POST mounted. Every node built here is recorded as it is made and
+	 * removed in a `finally`, so a throw midway leaves none behind.
+	 *
+	 * @param string                                                                         $receiver  The node every reply is addressed to.
+	 * @param array<string,array{worker:string,to:string,name:string,arguments:list<string>}> $asks      Reply key => the worker, the path inside it, and the command.
+	 * @param int                                                                            $timeout_s Seconds to wait.
+	 * @return array<string,array<int,mixed>> Reply key => the reply; a key whose
+	 *                                        worker did not answer is absent.
+	 * @throws \InvalidArgumentException As `attach_to_worker()`, for an id naming no worker.
+	 * @throws \Throwable What tearing the channels down threw.
+	 */
+	public function ask_workers( string $receiver, array $asks, int $timeout_s ): array {
+		if ( [] === $asks ) {
+			return [];
+		}
+		$session = \getmypid() . '-' . \bin2hex( \random_bytes( 6 ) );
+		/** @var array<string,array<int,mixed>> $replies */
+		$replies = [];
+		$built   = [];
+		try {
+			[ $router, $interpreter, $built ] = Bootstrap::request_graph();
+			$callback = new Callback_Node(
+				static function ( array $reply ) use ( &$replies ): void {
+					/** @var array<int,mixed> $reply */
+					$replies[ Core::as_string( $reply[ Message::TO ] ) ] = $reply;
+				}
+			);
+			$built[]  = $callback;
+			$callback->name( $receiver );
+			$opened = [];
+			foreach ( $asks as $key => $ask ) {
+				if ( ! isset( $opened[ $ask['worker'] ] ) ) {
+					$opened[ $ask['worker'] ] = true;
+					$ipc                      = $this->attach_to_worker( $ask['worker'] );
+					if ( ! Core::node( $ipc['id'] ) instanceof Partition_Node ) {
+						self::input_partition( $ipc, $interpreter, $built );
+					}
+					self::reply_leg( $ipc, $router, $session, $built );
+				}
+				$command                   = Message::new_message();
+				$command[ Message::TYPE ]  = Message::TM_COMMAND;
+				$command[ Message::FROM ]  = self::reply_head( $session ) . "/{$receiver}/{$key}";
+				$command[ Message::TO ]    = Message::join_path( $ask['worker'], $ask['to'] );
+				$command[ Message::VALUE ] = [
+					'name'      => $ask['name'],
+					'arguments' => $ask['arguments'],
+				];
+				Command_Auth::sign( $command );
+				$interpreter->fill( $command );
+			}
+			$deadline = Core::right_now() + $timeout_s;
+			// By reference: an arrow fn holds the empty map it was born with.
+			Event_Framework::instance()->drain(
+				static function () use ( &$replies, $asks, $deadline ): bool {
+					return \count( $replies ) < \count( $asks ) && Core::$now < $deadline;
+				}
+			);
+		} finally {
+			Worker_Should_Stop::raise( Worker_Should_Stop::attempt_each( \array_reverse( $built ), static fn ( Node $node ) => $node->remove_node() ) );
+		}
+		return $replies;
+	}
+
+	/**
+	 * Resolve the IPC channel of a `{type}.p{N}` reader id through
+	 * `Spawn_Coordinator::worker_channel()`, and wake an on-demand worker that
+	 * is asleep.
+	 *
+	 * @param string $worker_id Worker id in `{type}.p{N}` form.
+	 * @return array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}
+	 * @throws \InvalidArgumentException When the id will not parse, or does not
+	 *                                   name a running or wakeable worker.
+	 * @throws \Throwable The endpoint's refusal of the wake.
+	 */
+	public function attach_to_worker( string $worker_id ): array {
+		$channel = Spawn_Coordinator::worker_channel( $this->base_dir, $worker_id );
+		if ( null !== $channel ) {
+			Spawn_Coordinator::wake_channel( $this->base_dir, $channel, Core::right_now() );
+			return $channel;
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would mangle the text.
+		throw new \InvalidArgumentException(
+			null === self::parse_worker_id( $worker_id )
+				? 'invalid reader id: ' . Core::terminal_safe( $worker_id ) . ' (expected {type}.p{N})'
+				: "no worker '" . Core::terminal_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
+		);
+	}
+
+	/**
+	 * Parse `{type}.p{N}` into [type, partition], the inverse of `worker_id()`.
+	 *
+	 * The type match is greedy, so a dotted topology name keeps its dots and
+	 * only the FINAL `.p{N}` reads as the partition: `foo.bar.p3` is partition 3
+	 * of `foo.bar`, never partition 3 of `foo` inside something called `bar`.
+	 *
+	 * Only a spelling `worker_id()` can write parses. The type carries no `/`
+	 * and no NUL, because the id is one path segment of the lock and IPC trees
+	 * and one segment of a node path; the partition carries no leading zero,
+	 * because `x.p03` would resolve to the lock `x.p3` holds while naming an
+	 * IPC tree that is never read.
+	 *
+	 * @param string $worker_id Worker id.
+	 * @return array{0:string,1:int}|null Type and partition; null when the id
+	 *                                    does not spell a worker id.
+	 */
+	public static function parse_worker_id( string $worker_id ): ?array {
+		if ( ! \preg_match( '/^([^\/\x00]+)\.p(0|[1-9][0-9]*)$/D', $worker_id, $m ) ) {
+			return null;
+		}
+		return [ $m[1], (int) $m[2] ];
+	}
+
+	/**
 	 * Open a command channel to a worker: a Partition named for the worker,
 	 * appending to its input and sinking into `$commands`, and a Consumer
 	 * reading its output from the end onward into this session's gate,
 	 * stamping the worker's id at the head of each reply's FROM. The attached
-	 * REPL and `wp nodes tables` each talk to a worker through one.
+	 * REPL and `ask_workers()` each talk to a worker through one.
 	 *
 	 * Every process attached to a worker tails the same output partition, so
 	 * the gate, an `HTTP_Filter_Node` named `<worker-id>:replies`, keeps only
@@ -623,22 +703,37 @@ class CLI {
 	 * @return array{0:Partition_Node,1:Consumer_Node,2:HTTP_Filter_Node} The Partition, the Consumer and the gate, for a caller to tear down.
 	 */
 	public static function open_channel( array $ipc, Node $commands, Node $replies, string $session ): array {
-		// No allow_large_writes: several sessions append here at once.
-		$input = new Partition_Node();
-		$input->arguments( Worker_Base::ipc_partition_args( $ipc['input'] ) );
-		$input->name( $ipc['id'] );
-		$input->sink( $commands );
-		$gate = new HTTP_Filter_Node( self::reply_head( $session ) );
+		$built = [];
+		$input = self::input_partition( $ipc, $commands, $built );
+		[ $output, $gate ] = self::reply_leg( $ipc, $replies, $session, $built );
+		return [ $input, $output, $gate ];
+	}
+
+	/**
+	 * A channel's reply leg: a Consumer reading the worker's output from the
+	 * end onward into this session's gate, each recorded in `$built` as it is
+	 * made.
+	 *
+	 * @param array{id:string,input:string,output:string} $ipc     From attach_to_worker().
+	 * @param Node                                        $replies Where the gate sends this session's replies.
+	 * @param string                                      $session The session the gate keeps replies for.
+	 * @param list<Node>                                  $built   Every node built so far; these two are appended.
+	 * @return array{0:Consumer_Node,1:HTTP_Filter_Node} The Consumer and the gate.
+	 */
+	private static function reply_leg( array $ipc, Node $replies, string $session, array &$built ): array {
+		$gate    = new HTTP_Filter_Node( self::reply_head( $session ) );
+		$built[] = $gate;
 		$gate->name( "{$ipc['id']}:replies" );
 		$gate->sink( $replies );
 		// The reply leg is ephemeral: no offsetlog_dir, no cursor.
-		$output = new Consumer_Node();
+		$output  = new Consumer_Node();
+		$built[] = $output;
 		$output->arguments( [ $ipc['output'] ] );
 		$output->next_offset( 'end' );
 		// The stamp heads FROM; the worker's own path becomes the tail.
 		$output->set_stamp_as( $ipc['id'] );
 		$output->sink( $gate );
-		return [ $input, $output, $gate ];
+		return [ $output, $gate ];
 	}
 
 	/**
@@ -646,11 +741,46 @@ class CLI {
 	 * `_output/_cli:<session>`: the `_output` boundary every attached reply
 	 * shares on a worker's output Partition, then the session head.
 	 *
-	 * @param string $session The cli process's session id, its pid.
-	 * @return string The prefix the Shell and `wp nodes tables` mint FROM under.
+	 * @param string $session The session id: a cli process's pid, or an `ask_workers()` call's `<pid>-<hex>`.
+	 * @return string The prefix the Shell and `ask_workers()` mint FROM under.
 	 */
 	public static function reply_head( string $session ): string {
 		return Message::join_path( Node_Names::OUTPUT, HTTP_Filter_Node::head( Node_Names::CLI, $session ) );
+	}
+
+	/**
+	 * A channel's command leg: a Partition named for the worker, appending to
+	 * its input and sinking into `$commands`, recorded in `$built` as it is
+	 * made.
+	 *
+	 * @param array{id:string,input:string,output:string} $ipc      From attach_to_worker().
+	 * @param Node                                        $commands Where the Partition sinks.
+	 * @param list<Node>                                  $built    Every node built so far; this one is appended.
+	 */
+	private static function input_partition( array $ipc, Node $commands, array &$built ): Partition_Node {
+		// No allow_large_writes: several sessions append here at once.
+		$input   = new Partition_Node();
+		$built[] = $input;
+		$input->arguments( Worker_Base::ipc_partition_args( $ipc['input'] ) );
+		$input->name( $ipc['id'] );
+		$input->sink( $commands );
+		return $input;
+	}
+
+	/**
+	 * Why a reply `ask_workers()` returned refused, or null when it is not a
+	 * TM_ERROR: an interpreter carries the refusal as its VALUE's `payload`,
+	 * and the Router's `NOT_AVAILABLE` bounce as the bare VALUE.
+	 *
+	 * @param array<int,mixed> $reply The reply.
+	 */
+	public static function refusal( array $reply ): ?string {
+		if ( 0 === ( Core::int( $reply[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
+			return null;
+		}
+		$value = $reply[ Message::VALUE ];
+		$why   = \trim( Core::as_string( \is_array( $value ) ? $value['payload'] ?? null : $value ) );
+		return '' === $why ? 'refused' : $why;
 	}
 
 	/**
@@ -721,10 +851,10 @@ class CLI {
 	}
 
 	/**
-	 * Print a verb's rows as its `--format` flag asks: JSON as they stand, a
+	 * Print a subcommand's rows as its `--format` flag asks: JSON as they stand, a
 	 * table through `$readable`, which shapes one row for reading.
 	 *
-	 * @param array<string,mixed>                                  $assoc_args The verb's flags; `format` is read.
+	 * @param array<string,mixed>                                  $assoc_args The subcommand's flags; `format` is read.
 	 * @param list<array<string,mixed>>                            $rows       Rows.
 	 * @param list<string>                                         $columns    Column order.
 	 * @param \Closure(array<string,mixed>): array<string,mixed> $readable   One row as a table prints it.

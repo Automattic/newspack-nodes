@@ -116,7 +116,7 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
    category at all, or a `hidden` flag sits outside the palette and outside this
    contract. The command contract a schema declares through is frozen too: a command whose
    `commands` entry carries `args` is bound by `Command_Args::bind()` before its
-   handler runs ([ADR-25](architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)),
+   handler runs ([ADR-25](architecture-decisions.md#adr-25-a-commands-arguments-are-bound-by-its-schema)),
    and the handler receives
    `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`
    with `$args` an `array<string,mixed>` keyed by declared arg name — the typed
@@ -271,8 +271,14 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
     `operator_list_excludes()` belong to the substrate and stay outside this
     contract.
 13. **The MCP door.** [`Mcp_Door`](../includes/class-mcp-door.php)'s six
-    abstract declarations and `wire()`
+    abstract declarations, `wire()`, and
+    `declared_tools( $node, $class, $prefix, $except, $text )`, the
+    `final protected static` that event-logger-nodes' and intelligence's
+    doors build their `tools()` on
     ([ADR-38](architecture-decisions.md#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server)).
+    A signature change can fatal a door that calls it, and its
+    `<prefix>_<verb>` naming is the name an agent calls each tool by, so
+    changing the naming renames every tool that door offers.
 
 Not frozen: any class, method, JS module, dashboard markup, SCSS or option name
 absent from that list. The three `@newspack-nodes/*` build aliases — `runtime`,

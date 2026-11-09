@@ -143,8 +143,9 @@ class Tables_CLI_Command {
 			\WP_CLI::warning( "{$slot['owner']} did not answer stats for {$slot['name']} within {$timeout}s" );
 			return null;
 		}
-		if ( 0 !== ( Core::int( $reply[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
-			\WP_CLI::warning( "{$slot['owner']} refused stats for {$slot['name']}: " . self::refusal( $reply ) );
+		$refusal = CLI::refusal( $reply );
+		if ( null !== $refusal ) {
+			\WP_CLI::warning( "{$slot['owner']} refused stats for {$slot['name']}: {$refusal}" );
 			return null;
 		}
 		$verbs = [];
@@ -158,17 +159,6 @@ class Tables_CLI_Command {
 			}
 		}
 		return $verbs;
-	}
-
-	/**
-	 * Why a TM_ERROR reply refused: an interpreter carries it as its VALUE's
-	 * `payload`, and the Router's `NOT_AVAILABLE` bounce as the bare VALUE.
-	 *
-	 * @param array<int,mixed> $reply The TM_ERROR reply.
-	 */
-	private static function refusal( array $reply ): string {
-		$value = $reply[ Message::VALUE ];
-		return \trim( Core::as_string( \is_array( $value ) ? $value['payload'] ?? null : $value ) );
 	}
 
 	/**
@@ -210,69 +200,27 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * Send each slot's Table its `:config stats` verb over the owning worker's
-	 * command channel, signed as the attached REPL signs, and wait up to
-	 * `$timeout` seconds for the replies. Every command goes FROM
-	 * `_output/_cli:{pid}/tables-cli/{stem}`, so the channel's gate keeps only
-	 * this process's replies and each reaches the one receiver with its stem
-	 * as the TO left behind.
+	 * Ask each slot's Table its `:config stats` over the owning worker's
+	 * command channel through `CLI::ask_workers()`, every reply addressed to
+	 * the receiver under the slot's stem.
 	 *
 	 * @param array<string,array{name:string,owner:string}> $slots   Stem => Table and owner.
 	 * @param int                                           $timeout Seconds to wait.
 	 * @return array<string,array<int,mixed>> Stem => the reply; a slot whose
 	 *                                        worker did not answer is absent.
-	 * @throws \Throwable What tearing the channels down threw.
+	 * @throws \Throwable As `CLI::ask_workers()`.
 	 */
 	private function ask( array $slots, int $timeout ): array {
-		if ( [] === $slots ) {
-			return [];
+		$asks = [];
+		foreach ( $slots as $stem => $slot ) {
+			$asks[ $stem ] = [
+				'worker'    => $slot['owner'],
+				'to'        => Node::sibling_name_of( $slot['name'], Node::CONFIG_KIND ),
+				'name'      => 'stats',
+				'arguments' => [],
+			];
 		}
-		$pid         = (string) \getmypid();
-		/** @var array<string,array<int,mixed>> $replies */
-		$replies     = [];
-		$router      = new Router_Node();
-		$interpreter = new Command_Interpreter_Node();
-		$receiver    = new Callback_Node(
-			static function ( array $reply ) use ( &$replies ): void {
-				/** @var array<int,mixed> $reply */
-				$replies[ Core::as_string( $reply[ Message::TO ] ) ] = $reply;
-			}
-		);
-		$built       = [ $router, $interpreter, $receiver ];
-		try {
-			$router->name( Node_Names::ROUTER );
-			$interpreter->name( Node_Names::COMMAND_INTERPRETER );
-			$interpreter->sink( $router );
-			$receiver->name( self::RECEIVER );
-			$cli    = new CLI( Bootstrap::base_dir() );
-			$opened = [];
-			foreach ( $slots as $stem => $slot ) {
-				if ( ! isset( $opened[ $slot['owner'] ] ) ) {
-					$opened[ $slot['owner'] ] = true;
-					\array_push( $built, ...CLI::open_channel( $cli->attach_to_worker( $slot['owner'] ), $interpreter, $router, $pid ) );
-				}
-				$command                   = Message::new_message();
-				$command[ Message::TYPE ]  = Message::TM_COMMAND;
-				$command[ Message::FROM ]  = CLI::reply_head( $pid ) . '/' . self::RECEIVER . "/{$stem}";
-				$command[ Message::TO ]    = "{$slot['owner']}/{$slot['name']}:config";
-				$command[ Message::VALUE ] = [
-					'name'      => 'stats',
-					'arguments' => [],
-				];
-				Command_Auth::sign( $command );
-				$interpreter->fill( $command );
-			}
-			$deadline = Core::right_now() + $timeout;
-			// By reference: an arrow fn holds the empty map it was born with.
-			Event_Framework::instance()->drain(
-				static function () use ( &$replies, $slots, $deadline ): bool {
-					return \count( $replies ) < \count( $slots ) && Core::$now < $deadline;
-				}
-			);
-		} finally {
-			Worker_Should_Stop::raise( Worker_Should_Stop::attempt_each( \array_reverse( $built ), static fn ( Node $node ) => $node->remove_node() ) );
-		}
-		return $replies;
+		return ( new CLI( Bootstrap::base_dir() ) )->ask_workers( self::RECEIVER, $asks, $timeout );
 	}
 
 	/**

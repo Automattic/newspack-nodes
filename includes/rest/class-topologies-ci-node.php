@@ -91,14 +91,7 @@ use Newspack_Nodes\Topology_Registry;
 class Topologies_CI_Node extends Service_CI_Node {
 
 	/**
-	 * Ceiling on the packed command envelope, in bytes — 1 MiB. A `.tsl` runs to
-	 * a few kilobytes, so the cap refuses a runaway body without bounding any
-	 * topology an operator would write.
-	 */
-	private const MAX_BODY_BYTES = 1048576;
-
-	/**
-	 * `dump` verb handler — every registered topology, its source and its active
+	 * `dump` command handler — every registered topology, its source and its active
 	 * state.
 	 *
 	 * Each row carries the topology's direct includes, so the console draws the
@@ -622,7 +615,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'Read a topology .tsl by name.',
 					'args'        => [
-						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'name', 'type' => 'string', 'required' => true, 'description' => 'The topology\'s name, as `topologies dump` lists it.' ],
 						[ 'name' => 'group_children', 'type' => 'bool', 'default' => true, 'description' => 'False ships the expansion with each Vault_Group as written, none of its members: the editor seeds from it.' ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( $args ),
@@ -631,27 +624,27 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'name'        => 'save',
 					'description' => 'Write a user topology: `save <name> <tsl…>` (validated; restarts the active fleet). 1 MiB cap.',
 					'args'        => [
-						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
+						[ 'name' => 'name', 'type' => 'string', 'required' => true, 'description' => 'The user topology\'s name, which a stock topology of that name defers to.' ],
+						[ 'name' => 'tsl', 'type' => 'text', 'required' => true, 'description' => 'The topology\'s whole TSL source.' ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
 				],
 				[
 					'name'        => 'delete',
 					'description' => 'Delete a user topology (stock copies are protected).',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true, 'description' => 'The user topology\'s name.' ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_delete( $args ),
 				],
 				[
 					'name'        => 'activate',
 					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true, 'description' => 'The topology\'s name, as `topologies dump` lists it.' ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_activate( $args ),
 				],
 				[
 					'name'        => 'deactivate',
 					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true, 'description' => 'The topology\'s name, as `topologies dump` lists it.' ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_deactivate( $args ),
 				],
 				[
@@ -659,7 +652,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'Compose an include set into one graph with provenance (informational).',
 					'args'        => [
-						[ 'name' => 'names', 'type' => 'string', 'required' => true, 'variadic' => true ],
+						[ 'name' => 'names', 'type' => 'string', 'required' => true, 'variadic' => true, 'description' => 'The topologies to compose, by name, as `topologies dump` lists them.' ],
 						[ 'name' => 'group_children', 'type' => 'bool', 'default' => true, 'description' => 'False leaves each Vault_Group as written, none of its members: the editor seeds from it.' ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_expand( $args ),

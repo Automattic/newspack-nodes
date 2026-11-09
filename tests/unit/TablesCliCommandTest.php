@@ -8,28 +8,24 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Auth;
-use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
-use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Crawler_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
-use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Row_Table_Node;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Tables_CLI_Command;
+use Newspack_Nodes\Tests\Answers_Worker_Channel;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Wombat_Row_Schema;
 use Newspack_Nodes\Topology_Registry;
-use Newspack_Nodes\Worker_Base;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-wombat-row-schema.php';
@@ -37,20 +33,10 @@ require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-wombat-row-schema.ph
 #[CoversClass( Tables_CLI_Command::class )]
 #[CoversClass( CLI::class )]
 final class TablesCliCommandTest extends TestCase {
+	use Answers_Worker_Channel;
+
 	private string $base  = '';
 	private string $stock = '';
-
-	/** Every command the fake worker verified and answered, as `<to> <verb>`. */
-	private array $answered = [];
-
-	/** Text of an unaddressed broadcast the fake worker writes before each answer; '' writes none. */
-	private string $broadcast = '';
-
-	/** The FROM of every command the fake worker read. */
-	private array $asked_from = [];
-
-	/** Whether the fake worker follows each answer with one to another session's same receiver. */
-	private bool $decoy = false;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -137,79 +123,6 @@ final class TablesCliCommandTest extends TestCase {
 		}
 		$this->answer_channel( 'crawl-c', 0 );
 		return Core::node( 'crawl-8812:seen' );
-	}
-
-	/**
-	 * A live `{topology}.p{partition}`'s lock dir with a fresh heartbeat, and
-	 * the read of its input channel a worker runs, verifying each command and
-	 * answering it through the interpreter it addresses onto its output
-	 * channel, TO the command's FROM; an address without a node to answer it
-	 * bounces as the Router bounces it.
-	 *
-	 * @param bool $answers False for a worker that reads commands and answers none.
-	 */
-	private function answer_channel( string $topology, int $partition, bool $answers = true ): void {
-		$lock = "{$this->base}/locks/{$topology}.p{$partition}.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", '1' );
-		$input  = Worker_Base::ipc_dir( $this->base, $topology, $partition, Worker_Base::IPC_INPUT );
-		$output = Worker_Base::ipc_dir( $this->base, $topology, $partition, Worker_Base::IPC_OUTPUT );
-		\mkdir( $input, 0755, true );
-		\mkdir( $output, 0755, true );
-		$replies = new Partition_Node();
-		$replies->arguments( Worker_Base::ipc_partition_args( $output ) );
-		// A Partition's batch flushes on its timer, which fires only with a sink.
-		$replies->sink( new Capture_Sink_Node() );
-		$reader = new Consumer_Node();
-		$reader->arguments( [ $input ] );
-		$reader->next_offset( 'start' );
-		$reader->sink(
-			new Callback_Node(
-				function ( array $command ) use ( $replies, $answers ): void {
-					$this->assertTrue( Command_Auth::verify( $command, \time(), \time() ), 'the CLI signs what it sends a worker' );
-					$verb             = Core::as_string( $command[ Message::VALUE ]['name'] );
-					$this->answered[] = Core::as_string( $command[ Message::TO ] ) . " {$verb}";
-					$this->asked_from[] = Core::as_string( $command[ Message::FROM ] );
-					if ( ! $answers ) {
-						return;
-					}
-					if ( '' !== $this->broadcast ) {
-						$note                   = Message::new_message();
-						$note[ Message::TYPE ]  = Message::TM_INFO;
-						$note[ Message::VALUE ] = $this->broadcast;
-						$replies->fill( $note );
-					}
-					$to                     = Core::as_string( $command[ Message::TO ] );
-					$reply                  = Message::new_message();
-					$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
-					$reply[ Message::FROM ] = $to;
-					$reply[ Message::TO ]   = $command[ Message::FROM ];
-					$interpreter            = Core::node( $to );
-					if ( ! $interpreter instanceof Command_Interpreter_Node ) {
-						// Router_Node::send_error()'s bounce: a bare string VALUE.
-						$reply[ Message::TYPE ]  = Message::TM_ERROR;
-						$reply[ Message::VALUE ] = "NOT_AVAILABLE\n";
-						$replies->fill( $reply );
-						return;
-					}
-					try {
-						$payload = $interpreter->dispatch( $verb );
-					} catch ( \RuntimeException $e ) {
-						$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_ERROR;
-						$payload                = $e->getMessage() . "\n";
-					}
-					$reply[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => [], 'payload' => $payload ];
-					$replies->fill( $reply );
-					if ( $this->decoy ) {
-						$other                   = $reply;
-						$other[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
-						$other[ Message::TO ]    = \str_replace( '_cli:' . \getmypid(), '_cli:48211', Core::as_string( $command[ Message::FROM ] ) );
-						$other[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => [], 'payload' => "decoy-3318\n" ];
-						$replies->fill( $other );
-					}
-				}
-			)
-		);
 	}
 
 	/** @return list<array<string,mixed>> The rows the last table printed. */
@@ -425,7 +338,8 @@ final class TablesCliCommandTest extends TestCase {
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( [ '_output/_cli:' . \getmypid() . '/tables-cli/' . Table_Node::stem( 'lab-7:kea', 1 ) ], $this->asked_from );
+		$this->assertCount( 1, $this->asked_from );
+		$this->assertMatchesRegularExpression( '#^_output/_cli:' . \getmypid() . '-[0-9a-f]{12}/tables-cli/' . \preg_quote( Table_Node::stem( 'lab-7:kea', 1 ), '#' ) . '$#', $this->asked_from[0] );
 		$this->assertNotNull( $this->printed()[1]['Verbs'], 'the reply is filed under its stem' );
 	}
 

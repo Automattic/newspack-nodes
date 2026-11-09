@@ -6,6 +6,27 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Renamed: every identifier naming a whole command says `command`.** A verb
+  is a command's name alone. Rename each caller; the old names are gone, with
+  no alias, and a consumer calling a new name raises its floor to this release.
+
+  | Old | New |
+  |---|---|
+  | `Command_Interpreter_Node::declared_verbs( $class, $list )` | `Command_Interpreter_Node::declared_commands( $class, $list )` |
+  | `Capabilities::require_verb( $role )` | `Capabilities::require_command( $role )` |
+  | `...self::list_verbs( $noun, $property, $arg, $description )` | `...self::list_commands( $noun, $property, $arg, $description )` |
+  | `self::verbs_with_handlers( $class )` (`Schema_Reflection`) | `self::commands_with_handlers( $class )` |
+  | `VerbHarness::fire()` (tests) | `CommandHarness::fire()` |
+  | `.topology-edit-verb`, `.topology-edit-verb__head`, `__args`, `__add`, `__remove`, `.topology-edit-verb-group` | `.topology-edit-command`, `.topology-edit-command__head`, `__args`, `__add`, `__remove`, `.topology-edit-command-group` |
+
+  A stylesheet overriding the topology editor's command rows retargets the new
+  block.
+- **An MCP door refuses a body over 1 MiB with a 413.** A test posting a
+  larger body to a door's route expects `-32600` `Request body exceeds 1048576
+  bytes.` with a null id. The check is a `rest_pre_dispatch` filter
+  `Mcp_Door::wire()` adds, so it runs before WordPress decodes the body and
+  before the permission check: an oversized body answers 413 with or without a
+  live session, and a test that calls `dispatch()` directly does not reach it.
 - **The three worker-window readers are one, `Worker_Base::window_of()`.**
   `Lock_Node::stale_timeout_of( $d )` is `Worker_Base::window_of( $d,
   'stale_timeout' )`, `Bootstrap::on_demand_idle_of( $d, $default )` is
@@ -108,7 +129,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A labelled session is `read` or `tune`.** `wp nodes session issue`, the
   `sessions create` command and a `POST /auth` carrying a `label` default to
   `tune` and refuse `manage`. A script issuing a labelled `manage` session
-  asks for `tune`, which every MCP tool accepts; a session that must hold
+  asks for `tune`, which every event-logger and intelligence tool accepts; a session that must hold
   `manage` is the unlabelled one `POST /auth` mints for a dashboard or a hub.
 - **`Node::drop_message()` takes an optional `$tail`.** `drop_message(
   $message, $error, $tail = '' )` prints the tail after the payload and keeps
@@ -212,7 +233,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **Driver text the substrate reports is shaped.** A durable Table's
   `last_failure()` and `diagnostic_metadata()`, the `Table_Unavailable` a
   Row_Table read or snapshot throws, a refused `Wpdb_Arm::install()`, a
-  verb's error reply and a job's recorded failure carry a driver's error as
+  command's error reply and a job's recorded failure carry a driver's error as
   `[<code>] ` and its message cut at the first quote, within 256 bytes, and a
   SIGNAL as `[<code>]` alone. A refused `Sqlite_Arm::vacuum()` throws a plain
   `\RuntimeException` naming the file rather than the `PDOException`. A
@@ -236,14 +257,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   calls them, so every consumer floor stays where it is.
 
 - **`Service_CI_Node::slice_verb()` is removed, and `sliceView()` takes no
-  `json` flag.** A slice verb's reply is its struct, encoded once by the wire.
-  Pass each shape closure as the verb's `handler` directly:
+  `json` flag.** A slice command's reply is its struct, encoded once by the wire.
+  Pass each shape closure as the command's `handler` directly:
   `'handler' => self::slice_verb( static fn ( self $ci ): array => … )`
   becomes `'handler' => static fn ( self $ci ): array => …`, because dispatch
   hands a handler the CI first. `SliceViewNode._parse()` takes an object
   payload as the slice and answers null for a string: drop `json: true` from
   every `sliceView()` declaration, and guard the object shape in a `parse`
-  that read a string. A PHP test that `json_decode()`s a slice verb's reply
+  that read a string. A PHP test that `json_decode()`s a slice command's reply
   reads the array directly. A consumer still calling `slice_verb()` fatals on
   its first schema read on this release, so the consumer's updated release
   deploys with it. Passing shapes as handlers does not call any new API, so its
@@ -375,7 +396,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **`Node::command_targets( $commands )` is new**, the command twin of
   `declared_targets()`: a class answers the destinations the ordered list of
-  verbs sent to its `:config` leaves, and throws on a command the verb
+  commands sent to its `:config` leaves, and throws on a command it
   refuses. `Topology_Analyzer::graph_for()` and `expand()` name a broker's
   accepted sources under `sources`, where `graph_for()` named them `pairs`.
   `Remote_Broker_Node::fold_source()` is the one source rule, which the
@@ -425,8 +446,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `remove_source <remote_log> <local_node>`, judged by `foldSource()` in
   `src/runtime/broker-sources.js` as a PHP broker judges them, and
   `make_node` gives a `:config` to any browser node
-  whose schema declares a verb with a handler. That `:config` binds a
-  verb's declared `args` through `bindCommandArgs()` before its handler
+  whose schema declares a command with a handler. That `:config` binds a
+  command's declared `args` through `bindCommandArgs()` before its handler
   runs, as PHP's `dispatch()` does, so a handler reads them by name, and a
   rename of the node renames its `:config` with it.
 
@@ -1244,9 +1265,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   Put all three zips on the host, then restart the workers once.
 - **A command whose schema declares `args` receives them bound, by NAME.**
   `Command_Interpreter_Node::dispatch()` binds the tokens against the declared
-  `args` before the handler runs — a service CI's verbs and every `:config`
-  verb alike
-  ([ADR-25](architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)).
+  `args` before the handler runs — a service CI's commands and every `:config`
+  command alike
+  ([ADR-25](architecture-decisions.md#adr-25-a-commands-arguments-are-bound-by-its-schema)).
   The handler is still
   `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`,
   but `$args` is `array<string,mixed>`: one key per declared arg, in declared
@@ -1475,7 +1496,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   $partition, Worker_Base::IPC_INPUT )`, in place of appending `/input` or
   `/output`; `build_ipc_input_consumer()` takes no argument and builds its
   worker's own input reader.
-- **An unknown request verb is refused with a `TM_ERROR`,** not answered
+- **A request with an unknown verb is refused with a `TM_ERROR`,** not answered
   `TM_STRUCT | TM_RESPONSE` with `data.error`. `Job_Worker_Node`'s
   `GET_HEALTH`, and every node answering through
   `Schema_Reflection::answer_request()`, sends VALUE
@@ -2986,8 +3007,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   alone, which drops a loose `<name>.tsl.php` wherever you stand.
 - **The `runtime_stats` command is removed.** It bundled `list_timers`,
   `list_handles` and the Router profile table into one struct for the devtools
-  views, and its profile third had silently fallen behind the text verb's
-  columns. Each of those three verbs now takes `-s`, returning the same rows its
+  views, and its profile third had silently fallen behind the text command's
+  columns. Each of those three commands now takes `-s`, returning the same rows its
   table is built from: `list_timers -s`, `list_handles -s`, `list_profiles -s`.
 - **Command errors are newline-terminated.** `interpret()` appends `\n` to the
   TM_ERROR payload in both the PHP and JS interpreters, so a REPL that prints

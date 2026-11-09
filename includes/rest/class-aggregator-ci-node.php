@@ -342,7 +342,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'name'        => 'probe',
 					'description' => 'On-demand deep probe of one spoke: roll up worker live/stale/dead, worst consumer lag, and dead-letter total via its workers/dump_graph.',
 					'args'        => [
-						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'id', 'type' => 'string', 'required' => true, 'description' => 'The spoke\'s Vault id, as `vault list` lists it.' ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_probe( $args ),
 				],

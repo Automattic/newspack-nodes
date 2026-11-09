@@ -14,6 +14,8 @@
  *                    declares, and the orphans between them.
  *   restart        — request a graceful restart of matching worker types.
  *   heartbeat      — refresh the caller's own SSE slot lease.
+ *   inspect        — run one read-only interpreter command inside a live
+ *                    worker, over its command channel, and answer its reply.
  *
  * The substrate `CLI` is a public property the bootstrap assigns after
  * `make_node` returns, never a constructor argument — see `$cli`. Nothing else
@@ -34,6 +36,8 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Log_Cleaner;
@@ -56,9 +60,15 @@ use Newspack_Nodes\Worker_Base;
  */
 class Workers_CI_Node extends Service_CI_Node {
 
+	/** Seconds `inspect` waits for the worker's reply, short enough for a web request. */
+	public const INSPECT_TIMEOUT_S = 5;
+
+	/** The node an `inspect` reply is addressed to. */
+	private const INSPECT_RECEIVER = 'workers-inspect';
+
 	/**
-	 * The substrate CLI the `list` and `restart` handlers reach through
-	 * `cli()`.
+	 * The substrate CLI the `list`, `restart` and `inspect` handlers reach
+	 * through `cli()`.
 	 *
 	 * Public because a programmatic dependency arrives as a property
 	 * assignment after construction: `make_node` calls a no-arg constructor
@@ -774,13 +784,68 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Declare the verb surface once: `Service_CI_Node` derives the dispatch
+	 * `inspect` command handler — run one read-only interpreter command inside
+	 * a live worker and answer its reply's payload.
+	 *
+	 * The verb must be one `Command_Interpreter_Node::base_role()` answers
+	 * READ for, and `path` '' or a `<node>:config` with no `/`, both refused
+	 * before any channel opens: a worker's Router delivers a site-signed
+	 * command to whatever node a path names, so a Partition would append it
+	 * and a Tee fan it out, and only an interpreter answers it. A `:config`
+	 * command named for a read base command declares READ too, so a `read`
+	 * caller reaches nothing a higher role guards; `ReadVerbRolesTest` holds
+	 * that. A `:config` name is a convention, not a type: a node a topology
+	 * names `x:config` outright passes the path rule whatever its class. The
+	 * command goes TO the
+	 * worker, or TO `path` inside it, through `CLI::ask_workers()`, which
+	 * wakes a sleeping on-demand worker.
+	 *
+	 * @param Workers_CI_Node        $self The dispatching node, carrying `$cli`.
+	 * @param array<array-key,mixed> $args Bound command arguments: worker, verb, args, path.
+	 * @return mixed The reply's payload, a string or a struct.
+	 * @throws \RuntimeException For a verb whose base role is not READ, a path
+	 *                           naming anything but a `:config`, a worker that
+	 *                           does not answer in time, or the worker's refusal.
+	 * @throws \InvalidArgumentException For an id that names no worker.
+	 */
+	public static function cmd_inspect( Workers_CI_Node $self, array $args ): mixed {
+		$worker = Core::as_string( $args['worker'] );
+		$verb   = Core::as_string( $args['verb'] );
+		$path   = Core::as_string( $args['path'] );
+		if ( Capabilities::READ !== Command_Interpreter_Node::base_role( $verb ) ) {
+			throw new \RuntimeException( \esc_html( "inspect sends only read commands; {$verb} is not one" ) );
+		}
+		$suffix = Node::sibling_name_of( '', Node::CONFIG_KIND );
+		if ( '' !== $path && ( $path === $suffix || ! \str_ends_with( $path, $suffix ) || \str_contains( $path, '/' ) ) ) {
+			throw new \RuntimeException( \esc_html( "inspect addresses only the worker interpreter or a {$suffix} interpreter inside it; {$path} is neither" ) );
+		}
+		$ask     = [
+			'worker'    => $worker,
+			'to'        => $path,
+			'name'      => $verb,
+			'arguments' => \array_map( Core::as_string( ... ), \array_values( Core::arr( $args['args'] ) ) ),
+		];
+		$replies = $self->cli()->ask_workers( self::INSPECT_RECEIVER, [ 'reply' => $ask ], self::INSPECT_TIMEOUT_S );
+		if ( ! isset( $replies['reply'] ) ) {
+			throw new \RuntimeException( \esc_html( "{$worker} did not answer {$verb} within " . self::INSPECT_TIMEOUT_S . ' s; a command whose answer is empty sends none' ) );
+		}
+		$refusal = CLI::refusal( $replies['reply'] );
+		if ( null !== $refusal ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- the worker escaped its own refusal where it threw; escaping again would mangle it.
+			throw new \RuntimeException( $refusal );
+		}
+		return Core::arr( $replies['reply'][ Message::VALUE ] )['payload'] ?? null;
+	}
+
+	/**
+	 * Declare the command surface once: `Service_CI_Node` derives the dispatch
 	 * table, the capability gate, `help` and the console palette entry from
 	 * this array.
 	 *
 	 * `restart` declares no `capability` and so gates at MANAGE, the strictest
-	 * role — it stops processes. The other four declare READ so a dashboard
-	 * can poll them, `heartbeat` included: it refreshes a lease the caller
+	 * role — it stops processes. The other five declare READ so a dashboard
+	 * can poll them. `inspect` sends a worker only a read command, and
+	 * `heartbeat` refreshes a lease the caller
 	 * already holds and can reach no other.
 	 *
 	 * `category` replaces the `Hidden` inherited from the interpreter, which
@@ -823,8 +888,8 @@ class Workers_CI_Node extends Service_CI_Node {
 					'name'        => 'restart',
 					'description' => 'Restart matching workers: `restart <type>… [--partition=<n>]`.',
 					'args'        => [
-						[ 'name' => 'types', 'type' => 'string', 'required' => false, 'variadic' => true ],
-						[ 'name' => 'partition', 'type' => 'int', 'required' => false ],
+						[ 'name' => 'types', 'type' => 'string', 'required' => false, 'variadic' => true, 'description' => 'The worker types to restart, or `all`; none restarts every worker.' ],
+						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'description' => 'One partition to restart; none restarts every partition.' ],
 					],
 					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_restart( $self, $args ),
 				],
@@ -837,6 +902,18 @@ class Workers_CI_Node extends Service_CI_Node {
 						[ 'name' => 'owner', 'type' => 'int', 'required' => true ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_heartbeat( $args ),
+				],
+				[
+					'name'        => 'inspect',
+					'capability'  => Capabilities::READ,
+					'description' => 'Run one read-only interpreter command inside a live worker and answer its reply: `inspect <worker> <verb> [<arg>…] [--path=<node>]`.',
+					'args'        => [
+						[ 'name' => 'worker', 'type' => 'string', 'required' => true, 'description' => 'The worker, `<type>.p<n>`, as `wp nodes status` names it.' ],
+						[ 'name' => 'verb', 'type' => 'string', 'required' => true, 'description' => 'The read-only base command to send, such as `ls`, `dump_node`, `stats`, `dmesg` or `uptime`.' ],
+						[ 'name' => 'args', 'type' => 'string', 'required' => false, 'variadic' => true, 'description' => "That command's arguments." ],
+						[ 'name' => 'path', 'type' => 'string', 'required' => false, 'description' => "A `<node>:config` inside the worker to address; none addresses the worker's interpreter." ],
+					],
+					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): mixed => self::cmd_inspect( $self, $args ),
 				],
 			],
 		] );

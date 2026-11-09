@@ -139,7 +139,7 @@ final class OauthServerTest extends TestCase {
 				'grant_types_supported'                 => [ 'authorization_code', 'refresh_token' ],
 				'code_challenge_methods_supported'      => [ 'S256' ],
 				'token_endpoint_auth_methods_supported' => [ 'none' ],
-				'scopes_supported'                      => [ Capabilities::READ, Capabilities::TUNE ],
+				'scopes_supported'                      => [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ],
 			],
 			Oauth_Server::authorization_metadata()
 		);
@@ -150,7 +150,7 @@ final class OauthServerTest extends TestCase {
 			[
 				'resource'                 => self::RESOURCE,
 				'authorization_servers'    => [ self::HOME ],
-				'scopes_supported'         => [ Capabilities::READ, Capabilities::TUNE ],
+				'scopes_supported'         => [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ],
 				'bearer_methods_supported' => [ 'header' ],
 			],
 			Oauth_Server::resource_metadata( self::RESOURCE )
@@ -558,9 +558,10 @@ final class OauthServerTest extends TestCase {
 
 		$this->assertTrue( Oauth_Server::can_grant( Capabilities::TUNE ) );
 		$this->assertFalse( Oauth_Server::can_grant( Capabilities::READ ), 'tune held does not stand in for read' );
+		$this->assertFalse( Oauth_Server::can_grant( Capabilities::MANAGE ), 'tune held does not stand in for manage' );
 
 		$GLOBALS['_wp_test_user_caps'][ self::USER ]['manage_options'] = true;
-		$this->assertFalse( Oauth_Server::can_grant( Capabilities::MANAGE ), 'outside Oauth_Store::SCOPES' );
+		$this->assertTrue( Oauth_Server::can_grant( Capabilities::MANAGE ) );
 	}
 
 	/** A code whose scope OAuth may not grant opens no grant. */
@@ -568,7 +569,22 @@ final class OauthServerTest extends TestCase {
 		$client                                      = self::client();
 		$GLOBALS['_wp_test_user_caps'][ self::USER ] = [ 'manage_options' => true, 'edit_others_posts' => true, 'edit_posts' => true ];
 
-		$this->assert_error( 400, 'invalid_grant', Oauth_Server::token( self::exchange( $client, self::code( $client, Capabilities::MANAGE ) ) ) );
+		$this->assert_error( 400, 'invalid_grant', Oauth_Server::token( self::exchange( $client, self::code( $client, 'kea-4410' ) ) ) );
 		$this->assertSame( [], Oauth_Store::grants() );
+	}
+
+	/** A manage code, approved by a user who holds manage, mints a manage session. */
+	public function test_a_manage_grant_mints_a_manage_session(): void {
+		$client                                      = self::client();
+		$GLOBALS['_wp_test_user_caps'][ self::USER ] = [ 'manage_options' => true, 'edit_others_posts' => true, 'edit_posts' => true ];
+
+		$answer = Oauth_Server::token( self::exchange( $client, self::code( $client, Capabilities::MANAGE ) ) );
+
+		$this->assertSame( 200, $answer['status'] );
+		$this->assertSame( Capabilities::MANAGE, $answer['body']['scope'] );
+		$session = $this->session_of( $answer['body']['access_token'] );
+		$this->assertSame( Capabilities::MANAGE, $session['scope'] );
+		$this->assertSame( self::USER, $session['user'] );
+		$this->assertSame( [ $session['grant'] ], \array_column( Oauth_Store::grants(), 'grant' ) );
 	}
 }

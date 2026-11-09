@@ -57,6 +57,26 @@ class Bootstrap {
 	public const RUNTIME_UNAVAILABLE = 'runtime wiring unavailable: ';
 
 	/**
+	 * The substrate's service CIs, mount name => class, in mount order: what
+	 * `newspack_nodes_mount_substrate_cis()` mounts on every request graph and
+	 * what the substrate's MCP door derives its tools from.
+	 *
+	 * @var array<string,class-string<Service_CI_Node>>
+	 */
+	public const SUBSTRATE_CIS = [
+		'classes'    => Rest\Classes_CI_Node::class,
+		'layouts'    => Rest\Layouts_CI_Node::class,
+		'topologies' => Rest\Topologies_CI_Node::class,
+		'raw-logs'   => Rest\Raw_Logs_CI_Node::class,
+		'vault'      => Rest\Vault_CI_Node::class,
+		'aggregator' => Rest\Aggregator_CI_Node::class,
+		'settings'   => Rest\Settings_CI_Node::class,
+		'status'     => Rest\Status_CI_Node::class,
+		'sessions'   => Rest\Sessions_CI_Node::class,
+		'workers'    => Rest\Workers_CI_Node::class,
+	];
+
+	/**
 	 * Health-report seam. Lazily-defaulted to a closure calling
 	 * `Health_Checks::evaluate()`. Tests reassign it to a fixed result list so
 	 * the Site Health rendering — status roll-up, per-result markers, badge
@@ -1368,6 +1388,50 @@ class Bootstrap {
 	}
 
 	/**
+	 * Build (idempotently) the request-scope graph EVERY command entry point
+	 * needs — `_router` and `_command_interpreter` — and fire
+	 * `newspack_nodes/request_graph_ready` so applications mount their service
+	 * CIs onto it.
+	 *
+	 * Shared because `/command` is not the only door: an MCP request reaches the
+	 * same commands by another route, and a second copy of this construction
+	 * sequence drifts until one door silently has no service CIs behind it.
+	 *
+	 * @return Command_Interpreter_Node The request-scope `_command_interpreter`.
+	 */
+	public static function mount_request_graph(): Command_Interpreter_Node {
+		[ , $interpreter ] = self::request_graph();
+		\do_action( 'newspack_nodes/request_graph_ready', $interpreter );
+		return $interpreter;
+	}
+
+	/**
+	 * The request-scope `_router` and `_command_interpreter`, each taken where
+	 * it stands and built where it does not, and the nodes built here, for a
+	 * caller that removes them again. Fires nothing: `mount_request_graph()`
+	 * announces the graph, and `CLI::ask_workers()` rides it.
+	 *
+	 * @return array{0:Router_Node,1:Command_Interpreter_Node,2:list<Node>} The Router, the interpreter, and what was built.
+	 */
+	public static function request_graph(): array {
+		$built  = [];
+		$router = Core::node( Node_Names::ROUTER );
+		if ( ! $router instanceof Router_Node ) {
+			$router  = new Router_Node();
+			$built[] = $router;
+			$router->name( Node_Names::ROUTER );
+		}
+		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( ! $interpreter instanceof Command_Interpreter_Node ) {
+			$interpreter = new Command_Interpreter_Node();
+			$built[]     = $interpreter;
+			$interpreter->name( Node_Names::COMMAND_INTERPRETER );
+			$interpreter->sink( $router );
+		}
+		return [ $router, $interpreter, $built ];
+	}
+
+	/**
 	 * Drop every Table `node_tables()` and Row_Table `row_table()` resolved.
 	 * `Topology_Registry::reset_basename_cache()` calls it beside the parsed
 	 * topologies it drops, since a resolution reads the active set, the
@@ -1376,34 +1440,6 @@ class Bootstrap {
 	public static function forget_node_tables(): void {
 		self::$node_tables = [];
 		self::$row_tables  = [];
-	}
-
-	/**
-	 * Build (idempotently) the request-scope graph EVERY command entry point
-	 * needs — `_router` and `_command_interpreter` — and fire
-	 * `newspack_nodes/request_graph_ready` so applications mount their service
-	 * CIs onto it.
-	 *
-	 * Shared because `/command` is not the only door: an MCP request reaches the
-	 * same verbs by another route, and a second copy of this construction
-	 * sequence drifts until one door silently has no service CIs behind it.
-	 *
-	 * @return Command_Interpreter_Node The request-scope `_command_interpreter`.
-	 */
-	public static function mount_request_graph(): Command_Interpreter_Node {
-		$router = Core::node( Node_Names::ROUTER );
-		if ( ! $router instanceof Router_Node ) {
-			$router = new Router_Node();
-			$router->name( Node_Names::ROUTER );
-		}
-		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( ! $interpreter instanceof Command_Interpreter_Node ) {
-			$interpreter = new Command_Interpreter_Node();
-			$interpreter->name( Node_Names::COMMAND_INTERPRETER );
-			$interpreter->sink( $router );
-		}
-		\do_action( 'newspack_nodes/request_graph_ready', $interpreter );
-		return $interpreter;
 	}
 
 	/**

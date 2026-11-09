@@ -98,6 +98,7 @@ require_once __DIR__ . '/Helpers/DurableArmContract.php';
 require_once __DIR__ . '/Helpers/OauthStoreContract.php';
 require_once __DIR__ . '/Helpers/TopologyDurability.php';
 require_once __DIR__ . '/Helpers/McpRequests.php';
+require_once __DIR__ . '/Helpers/AnswersWorkerChannel.php';
 require_once __DIR__ . '/Helpers/FixtureMcpCiNode.php';
 require_once __DIR__ . '/Helpers/FixtureMcpDoor.php';
 

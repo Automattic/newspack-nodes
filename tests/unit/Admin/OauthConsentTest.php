@@ -42,8 +42,9 @@ final class OauthConsentTest extends TestCase {
 
 	/** What each scope of `Oauth_Store::SCOPES` is called on the page. */
 	private const LABELS = [
-		Capabilities::READ => '<code>read</code> See the dashboards and the logged traffic; change nothing.',
-		Capabilities::TUNE => '<code>tune</code> See the dashboards and the logged traffic; change settings and application data.',
+		Capabilities::READ   => '<code>read</code> See the dashboards and the logged traffic; change nothing.',
+		Capabilities::TUNE   => '<code>tune</code> See the dashboards and the logged traffic; change settings and application data.',
+		Capabilities::MANAGE => '<code>manage</code> See and change everything, the fleet and the credential vault included.',
 	];
 
 	private Sqlite_Wpdb $db;
@@ -276,6 +277,23 @@ final class OauthConsentTest extends TestCase {
 		foreach ( Oauth_Store::SCOPES as $scope ) {
 			$this->assertSame( self::LABELS[ $scope ], $labels[ $scope ], $scope );
 		}
+	}
+
+	/** Manage is offered, broadest first and checked, only to a user who holds it. */
+	public function test_manage_is_offered_only_to_a_user_who_holds_it(): void {
+		$offered = static function ( string $page ): array {
+			\preg_match_all( '/<input[^>]+name="scope"[^>]+value="([a-z]+)"/', $page, $found );
+			return $found[1];
+		};
+
+		$tune_only = self::page( $this->request() );
+		$this->assertSame( [ Capabilities::TUNE, Capabilities::READ ], $offered( $tune_only ) );
+		$this->assertStringNotContainsString( 'value="manage"', $tune_only );
+
+		$GLOBALS['_wp_test_user_caps'][ self::USER ]['manage_options'] = true;
+		$manager = self::page( $this->request() );
+		$this->assertSame( [ Capabilities::MANAGE, Capabilities::TUNE, Capabilities::READ ], $offered( $manager ) );
+		$this->assertMatchesRegularExpression( '/<input[^>]+value="manage"[^>]+checked/', $manager );
 	}
 
 	public function test_a_user_holding_tune_without_read_is_offered_only_tune(): void {

@@ -28,7 +28,7 @@
  * Every refusal throws `RuntimeException`, which
  * `Command_Interpreter_Node::interpret()` wraps as TM_COMMAND|TM_ERROR: an
  * unknown key, a non-numeric or out-of-bounds value, and `dispatch()`'s
- * refusal of a caller below the verb's declared role (ADR-26). Answering with a refusal
+ * refusal of a caller below the command's declared role (ADR-26). Answering with a refusal
  * string instead would leave the hub unable to tell one from a snapshot.
  *
  * Configuration only, with no service dependencies: the substrate `Config` is
@@ -196,8 +196,8 @@ class Settings_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::TUNE,
 					'description' => 'Set a single substrate-owned integer setting by its full option name, then return the post-set snapshot.',
 					'args'        => [
-						[ 'name' => 'option', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'value', 'type' => 'int', 'required' => true ],
+						[ 'name' => 'option', 'type' => 'string', 'required' => true, 'description' => 'The setting\'s option name, with or without its `newspack_nodes_` prefix.' ],
+						[ 'name' => 'value', 'type' => 'int', 'required' => true, 'description' => 'The new value, a whole number inside the setting\'s bounds.' ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_set( $args ),
 				],

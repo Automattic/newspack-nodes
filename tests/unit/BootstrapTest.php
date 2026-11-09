@@ -2370,4 +2370,28 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( 1790004242, \Newspack_Nodes\Spawn_Coordinator::hold() );
 	}
 
+	// ── SUBSTRATE_CIS ─────────────────────────────────────────────────────
+
+	/**
+	 * The request graph mounts exactly the table's CIs: each under its mount
+	 * name, as its class, and the workers CI holding the CLI it reaches
+	 * workers through.
+	 */
+	public function test_every_substrate_ci_mounts_under_its_table_name_as_its_class(): void {
+		\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
+
+		Bootstrap::mount_request_graph();
+
+		$this->assertSame(
+			[ 'classes', 'layouts', 'topologies', 'raw-logs', 'vault', 'aggregator', 'settings', 'status', 'sessions', 'workers' ],
+			\array_keys( Bootstrap::SUBSTRATE_CIS )
+		);
+		foreach ( Bootstrap::SUBSTRATE_CIS as $name => $class ) {
+			$this->assertInstanceOf( $class, Core::node( $name ), $name );
+		}
+		$workers = Core::node( 'workers' );
+		$this->assertInstanceOf( \Newspack_Nodes\Rest\Workers_CI_Node::class, $workers );
+		$this->assertInstanceOf( \Newspack_Nodes\CLI::class, $workers->cli );
+	}
+
 }

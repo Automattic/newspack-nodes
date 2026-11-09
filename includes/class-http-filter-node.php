@@ -6,8 +6,9 @@
  * process — reads that worker's whole output Partition, so without a gate each
  * would receive every other session's command replies. A reply's address names
  * its session in one segment, `<realm>:<session>`: `_sse:<handle>` for a
- * browser, whose command session outlives any one connection, and `_cli:<pid>`
- * for a cli process, which never reconnects. Both sit behind the `_output`
+ * browser, whose command session outlives any one connection, `_cli:<pid>`
+ * for a cli process, which never reconnects, and `_cli:<pid>-<hex>` for one
+ * `CLI::ask_workers()` call, because a php-fpm pid serves many requests. Both sit behind the `_output`
  * boundary on the worker's output Partition, so each reader's gate sees the
  * other realm's replies and drops them.
  *
@@ -19,9 +20,9 @@
  * reads that record and forwards it through the interpreter into `_router`,
  * which peels the leading `_output` and fills this Node — registered under
  * that name, sinking into the `SSE_Out` egress — with TO set to
- * `_sse:<handle>/<reply-node>`. A cli mints `_output/_cli:<pid>/<reply-node>`
+ * `_sse:<handle>/<reply-node>`. A cli mints `_output/_cli:<session>/<reply-node>`
  * itself, and `CLI::open_channel()` feeds its gate straight from the output
- * Consumer, so that gate matches the whole `_output/_cli:<pid>` prefix. Either
+ * Consumer, so that gate matches the whole `_output/_cli:<session>` prefix. Either
  * way the gate strips its head and forwards the reply node as the TO the
  * session's own router dispatches on.
  *

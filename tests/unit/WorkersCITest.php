@@ -199,7 +199,7 @@ class WorkersCITest extends TestCase {
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
-			[ 'dump_cleanup', 'dump_graph', 'heartbeat', 'list', 'restart' ],
+			[ 'dump_cleanup', 'dump_graph', 'heartbeat', 'inspect', 'list', 'restart' ],
 			$names
 		);
 		$this->assertNotEmpty( $schema['description'] );
@@ -715,7 +715,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = null;
 	}
 
-	// ── dump_cleanup verb ─────────────────────────────────────────────────
+	// ── dump_cleanup command ──────────────────────────────────────────────
 
 	public function test_dump_cleanup_returns_diagnostic_envelope_with_orphans(): void {
 		// The command mirrors the Log_Cleaner sweep: it globs the flat `{base}/logs/*` dirs

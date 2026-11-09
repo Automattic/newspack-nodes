@@ -45,7 +45,7 @@ class Command_Interpreter_Node extends Node {
 	public static ?\Closure $default_authorize = null;
 
 	/**
-	 * Wraps each verb handler once the verb is known to exist, so a caller can
+	 * Wraps each command's handler once the command is known to exist, so a caller can
 	 * never coin a verb name the wrapper sees; see docs/architecture-guide.md.
 	 *
 	 * The declared-role refusal (ADR-26), the secure-level refusal, the
@@ -176,7 +176,7 @@ class Command_Interpreter_Node extends Node {
 	 * is not declared by any schema demands MANAGE (ADR-26). Every dashboard on
 	 * the site drives some of these — the debug overlay polls `dump_metadata`
 	 * every tick — so the read surface stays open to a read-only caller the
-	 * `/command` door admits.
+	 * `/command` door admits. `base_role()` is the one reader.
 	 *
 	 * @var list<string>
 	 */
@@ -198,7 +198,16 @@ class Command_Interpreter_Node extends Node {
 	];
 
 	/**
-	 * Per-instance verb table; defaults to self::$C. Patron nodes and
+	 * Ceiling on a command body, in bytes — 1 MiB, the one cap every door reads.
+	 * An MCP door refuses a request body past it in its `rest_pre_dispatch`
+	 * filter, before WordPress decodes the body, and the
+	 * `topologies` and `layouts` saves refuse a packed envelope past it, so the
+	 * cap refuses a runaway blob without bounding any real topology or layout.
+	 */
+	public const MAX_BODY_BYTES = 1048576;
+
+	/**
+	 * Per-instance command table; defaults to self::$C. Patron nodes and
 	 * `Service_CI_Node` subclasses install their own through `commands()`.
 	 *
 	 * @var array<string,callable>|null
@@ -212,7 +221,7 @@ class Command_Interpreter_Node extends Node {
 	 * interpreter; a non-empty TO means the command is still in transit toward
 	 * another node, so it goes to the sink. Dispatching on a non-empty TO would
 	 * make every interpreter along a path eat the commands meant for its
-	 * downstream peers. The response bit is the other half of the guard: a verb
+	 * downstream peers. The response bit is the other half of the guard: a command's
 	 * reply is minted TM_COMMAND|TM_RESPONSE, so one arriving with its TO already
 	 * peeled empty passes through instead of re-entering the command table. TM_PING
 	 * and TM_EOF with an empty TO bounce back along FROM: the cli emits that
@@ -363,9 +372,9 @@ class Command_Interpreter_Node extends Node {
 	 * Dispatch a command by name. The result rides the Message VALUE unencoded (never
 	 * JSON here).
 	 *
-	 * The role the verb's schema declares is checked first, through
+	 * The role the command's schema declares is checked first, through
 	 * `Capabilities::require_command()`, so a caller lacking it learns nothing
-	 * the verb would say — not whether it exists, not the args it binds — and
+	 * the command would say — not whether it exists, not the args it binds — and
 	 * a handler never checks a role of its own (ADR-26). The secure-level
 	 * refusal follows, then the unknown-verb throw; all three sit BEFORE the
 	 * command table, so they cover a subclass's own table as well as the shared
@@ -374,7 +383,7 @@ class Command_Interpreter_Node extends Node {
 	 * A command whose schema declares `args` — a service CI's own schema, or for a
 	 * `:config` interpreter its patron's schema — has its tokens bound by `Command_Args::bind()`
 	 * before `$around_dispatch`, as an unknown verb is refused before it, so the
-	 * handler receives the values by NAME, a binding refusal is the verb's own
+	 * handler receives the values by NAME, a binding refusal is the command's own
 	 * TM_ERROR, and a wrapper never renders a command that does not fit — a
 	 * secret given by position among them (ADR-25). A command declaring no `args`
 	 * receives its tokens as they came.
@@ -408,7 +417,7 @@ class Command_Interpreter_Node extends Node {
 	 * The command as the REPL echoes it, `/<name>> <verb> <args>`, each token
 	 * quoted by `serialize_args()`.
 	 *
-	 * An arg the verb's schema declares `secret` renders as
+	 * An arg the command's schema declares `secret` renders as
 	 * `--<name>=<redacted>`; `Command_Args::bind()` refuses one given by
 	 * position, so a secret is always named. Every other token renders
 	 * verbatim.
@@ -453,9 +462,8 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * The role $verb demands here: the `capability` its schema entry declares,
-	 * MANAGE when the entry declares none; for a verb that is not named in any
-	 * schema, READ when it is a read-only builtin and MANAGE otherwise
-	 * (ADR-26).
+	 * MANAGE when the entry declares none; for a command that is not named in any
+	 * schema, what `base_role()` answers (ADR-26).
 	 *
 	 * @param string $verb Verb name.
 	 * @return string One of Capabilities::READ|TUNE|MANAGE, or whatever a schema declares.
@@ -465,6 +473,19 @@ class Command_Interpreter_Node extends Node {
 		if ( null !== $declared ) {
 			return Core::as_string( $declared['capability'] ?? Capabilities::MANAGE, Capabilities::MANAGE );
 		}
+		return self::base_role( $verb );
+	}
+
+	/**
+	 * The role a base command demands where it is undeclared: READ for
+	 * one of the read-only `READ_VERBS`, matched exactly, MANAGE for any other
+	 * (ADR-26). `workers inspect` sends a worker only a command this answers
+	 * READ for.
+	 *
+	 * @param string $verb Verb name.
+	 * @return string Capabilities::READ or Capabilities::MANAGE.
+	 */
+	public static function base_role( string $verb ): string {
 		return \in_array( $verb, self::READ_VERBS, true ) ? Capabilities::READ : Capabilities::MANAGE;
 	}
 
@@ -587,7 +608,7 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Per-instance verb-table accessor; falls back to self::$C.
+	 * Per-instance command-table accessor; falls back to self::$C.
 	 *
 	 * A table passed here REPLACES the instance table. The JS port's `commands()`
 	 * merges instead, so a caller cannot carry one port's assumption to the other.

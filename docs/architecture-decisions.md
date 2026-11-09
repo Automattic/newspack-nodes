@@ -35,8 +35,8 @@ supersede.
 | [22](#adr-22-a-worker-id-has-one-writer-one-reader-and-two-layout-owners) | A worker id has one writer, one reader, and two layout owners |
 | [23](#adr-23-a-request-carries-no-authority-of-its-own) | A request carries no authority of its own |
 | [24](#adr-24-a-tables-backend-is-chosen-per-table) | A Table's backend is chosen per Table |
-| [25](#adr-25-a-verbs-arguments-are-bound-by-its-schema) | A verb's arguments are bound by its schema |
-| [26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares) | Every verb is gated by the role its schema declares |
+| [25](#adr-25-a-commands-arguments-are-bound-by-its-schema) | A command's arguments are bound by its schema |
+| [26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares) | Every command is gated by the role its schema declares |
 | [27](#adr-27-withdrawn-a-ledger-of-write-once-rows) | Withdrawn: a Ledger of write-once rows |
 | [28](#adr-28-withdrawn-a-ledger-file-per-partition) | Withdrawn: a Ledger file per partition |
 | [29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind) | A log stamp has one writer, one reader, and one resolver per kind |
@@ -173,7 +173,7 @@ reply, since a worker's boot-topology replies would otherwise route to an absent
 `_output` and bounce a dropped `NOT_AVAILABLE` every startup. With no reply to carry
 it, a TM_NOREPLY command's failure propagates to whatever filled the command, so a broken
 topology line fails the load: [`Command_Interpreter_Node::interpret()`](../includes/class-command-interpreter-node.php)
-re-throws a refusal or a verb's throwable, and [`Router_Node::send_error()`](../includes/class-router-node.php)
+re-throws a refusal or a command's throwable, and [`Router_Node::send_error()`](../includes/class-router-node.php)
 throws `NOT_AVAILABLE` for a command addressed to a node that does not exist instead of bouncing it. Both browser
 twins do the same. Tachikoma prints the one and bounces the other while the script runs on;
 the lineage records [why this differs](tachikoma-lineage.md#a-tm_noreply-failure-raises-instead-of-printing).
@@ -421,10 +421,14 @@ heads the FROM it sends with it, `/command` adds the `_output` boundary, and a s
 session holds when they land. A session re-minted on expiry changes the handle, so a reply in
 flight across a re-mint is lost, about once an hour per tab at most; a stream that presented no
 session, the server-to-server pull, does not pass any reply at all. A cli process's head is `_cli:<pid>`:
-`wp nodes cli` and `wp nodes tables` attach to the IPC files directly and never reconnect, so the
-process is its session, and each mints FROM `_output/_cli:<pid>/<reply-node>` itself, sharing the
-`_output` boundary so a stream's gate drops a cli's replies as it drops another tab's. Each
-channel's gate is named `<worker-id>:replies`, so `ls -a` and `dump_node` show it. A head is
+`wp nodes cli` attaches to the IPC files directly and never reconnects, so the process is its
+session, and it mints FROM `_output/_cli:<pid>/<reply-node>` itself, sharing the `_output`
+boundary so a stream's gate drops a cli's replies as it drops another tab's. A round trip
+through `CLI::ask_workers()` — `wp nodes tables`, and `workers inspect` inside a web request —
+is a session of its own, headed `_cli:<pid>-<suffix>`, the pid and a random suffix minted per
+call, because in php-fpm one pid serves request after request and two calls sharing a head
+would read each other's replies. Each channel's gate is named `<worker-id>:replies`, so `ls -a`
+and `dump_node` show it. A head is
 matched as the whole segment and stripped, never read off the tail, so the subject a reply
 carries past its reply node can never pose as a session. The addressing is still the
 correlation — nothing is minted, stored or matched beyond the head the minter wrote.
@@ -587,8 +591,8 @@ and the browser's `walkSchemaArgs` skip it, and the node reads the tokens past t
 positionals through [`Schema_Reflection::variadic_in()`](../includes/trait-schema-reflection.php),
 whose start is the bound count, so the schema declares where the tail begins once. A `variadic`
 declared anywhere else is refused with `Invalid argument specification: variadic argument <name>
-must be the last`. This differs from [ADR-25](#adr-25-a-verbs-arguments-are-bound-by-its-schema),
-where a verb's `variadic` IS bound, as a list, and may precede named arguments: a constructor
+must be the last`. This differs from [ADR-25](#adr-25-a-commands-arguments-are-bound-by-its-schema),
+where a command's `variadic` IS bound, as a list, and may precede named arguments: a constructor
 keeps the tail as raw tokens because a node such as `Vault_Group` parses them into a structure of
 its own.
 
@@ -906,7 +910,8 @@ encodes it with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE` to match byte 
 `tests/fixtures/signatures.json` pins that parity from both languages.
 
 Two keys exist. `Command_Auth::sign()` uses the per-site secret and does not stamp a handle: that is
-the attached cli's Shell, same host, over a filesystem-gated IPC partition.
+the attached cli's Shell, same host, over a filesystem-gated IPC partition, and the two other
+signers the amendment below names.
 `sign_for( $destination )` signs under the session established with one remote and stamps its
 handle, and a signature under one remote's key verifies only there, which pins a command to
 its destination without signing TO. A client establishes that session first:
@@ -928,7 +933,7 @@ against the main site's fleet — and then behind [`Capabilities::READ`](../incl
 session minted by a read-only user can only ever do read-only things, whatever it asks for.
 `issue()` clamps the requested scope to the highest of `read`/`tune`/`manage` the minting user
 holds and refuses an unrecognized one, so the Sessions tab lists real authority rather than an
-aspiration. A labelled session holds only `read` or `tune`
+aspiration. A labelled session `/auth` mints holds only `read` or `tune`
 ([ADR-36](#adr-36-oauth-issues-command-sessions)); the unlabelled one a dashboard or a hub
 mints may hold `manage`. The scope rides in the stored record, never in the envelope, so the holder of a
 key cannot restate it: `Command_Auth::check()` installs the verified scope as
@@ -937,7 +942,7 @@ key cannot restate it: `Command_Auth::check()` installs the verified scope as
 without which a worker would sit at its first caller's ceiling for its whole ~595s life.
 A command signed under the per-site secret carries no handle and no ceiling: that is the site's
 own authority. In a worker, where there is no current user, the ceiling is the whole gate
-([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)). The `now` in the auth reply lets
+([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)). The `now` in the auth reply lets
 the client align its TIMESTAMP to the verifier's clock, and the TTL is never slid on use, so a
 leaked handle expires on a bounded schedule no matter how busy it is.
 
@@ -1048,10 +1053,25 @@ through `verify()`, the one refusal exit, which leaves `Capabilities::NONE` stan
 session through `Command_Auth::mint_grant_session()`, stored, verified and revoked as every
 other session is. Its row also names the grant and the resource it was issued for, and a door
 that is a resource admits it through `Command_Auth::admits_resource()` only when that
-resource is its own. None of the substrate's doors is a resource: the verifier behind `/command`, the
+resource is its own. The substrate's MCP door is a resource; its other doors are not: the verifier behind `/command`, the
 workers and the SSE stream, and the stream's own `session` check, each ask
 `admits_resource()` against `Command_Auth::SITE_WIDE`, so a grant session signs nothing
 there and is refused as a handle that does not name a session is.
+
+**Amendment: a web request signs one read command with the site's key.** Three signers hold
+the per-site secret: the attached cli's Shell, `CLI::ask_workers()` under WP-CLI for
+`wp nodes tables`, and `ask_workers()` inside a web request for `workers inspect`
+([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)). The third runs below MANAGE,
+and a command signed under the site's key carries no ceiling, so in the worker it would run
+at MANAGE ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)). It is
+not the ORACLE this ADR rejects, because the caller chooses neither what is signed nor where
+it goes. `inspect` signs one command whose verb has a READ base role, the one rule
+`Command_Interpreter_Node::base_role( $verb )` answers, and addresses it to the worker's own
+interpreter or to a `<node>:config` interpreter, whose path holds no `/`; it refuses any
+other verb or path before a channel opens, and signs nothing for a refused one. The caller
+supplies only the worker, the verb's arguments and the interpreter, so the signature buys a
+read the caller's own role already admits. The rule sits on the server, in the code that
+signs, never in anything the caller sends.
 
 ---
 
@@ -1322,8 +1342,8 @@ index.
 merged and ADR-7 is the decision in play; or if `edge` is reintroduced, which would absorb the
 physical-write case and leave only the conditional-TO one.
 
-**Amendment: a verb may name a destination too.** `Node::command_targets( $commands )` is the
-verb-side twin of `declared_targets()`. It takes the ordered list of `[ verb, tokens ]` commands
+**Amendment: a command may name a destination too.** `Node::command_targets( $commands )` is the
+command-side twin of `declared_targets()`. It takes the ordered list of `[ verb, tokens ]` commands
 sent to a node's `:config` and answers the destinations they leave once each has applied, so a
 command that undoes another takes its destination back. `Topology_Analyzer` asks again after each
 `command_node` line and draws a `pair` edge to each destination the line adds, on the node or
@@ -1568,7 +1588,7 @@ mutating request has to live somewhere else.
 worker's input Partition, and two things write there. `Bootstrap::register_worker_partition()`
 mounts it into a request graph, and every command reaching that call declares MANAGE:
 `topologies connect_worker_input`, by declaring no capability, which `dispatch()` holds at
-MANAGE ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), and
+MANAGE ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)), and
 intelligence's `intelligence fetch_now`, by declaring MANAGE.
 The request graph is built per request, so a POST that does not mount the worker gets
 `NOT_AVAILABLE` from the Router. An attached `wp nodes cli` appends to the same Partition
@@ -1586,9 +1606,9 @@ opens its file read-only, creates nothing, and reads as empty until its worker h
 
 A request may drive a running graph. A declared request answers TO=FROM through
 [`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php) with
-`TM_STRUCT | TM_RESPONSE` and VALUE `{ verb, data }`, or refuses an undeclared verb with a
-`TM_ERROR`. `Table_Node`'s verbs answer bare instead, as
-[`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
+`TM_STRUCT | TM_RESPONSE` and VALUE `{ verb, data }`, and a request with an undeclared verb is refused with a
+`TM_ERROR`. `Table_Node`'s requests answer bare instead, as
+[`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-requests-answer-bare)
 records.
 
 **Amendment:** a request carries a structure for a Table's `ADD` and `SADD` and a
@@ -1628,7 +1648,7 @@ rejected: the handler runs in a worker, where there is no current WordPress user
 Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
 acts with the authority that loaded the topology. A command whose caller must be told apart
 from another MANAGE holder by session scope is a command, because only a command carries
-the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `GET` any key through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
+the minter's session into the worker. A command may mount a Table only when every row it holds is data the command's declared role may already read, because for the rest of the POST any caller holding that role can `GET` any key through the mount; a Table holding more is mounted under MANAGE alone. A mounting command's output
 is not the bound: `HTTP_In` does not filter by message type, so a raw `GET` in the same POST names any
 key, including one the command never shows.
 
@@ -1637,6 +1657,42 @@ mounts it under a lower role, a writer beside the attached cli and an applicatio
 command, or either of those running as root — or a Table must be
 readable below MANAGE while holding rows that role may not read, or a mount outlives the HTTP
 request (the POST) that made it.
+
+**Amendment: reopened and decided — `workers inspect` writes at READ.** The first tripwire
+fired: `workers inspect` declares `read`, and appends to a worker's input Partition. Chris
+asked for the interpreter's read-only base commands in the MCP cockpit, so an agent can see
+inside a worker, and this is the bound that write keeps:
+
+- **What it writes.** One TM_COMMAND, never a request, signed with the site's key
+  ([ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs)), whose verb has a
+  READ base role by `Command_Interpreter_Node::base_role( $verb )`, the rule `dispatch()`
+  reads for a command every schema leaves undeclared
+  ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)).
+- **Where it goes.** The worker's own interpreter, `path` empty, or a `<node>:config`
+  interpreter, a path holding no `/`. Any other verb or path is refused before a channel
+  opens, so the command is interpreted where it lands and never routed past it to a node
+  that would store or act on it.
+- **For how long.** One call. `CLI::ask_workers()` reuses an input Partition the request
+  already registered, as `topologies connect_worker_input` registers one, builds the rest of
+  the channel, and removes in a `finally` everything it built, so no mount it makes outlives
+  the call, and no later command in the POST writes through one.
+
+The MANAGE gate stands for everything else: a request still reaches a worker only through
+`connect_worker_input`, an application's MANAGE command, the attached cli or an
+application's WP-CLI command.
+
+Two things the bound rests on are conventions the path rule cannot see from outside the
+worker. `ReadVerbRolesTest` holds the first: every command a schema declares under a READ base
+command's name declares READ, and a sibling class the substrate's suite cannot boot is named
+in that test rather than skipped unseen. Nothing holds the second: a `:config` name is a
+convention, not a type, so a node a topology names `x:config` outright passes the path rule
+whatever its class. No shipped topology names one.
+
+Reopen it if `inspect` sends anything but one READ base command to an interpreter, if a
+patron's schema declares a command under a READ base command's name at a higher role
+(`inspect` reads the base role, so it would send that command, and the worker would run it
+at the site key's MANAGE), or if a topology names a node that is not an interpreter
+`<name>:config`.
 
 ---
 
@@ -1697,7 +1753,7 @@ classes is invisible to `ls`, `dump_node` and the console.
   0.9 s, the command included. The
   checkpoint schedule, the WAL stall count and a purge left behind start over. It declares
   no role, so `dispatch()` holds it at MANAGE
-  ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), and a mount
+  ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)), and a mount
   refuses it.
   An operator sends it as `cmd <table>:config flush` from `wp nodes cli <worker>`; `wp nodes
   tables list` asks the owners for their counters over the same command channel.
@@ -1912,18 +1968,18 @@ a poison state for a transaction SQLite ends itself.
 
 ---
 
-## ADR-25: A verb's arguments are bound by its schema
+## ADR-25: A command's arguments are bound by its schema
 
 **Status:** Accepted
 
-**Context:** A verb's `args` declaration feeds the console, `help` and `classes dump`. A
+**Context:** A command's `args` declaration feeds the console, `help` and `classes dump`. A
 handler that re-reads its tokens by hand is free to disagree with that declaration: one reading
 scope and TTL only as options would mint `manage` for an hour from
 `sessions create chris-claude tune 86400` while its schema orders them positionally, and a
 `required` arg that is not refused by any handler would go missing in silence. A form joining its filled fields
 by position would shift every value after a blank field into the wrong slot.
 
-**Decision:** `Command_Interpreter_Node::dispatch()` binds a verb's tokens against the `args`
+**Decision:** `Command_Interpreter_Node::dispatch()` binds a command's tokens against the `args`
 its schema declares — a service CI's own schema, or for a `:config` interpreter its patron's schema — through
 `Command_Args::bind()`, before `$around_dispatch` runs, as the unknown-verb refusal does, and
 hands the handler the bound values by name. A handler never parses.
@@ -1961,8 +2017,8 @@ hands the handler the bound values by name. A handler never parses.
 - A command whose schema carries no `args` key receives its tokens as they came. A declared
   `'args' => []` binds too, so a stray token refuses.
 - A binding refusal throws `\InvalidArgumentException`, which `interpret()` answers as the
-  verb's TM_ERROR.
-- A `toggle` or `setter` verb declares its one arg, and the synthesized handler reads it by
+  command's TM_ERROR.
+- A `toggle` or `setter` command declares its one arg, and the synthesized handler reads it by
   name; one declaring none refuses at wiring.
 - A request is not a command. Its VALUE is words, answered in the addressed node's `fill()`
   ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), and nothing binds it.
@@ -1983,8 +2039,8 @@ hands the handler the bound values by name. A handler never parses.
   it through the `Core` coercions.
 - The declaration is load-bearing. A wrong `required`, type or order is a runtime bug, not a
   palette blemish.
-- Binding runs after the verb's role check
-  ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), so a malformed
+- Binding runs after the command's role check
+  ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)), so a malformed
   command from a caller without the role hears `permission denied` and nothing of the args
   the command declares. A binding refusal echoes a caller's token only in a type refusal on a
   non-secret arg, and counts a surplus rather than echoing it, since a surplus token may be a
@@ -2008,8 +2064,8 @@ scope, which [ADR-15](#adr-15-command-authorization-local-taint--the-minter-sign
 ceiling, would not bound any worker command: a READ session signed for a spoke could `vacuum` its
 Tables or `dl_purge` its dead letters.
 
-**Decision:** `Command_Interpreter_Node::dispatch()` refuses every verb, before anything else
-runs, against the role its schema declares: the `capability` of the verb's `commands` entry —
+**Decision:** `Command_Interpreter_Node::dispatch()` refuses every command, before anything else
+runs, against the role its schema declares: the `capability` of the command's `commands` entry —
 a service CI's own schema, or for a `:config` interpreter its patron's schema — and MANAGE when the entry
 declares none. A command that is not named by any schema — the base interpreter's vocabulary, and the `help`
 every interpreter answers — demands MANAGE, except the read-only builtins `READ_VERBS` lists,
@@ -2058,8 +2114,16 @@ refused command never reaches `$around_dispatch`.
   current the scope decides, so an unscoped test command runs at MANAGE.
 
 **Revisit if:** a worker gains a current user — `require_command()` would then ask that user's
-capabilities in place of the session's ceiling alone — or a verb's blast radius turns on its
-arguments in a way a second verb cannot split.
+capabilities in place of the session's ceiling alone — or a command's blast radius turns on its
+arguments in a way a second command cannot split.
+
+**Amendment: a base command's role is one rule.** `Command_Interpreter_Node::base_role( $verb )`
+answers the role of a command every schema leaves undeclared, READ for the verbs `READ_VERBS` lists and
+MANAGE for every other. `capability_for()` reads it when a verb has no declaration, and
+`workers inspect` reads it to decide what it may send into a worker
+([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), so the gate and the sender
+cannot disagree about which base commands only read. `READ_VERBS` stays private: the rule is
+the surface, never the list.
 
 ---
 
@@ -2548,7 +2612,7 @@ partition's file read-only into one connection and answers in one statement;
 `Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that under SQLite's ten attachments. A reader
 finds its table by schema, never by name. A command answering from `read()` answers only rows
 its declared role may read, as [ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)
-bounds what a verb's mount may expose. A schema version mismatch discards the file at open.
+bounds what a command's mount may expose. A schema version mismatch discards the file at open.
 Retention is declared per table and runs on the Table tick, as a `retain` window or a
 `retained_by` list of `[ table, its column, own column ]` references. The referencing column
 leads an index or the key in its table, and the own column is the lookup table's
@@ -2716,27 +2780,28 @@ and every access token it issues is a command session.
 - **A session names its audience.** Its row carries its grant as `g` and the resource it was
   issued for as `r`. `Command_Auth::admits_resource()` admits a session naming a resource at
   that resource alone and one naming none, issued by hand, everywhere; a grant naming no
-  resource mints nothing. The substrate's own doors are `Command_Auth::SITE_WIDE`, no
+  resource mints nothing. `/command` and the SSE stream are `Command_Auth::SITE_WIDE`, no
   resource at all: `check()`, under both `verifier()` and `batch_verifier()`, and the SSE
   stream's session check refuse a grant session before its key is read, exactly as they
-  refuse a handle that does not name a session, so they never confirm a grant key. An application
-  declares each resource through the `newspack_nodes/oauth_resources` filter, and
-  event-logger-nodes pins its door's URI to
-  https, the host lowercased and no trailing slash, so the approval page and the door spell
-  it alike.
+  refuse a handle that does not name a session, so they never confirm a grant key. Each MCP
+  door declares its resource through the `newspack_nodes/oauth_resources` filter, which
+  `Mcp_Door::wire()` hooks, and `Mcp_Door::resource()` pins the URI to https, the host
+  lowercased and no trailing slash, so the approval page and the door spell it alike.
 - **One list of OAuth scopes.** [`Oauth_Store::SCOPES`](../includes/class-oauth-store.php),
-  `read` and `tune`, is what the metadata advertises, the approval page offers and
-  `mint_grant_session()` accepts. `manage` is expected back through OAuth, for an MCP
-  cockpit on the substrate itself, and restoring it is one edit to that list:
-  the approval page describes a scope through `Capabilities::label()`, which
-  names every role on the ladder, so nothing else has to change with it.
+  `read`, `tune` and `manage`, is what the metadata advertises, the approval page offers and
+  `mint_grant_session()` accepts. The approval page offers a user only the scopes
+  `Oauth_Server::can_grant()` admits, and describes each through `Capabilities::label()`,
+  which names every role on the ladder. A `manage` grant reaches a manage tool at one door
+  alone, the substrate's own `/newspack-nodes/v1/mcp`: the event logger's tools stop at
+  `tune`, and intelligence leaves its two manage commands out of its tools.
 - **A session someone carries holds at most `tune`.** `wp nodes session issue`, the Sessions
   tab's create and a labelled `POST /auth` take a scope from `Capabilities::LABELLED_SCOPES`,
   `read` or `tune`, defaulting to `tune`. The unlabelled session a dashboard or a hub's
   `HTTP_Out` mints keeps the minting user's highest role, `manage` included, because the
-  Sessions verbs, the graph verbs and every undeclared verb require it
-  ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)). Every MCP tool
-  needs `tune` or less.
+  Sessions commands, the graph commands and every undeclared command require it
+  ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)). A session
+  someone carries therefore never reaches a manage tool; an OAuth grant for the substrate's
+  door does, and so does the unlabelled session, which every door admits.
 - **A refresh rotates inside one claim.** A refresh token is opaque, stored as its SHA-256,
   and bound to a grant that lives 30 days from approval and is never extended.
   `Oauth_Store::rotate()` stores the next token, mints the session, then `add()`s the
@@ -2786,11 +2851,13 @@ and every access token it issues is a command session.
 - Self-contained access tokens such as a signed JWT — rejected: a second session mechanism,
   which revoking in the Sessions tab could not end at once.
 - OAuth's scopes read from `Capabilities::LABELLED_SCOPES` — rejected: the two lists answer
-  different questions, and restoring `manage` to one must not grant it through the other.
+  different questions, and OAuth granting `manage` must not let a session issued by hand
+  hold it.
 
 **Consequences:** A connection works for 30 days from approval, then its person signs in
 again. Under a shared admin account the connection name is the only
-attribution. A labelled session can never hold `manage`. The grace row keeps a token answer,
+attribution. A session issued by hand can never hold `manage`; a connection can, through
+a grant its approver could make. The grace row keeps a token answer,
 access token and refresh token included, for 60 seconds, the one place the store holds a
 refresh token other than as a hash. The `.well-known` documents are answered from
 `parse_request` out of `WP::$request`, which WordPress fills only under pretty permalinks,
@@ -2799,6 +2866,18 @@ requests come from Anthropic's servers, so a site that is not publicly reachable
 using pasted tokens.
 
 **Revisit if:** a client that must connect cannot hold a rotating refresh token.
+
+**Amendment: a manage grant carries its approver's whole authority over the fleet.** A
+manage grant mints no session of any other kind: `sessions create` is not a tool, and a
+grant session is refused at `/command` and the SSE stream. Those are its only limits. At
+the substrate's door it reaches `topologies_save` and `topologies_activate`,
+and a saved topology is a graph the fleet then runs: a `File_Tail` follows any file the PHP
+user can read, `wp-config.php` and its salts included, into a log that `raw_logs_dump_log`
+reads back, and a `Curl` node makes requests to any host the site can reach. Revoking the
+grant ends its sessions and does not recall what it already read: a salt read out stays valid
+until the site rotates it. This is the trade-off of granting `manage`, not a defect a check
+closes; whether the cockpit keeps `topologies_save` is Chris's decision. The approval page
+checks the broadest scope it offers, which for a user who holds `manage` is `manage`.
 
 ---
 
@@ -2845,17 +2924,38 @@ six things:
 
 - `rest_namespace()`, which mounts the route `/<namespace>/mcp` and names the door's OAuth
   resource and its rate-limit slots;
-- `tools()`, each tool a node, its class, a verb on it, a summary and the args it offers;
-  the verb's own declaration supplies the role, each arg's type, requiredness and
+- `tools()`, each tool a node, its class, a command on it, a summary and the args it offers;
+  the command's own declaration supplies the role, each arg's type, requiredness and
   variadic-ness, and `{declared}` in an arg's text, so the map holds no role to disagree
-  with the gate ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares));
+  with the gate ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares));
 - `instructions()` and `caveat()`, served as `FENCE_NOTE . ' ' . instructions() . ' ' .
   caveat()`, with the caveat closing every tool description as well;
 - `fills()`, placeholder to value, read each time the tools are listed;
 - `server_info()`, the `serverInfo` `initialize` answers.
 
-`wire()` mounts it: the route on `rest_api_init`, the 401's `WWW-Authenticate` pointer on
-`rest_post_dispatch`, and the resource on `newspack_nodes/oauth_resources`. Each door
+Three doors declare on it: event-logger-nodes' at `/newspack-event-logger-nodes/v1/mcp`,
+newspack-intelligence's at `/newspack-intelligence/v1/mcp`, and the substrate's own
+[`Nodes_Mcp_Door`](../includes/class-nodes-mcp-door.php) at `/newspack-nodes/v1/mcp`,
+which fronts the ten service CIs `Bootstrap::SUBSTRATE_CIS` names, every command but the
+seven `Nodes_Mcp_Door::NOT_TOOLS` lists.
+
+`Mcp_Door::declared_tools( $node, $class, $prefix, $except, $text )` is how a door builds
+`tools()` from what a class declares: one tool per command the class declares but the
+`$except` verbs, named `<prefix>_<verb>`, summarized by the command's own `description`,
+offering every arg it declares as `{declared}`, with `$text` overriding a tool's name,
+summary or args by verb. An `$except` or `$text` entry naming a verb the class does not
+declare throws, so the door cannot drift from the commands. A command added to one of the
+substrate's CI classes is therefore a cockpit tool with no edit to the door.
+
+`wire()` mounts it: the route on `rest_api_init`, the body cap on `rest_pre_dispatch`, the
+401's `WWW-Authenticate` pointer on `rest_post_dispatch`, and the resource on
+`newspack_nodes/oauth_resources`. The cap refuses a body to the door's own route over
+`Command_Interpreter_Node::MAX_BODY_BYTES` (1 MiB) with a 413 and JSON-RPC `-32600`, at
+every door. It runs on `rest_pre_dispatch` because WordPress decodes a JSON body while it
+validates the request's parameters, before any route callback runs, so a check inside
+`dispatch()` would measure a body already decoded. A door needs the cap because a command
+that measures its own input reads the envelope `/command` hands it, and a door passes none.
+Each door
 meters a session in its own slots, `mcp:<namespace>:<handle>`, so one door's budget is not
 another's, and a grant session minted for one door's resource is refused at every other
 ([ADR-36](#adr-36-oauth-issues-command-sessions)). Every door fences each reply in the one
@@ -2872,11 +2972,12 @@ scope as `/command`'s verifier does.
   that would diverge, and a fix to one door's credential check would miss the other.
 - One substrate door listing every plugin's tools — rejected: one resource and one consent
   would cover unrelated data sets, so a connection approved for traffic diagnostics would
-  reach intelligence's sources too.
+  reach intelligence's sources too. The substrate's own door fronts the substrate's
+  commands alone.
 
 **Consequences:** A door's security rests on code its plugin does not own: a change to
-`Mcp_Door` reaches every door at once, and its six declarations and `wire()` are a
-cross-plugin surface ([stability.md](stability.md)). A door can say nothing the
+`Mcp_Door` reaches every door at once, and its six declarations, `declared_tools()` and
+`wire()` are a cross-plugin surface ([stability.md](stability.md)). A door can say nothing the
 declarations do not carry.
 
 **Revisit if:** a door needs a transport other than one POST.

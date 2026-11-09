@@ -14,7 +14,6 @@ use Newspack_Nodes\Oauth_Store;
 use Newspack_Nodes\Tests\Fixture_Mcp_CI_Node;
 use Newspack_Nodes\Tests\Fixture_Mcp_Door;
 use Newspack_Nodes\Tests\Mcp_Requests;
-use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
@@ -39,16 +38,16 @@ class McpDoorTest extends TestCase {
 	/** The fixture door's canonical URI, served from a host distinct from the `rest_url()` shim's default. */
 	private const DOOR = 'https://test.example/wp-json/fixture-alpha/v1/mcp';
 
+	/** The substrate's own door at the same host, which the plugin wires at load. */
+	private const COCKPIT = 'https://test.example/wp-json/newspack-nodes/v1/mcp';
+
 	/** Where a client is told to read the fixture door's sign-in metadata. */
 	private const SIGN_IN = 'Bearer resource_metadata="https://test.example/.well-known/oauth-protected-resource/wp-json/fixture-alpha/v1/mcp"';
-
-	private ?\Memcached $prev_memd = null;
 
 	protected function setUp(): void {
 		parent::setUp();
 		$this->use_wpdb_sessions();
-		$this->prev_memd = Core::$memd;
-		Core::$memd      = new InMemoryMemcached();
+		$this->use_in_memory_memcached();
 		$GLOBALS['_wp_test_current_user_id']  = 42;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		\add_action(
@@ -63,7 +62,7 @@ class McpDoorTest extends TestCase {
 
 	protected function tearDown(): void {
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
-		Core::$memd                 = $this->prev_memd;
+		$this->restore_memcached();
 		unset( $GLOBALS['_wp_test_home_url'], $GLOBALS['_wp_test_rest_base'] );
 		parent::tearDown();
 	}
@@ -74,31 +73,6 @@ class McpDoorTest extends TestCase {
 		$door         = new Fixture_Mcp_Door( self::ALPHA );
 		$door->check_permission( $this->request( [], $bearer ) );
 		return [ $door, $bearer ];
-	}
-
-	/**
-	 * The tools a door lists for its session, keyed by name.
-	 *
-	 * @return array<string,array<string,mixed>>
-	 */
-	private function listed( Mcp_Door $door, string $bearer ): array {
-		$tools = $door->dispatch( $this->request( [ 'jsonrpc' => '2.0', 'id' => 31, 'method' => 'tools/list' ], $bearer ) )['result']['tools'];
-		return \array_column( $tools, null, 'name' );
-	}
-
-	/** One `tools/call` through `$door`. */
-	private function call( Mcp_Door $door, string $bearer, string $tool, array $arguments, int $id = 5 ): array {
-		return $door->dispatch(
-			$this->request(
-				[
-					'jsonrpc' => '2.0',
-					'id'      => $id,
-					'method'  => 'tools/call',
-					'params'  => [ 'name' => $tool, 'arguments' => $arguments ],
-				],
-				$bearer
-			)
-		);
 	}
 
 	/** The JSON inside a fenced reply. */
@@ -445,6 +419,95 @@ class McpDoorTest extends TestCase {
 		}
 	}
 
+	/** A `tools/list` POST to `$route`, padded through a `pad` param to exactly `$bytes`. */
+	private function padded_request( int $bytes, ?string $bearer = null, string $route = '/fixture-alpha/v1/mcp' ): \WP_REST_Request {
+		$req   = $this->request( [ 'jsonrpc' => '2.0', 'id' => 61, 'method' => 'tools/list', 'params' => [ 'pad' => '' ] ], $bearer, $route );
+		$short = $req->get_body();
+		$req->set_body( \str_replace( '"pad":""', '"pad":"' . \str_repeat( 'q', $bytes - \strlen( $short ) ) . '"', $short ) );
+		$this->assertSame( $bytes, \strlen( $req->get_body() ) );
+		return $req;
+	}
+
+	/** What `rest_pre_dispatch` answers for `$req` when the filters before it answered `$result`. */
+	private static function pre_dispatched( \WP_REST_Request $req, mixed $result = null ): mixed {
+		return \apply_filters( 'rest_pre_dispatch', $result, new \WP_REST_Server(), $req );
+	}
+
+	/**
+	 * One byte past the shared cap is refused on `rest_pre_dispatch`, ahead of
+	 * WordPress's own JSON decode, so the id the body carried is never read;
+	 * the route matches in any case, as WordPress matches it.
+	 */
+	public function test_a_body_one_byte_over_the_cap_is_refused_before_it_is_decoded(): void {
+		( new Fixture_Mcp_Door( self::ALPHA ) )->wire();
+
+		$reply = self::pre_dispatched( $this->padded_request( Command_Interpreter_Node::MAX_BODY_BYTES + 1, null, '/Fixture-Alpha/V1/MCP' ) );
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $reply );
+		$this->assertSame( 413, $reply->get_status() );
+		$this->assertSame(
+			[
+				'jsonrpc' => '2.0',
+				'id'      => null,
+				'error'   => [ 'code' => -32600, 'message' => 'Request body exceeds 1048576 bytes.' ],
+			],
+			$reply->get_data()
+		);
+	}
+
+	/** A body exactly at the cap passes the filter untouched. */
+	public function test_a_body_at_the_cap_passes_the_filter(): void {
+		( new Fixture_Mcp_Door( self::ALPHA ) )->wire();
+
+		$this->assertNull( self::pre_dispatched( $this->padded_request( Command_Interpreter_Node::MAX_BODY_BYTES ) ) );
+	}
+
+	/** The cap guards this door alone: an oversized body on any other route passes. */
+	public function test_an_oversized_body_on_another_route_passes_the_filter(): void {
+		( new Fixture_Mcp_Door( self::ALPHA ) )->wire();
+
+		foreach ( [ '/fixture-alpha/v1/other', '/fixture-alpha/v1/mcp/x', '/fixture-beta/v2/mcp' ] as $route ) {
+			$this->assertNull( self::pre_dispatched( $this->padded_request( Command_Interpreter_Node::MAX_BODY_BYTES + 1, null, $route ) ), $route );
+		}
+	}
+
+	/** A result an earlier filter answered stands, even over an oversized body. */
+	public function test_a_result_another_filter_answered_passes_through(): void {
+		( new Fixture_Mcp_Door( self::ALPHA ) )->wire();
+		$prior = new \WP_REST_Response( [ 'served' => 'fixture-7731' ], 203 );
+
+		$this->assertSame( $prior, self::pre_dispatched( $this->padded_request( Command_Interpreter_Node::MAX_BODY_BYTES + 1 ), $prior ) );
+	}
+
+	/** `wire()` hooks the cap with the three arguments `rest_pre_dispatch` passes. */
+	public function test_wire_hooks_the_cap_on_rest_pre_dispatch_with_three_arguments(): void {
+		$saved                               = $GLOBALS['_wp_action_registrations'] ?? [];
+		$GLOBALS['_wp_action_registrations'] = [];
+		$GLOBALS['_wp_record_registrations'] = true;
+		try {
+			$door = new Fixture_Mcp_Door( self::ALPHA );
+			$door->wire();
+			[ $registration ] = $GLOBALS['_wp_action_registrations']['rest_pre_dispatch'];
+		} finally {
+			unset( $GLOBALS['_wp_record_registrations'] );
+			$GLOBALS['_wp_action_registrations'] = $saved;
+		}
+
+		$this->assertSame( [ $door, 'refuse_oversized_body' ], $registration['callback'] );
+		$this->assertSame( 3, $registration['accepted_args'] );
+	}
+
+	/** A body exactly at the cap is admitted and answered. */
+	public function test_a_body_at_the_cap_is_admitted(): void {
+		[ $door, $bearer ] = $this->door();
+
+		$reply = $door->dispatch( $this->padded_request( Command_Interpreter_Node::MAX_BODY_BYTES, $bearer ) );
+
+		$this->assertIsArray( $reply );
+		$this->assertSame( 61, $reply['id'] );
+		$this->assertIsArray( $reply['result']['tools'] );
+	}
+
 	/**
 	 * The named-object → token-array mapping, which is the whole seam between
 	 * MCP and the command protocol: every argument rides by name, in the order
@@ -558,9 +621,10 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( [ $alpha, 'dispatch' ], $routes['fixture-alpha/v1/mcp']['callback'] );
 		$this->assertSame( [ $alpha, 'check_permission' ], $routes['fixture-alpha/v1/mcp']['permission_callback'] );
 		$resources = \apply_filters( 'newspack_nodes/oauth_resources', [] );
-		$this->assertCount( 2, $resources );
-		$this->assertStringEndsWith( '/fixture-alpha/v1/mcp', $resources[0] );
-		$this->assertStringEndsWith( '/fixture-beta/v2/mcp', $resources[1] );
+		$this->assertCount( 3, $resources );
+		$this->assertStringEndsWith( '/newspack-nodes/v1/mcp', $resources[0], 'the substrate\'s own door, wired at load' );
+		$this->assertStringEndsWith( '/fixture-alpha/v1/mcp', $resources[1] );
+		$this->assertStringEndsWith( '/fixture-beta/v2/mcp', $resources[2] );
 	}
 
 	/**
@@ -654,7 +718,7 @@ class McpDoorTest extends TestCase {
 				$door->wire();
 
 				$this->assertSame( self::DOOR, $door->resource() );
-				$this->assertSame( [ 'https://kea.example/mcp', self::DOOR ], \apply_filters( 'newspack_nodes/oauth_resources', [ 'https://kea.example/mcp' ] ) );
+				$this->assertSame( [ 'https://kea.example/mcp', self::COCKPIT, self::DOOR ], \apply_filters( 'newspack_nodes/oauth_resources', [ 'https://kea.example/mcp' ] ) );
 				$this->assertSame( self::DOOR, Oauth_Server::resource_metadata( self::DOOR )['resource'] ?? null, 'the substrate serves its metadata' );
 			}
 		);
@@ -690,5 +754,78 @@ class McpDoorTest extends TestCase {
 				$this->assertTrue( ( new Fixture_Mcp_Door( self::ALPHA ) )->check_permission( $this->request( [], $bearer ) ) );
 			}
 		);
+	}
+
+	/**
+	 * `Mcp_Door::declared_tools()` over the fixture CI, mounted as `fixture-mcp`.
+	 *
+	 * @param list<string>                     $except Verbs left out.
+	 * @param array<string,array<string,mixed>> $text   Text overrides by verb.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function declared_tools( array $except = [], array $text = [] ): array {
+		return ( new \ReflectionMethod( Mcp_Door::class, 'declared_tools' ) )
+			->invoke( null, 'fixture-mcp', Fixture_Mcp_CI_Node::class, 'kestrel', $except, $text );
+	}
+
+	/**
+	 * One tool per declared command but those excepted, in declared order:
+	 * named `<prefix>_<verb>`, summarised by the command's description, and
+	 * offering every arg it declares by its own description.
+	 */
+	public function test_declared_tools_derive_name_summary_and_args(): void {
+		$ci = [ 'node' => 'fixture-mcp', 'class' => Fixture_Mcp_CI_Node::class ];
+
+		$this->assertSame(
+			[
+				'kestrel_echo_args' => $ci + [
+					'verb'    => 'echo_args',
+					'summary' => 'Answer the bound args.',
+					'args'    => [ 'word' => '{declared}', 'count' => '{declared}', 'tags' => '{declared}' ],
+				],
+				'kestrel_poke'      => $ci + [
+					'verb'    => 'poke',
+					'summary' => 'Answer `poked`.',
+					'args'    => [],
+				],
+			],
+			self::declared_tools( [ 'wipe' ] )
+		);
+	}
+
+	/** A verb's text overrides its name, its summary and its args, each alone. */
+	public function test_declared_tools_take_text_overrides(): void {
+		$tools = self::declared_tools(
+			[],
+			[
+				'echo_args' => [ 'name' => 'heron_echo', 'args' => [ 'word' => 'A word, overridden.' ] ],
+				'poke'      => [ 'summary' => 'Poke, overridden.' ],
+			]
+		);
+
+		$this->assertSame( [ 'heron_echo', 'kestrel_poke', 'kestrel_wipe' ], \array_keys( $tools ) );
+		$this->assertSame( 'echo_args', $tools['heron_echo']['verb'] );
+		$this->assertSame( 'Answer the bound args.', $tools['heron_echo']['summary'] );
+		$this->assertSame( [ 'word' => 'A word, overridden.' ], $tools['heron_echo']['args'] );
+		$this->assertSame( 'Poke, overridden.', $tools['kestrel_poke']['summary'] );
+		$this->assertSame( [], $tools['kestrel_poke']['args'] );
+		$this->assertSame( 'Answer `wiped`.', $tools['kestrel_wipe']['summary'] );
+	}
+
+	/** @return array<string,array{0:list<string>,1:array<string,array<string,mixed>>}> */
+	public static function undeclared_verbs(): array {
+		return [
+			'an exception' => [ [ 'poke', 'ruffle' ], [] ],
+			'a text entry' => [ [], [ 'ruffle' => [ 'summary' => 'Ruffle the fixture.' ] ] ],
+		];
+	}
+
+	/** Naming a verb the class does not declare is drift, and fails loud. */
+	#[DataProvider( 'undeclared_verbs' )]
+	public function test_declared_tools_refuse_an_undeclared_verb( array $except, array $text ): void {
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( Fixture_Mcp_CI_Node::class . ' does not declare ruffle' );
+
+		self::declared_tools( $except, $text );
 	}
 }

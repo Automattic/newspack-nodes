@@ -63,14 +63,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	private const ID_PATTERN = '/^[a-zA-Z0-9_:.-]+$/D';
 
 	/**
-	 * Ceiling on the packed command envelope, in bytes — 1 MiB. A captured
-	 * graph runs to thousands of positions, so the cap sits far above any
-	 * layout the console produces and refuses only a runaway blob.
-	 */
-	private const MAX_BODY_BYTES = 1048576;
-
-	/**
-	 * `get` verb — the saved positions for one layout name.
+	 * `get` command — the saved positions for one layout name.
 	 *
 	 * A missing file is an answer, not an error: it reads as AUTO, so the
 	 * canvas lays itself out. An unreadable or malformed file reads the same
@@ -282,7 +275,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'capability'  => Capabilities::READ,
 					'description' => 'Read saved node positions for a layout name.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true, 'description' => 'The layout name, the topology name the console views it under.' ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( $args ),
 				],
 				[
@@ -290,8 +283,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::TUNE,
 					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`, the JSON an object, or "auto" to remove the saved layout. 1 MiB cap.',
 					'args'        => [
-						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
+						[ 'name' => 'name', 'type' => 'string', 'required' => true, 'description' => 'The layout name, the topology name the console views it under.' ],
+						[ 'name' => 'positions', 'type' => 'json', 'required' => true, 'description' => 'A JSON object of node name to `[x, y]`, or "auto" to remove the saved layout.' ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
 				],

@@ -1012,8 +1012,7 @@ class CommandAuthSessionTest extends TestCase {
 			'no user'                   => [ $without( 'user' ), 'does not name a user' ],
 			'user 0'                    => [ [ 'user' => 0 ] + $row, 'does not name a user' ],
 			'a user as a string'        => [ [ 'user' => '7746' ] + $row, 'does not name a user' ],
-			'manage'                    => [ [ 'scope' => Capabilities::MANAGE ] + $row, 'names the scope manage; a grant holds read or tune' ],
-			'a scope outside the ladder' => [ [ 'scope' => 'kea-7746' ] + $row, 'names the scope kea-7746; a grant holds read or tune' ],
+			'a scope outside the ladder' => [ [ 'scope' => 'kea-7746' ] + $row, 'names the scope kea-7746; a grant holds read or tune or manage' ],
 		];
 	}
 
@@ -1042,8 +1041,8 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertSame( [], $this->session_handles() );
 	}
 
-	public function test_oauth_grants_read_and_tune(): void {
-		$this->assertSame( [ Capabilities::READ, Capabilities::TUNE ], Oauth_Store::SCOPES );
+	public function test_oauth_grants_read_tune_and_manage(): void {
+		$this->assertSame( [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ], Oauth_Store::SCOPES );
 	}
 
 	/** A row not shaped as a mint writes it verifies nothing; it is not a session. */

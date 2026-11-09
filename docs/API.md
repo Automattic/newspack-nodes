@@ -1,7 +1,8 @@
 # Newspack Nodes REST API
 
 The runtime ships a small REST surface for worker lifecycle, session auth,
-command dispatch, an SSE stream, and an internal cache-health probe.
+command dispatch, an MCP door over its own commands, an SSE stream, and an
+internal cache-health probe.
 Application plugins register their own endpoints (dashboards, additional
 streams) on top, and mount service [`Command_Interpreter_Node`](../includes/class-command-interpreter-node.php)s into the
 dispatch endpoint's graph through the
@@ -12,7 +13,9 @@ Everything lives under one namespace, `newspack-nodes/v1`, registered by
 [`Bootstrap::register_rest_routes()`](../includes/class-bootstrap.php) on [`rest_api_init`](https://developer.wordpress.org/reference/hooks/rest_api_init/). The order is
 load-bearing: `/health/runtime` registers first so REST init completes even when
 the runtime base directory is refused, and the others register only once
-that base is available and `ensure_runtime_wired()` has run.
+that base is available and `ensure_runtime_wired()` has run. `/mcp` is the one
+route registered elsewhere: `Nodes_Mcp_Door::wire()` hooks its own
+`register_routes()` on `rest_api_init`, as every [MCP door](#mcp-doors) does.
 
 | Route | Method | Permission |
 |---|---|---|
@@ -21,10 +24,11 @@ that base is available and `ensure_runtime_wired()` has run.
 | [`/oauth/register`](#oauth-authorization-server) | POST | Anyone, over HTTPS + per-address rate limit |
 | [`/oauth/token`](#oauth-authorization-server) | POST | A registered client, over HTTPS + per-client rate limit; the code and verifier or the refresh token authenticate |
 | [`/command`](#command-dispatch) | POST | READ + per-user burst limit, then a per-command signature |
+| [`/mcp`](#mcp-doors) | POST | A `Bearer <handle>.<key>` live session admitted at this door's resource + per-session rate limit; each tool needs its command's declared role |
 | [`/messages/stream`](#sse-stream) | GET | READ |
 | [`/health/runtime`](#internal-runtime-health) | POST | Internal HMAC token |
 
-![A grid of the seven routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/runtime registers first, and the entry points outside the namespace: the OAuth .well-known documents, the two settings actions on admin-post.php gated by the manage role, and the OAuth approval page with its admin-post.php decision, gated by a nonce and the scope the user can grant, which redirects to the client's registered URI.](img/api-route-gates.png)
+![A grid of the eight routes, /mcp among them, against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/runtime registers first and /mcp registers through its door's wire(), and the entry points outside the namespace: the OAuth .well-known documents, the two settings actions on admin-post.php gated by the manage role, and the OAuth approval page with its admin-post.php decision, gated by a nonce and the scope the user can grant, which redirects to the client's registered URI.](img/api-route-gates.png)
 
 The substrate is also its own client. [`HTTP_Out_Node`](../includes/class-http-out-node.php) POSTs batched JSONL
 command envelopes to a remote spoke's `/command` (`COMMAND_PATH`) and
@@ -455,7 +459,7 @@ declared resource's trailing slash is ignored, because WordPress trims it.
 | `/.well-known/oauth-protected-resource/<path>` | RFC 9728, for a resource whose URI path is `<path>`: `resource`, `authorization_servers: [<issuer>]`, `scopes_supported`, `bearer_methods_supported: ["header"]`. A path that does not belong to any declared resource answers 404 `invalid_target` |
 
 `scopes_supported` is [`Oauth_Store::SCOPES`](../includes/class-oauth-store.php),
-`read` and `tune`. An application declares each resource it protects through the
+`read`, `tune` and `manage`. A door declares each resource it protects through the
 [`newspack_nodes/oauth_resources`](#filters) filter, and names the document's
 URL with `Oauth_Server::resource_metadata_url( $resource )`.
 
@@ -568,17 +572,20 @@ description in `error_description`.
 
 ## MCP doors
 
-An application serves an MCP server over verbs it already declares by
+A plugin serves an MCP server over commands it already declares by
 subclassing [`Mcp_Door`](../includes/class-mcp-door.php) and calling `wire()`
 ([ADR-38](architecture-decisions.md#adr-38-an-mcp-door-is-a-declaration-over-the-substrates-server)).
-The route sits under the application's own namespace, not `newspack-nodes/v1`:
+The route sits under the plugin's own namespace, so the substrate's own door,
+[described below](#the-substrates-door), answers at `/newspack-nodes/v1/mcp` and
+an application's at its namespace instead:
 
 | Route | Method | Permission |
 |---|---|---|
 | `/<namespace>/mcp` | POST | The fleet site; a `Bearer <handle>.<key>` live session admitted at this door's resource; a per-session, per-door rate limit |
 
-`wire()` hooks three things: `register_routes()` on `rest_api_init`,
-`point_to_sign_in()` on `rest_post_dispatch`, and the door's `resource()` on
+`wire()` hooks four things: `register_routes()` on `rest_api_init`, the body
+cap on `rest_pre_dispatch`, `point_to_sign_in()` on `rest_post_dispatch`, and
+the door's `resource()` on
 [`newspack_nodes/oauth_resources`](#oauth-authorization-server). The resource is
 the route's REST URL over https, the host lowercased and no trailing slash.
 
@@ -603,16 +610,77 @@ memcached frees 9 to 10 s after the claim and APCu 10 to 11 s.
 | 503 | `rate_limit_unavailable` | Neither memcached nor APCu can meter the call |
 
 **Protocol.** One POST carries JSON-RPC 2.0, MCP revision `2025-06-18`:
-`initialize`, `tools/list` and `tools/call`. A message with no `id` is a
+`initialize`, `tools/list` and `tools/call`. A body to the door's own route
+over `Command_Interpreter_Node::MAX_BODY_BYTES` (1048576 bytes) is refused on
+`rest_pre_dispatch`, with a 413 carrying `-32600` `Request body exceeds 1048576
+bytes.` and a null id; one exactly at the cap is read. That filter runs before
+WordPress decodes a JSON body, which it does while validating the request's
+parameters, and before the permission check, so an oversized body answers 413
+whether or not it carries a live session. A message with no `id` is a
 notification and is answered with a bodiless 202; a body that is not JSON-RPC
 2.0 answers `-32600` with a null id, and an unknown method or a tool the session
-may not call answers `-32601`. A tool's argument object rides to its verb as
-`--name=value` tokens, a list as one token a member, and a verb's refusal comes
+may not call answers `-32601`. A tool's argument object rides to its command as
+`--name=value` tokens, a list as one token a member, and a command's refusal comes
 back as a tool result with `isError` true. Every reply leaves as JSON encoded
 with `JSON_HEX_TAG` inside one `<site-data>` fence, so a payload cannot close
 the tag, and `initialize` serves `FENCE_NOTE`, the sentence saying what the tag
 means, ahead of the door's own instructions and its caveat. The server's
 methods are `final`; a door declares, it does not override.
+
+**Deriving the tools.** `Mcp_Door::declared_tools( $node, $class, $prefix,
+$except = [], $text = [] )`, `final protected static`, answers one tool per
+command `$class` declares but the `$except` verbs, for the node mounted as
+`$node`. A tool is named `<prefix>_<verb>`, summarized by the command's own
+`description` and offers every arg the command declares, its text
+`{declared}`, which `tools/list` fills with that arg's own `description` and
+throws `\LogicException` for an arg declaring none; `$text`, keyed by verb, overrides a tool's `name`, `summary` or
+`args`. An `$except` or `$text` entry naming a verb the class does not declare
+throws `\LogicException`, so a door cannot drift from the commands it fronts.
+
+### The substrate's door
+
+[`Nodes_Mcp_Door`](../includes/class-nodes-mcp-door.php) answers at
+`POST /wp-json/newspack-nodes/v1/mcp`, its `serverInfo` naming
+`newspack-nodes` and the plugin's version. Its tools are `declared_tools()`
+over each node in `Bootstrap::SUBSTRATE_CIS`, the table the substrate mounts
+its [service CIs](#service-cis) from, with the hyphen in `raw-logs` written as
+an underscore, so a command added to one of those classes is a tool with no
+edit to the door. A session sees the tools its scope covers:
+
+| Role | Tools |
+|---|---|
+| read (16) | `status_get`; `workers_list`, `workers_dump_graph`, `workers_dump_cleanup`, `workers_inspect`; `topologies_dump`, `topologies_get`, `topologies_expand`; `raw_logs_list_logs`, `raw_logs_dump_log`, `raw_logs_read_message`; `classes_dump`; `settings_get`; `layouts_get`; `aggregator_summary`, `aggregator_list_servers` |
+| tune (2) | `settings_set`, `layouts_save` |
+| manage (12) | `workers_restart`; `topologies_save`, `topologies_delete`, `topologies_activate`, `topologies_deactivate`; `aggregator_probe`; `vault_list`, `vault_get`, `vault_delete`, `vault_test`; `sessions_list`, `sessions_revoke` |
+
+A read session therefore lists 16 tools, a tune session 18 and a manage
+session all 30. `manage` reaches this door through an OAuth grant for it, or
+through the unlabelled session a dashboard mints; a session issued by hand
+holds at most `tune`. A manage grant mints no other session, and it carries
+its approver's whole authority over the fleet: `topologies_save` and
+`topologies_activate` run any graph, so a `File_Tail` can follow any file the
+PHP user can read, `wp-config.php` and its salts included, into a log
+`raw_logs_dump_log` reads back, and a `Curl` node can make requests to any
+host the site reaches. Revoking the grant ends its sessions and does not
+recall what it already read. The approval page checks the broadest scope it
+offers, which is `manage` for a user who holds it
+([ADR-36](architecture-decisions.md#adr-36-oauth-issues-command-sessions)). `Nodes_Mcp_Door::NOT_TOOLS` keeps seven commands off the
+list, and calling one answers `-32601` `Unknown tool: <name>`:
+
+| Command | Why it is not a tool |
+|---|---|
+| `sessions create` | It mints a bearer key |
+| `vault add`, `vault update` | Each takes a `password`, which would pass through the agent's transcript |
+| `topologies connect_worker_input`, `topologies mount_tables` | Each mounts nodes into the request's graph, and an MCP call is one request that ends with its reply |
+| `workers heartbeat` | It refreshes a session's SSE slot, and an MCP session holds none |
+| `raw-logs read_block` | It answers through the envelope's FROM, and a door hands it no envelope; `dump_log` and `read_message` read logs |
+
+`vault list` and `vault get` answer through `public_shape()`, which drops the
+password. The door's caveat is one clause, and closes every tool
+description; the door's instructions name, once, the manage tools that change
+the running fleet — restarting workers, saving, activating, deactivating and
+deleting topologies, revoking sessions and deleting Vault spokes — so an agent
+calls them only on the operator's own request.
 
 ## Command Dispatch
 
@@ -758,11 +826,13 @@ answers its own caller rather than let a node wait out its deadline:
 ### Service CIs
 
 The substrate mounts ten service CIs through `newspack_nodes/request_graph_ready`
-([`newspack_nodes_mount_substrate_cis()`](../newspack-nodes.php) in `newspack-nodes.php`). Each is a
-[`Service_CI_Node`](../includes/class-service-ci-node.php) declaring its verbs once in `node_schema()`, and the base
-derives the dispatch table from that declaration, while `dispatch()` refuses each verb
-below the role it declares ([ADR-26](architecture-decisions.md#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)). A
-verb that declares no `capability` demands MANAGE, so silence is the strictest
+([`newspack_nodes_mount_substrate_cis()`](../newspack-nodes.php) in `newspack-nodes.php`), one per
+entry in `Bootstrap::SUBSTRATE_CIS`, the table of mount name to class that
+[the substrate's MCP door](#the-substrates-door) reads too. Each is a
+[`Service_CI_Node`](../includes/class-service-ci-node.php) declaring its commands once in `node_schema()`, and the base
+derives the dispatch table from that declaration, while `dispatch()` refuses each command
+below the role it declares ([ADR-26](architecture-decisions.md#adr-26-every-command-is-gated-by-the-role-its-schema-declares)). A
+command that declares no `capability` demands MANAGE, so silence is the strictest
 role rather than the loosest.
 
 | Node name | Class | Commands (role) |
@@ -776,9 +846,9 @@ role rather than the loosest.
 | `settings` | [`Settings_CI_Node`](../includes/rest/class-settings-ci-node.php) | `get` (read), `set` (tune) |
 | `status` | [`Status_CI_Node`](../includes/rest/class-status-ci-node.php) | `get` (read) |
 | `sessions` | [`Sessions_CI_Node`](../includes/rest/class-sessions-ci-node.php) | `list`, `create`, `revoke` (manage — issuing one hands out access) |
-| `workers` | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php) | `list`, `dump_graph`, `dump_cleanup`, `heartbeat` (read), `restart` (manage) |
+| `workers` | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php) | `list`, `dump_graph`, `dump_cleanup`, `heartbeat`, `inspect` (read), `restart` (manage) |
 
-![Every service CI's verbs as chips colored by the role each declares, read, tune or manage, with the help verb each CI answers at read; the root interpreter's fifteen read-only builtins beside its manage verbs and their aliases; and three notes on the dispatch-time gate, the Shell builtins that mint nothing, and the three-level secure ladder.](img/api-verb-roles.png)
+![Every service CI's commands as chips colored by the role each declares, read, tune or manage, with the help command each CI answers at read; the root interpreter's fifteen read-only commands beside its manage commands and their aliases; and three notes on the dispatch-time gate, the Shell builtins that mint nothing, and the three-level secure ladder.](img/api-command-roles.png)
 
 The first column is the NODE name — `make_node`'s second argument, and what a
 caller puts in TO. A CI's SHELL name is a different string: the class short name
@@ -789,6 +859,40 @@ returns it as `class`, and the topology console's Inspector looks a node's comma
 up by it. It is also what `help Layouts_CI` renders a schema for, because
 `Bootstrap` registers the `Newspack_Nodes\Rest\` prefix alongside
 `Newspack_Nodes\`.
+
+**`workers inspect` runs one read command inside a live worker.**
+`inspect <worker> <verb> [<arg>…] [--path=<node>]` sends the command named by
+`verb` and its args into the worker `<type>.p<n>` and answers that command's
+reply. The command declares its args as `worker`, `verb`, `args` and `path`,
+in that order, so the variadic `args` takes every positional token after the
+verb and `path` is given only as `--path=<node>`. `verb` must have a READ base
+role, by `Command_Interpreter_Node::base_role( $verb )`, the rule `dispatch()`
+reads for a command every schema leaves undeclared (`ls`, `dump_node`, `stats`, `dmesg`
+and the rest); `path` must be empty, the worker's own interpreter, or name a
+`<node>:config` interpreter, a path holding no `/`. Any other verb, a different
+case or a trailing space included, and any other path are refused before a
+channel opens, so a read session reaches neither a worker's mutating commands
+nor a node that would store the command rather than interpret it. The command
+is signed with the site key for that one call
+([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own),
+[ADR-15](architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs)).
+An unknown worker is refused, and a sleeping on-demand worker is woken as
+`wp nodes cli` wakes it.
+
+The round trip is the `CLI` instance's `ask_workers( $receiver, $asks,
+$timeout_s )`, the one `wp nodes tables` makes, bounded by
+`Workers_CI_Node::INSPECT_TIMEOUT_S` (5 s). Each call mints its own reply
+session, `_cli:<pid>-<suffix>` with a random suffix, because in php-fpm one pid
+serves many requests and two calls under one head would read each other's
+replies. It reuses a worker's input Partition the request already registered,
+as `topologies connect_worker_input` registers one, takes `_router` and
+`_command_interpreter` through the get-or-build helper
+`Bootstrap::mount_request_graph()` uses, records each node it builds as it
+builds it, and removes those alone in a `finally`, whatever the outcome. A
+worker silent for 5 s is refused by name, and because a command whose answer
+is empty sends no reply, the refusal says so. A worker's own refusal comes
+back as the command's error, read by `CLI::refusal()`, which answers null for a
+reply that is not a TM_ERROR.
 
 **`vault add` and `update` take a `group`.** A server's optional `group`
 option, held to the same id rule as its own id, groups it with any other
@@ -1114,11 +1218,11 @@ request's FROM, with ID and KEY echoed, and a request reaching a node with no
 sink throws `fill requires a wired sink`. `reply_shape` documents `data`.
 
 An arg's declaration is enforced. `Command_Interpreter_Node::dispatch()` binds a
-verb's tokens against its `args` before the handler runs
-([ADR-25](architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)):
+command's tokens against its `args` before the handler runs
+([ADR-25](architecture-decisions.md#adr-25-a-commands-arguments-are-bound-by-its-schema)):
 a missing `required` arg, an unknown `--option`, a surplus positional, a name given
 twice or both ways, and a token not of its declared `int` or `float` type each answer
-the verb's TM_ERROR, and an absent arg takes its `default`. One arg may declare
+the command's TM_ERROR, and an absent arg takes its `default`. One arg may declare
 `variadic`, collecting the positional tail, or every `--name=` repeat, as a list
 of typed members. A `bool` takes `1`, `true`, `yes`, `on`, `0`, `false`, `no` or
 `off` and refuses any other word, and a blank for a `required` arg is missing. A Node constructor's `arguments()`
@@ -1146,7 +1250,7 @@ not then parse — so none rides in beside it.
 
 What `help` renders of that is thinner. The COMMANDS and REQUESTS tables
 [`Node_Schema_Help::render()`](../includes/class-node-schema-help.php) builds carry `name` and `description` alone: a
-verb's capability, its declared `args` and the `multiple` / `hidden` / `action`
+command's capability, its declared `args` and the `multiple` / `hidden` / `action`
 flags never appear, and a `hidden` command prints like any other. So `help
 Workers_CI` will not tell an operator what `restart` takes or which of the three
 roles it needs. The live-mode Inspector's command modals and the Service-CI tables
@@ -1226,12 +1330,12 @@ stands in for Tachikoma's `TM_COMPLETION` type flag, which this runtime does not
 carry, and REPL tab-completion is built on it. See
 [architecture-guide.md → REPL](architecture-guide.md#repl-wp-nodes-cli).
 
-Per-verb args, return shapes and error semantics are declared on each CI's
+Per-command args, return shapes and error semantics are declared on each CI's
 `node_schema()` under
 [`includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status,sessions}-ci-node.php`](../includes/rest/);
 the palette and the Inspector consume the same schema. Auth gating is uniform:
 the endpoint requires the READ floor AND a valid command signature, and each
-verb's declared role decides the rest. A refusal THROWS —
+command's declared role decides the rest. A refusal THROWS —
 `Command_Interpreter_Node::interpret()` wraps it as `TM_COMMAND|TM_ERROR`.
 `raw-logs read_message` and `read_block` refuse a malformed position that way too,
 and `read_message` answers a position holding no record as a result whose
@@ -1897,7 +2001,7 @@ Every hook the substrate fires, and the ones a consumer plugin is expected to
 answer. Every `newspack_nodes/*` name and signature is frozen surface — see
 [stability.md](stability.md).
 
-![Four rails, read left to right: a command request from rest_api_init through declare_config_keys, the capability_map and command_rate_limit filters, request_graph_ready and the per-verb capability check to the stderr action; the reconcile pass from the cron event through before_reconcile, the topologies filter, retention's registered_log_producers and periodic to after_reconcile in a finally; a spawn to spawn_worker; and a job from the two handler filters through before_job, the handler, after_job and batch_complete; with the settings, admin and topology-fired hooks beneath.](img/api-hooks-along-request.png)
+![Four rails, read left to right: a command request from rest_api_init through declare_config_keys, the capability_map and command_rate_limit filters, request_graph_ready and the per-command capability check to the stderr action; the reconcile pass from the cron event through before_reconcile, the topologies filter, retention's registered_log_producers and periodic to after_reconcile in a finally; a spawn to spawn_worker; and a job from the two handler filters through before_job, the handler, after_job and batch_complete; with the settings, admin and topology-fired hooks beneath.](img/api-hooks-along-request.png)
 
 ### Actions
 

@@ -110,7 +110,7 @@ function newspack_nodes_register_cli_commands(): void {
  * the same action applications mount their own CIs on, so a door never ends up
  * with a different command surface behind it. Each CI arrives through
  * `make_node()`, which constructs, names and sinks it in one step; without that
- * sink a verb reply, addressed TO=FROM, has no path back to the `_output`
+ * sink a command's reply, addressed TO=FROM, has no path back to the `_output`
  * response writer and drops silently.
  *
  * A named function rather than a closure, so the callback can be re-attached
@@ -125,21 +125,14 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 		return;
 	}
 
-	$base_interpreter->make_node( 'Classes_CI',    'classes' );
-	$base_interpreter->make_node( 'Layouts_CI',    'layouts' );
-	$base_interpreter->make_node( 'Topologies_CI', 'topologies' );
-	$base_interpreter->make_node( 'Raw_Logs_CI',   'raw-logs' );
-	$base_interpreter->make_node( 'Vault_CI',      'vault' );
-	$base_interpreter->make_node( 'Aggregator_CI', 'aggregator' );
-	$base_interpreter->make_node( 'Settings_CI',   'settings' );
-	$base_interpreter->make_node( 'Status_CI',     'status' );
-	$base_interpreter->make_node( 'Sessions_CI',   'sessions' );
-
-	// make_node drops non-scalar args, so object deps are assigned after it.
-	$cli        = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
-	$workers_ci = $base_interpreter->make_node( 'Workers_CI', 'workers' );
-	if ( $workers_ci instanceof \Newspack_Nodes\Rest\Workers_CI_Node ) {
-		$workers_ci->cli = $cli;
+	// First: a throwing base dir must never leave `workers` mounted without it.
+	$cli = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
+	foreach ( \Newspack_Nodes\Bootstrap::SUBSTRATE_CIS as $name => $class ) {
+		$ci = $base_interpreter->make_node( \Newspack_Nodes\Command_Interpreter_Node::shell_name_for( $class ), $name );
+		// make_node drops non-scalar args; object deps are assigned after it.
+		if ( $ci instanceof \Newspack_Nodes\Rest\Workers_CI_Node ) {
+			$ci->cli = $cli;
+		}
 	}
 }
 
@@ -157,6 +150,8 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'newspack_nodes/reconcile', [ '\\Newspack_Nodes\\Bootstrap', 'reconcile_fleet' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
+	// The cockpit, the substrate's own MCP door over those CIs.
+	( new \Newspack_Nodes\Nodes_Mcp_Door() )->wire();
 	// Settings-sync: init() registers the option-change hooks once.
 	\Newspack_Nodes\Settings_Event_Writer::init();
 	// Veto diagnostics: every cron runner calls these, not only wp-cron.php.

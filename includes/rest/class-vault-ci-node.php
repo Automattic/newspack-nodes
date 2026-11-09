@@ -429,7 +429,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * argument.
 	 *
 	 * `arguments` is empty: `make_node` hands this node nothing, and the
-	 * per-verb `args` are what the console renders.
+	 * per-command `args` are what the console renders.
 	 *
 	 * @api Used by substrate.
 	 * @return array<string,mixed>
@@ -450,7 +450,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'description' => 'A single server record by id.',
 					'args'        => [
-						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'id', 'type' => 'string', 'required' => true, 'description' => 'The spoke\'s Vault id, as `vault list` lists it.' ],
 					],
 					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_get( $args ),
 				],
@@ -487,7 +487,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'name'        => 'delete',
 					'description' => 'Remove a server (manage_options).',
 					'args'        => [
-						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'id', 'type' => 'string', 'required' => true, 'description' => 'The spoke\'s Vault id, as `vault list` lists it.' ],
 					],
 					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_delete( $args ),
 				],
@@ -495,7 +495,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'name'        => 'test',
 					'description' => "Probe a spoke's /command status endpoint with its stored credential (manage_options).",
 					'args'        => [
-						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'id', 'type' => 'string', 'required' => true, 'description' => 'The spoke\'s Vault id, as `vault list` lists it.' ],
 					],
 					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_test( $args ),
 				],

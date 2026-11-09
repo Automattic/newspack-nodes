@@ -15,7 +15,7 @@ namespace Newspack_Nodes;
 
 /**
  * Serves one MCP endpoint: authenticates the session, meters it, and forwards
- * each tool call to the command-interpreter verb behind it.
+ * each tool call to the interpreter command behind it.
  *
  * @phpstan-type Tool array{node:string,class:class-string<Command_Interpreter_Node>,verb:string,summary:string,args:array<string,string>}
  */
@@ -61,13 +61,15 @@ abstract class Mcp_Door {
 	];
 
 	/**
-	 * Mount the door: its route on `rest_api_init`, its sign-in pointer on
-	 * `rest_post_dispatch`, and its resource on `newspack_nodes/oauth_resources`.
+	 * Mount the door: its route on `rest_api_init`, its body cap on
+	 * `rest_pre_dispatch`, its sign-in pointer on `rest_post_dispatch`, and
+	 * its resource on `newspack_nodes/oauth_resources`.
 	 *
 	 * @api A plugin calls it once, where it boots.
 	 */
 	final public function wire(): void {
 		\add_action( 'rest_api_init', [ $this, 'register_routes' ] );
+		\add_filter( 'rest_pre_dispatch', [ $this, 'refuse_oversized_body' ], 10, 3 );
 		\add_filter( 'rest_post_dispatch', [ $this, 'point_to_sign_in' ], 10, 3 );
 		\add_filter( 'newspack_nodes/oauth_resources', fn ( mixed $resources ): array => [ ...Core::arr( $resources ), $this->resource() ] );
 	}
@@ -86,6 +88,31 @@ abstract class Mcp_Door {
 				'callback'            => [ $this, 'dispatch' ],
 				'permission_callback' => [ $this, 'check_permission' ],
 			]
+		);
+	}
+
+	/**
+	 * Refuse a body past `Command_Interpreter_Node::MAX_BODY_BYTES` posted to
+	 * this door with a 413 and JSON-RPC -32600 before it is decoded, so its id
+	 * is never read. The filter runs before WordPress decodes the body for its
+	 * parameter check and before the permission check, so a call to
+	 * `dispatch()` made directly, as a test makes one, never reaches it. Any
+	 * other request, and a result an earlier filter answered, passes through
+	 * untouched.
+	 *
+	 * @api Hooked on `rest_pre_dispatch` by `wire()`.
+	 * @param mixed            $result  What the filters before this one answered.
+	 * @param \WP_REST_Server  $server  The REST server.
+	 * @param \WP_REST_Request $request The request about to be dispatched.
+	 * @return mixed `$result`, or the 413 for this door's oversized body.
+	 */
+	final public function refuse_oversized_body( mixed $result, \WP_REST_Server $server, \WP_REST_Request $request ): mixed {
+		if ( null !== $result || ! $this->is_route_of( $request ) || \strlen( $request->get_body() ) <= Command_Interpreter_Node::MAX_BODY_BYTES ) {
+			return $result;
+		}
+		return new \WP_REST_Response(
+			self::error( null, self::INVALID_REQUEST, 'Request body exceeds ' . Command_Interpreter_Node::MAX_BODY_BYTES . ' bytes.' ),
+			413
 		);
 	}
 
@@ -133,7 +160,7 @@ abstract class Mcp_Door {
 	}
 
 	/**
-	 * Run one tool. A verb refusal comes back as an MCP tool error rather than
+	 * Run one tool. A command's refusal comes back as an MCP tool error rather than
 	 * a transport error — the call reached the server and was answered.
 	 *
 	 * @param mixed                  $id     JSON-RPC id.
@@ -199,8 +226,8 @@ abstract class Mcp_Door {
 	 * MCP hands arguments as a named object; the command protocol takes a flat
 	 * token array. Every scalar argument becomes `--key=value`, in the order
 	 * the agent gave it, and a list becomes one `--key=` a member, which is how
-	 * a variadic arg binds by name. The verb binds each against its declared
-	 * args, so the order here never has to match the verb's.
+	 * a variadic arg binds by name. The command binds each against its declared
+	 * args, so the order here never has to match the command's.
 	 *
 	 * @param mixed $arguments The tool's arguments object.
 	 * @return list<string>
@@ -253,12 +280,12 @@ abstract class Mcp_Door {
 		$caveat = $this->caveat();
 		$out    = [];
 		foreach ( $this->tools() as $name => $tool ) {
-			$verb = self::declaration( $tool );
+			$command = self::declaration( $tool );
 			// BOTH halves: scope covers it AND the minting user holds it.
-			if ( ! Capabilities::can( self::capability( $verb ) ) ) {
+			if ( ! Capabilities::can( self::capability( $command ) ) ) {
 				continue;
 			}
-			$declared   = \array_column( Core::arr( $verb['args'] ?? [] ), null, 'name' );
+			$declared   = \array_column( Core::arr( $command['args'] ?? [] ), null, 'name' );
 			$properties = [];
 			$required   = [];
 			foreach ( $tool['args'] as $arg => $description ) {
@@ -284,13 +311,13 @@ abstract class Mcp_Door {
 	}
 
 	/**
-	 * The `{declared}` fill of one tool arg's description: the verb's own
+	 * The `{declared}` fill of one tool arg's description: the command's own
 	 * description of that arg, which a description naming it must have.
 	 *
 	 * @param string                 $name        Tool name.
 	 * @param string                 $arg         The arg.
 	 * @param string                 $description The tool's description of it.
-	 * @param array<array-key,mixed> $spec        The verb's declaration of it.
+	 * @param array<array-key,mixed> $spec        The command's declaration of it.
 	 * @return array<string,string>
 	 * @throws \LogicException When the description names `{declared}` and the command declares none.
 	 */
@@ -317,11 +344,11 @@ abstract class Mcp_Door {
 	 * The role a command demands: its declared `capability`, MANAGE when it
 	 * declares none, the default the interpreter's own gate applies.
 	 *
-	 * @param array<array-key,mixed> $verb The verb's `commands` entry.
+	 * @param array<array-key,mixed> $command The command's `commands` entry.
 	 * @return string One of Capabilities::READ|TUNE|MANAGE.
 	 */
-	private static function capability( array $verb ): string {
-		return Core::as_string( $verb['capability'] ?? Capabilities::MANAGE );
+	private static function capability( array $command ): string {
+		return Core::as_string( $command['capability'] ?? Capabilities::MANAGE );
 	}
 
 	/**
@@ -337,11 +364,11 @@ abstract class Mcp_Door {
 	}
 
 	/**
-	 * Tool name → the CI node and verb behind it. `args` names the verb args a
+	 * Tool name → the CI node and command behind it. `args` names the command's args a
 	 * tool offers, each with the description an agent reads. The capability,
-	 * and each arg's type, requiredness and variadic-ness, come from the verb's
+	 * and each arg's type, requiredness and variadic-ness, come from the command's
 	 * own declaration on `class`. `{declared}` in an arg's description is the
-	 * verb's own description of that arg; every key `fills()` answers is
+	 * command's own description of that arg; every key `fills()` answers is
 	 * replaced in the summary and every arg description.
 	 *
 	 * @return array<string,Tool>
@@ -422,9 +449,7 @@ abstract class Mcp_Door {
 	 * @return mixed The response, carrying `WWW-Authenticate` when it is the door's 401.
 	 */
 	final public function point_to_sign_in( mixed $response, \WP_REST_Server $server, \WP_REST_Request $request ): mixed {
-		// WordPress matches a route case-insensitively.
-		if ( $response instanceof \WP_REST_Response && 401 === $response->get_status()
-			&& 0 === \strcasecmp( '/' . $this->rest_namespace() . self::ROUTE, $request->get_route() ) ) {
+		if ( $response instanceof \WP_REST_Response && 401 === $response->get_status() && $this->is_route_of( $request ) ) {
 			$response->header( 'WWW-Authenticate', 'Bearer resource_metadata="' . Oauth_Server::resource_metadata_url( $this->resource() ) . '"' );
 		}
 		return $response;
@@ -447,6 +472,16 @@ abstract class Mcp_Door {
 	}
 
 	/**
+	 * Whether `$request` is to this door's route, which WordPress matches
+	 * case-insensitively.
+	 *
+	 * @param \WP_REST_Request $request The request.
+	 */
+	private function is_route_of( \WP_REST_Request $request ): bool {
+		return 0 === \strcasecmp( '/' . $this->rest_namespace() . self::ROUTE, $request->get_route() );
+	}
+
+	/**
 	 * The REST namespace the route mounts under, e.g.
 	 * `newspack-event-logger-nodes/v1`. It also names the door's OAuth
 	 * resource and its rate-limit slots.
@@ -454,4 +489,47 @@ abstract class Mcp_Door {
 	 * @return non-falsy-string
 	 */
 	abstract protected function rest_namespace(): string;
+
+	/**
+	 * The tools a door's `tools()` derives from the commands `$class` declares:
+	 * one per command but the verbs `$except` names, in declared order, named
+	 * `<prefix>_<verb>`, summarised by the command's own description and
+	 * offering every arg it declares as `{declared}`. A verb's `$text` entry
+	 * replaces whichever of its `name`, `summary` and `args` it gives.
+	 *
+	 * @param string                                                                     $node   Mount name of the CI node.
+	 * @param class-string<Command_Interpreter_Node>                                     $class  The node's class.
+	 * @param string                                                                     $prefix Opens each derived tool name.
+	 * @param list<string>                                                               $except Verbs left out of the tools.
+	 * @param array<string,array{name?:string,summary?:string,args?:array<string,string>}> $text   Per verb, the text replacing what is derived.
+	 * @return array<string,Tool>
+	 * @throws \LogicException When `$except` or `$text` names a verb `$class` does not declare.
+	 */
+	final protected static function declared_tools( string $node, string $class, string $prefix, array $except = [], array $text = [] ): array {
+		$declared = Command_Interpreter_Node::declared_commands( $class );
+		foreach ( [ ...$except, ...\array_keys( $text ) ] as $verb ) {
+			if ( ! isset( $declared[ $verb ] ) ) {
+				throw new \LogicException( \esc_html( "{$class} does not declare {$verb}" ) );
+			}
+		}
+		$tools = [];
+		foreach ( $declared as $verb => $command ) {
+			if ( \in_array( $verb, $except, true ) ) {
+				continue;
+			}
+			$own  = $text[ $verb ] ?? [];
+			$args = [];
+			foreach ( Core::arr( $command['args'] ?? [] ) as $arg ) {
+				$args[ Core::as_string( Core::arr( $arg )['name'] ?? '' ) ] = '{declared}';
+			}
+			$tools[ $own['name'] ?? "{$prefix}_{$verb}" ] = [
+				'node'    => $node,
+				'class'   => $class,
+				'verb'    => $verb,
+				'summary' => $own['summary'] ?? Core::as_string( $command['description'] ?? '' ),
+				'args'    => $own['args'] ?? $args,
+			];
+		}
+		return $tools;
+	}
 }

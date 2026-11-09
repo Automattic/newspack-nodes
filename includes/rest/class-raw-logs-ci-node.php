@@ -182,7 +182,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'name'        => 'dump_log',
 					'capability'  => Capabilities::READ,
 					'description' => 'Segments and size of one partition dir or sources:<name> registry source.',
-					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => true ] ],
+					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => true, 'description' => 'The log\'s `key` as `raw-logs list_logs` lists it: a partition dir or `sources:<name>`.' ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $args ),
 				],
 				[
@@ -190,8 +190,8 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'The record at a position in a partition dir or a sources:<name> registry source.',
 					'args'        => [
-						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'log', 'type' => 'string', 'required' => true, 'description' => 'The log\'s `key` as `raw-logs list_logs` lists it: a partition dir or `sources:<name>`.' ],
+						[ 'name' => 'position', 'type' => 'string', 'required' => true, 'description' => 'Where the record starts, `<segment>:<offset>`, or a record\'s `<segment>:<offset>:<length>` ID.' ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_read_message( $args ),
 				],
