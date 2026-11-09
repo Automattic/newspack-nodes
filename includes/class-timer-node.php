@@ -173,6 +173,12 @@ class Timer_Node extends Node {
 	 * on, costs the next tick nothing unless it was stamped after the boundary
 	 * that tick is due at; a hand-driven extra tick short of the boundary
 	 * skips.
+	 *
+	 * A `Dir_Unlistable` costs the timer this tick and one rate-limited line,
+	 * whichever way it was dispatched: a worker that ended on it would only
+	 * end again on its successor's first tick, and a hitchhiker that threw
+	 * would cost every timer after it in the Router's walk. Several combined
+	 * into one `Failures` are not caught here, and still propagate.
 	 */
 	public function fire_cb(): void {
 		if ( $this->oneshot ) {
@@ -192,7 +198,11 @@ class Timer_Node extends Node {
 		}
 		$this->last_fire_time = Core::$now;
 		$this->fire_count++;
-		$this->fire();
+		try {
+			$this->fire();
+		} catch ( Dir_Unlistable $e ) {
+			$this->print_less_often( 'skipping a tick: ', Core::message_of( $e ) );
+		}
 	}
 
 	/**

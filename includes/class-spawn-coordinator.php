@@ -147,6 +147,7 @@ class Spawn_Coordinator {
 	 *
 	 * @param string $dir          Candidate stale directory.
 	 * @param int    $stale_age_s  Threshold in seconds.
+	 * @throws \RuntimeException As `Core::dir_entries()`, when `$dir` will not list.
 	 */
 	public function remove_stale_directory( string $dir, int $stale_age_s ): void {
 		// Symlink: unlink rather than recurse, so we can't escape base_dir.
@@ -162,12 +163,7 @@ class Spawn_Coordinator {
 		}
 
 		$newest_mtime = 0;
-		$files        = @\scandir( $dir ) ?: [];
-		foreach ( $files as $file ) {
-			if ( '.' === $file || '..' === $file ) {
-				continue;
-			}
-			$child = $dir . '/' . $file;
+		foreach ( Core::dir_entries( $dir ) as $child ) {
 			if ( \is_link( $child ) ) {
 				continue;
 			}
@@ -193,11 +189,11 @@ class Spawn_Coordinator {
 	 *
 	 * @param string $base_dir Runtime state root holding `locks/`.
 	 * @return array<string,array{id:string,type:string,partition:int}>
+	 * @throws \RuntimeException As `Core::dir_entries()`, when `locks/` will not list.
 	 */
 	public static function worker_lock_dirs( string $base_dir ): array {
 		$out = [];
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( self::locks_dir( $base_dir ) . '/*.lock.d', \GLOB_ONLYDIR ) ?: [] as $path ) {
+		foreach ( Core::dir_entries( self::locks_dir( $base_dir ), '*.lock.d', only_dirs: true ) as $path ) {
 			$id     = \basename( $path, '.lock.d' );
 			$worker = CLI::parse_worker_id( $id );
 			if ( null === $worker ) {
@@ -216,11 +212,11 @@ class Spawn_Coordinator {
 	 * never reaped out from under itself.
 	 *
 	 * @param string $locks_dir Absolute path to locks/.
+	 * @throws \RuntimeException As `Core::dir_entries()`, when `locks/` will not list.
 	 */
 	private function reap_steal_scratch_dirs( string $locks_dir ): void {
 		$cutoff = \time() - Lock_Node::STALE_TIMEOUT;
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( "{$locks_dir}/*.lock.d.stealing.*", \GLOB_ONLYDIR ) ?: [] as $path ) {
+		foreach ( Core::dir_entries( $locks_dir, '*.lock.d.stealing.*', only_dirs: true ) as $path ) {
 			\clearstatcache( true, $path );
 			$mtime = @\filemtime( $path );
 			if ( false === $mtime || $mtime > $cutoff ) {
@@ -495,14 +491,15 @@ class Spawn_Coordinator {
 	 * defers its own removal, so a worker mid-recycle keeps its IPC, and a dir
 	 * whose name `CLI::parse_worker_id()` refuses does not belong to a worker
 	 * and stays.
+	 *
+	 * @throws \RuntimeException As `Core::dir_entries()`, when `ipc/` will not list.
 	 */
 	public function cleanup_orphan_ipc(): void {
 		$active = [];
 		foreach ( Bootstrap::expand_workers() as $worker ) {
 			$active[ CLI::worker_id( $worker['type'], $worker['partition'] ) ] = true;
 		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( "{$this->base_dir}/ipc/*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
+		foreach ( Core::dir_entries( "{$this->base_dir}/ipc", '*', only_dirs: true ) as $dir ) {
 			$name   = \basename( $dir );
 			$worker = CLI::parse_worker_id( $name );
 			if ( isset( $active[ $name ] ) || null === $worker ) {
@@ -543,7 +540,9 @@ class Spawn_Coordinator {
 	 * Each read marker goes after every other entry, and stays while any of
 	 * them stays; a marker unlinked is read first, and put back as it was when
 	 * the dir still will not go, a writer having filled it in between, so a
-	 * record left behind is never left ungated (ADR-39).
+	 * record left behind is never left ungated (ADR-39). A dir that will not
+	 * list stays, with one rate-limited line naming it, because a caller as
+	 * close to the lock as `Lock_Node`'s steal must not abort on it.
 	 *
 	 * @param string $path      Directory to walk.
 	 * @param int    $max_depth Depth ceiling; a deeper node is left standing.
@@ -557,14 +556,16 @@ class Spawn_Coordinator {
 		if ( ! \is_dir( $path ) ) {
 			return true;
 		}
+		try {
+			$children = Core::dir_entries( $path );
+		} catch ( \RuntimeException $e ) {
+			Core::print_less_often( 'WARNING: Spawn_Coordinator: ' . Core::message_of( $e ) . '; it stays' );
+			return false;
+		}
 		$markers = [];
 		$stayed  = false;
-		foreach ( @\scandir( $path ) ?: [] as $item ) {
-			if ( '.' === $item || '..' === $item ) {
-				continue;
-			}
-			$child = $path . '/' . $item;
-			if ( Log_Discovery::is_read_marker( $item ) ) {
+		foreach ( $children as $child ) {
+			if ( Log_Discovery::is_read_marker( \basename( $child ) ) ) {
 				$markers[] = $child;
 			} elseif ( \is_dir( $child ) && ! \is_link( $child ) ) {
 				$stayed = ! self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 ) || $stayed;

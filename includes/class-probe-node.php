@@ -135,7 +135,8 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 
 	/**
 	 * Emit one TM_STRUCT per record this probe takes from `$node`, each
-	 * stamped FROM `{worker-id}/{probe-name}`.
+	 * stamped FROM `{worker-id}/{probe-name}`. A node whose dir will not list
+	 * is passed by this sweep with one rate-limited line.
 	 *
 	 * @param Node   $node A node from this process's registry.
 	 * @param Node   $sink Where the records go.
@@ -143,19 +144,23 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * @param float  $instant The sweep's one instant, every record's TIMESTAMP.
 	 */
 	private function sweep( Node $node, Node $sink, string $from, float $instant ): void {
-		foreach ( $this->probe( $node ) as $record ) {
-			$message                   = Message::new_message();
-			$message[ Message::TYPE ]  = Message::TM_STRUCT;
-			$message[ Message::TIMESTAMP ] = $instant;
-			$message[ Message::FROM ]  = $from;
-			$message[ Message::TO ]    = $this->target;
-			$message[ Message::VALUE ] = $record;
-			$fitted                    = $this->fit_to_line( $message );
-			if ( null === $fitted ) {
-				continue;
+		try {
+			foreach ( $this->probe( $node ) as $record ) {
+				$message                   = Message::new_message();
+				$message[ Message::TYPE ]  = Message::TM_STRUCT;
+				$message[ Message::TIMESTAMP ] = $instant;
+				$message[ Message::FROM ]  = $from;
+				$message[ Message::TO ]    = $this->target;
+				$message[ Message::VALUE ] = $record;
+				$fitted                    = $this->fit_to_line( $message );
+				if ( null === $fitted ) {
+					continue;
+				}
+				++$this->counter;
+				$sink->fill( $fitted );
 			}
-			++$this->counter;
-			$sink->fill( $fitted );
+		} catch ( Dir_Unlistable $e ) {
+			$this->print_less_often( 'skipping a node this sweep: ', Core::message_of( $e ) );
 		}
 	}
 

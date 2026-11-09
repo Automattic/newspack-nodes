@@ -166,14 +166,16 @@ class Partition_Node extends Timer_Node {
 
 	/**
 	 * get_segments() directory-scan seam. Lazily-defaulted at the call site to a
-	 * closure wrapping the real scandir; tests reassign this in-place (then reset
-	 * to null in a finally) to count or stub the directory scan WITHOUT
-	 * short-circuiting the rest of get_segments()'s pattern-match + filesize +
-	 * sort path, so that production logic stays under real coverage.
+	 * closure answering the dir's entry names through `Core::dir_entries()`,
+	 * `[]` for a dir that is not there and never false, which throws naming a
+	 * dir that will not list; tests reassign this in-place
+	 * (then reset to null in a finally) to count or stub the directory scan
+	 * WITHOUT short-circuiting the rest of get_segments()'s pattern-match +
+	 * filesize + sort path, so that production logic stays under real coverage.
 	 *
-	 * Signature: `function ( string $dir ): array|false`.
+	 * Signature: `function ( string $dir ): list<string>`.
 	 *
-	 * @var (\Closure(string): (list<string>|false))|null
+	 * @var (\Closure(string): list<string>)|null
 	 */
 	public static ?\Closure $scandir = null;
 
@@ -886,8 +888,10 @@ class Partition_Node extends Timer_Node {
 	 * entry per record that survived.
 	 *
 	 * The batch is cleared before the write, so a throw below cannot re-flush the
-	 * same bytes. A segment that will not open quarantines the batch and throws;
-	 * a short write throws without quarantining or indexing, because the
+	 * same bytes. A segment dir that will not list for the rotation sends the
+	 * batch to the quarantine whole, said once (`dead_letter_batch()`), and
+	 * returns; a segment that will not open quarantines it and throws; a short
+	 * write throws without quarantining or indexing, because the
 	 * dead-letter is a Partition on the same filesystem and an .idx row for a
 	 * record that only partly landed points a reader at a tear. The torn record
 	 * is cut off a sole-writer segment; on a shared one it stays, and a reader
@@ -906,13 +910,17 @@ class Partition_Node extends Timer_Node {
 		$this->batch             = '';
 		$this->batch_index_args  = [];
 
-		if ( null === $this->current_segment_id ) {
-			$this->init_current_segment();
-		}
-
 		$batch_len = \strlen( $batch_bytes );
-		if ( $this->current_size + $batch_len > $this->segment_size ) {
-			$this->rotate_segment();
+		try {
+			if ( null === $this->current_segment_id ) {
+				$this->init_current_segment();
+			}
+			if ( $this->current_size + $batch_len > $this->segment_size ) {
+				$this->rotate_segment();
+			}
+		} catch ( Dir_Unlistable $e ) {
+			$this->dead_letter_batch( \array_column( $batch_args, 'message' ), 'segment dir will not list', $e );
+			return;
 		}
 
 		\error_clear_last();
@@ -2065,17 +2073,17 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param float $now Clock the cache is filled at.
 	 * @return array{segments:array<int,array{id:int,size:int}>,disk:int}
+	 * @throws \RuntimeException As `Core::dir_entries()`, when the segment dir will not list; nothing is cached.
 	 */
 	private function scan_segments( float $now ): array {
 		$segments = [];
 		$mtimes   = [];
 		$disk     = 0;
 		$dir      = $this->segment_dir();
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
-		$scan  = self::$scandir ?? static fn ( string $d ) => @\scandir( $d );
-		$files = \is_dir( $dir ) ? $scan( $dir ) : false;
+		$scan    = self::$scandir ?? static fn ( string $d ): array => \array_map( '\basename', Core::dir_entries( $d ) );
+		$files   = $scan( $dir );
 		$pattern = $this->segment_pattern();
-		foreach ( $files ?: [] as $f ) {
+		foreach ( $files as $f ) {
 			if ( ! \preg_match( $pattern, $f, $m ) ) {
 				continue;
 			}
@@ -2110,8 +2118,8 @@ class Partition_Node extends Timer_Node {
 	 * For every dir matching `$offsets_dir/$glob`, read the newest committed record's VALUE
 	 * (via read_latest_value_at), descend `VALUE[$cache_key][$node][$items_key]`, and concatenate the
 	 * array-shaped items into one list. A missing cache, a non-array items list, or a
-	 * non-array item is skipped as data; a dir that cannot be read raises. Callers memoize
-	 * per request — this re-globs and re-reads every call.
+	 * non-array item is skipped as data; a dir that cannot be read raises, the offsets
+	 * dir included. Callers memoize per request — this re-lists and re-reads every call.
 	 *
 	 * @api Public substrate primitive: a Service_CI that fans a digest snapshot across
 	 *      partitions (e.g. the example AI-newsletter insights demo) reads its accumulated
@@ -2123,6 +2131,7 @@ class Partition_Node extends Timer_Node {
 	 * @param string $cache_key   VALUE key holding the cache object. Default `cache`.
 	 * @param string $items_key   Cache key holding the items list. Default `items`.
 	 * @return array<int,array<array-key,mixed>> The flattened, array-shaped items across all matched dirs.
+	 * @throws \RuntimeException As `Core::dir_entries()`, when `$offsets_dir` will not list.
 	 */
 	public static function read_latest_snapshot_cache(
 		string $offsets_dir,
@@ -2131,12 +2140,8 @@ class Partition_Node extends Timer_Node {
 		string $cache_key = 'cache',
 		string $items_key = 'items'
 	): array {
-		$dirs = \glob( \rtrim( $offsets_dir, '/' ) . '/' . $glob, \GLOB_ONLYDIR );
-		if ( false === $dirs || [] === $dirs ) {
-			return [];
-		}
 		$items = [];
-		foreach ( $dirs as $dir ) {
+		foreach ( Core::dir_entries( \rtrim( $offsets_dir, '/' ), $glob, only_dirs: true ) as $dir ) {
 			$value = self::read_latest_value_at( $dir );
 			$cache = \is_array( $value ) && \is_array( $value[ $cache_key ] ?? null ) ? $value[ $cache_key ] : [];
 			$state = \is_array( $cache[ $node ] ?? null ) ? $cache[ $node ] : [];

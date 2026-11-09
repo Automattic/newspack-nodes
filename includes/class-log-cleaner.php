@@ -75,7 +75,9 @@ class Log_Cleaner {
 	 *                           delete that leaves one standing is omitted.
 	 * @throws \Throwable Before any delete, when the config or the topology
 	 *                    catalog will not load, an active topology will not read,
-	 *                    or a producer template declares no dir.
+	 *                    or a producer template declares no dir; and at the
+	 *                    first dir that will not list, sparing it and every
+	 *                    dir the sweep has not reached.
 	 */
 	public static function cleanup_orphan_partitions( string $base_dir, int $grace = self::DELETE_GRACE_S ): array {
 		$base_dir = \rtrim( $base_dir, '/' );
@@ -108,6 +110,7 @@ class Log_Cleaner {
 	 * @param array<string,int> $declared Declared stem => partition.
 	 * @param array<int,string> $deleted  Accumulator, appended a database once it is gone.
 	 * @param int               $grace    Required seconds of quiet; 0 disables the wait.
+	 * @throws \RuntimeException As `Table_Node::files_in()`.
 	 */
 	private static function sweep_tables( string $base_dir, array $declared, array &$deleted, int $grace ): void {
 		foreach ( Table_Node::files_in( $base_dir ) as $db ) {
@@ -142,9 +145,10 @@ class Log_Cleaner {
 	 * @param string             $base_dir Jail root for delete_directory_recursive.
 	 * @param array<int,string>  $deleted  Accumulator, appended in place when a dir is gone.
 	 * @param int                $grace    Required seconds of quiet; 0 disables the wait.
+	 * @throws \RuntimeException As `Core::dir_entries()`, when `$dir` or an undeclared dir under it will not list.
 	 */
 	private static function sweep( string $dir, array $declared, string $base_dir, array &$deleted, int $grace ): void {
-		foreach ( @\glob( "{$dir}/*", \GLOB_ONLYDIR ) ?: [] as $path ) {
+		foreach ( Core::dir_entries( $dir, '*', only_dirs: true ) as $path ) {
 			if ( isset( $declared[ \basename( $path ) ] ) ) {
 				continue;
 			}
@@ -167,10 +171,11 @@ class Log_Cleaner {
 	 *
 	 * @param string $path Directory to stat.
 	 * @return int Unix timestamp; 0 when neither the dir nor an entry stats.
+	 * @throws \RuntimeException As `Core::dir_entries()`, when `$path` will not list.
 	 */
 	private static function newest_mtime( string $path ): int {
 		$newest = (int) @\filemtime( $path );
-		foreach ( @\glob( "{$path}/*" ) ?: [] as $entry ) {
+		foreach ( Core::dir_entries( $path, '*' ) as $entry ) {
 			$newest = \max( $newest, (int) @\filemtime( $entry ) );
 		}
 		return $newest;

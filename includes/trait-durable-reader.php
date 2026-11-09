@@ -1018,19 +1018,28 @@ trait Durable_Reader {
 		return $window;
 	}
 
-	/** Timer-driven: poll, periodically checkpoint the cursor, then re-arm (busy/EOF cadence). */
+	/**
+	 * Timer-driven: poll, periodically checkpoint the cursor, then re-arm
+	 * (busy/EOF cadence). The re-arm runs in a `finally`, and a tick that
+	 * threw takes the EOF cadence, so a reader that cannot read never spins.
+	 */
 	protected function fire(): void {
-		$this->poll();
-		// poll() moves the cursor in memory; checkpoint() makes it durable.
-		if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
-			$this->checkpoint();
-			// Skip paths let an idle cursor re-throttle each interval.
-			$this->last_checkpoint = Core::$now;
-		}
-		// Recurring, re-armed on a CHANGE: a missed oneshot is a dead node.
-		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
-		if ( $this->interval_ms !== $next_ms ) {
-			$this->set_timer( $next_ms );
+		$polled = false;
+		try {
+			$this->poll();
+			// poll() moves the cursor in memory; checkpoint() makes it durable.
+			if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
+				$this->checkpoint();
+				// Skip paths let an idle cursor re-throttle each interval.
+				$this->last_checkpoint = Core::$now;
+			}
+			$polled = true;
+		} finally {
+			// Recurring, re-armed on a CHANGE: a missed oneshot is a dead node.
+			$next_ms = $polled && ! $this->at_eof ? self::POLL_INTERVAL_BUSY_MS : self::POLL_INTERVAL_EOF_MS;
+			if ( $this->interval_ms !== $next_ms ) {
+				$this->set_timer( $next_ms );
+			}
 		}
 	}
 
@@ -1330,9 +1339,9 @@ trait Durable_Reader {
 	 */
 	protected function drain_line( string $line, int $abs_offset ): void {
 		if ( $this->crawl_skip_head ) {
-			// One-shot boot head-skip; $abs_offset is the head start.
-			$this->crawl_skip_head = false;
+			// One-shot boot head-skip, disarmed once the sacrifice has landed.
 			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'crash' );
+			$this->crawl_skip_head = false;
 			$this->disposed_record = true;
 			return;
 		}

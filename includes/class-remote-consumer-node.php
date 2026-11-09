@@ -221,7 +221,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * stands, since it places even a record carrying no crumb. A reply without
 	 * a record owes nothing more and still takes the cursor, which moves past a
 	 * line the spoke could not unpack. A payload that is not a struct is a
-	 * refusal: it owes nothing and leaves the cursor where it is.
+	 * refusal: it owes nothing and leaves the cursor where it is. A step that
+	 * meets a dir that will not list, as its crawl pin's offsetlog, fails the
+	 * same way, said once; a quarantine that fails still raises (ADR-12).
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -251,6 +253,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		}
 		try {
 			$this->settle_step( $value );
+		} catch ( Dir_Unlistable $e ) {
+			$this->steps_owed = 0;
+			$this->print_less_often( 'step refused: ', Core::message_of( $e ) );
 		} finally {
 			// Settled only once consumed, so the drain cannot ask again.
 			$this->step_requested_at = null;
@@ -470,8 +475,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		// Lexicographic (segment,offset) vs boot pin: 0=suspect, >0=past it.
 		$cmp = [ $crumb['segment'], $crumb['offset'] ] <=> [ $this->boot_cursor_segment, $this->boot_cursor_offset ];
 		if ( 0 === $cmp ) {
-			$this->crawl_skip_head = false;
 			$this->dead_letter( $this->poison_from_line( $line, $crumb['segment'], $crumb['offset'] ), 'crash' );
+			$this->crawl_skip_head = false;
 			$this->disposed_record = true;
 			return true;
 		}

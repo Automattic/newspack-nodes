@@ -44,6 +44,26 @@ class StdinNodeTest extends TestCase {
 		$this->assertSame( Node_Names::STDIN, $cap->captured[0][ Message::FROM ] );
 	}
 
+	/**
+	 * A line whose delivery meets a dir that will not list leaves the reader
+	 * at its idle cadence, never at the busy one it was at.
+	 */
+	public function test_a_line_whose_delivery_will_not_list_falls_back_to_the_idle_cadence(): void {
+		$node = new Stdin_Node( $this->memory_stream( "pipi-5530\n" ) );
+		$node->sink(
+			new class() extends \Newspack_Nodes\Node {
+				public function fill( array $message ): void {
+					throw new \Newspack_Nodes\Dir_Unlistable( 'dir /srv/pipi-5530.p0 will not list' );
+				}
+			}
+		);
+		$node->set_timer( 0 );
+
+		$node->fire_cb();
+
+		$this->assertSame( 100, $this->read_private( $node, 'interval_ms' ) );
+	}
+
 	public function test_null_sink_does_not_throw(): void {
 		$mem  = $this->memory_stream( "a\n" );
 		$node = new Stdin_Node( $mem );

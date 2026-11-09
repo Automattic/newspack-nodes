@@ -901,7 +901,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		\chmod( $this->stock, 0311 );
 		try {
 			$e = $this->caught( static fn () => Bootstrap::resolve_row_table( Wombat_Row_Schema::class ), 'an unlistable dir answered' );
-			$this->assertStringContainsString( "topology dir {$this->stock} will not list", $e->getMessage() );
+			$this->assertStringContainsString( "dir {$this->stock} will not list", $e->getMessage() );
 			$this->assertSame( [], self::row_table_keys( $memd ), 'the shared cache keeps nothing' );
 		} finally {
 			\chmod( $this->stock, 0755 );

@@ -1136,6 +1136,45 @@ class Core {
 	}
 
 	/**
+	 * The paths of a dir's entries, sorted, `.` and `..` left out; none when
+	 * the dir is not there. A `$pattern` keeps the names it matches as
+	 * `glob()` would, so `*` passes no name with a leading dot, and
+	 * `$only_dirs` keeps the entries that are dirs, a link to one included.
+	 * Where `glob()` answers a dir that will not list as an empty one, this
+	 * throws `Dir_Unlistable`. A dir that is not there raises no PHP warning,
+	 * which an error handler would see even under `@`.
+	 *
+	 * @param string      $dir       The dir.
+	 * @param string|null $pattern   A `fnmatch()` pattern over each name, or null for every entry.
+	 * @param bool        $only_dirs Whether to keep only the entries that are dirs.
+	 * @return list<string>
+	 * @throws Dir_Unlistable Naming the dir, when it is there and will not list.
+	 */
+	public static function dir_entries( string $dir, ?string $pattern = null, bool $only_dirs = false ): array {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir -- the runtime's own tree.
+		// `@` still calls error handlers, so a missing dir skips scandir.
+		$names = \is_dir( $dir ) ? @\scandir( $dir ) : [];
+		if ( false === $names ) {
+			\clearstatcache( true, $dir );
+			if ( \is_dir( $dir ) ) {
+				throw new Dir_Unlistable( \esc_html( "dir {$dir} will not list" ) );
+			}
+			return [];
+		}
+		$paths = [];
+		foreach ( $names as $name ) {
+			$path = "{$dir}/{$name}";
+			if ( '.' === $name || '..' === $name
+				|| ( null !== $pattern && ! \fnmatch( $pattern, $name, \FNM_PERIOD ) )
+				|| ( $only_dirs && ! \is_dir( $path ) ) ) {
+				continue;
+			}
+			$paths[] = $path;
+		}
+		return $paths;
+	}
+
+	/**
 	 * The logged-in WordPress user's id: 0 when nobody is logged in — a worker,
 	 * WP-Cron, WP-CLI without `--user` — and 0 where WordPress is not loaded.
 	 */

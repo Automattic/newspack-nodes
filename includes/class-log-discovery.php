@@ -22,21 +22,20 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * A per-process cache over one `glob()` per browsable root.
+ * A per-process cache over one listing per browsable root.
  *
  * The two entry points memoize separately, so a directory created after the
- * process booted becomes visible only once `reset()` runs, and a failed scan
- * caches its empty list like any other result and stands until then. Neither
- * is a pure read: the first scan resolves the runtime root through
+ * process booted becomes visible only once `reset()` runs. A root that will
+ * not list raises, naming it, and nothing is cached. Neither is a pure read: the first scan resolves the runtime root through
  * `Config::get_base_directory()`, which creates that tree at mode 0700 when it
  * is absent.
  */
 final class Log_Discovery {
 
 	/**
-	 * Seam over the `glob()` call every scan makes; `groups()` reaches it once
-	 * per root, and `dirs_matching()` once per subscription, each once more
-	 * per reader root through `broker_roots()`. Tests reassign it
+	 * Seam over the `glob()` call every pattern scan makes: `dirs_matching()`
+	 * reaches it once per subscription, and it and `groups()` once more per
+	 * reader root through `broker_roots()`. Tests reassign it
 	 * to force the error branch — `glob()` returns false on an I/O fault where
 	 * a no-match returns `[]` — without damaging a real directory, which
 	 * leaves the sort, the basename map and the memoization under real
@@ -202,8 +201,9 @@ final class Log_Discovery {
 	 * glob never names a root. A match whose stamp `is_stamp()` refuses is left
 	 * out, so a glob never opens a dir `dir_of()` would refuse, and a dir gated
 	 * on a capability the caller lacks is left out too (ADR-39). A glob I/O
-	 * fault answers null rather than an empty map, so a caller never mistakes
-	 * it for "nothing there".
+	 * fault, a root that will not list among them, answers null rather than an
+	 * empty map, so a caller never mistakes it for "nothing there"; a root that
+	 * is not there answers the empty map.
 	 *
 	 * @param string $sub  A subscription glob: `firehose.*`, `offsets:…*`.
 	 * @param string $base The runtime base the roots sit under.
@@ -212,7 +212,11 @@ final class Log_Discovery {
 	 */
 	public static function dirs_matching( string $sub, string $base ): ?array {
 		[ $group, $pattern ] = self::guarded( $sub, $base, true );
-		$matches             = self::glob( $pattern, \GLOB_ONLYDIR );
+		$matches             = self::glob( $pattern, \GLOB_ONLYDIR | \GLOB_ERR );
+		// GLOB_ERR aborts on a missing root too, and that one is merely empty.
+		if ( null === $matches && ! \is_dir( self::root( $base, $group ) ) ) {
+			$matches = [];
+		}
 		$roots               = [] !== ( $matches ?? [] ) && \in_array( $group, self::READER_GROUPS, true ) ? self::broker_roots( $pattern ) : [];
 		if ( null === $matches || null === $roots ) {
 			return null;
@@ -411,15 +415,16 @@ final class Log_Discovery {
 	 * place of the root `broker_roots()` finds. The `logs` entry repeats
 	 * `on_disk()`, which a caller wanting that root alone reads instead.
 	 *
-	 * A root with no directory and a root whose first-level scan fails both
-	 * yield an empty list rather than a missing key, so a caller may index all
-	 * three without checking first. A first-level dir under one of
+	 * A root with no directory yields an empty list rather than a missing key,
+	 * so a caller may index all three without checking first, and a root that
+	 * will not list raises, naming it. A first-level dir under one of
 	 * `READER_GROUPS` that will not read lists in `unreadable()` instead, so
 	 * one root-owned dir costs only its own place.
 	 *
 	 * @return array<string,list<string>>
 	 * @throws \RuntimeException Through `Config::get_base_directory()`, on the
-	 *                          same conditions as `on_disk()`.
+	 *                          same conditions as `on_disk()`, or as
+	 *                          `Core::dir_entries()`, when a root will not list.
 	 */
 	public static function groups(): array {
 		if ( null !== self::$cached_groups ) {
@@ -429,7 +434,7 @@ final class Log_Discovery {
 		$groups   = [];
 		foreach ( self::GROUPS as $group ) {
 			$pattern = self::path( $base_dir, $group, '*' );
-			$dirs    = self::glob( $pattern, \GLOB_ONLYDIR ) ?? [];
+			$dirs    = Core::dir_entries( self::root( $base_dir, $group ), '*', only_dirs: true );
 			[ $roots, $unreadable ] = [] !== $dirs && \in_array( $group, self::READER_GROUPS, true )
 				? self::readable_roots( $pattern, $dirs )
 				: [ [], [] ];
@@ -525,55 +530,6 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * Sorted basenames of every first-level directory under `{base}/logs`,
-	 * returned verbatim. The flat layout carries the partition in the name, so
-	 * `firehose.p0` is one entry and nothing strips a suffix; `GLOB_ONLYDIR`
-	 * keeps a `Log` file-sink's segment files out of the list.
-	 *
-	 * @return list<string>
-	 * @throws \RuntimeException Through `Config::get_base_directory()`: a
-	 *                          malformed config file, an empty or non-scalar
-	 *                          `base_directory`, or a runtime root that will
-	 *                          not resolve or that another uid owns. Nothing
-	 *                          here catches it: a substituted path would
-	 *                          report "no logs" while the writer fills the
-	 *                          real tree.
-	 */
-	public static function on_disk(): array {
-		if ( null !== self::$cached ) {
-			return self::$cached;
-		}
-		$matches = self::glob( self::path( Config::get_base_directory(), 'logs', '*' ), \GLOB_ONLYDIR ) ?? [];
-		return self::$cached = \array_map( '\basename', $matches );
-	}
-
-	/**
-	 * A path under one root.
-	 *
-	 * @param string $base  The runtime base.
-	 * @param string $group A `GROUPS` root.
-	 * @param string $name  A dir name or a glob.
-	 */
-	private static function path( string $base, string $group, string $name ): string {
-		return self::root( $base, $group ) . "/{$name}";
-	}
-
-	/**
-	 * One root's dir: the one place `{base}/{group}` is spelled, so a reader
-	 * outside this class names a root it cannot misspell.
-	 *
-	 * @param string $base  The runtime base.
-	 * @param string $group A `GROUPS` root.
-	 * @throws \InvalidArgumentException On a name `GROUPS` lacks.
-	 */
-	public static function root( string $base, string $group ): string {
-		if ( ! \in_array( $group, self::GROUPS, true ) ) {
-			throw new \InvalidArgumentException( \esc_html( "no log root named '{$group}'" ) );
-		}
-		return "{$base}/{$group}";
-	}
-
-	/**
 	 * The paths a pattern matches, sorted, through the `$glob` seam; null on
 	 * an I/O fault, where `glob()` answers false and a no-match `[]`.
 	 *
@@ -589,6 +545,56 @@ final class Log_Discovery {
 		}
 		\sort( $matches );
 		return $matches;
+	}
+
+	/**
+	 * A path under one root.
+	 *
+	 * @param string $base  The runtime base.
+	 * @param string $group A `GROUPS` root.
+	 * @param string $name  A dir name or a glob.
+	 */
+	private static function path( string $base, string $group, string $name ): string {
+		return self::root( $base, $group ) . "/{$name}";
+	}
+
+	/**
+	 * Sorted basenames of every first-level directory under `{base}/logs`,
+	 * returned verbatim. The flat layout carries the partition in the name, so
+	 * `firehose.p0` is one entry and nothing strips a suffix; keeping only dirs
+	 * keeps a `Log` file-sink's segment files out of the list.
+	 *
+	 * @return list<string>
+	 * @throws \RuntimeException Through `Config::get_base_directory()`: a
+	 *                          malformed config file, an empty or non-scalar
+	 *                          `base_directory`, or a runtime root that will
+	 *                          not resolve or that another uid owns. Nothing
+	 *                          here catches it: a substituted path would
+	 *                          report "no logs" while the writer fills the
+	 *                          real tree. As `Core::dir_entries()`, when the
+	 *                          logs root will not list.
+	 */
+	public static function on_disk(): array {
+		if ( null !== self::$cached ) {
+			return self::$cached;
+		}
+		$matches = Core::dir_entries( self::root( Config::get_base_directory(), 'logs' ), '*', only_dirs: true );
+		return self::$cached = \array_map( '\basename', $matches );
+	}
+
+	/**
+	 * One root's dir: the one place `{base}/{group}` is spelled, so a reader
+	 * outside this class names a root it cannot misspell.
+	 *
+	 * @param string $base  The runtime base.
+	 * @param string $group A `GROUPS` root.
+	 * @throws \InvalidArgumentException On a name `GROUPS` lacks.
+	 */
+	public static function root( string $base, string $group ): string {
+		if ( ! \in_array( $group, self::GROUPS, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( "no log root named '{$group}'" ) );
+		}
+		return "{$base}/{$group}";
 	}
 
 	/**

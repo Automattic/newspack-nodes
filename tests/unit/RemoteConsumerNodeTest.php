@@ -2238,6 +2238,69 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 31, 'offset' => 4511 ], $node->connect_position(), 'a real place supersedes the seek' );
 	}
 
+	/**
+	 * A step whose record the downstream refuses, bound for a dead-letter dir
+	 * that will not list, is offered downstream once: the quarantine's failure
+	 * escapes combined with the refusal, as any failed quarantine does (ADR-12).
+	 */
+	public function test_a_step_whose_quarantine_will_not_list_escapes_after_one_forward(): void {
+		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$calls    = 0;
+		$refusing = new class( $calls ) extends \Newspack_Nodes\Node {
+			public function __construct( private int &$calls ) {
+				parent::__construct();
+			}
+			public function fill( array $message ): void {
+				++$this->calls;
+				throw new \RuntimeException( 'downstream refused 9917' );
+			}
+		};
+		$refusing->name( 'downstream' );
+		[ , $node ] = $this->make_broker();
+		$node->next_offset( [ 'segment' => 31, 'offset' => 4404 ] );
+		$node->pause();
+		$node->step();
+		$dead = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' ) . '/deadletter/remote-aspen/firehose.p0';
+		\mkdir( $dead, 0755, true );
+
+		\chmod( $dead, 0311 );
+		try {
+			$e = $this->caught( static fn () => $node->fill( self::step_reply( 'remote-aspen:firehose.p0', self::stepped_record( '31:4404:61', 'sealed-9917' ), 31, 4465 ) ), 'the combined failure escapes' );
+		} finally {
+			\chmod( $dead, 0755 );
+		}
+
+		$this->assertSame( 1, $calls );
+		$this->assertStringContainsString( "dir {$dead} will not list", $e->getMessage() );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ), 'the request is settled either way' );
+	}
+
+	/**
+	 * A step whose crawl pin lands on an offsetlog dir that will not list fails
+	 * as a refused step does: it owes nothing, settles its request, keeps its
+	 * cursor and its record, and says so once naming the dir.
+	 */
+	public function test_a_step_whose_pin_will_not_list_fails_as_a_refused_step(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		( new \ReflectionProperty( $node, 'crawl' ) )->setValue( $node, true );
+		$pins = \rtrim( \Newspack_Nodes\Config::get_offsets_directory(), '/' ) . '/remote-aspen/firehose.p0';
+		@\mkdir( $pins, 0755, true );
+		$stderr = $this->capture_stderr();
+
+		\chmod( $pins, 0311 );
+		try {
+			$node->fill( self::step_reply( 'remote-aspen:firehose.p0', self::stepped_record( '31:4404:61', 'pinned-6631' ), 31, 4465 ) );
+		} finally {
+			\chmod( $pins, 0755 );
+		}
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( 0, $this->read_private( $node, 'steps_owed' ) );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ) );
+		$this->assertSame( 4404, $this->read_private( $node, 'cursor_offset' ) );
+		$this->assertCount( 1, self::stderr_lines( $stderr, "step refused: dir {$pins} will not list" ) );
+	}
+
 	public function test_a_refused_step_owes_nothing_and_logs_once(): void {
 		[ , $node, $sink ] = $this->stepping_reader();
 		$refusal                   = Message::new_message();

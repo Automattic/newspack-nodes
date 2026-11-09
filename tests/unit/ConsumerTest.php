@@ -34,6 +34,144 @@ class ConsumerTest extends TestCase {
 	}
 
 	/**
+	 * A source dir that will not list costs the reader its ticks, one
+	 * rate-limited line naming the dir, and never the worker: the event loop
+	 * drains on, where an escaping throw would end the worker and its successor
+	 * would die on its first poll.
+	 */
+	public function test_a_source_dir_that_will_not_list_skips_the_tick_and_keeps_the_loop(): void {
+		$this->use_loop_time();
+		$source = "{$this->tmp}/kokako-7741.p2";
+		\mkdir( $source );
+		$c = new Consumer_Node();
+		$c->name( 'kokako-reader' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ $source, "{$this->tmp}/offsets/kokako-7741.p2" ] );
+		$stderr = $this->capture_stderr();
+
+		\chmod( $source, 0311 );
+		try {
+			Event_Framework::instance()->drain( $this->boundedTicks( 4 ) );
+		} finally {
+			\chmod( $source, 0755 );
+		}
+
+		$this->assertCount( 1, self::stderr_lines( $stderr, "dir {$source} will not list" ) );
+	}
+
+	/**
+	 * A busy reader whose dir stops listing falls back to the EOF cadence
+	 * rather than spinning at the busy one: the tick that threw re-arms at
+	 * POLL_INTERVAL_EOF_MS, and the loop polls that slowly from then on.
+	 */
+	public function test_a_busy_reader_whose_dir_will_not_list_falls_back_to_the_eof_cadence(): void {
+		$offset      = 0.0;
+		Core::$clock = static function () use ( &$offset ): float {
+			return \microtime( true ) + $offset;
+		};
+		Event_Framework::$sleep = static function ( int $microseconds ) use ( &$offset ): void {
+			$offset += $microseconds / 1_000_000;
+		};
+		$dir    = "{$this->tmp}/hoiho-3318.p0";
+		$source = new Partition_Node();
+		$source->arguments( [ $dir ] );
+		for ( $i = 0; $i < 400; $i++ ) {
+			$this->produce_into( $source, "backlog-3318-{$i}-" . \str_repeat( 'b', 300 ) );
+		}
+		$c = new Consumer_Node();
+		$c->name( 'hoiho-reader' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ $dir, "{$this->tmp}/offsets/hoiho-3318.p0" ] );
+		Event_Framework::instance()->drain( $this->boundedTicks( 2 ) );
+		$this->assertSame( Consumer_Node::POLL_INTERVAL_BUSY_MS, $this->read_private( $c, 'interval_ms' ), 'precondition: a backlog keeps it busy' );
+		$ticks = 0;
+
+		\chmod( $dir, 0311 );
+		try {
+			Event_Framework::instance()->drain( static function () use ( &$ticks, &$offset ): bool {
+				$offset += 1.0;
+				return $ticks++ < 6;
+			} );
+		} finally {
+			\chmod( $dir, 0755 );
+		}
+
+		$this->assertSame( Consumer_Node::POLL_INTERVAL_EOF_MS, $this->read_private( $c, 'interval_ms' ) );
+	}
+
+	/**
+	 * A record the sink refuses, bound for a dead-letter dir that will not
+	 * list, is forwarded once: the quarantine's failure escapes combined with
+	 * the refusal, and nothing re-forwards it on the next tick (ADR-12).
+	 */
+	public function test_a_record_whose_quarantine_will_not_list_is_forwarded_once_and_escapes(): void {
+		$this->use_loop_time();
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/takahe-2207.p1" ] );
+		$this->produce_into( $source, 'refused 2207' );
+		$calls    = 0;
+		$refusing = new class( $calls ) extends Node {
+			public function __construct( private int &$calls ) {
+				parent::__construct();
+			}
+			public function fill( array $message ): void {
+				++$this->calls;
+				throw new \RuntimeException( 'sink refused 2207' );
+			}
+		};
+		$dead = "{$this->tmp}/deadletter/takahe-2207.p1";
+		\mkdir( $dead, 0755, true );
+		$c = new Consumer_Node();
+		$c->name( 'takahe-reader' );
+		$c->sink( $refusing );
+		$c->arguments( [ "{$this->tmp}/takahe-2207.p1", "{$this->tmp}/offsets/takahe-2207.p1", $dead ] );
+
+		\chmod( $dead, 0311 );
+		try {
+			$e = $this->caught( fn () => Event_Framework::instance()->drain( $this->boundedTicks( 6 ) ), 'the combined failure escapes' );
+		} finally {
+			\chmod( $dead, 0755 );
+		}
+
+		$this->assertSame( 1, $calls, 'the sink is offered the record once' );
+		$this->assertStringContainsString( 'sink refused 2207', $e->getMessage() );
+		$this->assertStringContainsString( "dir {$dead} will not list", $e->getMessage() );
+	}
+
+	/**
+	 * A crash suspect whose sacrifice cannot land stays the suspect: the
+	 * head-skip stays armed until its dead-letter write succeeds, so the next
+	 * tick sacrifices it again and never forwards it.
+	 */
+	public function test_a_head_sacrifice_that_will_not_land_keeps_the_skip_armed(): void {
+		$this->use_loop_time();
+		$dir    = "{$this->tmp}/kakariki-4471.p2";
+		$source = new Partition_Node();
+		$source->arguments( [ $dir ] );
+		$dead = "{$this->tmp}/deadletter/kakariki-4471.p2";
+		\mkdir( $dead, 0755, true );
+		$sink = new Capture_Sink_Node();
+		$c    = new Consumer_Node();
+		$c->name( 'kakariki-reader' );
+		$c->sink( $sink );
+		$c->arguments( [ $dir, "{$this->tmp}/offsets/kakariki-4471.p2", $dead ] );
+		Event_Framework::instance()->drain( $this->boundedTicks( 2 ) );
+		$this->produce_into( $source, 'suspect-4471' );
+		$this->produce_into( $source, 'after-4472' );
+		( new \ReflectionProperty( $c, 'crawl_skip_head' ) )->setValue( $c, true );
+
+		\chmod( $dead, 0311 );
+		try {
+			Event_Framework::instance()->drain( $this->boundedTicks( 8 ) );
+		} finally {
+			\chmod( $dead, 0755 );
+		}
+
+		$this->assertSame( [], \array_column( $sink->captured, Message::VALUE ), 'the suspect is never forwarded' );
+		$this->assertTrue( $this->read_private( $c, 'crawl_skip_head' ) );
+	}
+
+	/**
 	 * Tachikoma-parity constructible: no-arg ctor + arguments() setter walks
 	 * the node_schema and assigns source_dir + an offsetlog_dir token.
 	 */
@@ -5122,7 +5260,7 @@ class ConsumerTest extends TestCase {
 		$scans = 0;
 		\Newspack_Nodes\Partition_Node::$scandir = static function ( string $d ) use ( &$scans ) {
 			++$scans;
-			return \scandir( $d );
+			return \array_map( '\basename', \Newspack_Nodes\Core::dir_entries( $d ) );
 		};
 		try {
 			$block = $c->raw_block( 1048576 );

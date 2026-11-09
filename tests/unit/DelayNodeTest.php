@@ -180,6 +180,31 @@ class DelayNodeTest extends TestCase {
 		$this->assertSame( 'affkey-3307', $this->sink->captured[0][ Message::KEY ] );
 	}
 
+	/**
+	 * A queue dir that will not list costs the sweep its tick, with one
+	 * rate-limited line naming the dir; the entry stays parked and the worker
+	 * runs on, where an escaping throw would end it.
+	 */
+	public function test_a_queue_that_will_not_list_skips_the_sweep_and_keeps_its_entry(): void {
+		$delay = $this->delay();
+		$this->park( $delay, [ 'item' => 'q-4418', 'not_before' => self::T0 + 30 ] );
+		$this->sweep_at( $delay, self::T0 + 5 );
+		$queue  = "{$this->tmp}/logs/later.p3";
+		$stderr = $this->capture_stderr();
+
+		\chmod( $queue, 0311 );
+		try {
+			$this->sweep_at( $delay, self::T0 + 60 );
+		} finally {
+			\chmod( $queue, 0755 );
+		}
+
+		$this->assertSame( [], $this->delivered() );
+		$this->assertCount( 1, self::stderr_lines( $stderr, "dir {$queue} will not list" ) );
+		$this->sweep_at( $delay, self::T0 + 120 );
+		$this->assertSame( [ [ 'item' => 'q-4418', 'parked_at' => self::T0 ] ], $this->delivered() );
+	}
+
 	public function test_a_due_entry_reaches_the_target_with_parked_at_and_without_not_before(): void {
 		$delay = $this->delay();
 		$this->park( $delay, [ 'item' => 'c-31', 'n' => 4, 'not_before' => self::T0 + 30 ] );

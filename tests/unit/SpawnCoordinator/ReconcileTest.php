@@ -210,4 +210,40 @@ class ReconcileTest extends TestCase {
 		$this->assertDirectoryExists( "{$this->tmp}/ipc/kea-7713.p07" );
 		$this->assertDirectoryExists( "{$this->tmp}/ipc/kea.pX" );
 	}
+
+	// ── a tree that will not list ──────────────────────────────────────────
+
+	/** No locks dir yet is a fleet with no locks. */
+	public function test_worker_lock_dirs_is_empty_before_any_lock_dir(): void {
+		$this->assertSame( [], Spawn_Coordinator::worker_lock_dirs( $this->tmp ) );
+	}
+
+	/** A locks dir that will not list raises, naming it, rather than reading as a fleet with no locks. */
+	public function test_worker_lock_dirs_raises_a_locks_dir_that_will_not_list(): void {
+		$this->make_lock( 'kea-7713.p3' );
+
+		$e = $this->unlistable( "{$this->tmp}/locks", fn () => Spawn_Coordinator::worker_lock_dirs( $this->tmp ) );
+
+		$this->assertSame( "dir {$this->tmp}/locks will not list", $e->getMessage() );
+	}
+
+	/** The scratch reap reads the same locks dir, and raises it the same way. */
+	public function test_reconcile_raises_a_locks_dir_that_will_not_list(): void {
+		$this->ledger( 1 );
+		$this->make_lock( 'ledger-workers.p4' );
+
+		$e = $this->unlistable( "{$this->tmp}/locks", fn () => $this->coordinator()->reconcile_lock_dirs() );
+
+		$this->assertSame( "dir {$this->tmp}/locks will not list", $e->getMessage() );
+	}
+
+	/** An ipc dir that will not list raises, naming it, rather than reading as no orphans. */
+	public function test_orphan_ipc_raises_an_ipc_dir_that_will_not_list(): void {
+		$this->ledger( 1 );
+		\mkdir( "{$this->tmp}/ipc/retired-workers.p7/input", 0755, true );
+
+		$e = $this->unlistable( "{$this->tmp}/ipc", fn () => $this->coordinator()->cleanup_orphan_ipc() );
+
+		$this->assertSame( "dir {$this->tmp}/ipc will not list", $e->getMessage() );
+	}
 }

@@ -1030,6 +1030,18 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertNotSame( "{$this->base}/tables/heron-snap-7115.sqlite", $removed[0] );
 	}
 
+	/** A tables dir that will not list raises, naming it, before anything is deleted. */
+	public function test_remove_snapshot_raises_a_tables_dir_that_will_not_list(): void {
+		$this->seed_partitions( 'rid-5591', 'rid-5593' );
+		$this->activate( 'wombat-fleet' );
+		self::build_heron( 'heron-snap-7117' );
+
+		$e = $this->unlistable( "{$this->base}/tables", static fn () => Row_Table_Node::remove_snapshot( 'heron-snap-7117' ) );
+
+		$this->assertSame( "dir {$this->base}/tables will not list", $e->getMessage() );
+		$this->assertFileExists( "{$this->base}/tables/heron-snap-7117.sqlite" );
+	}
+
 	/** @return array<string,array{string}> Names a snapshot may not take. */
 	public static function refused_snapshot_names(): array {
 		return [

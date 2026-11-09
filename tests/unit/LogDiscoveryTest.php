@@ -62,15 +62,14 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [], Log_Discovery::on_disk() );
 	}
 
-	public function test_returns_empty_when_glob_errors(): void {
-		// glob() returns false on an I/O error (not [] as for no-match). The seam forces
-		// that branch without a real filesystem fault: discovery yields [], never false.
-		Log_Discovery::$glob = static fn ( string $pattern, int $flags ) => false;
-		try {
-			$this->assertSame( [], Log_Discovery::on_disk() );
-		} finally {
-			Log_Discovery::$glob = null;
-		}
+	/** A logs root that will not list raises, naming it, and nothing is kept. */
+	public function test_on_disk_raises_a_logs_root_that_will_not_list(): void {
+		\mkdir( "{$this->tmp}/logs/kaka-3360.p2", 0755, true );
+
+		$e = $this->unlistable( "{$this->tmp}/logs", static fn () => Log_Discovery::on_disk() );
+
+		$this->assertSame( "dir {$this->tmp}/logs will not list", $e->getMessage() );
+		$this->assertSame( [ 'kaka-3360.p2' ], Log_Discovery::on_disk() );
 	}
 
 	public function test_returns_concrete_dir_basenames_verbatim(): void {
@@ -238,21 +237,14 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [], $groups['deadletter'] );
 	}
 
-	public function test_groups_yields_empty_lists_when_glob_errors(): void {
-		// The seam forces glob()'s false (I/O error) return for every root.
-		Log_Discovery::$glob = static fn ( string $pattern, int $flags ) => false;
-		try {
-			$this->assertSame(
-				[
-					'logs'       => [],
-					'offsets'    => [],
-					'deadletter' => [],
-				],
-				Log_Discovery::groups()
-			);
-		} finally {
-			Log_Discovery::$glob = null;
-		}
+	/** A root that will not list raises, naming it, and nothing is kept. */
+	public function test_groups_raises_a_root_that_will_not_list(): void {
+		\mkdir( "{$this->tmp}/offsets/tieke-5190.p4", 0755, true );
+
+		$e = $this->unlistable( "{$this->tmp}/offsets", static fn () => Log_Discovery::groups() );
+
+		$this->assertSame( "dir {$this->tmp}/offsets will not list", $e->getMessage() );
+		$this->assertSame( [ 'tieke-5190.p4' ], Log_Discovery::groups()['offsets'] );
 	}
 
 	public function test_groups_memoize_within_process(): void {

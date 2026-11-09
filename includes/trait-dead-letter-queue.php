@@ -520,84 +520,6 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Build the quarantine Partition for the CONFIGURED dir and publish it into the
-	 * `deadletter` slot. Idempotent on the dir rather than on the property, for the
-	 * reason `ensure_offsetlog()` is: `arguments()` is a replay setter, so an incumbent
-	 * built for a directory the arguments have since superseded would go on
-	 * quarantining where nobody triages.
-	 *
-	 * @return Partition_Node|null The sidecar, or null when the node has no
-	 *                             directory configured.
-	 */
-	protected function ensure_deadletter(): ?Partition_Node {
-		$dir = \rtrim( $this->deadletter_dir, '/' );
-		if ( null !== $this->deadletter && $dir === $this->deadletter->partition_dir() ) {
-			return $this->deadletter;
-		}
-		$this->retract_sibling( 'deadletter' );
-		$this->deadletter = null;
-		if ( '' === $dir ) {
-			return null;
-		}
-		// All five axes explicit; an omitted one inherits <config:*> forever.
-		$deadletter = $this->make_sidecar( $dir, [
-			self::DEADLETTER_SEGMENT_SIZE,
-			self::DEADLETTER_MIN_SEGMENTS,
-			self::DEADLETTER_NUM_SEGMENTS,
-			self::DEADLETTER_MAX_SEGMENTS,
-			self::DEADLETTER_MIN_LIFETIME,
-			self::DEADLETTER_LIFETIME,
-		] );
-		// @longform Sole writer: the cap lifts so poison over PIPE_BUF still
-		// quarantines, and only then is an index sound — an .idx row records
-		// the offset a record landed at, which on a quarantine peers share is
-		// this writer's guess. A shared one loses TRIAGE metadata and nothing
-		// else: `wp nodes ingest` replays the .log verbatim either way.
-		if ( $this->deadletter_sole_writer() ) {
-			$deadletter->void_warranty();
-			$deadletter->with_index( $this->deadletter_index_row( ... ) );
-		}
-		$this->publish_sibling( 'deadletter', $deadletter );
-		$this->deadletter = $deadletter;
-		return $deadletter;
-	}
-
-	/**
-	 * Companion-index row for one quarantined record — the triage metadata written
-	 * BESIDE the byte-verbatim :deadletter record in the sibling .idx. `reason` is
-	 * staged by dead_letter() right before the fill; `attempts`/`first_crash_ts` are
-	 * the live fair-shot accounting; `locator` is the record's `segment:offset:length`
-	 * IN THE SIDECAR (paste it into dl_requeue); `source` is its origin breadcrumb
-	 * (Message::ID) — same shape, different log, hence the distinct labels.
-	 *
-	 * @param array<int,mixed>  $message  The quarantined Message.
-	 * @param array<string,int> $position Its {segment,offset,length} in the sidecar.
-	 * @return string One JSON object, the .idx line for this record.
-	 */
-	private function deadletter_index_row( array $message, array $position ): string {
-		return (string) \wp_json_encode( [
-			'reason'         => $this->deadletter_reason,
-			'attempts'       => $this->attempts,
-			'first_crash_ts' => $this->first_crash_ts,
-			'ts'             => (int) Core::$now,
-			'source'         => Core::as_string( $message[ Message::ID ] ?? '' ),
-			'locator'        => Log_Position::format( $position['segment'], $position['offset'], $position['length'] ),
-		] );
-	}
-
-	/**
-	 * Whether this node is the ONLY writer of its quarantine (readers are; a
-	 * multi-writer Partition's shared write-quarantine is not). True lifts the
-	 * sidecar's PIPE_BUF cap via void_warranty (lockless rotation) — safe only
-	 * for a sole writer.
-	 *
-	 * @return bool True when this is the quarantine's only writer.
-	 */
-	protected function deadletter_sole_writer(): bool {
-		return true;
-	}
-
-	/**
 	 * The triage command table, merged into a using node's `node_schema()['commands']` so
 	 * Consumer and Remote_Consumer both expose dl_list, dl_show, dl_requeue, dl_remove
 	 * and dl_purge on their `{name}:config` interpreter (auto-wired by Schema_Reflection — no CI
@@ -818,6 +740,115 @@ trait Dead_Letter_Queue {
 			$outcome = 'quarantined';
 		}
 		$this->stderr( "DEAD-LETTER [{$reason}] {$this->name} at {$where} — {$outcome}{$why}" );
+	}
+
+	/**
+	 * Quarantine a whole batch that one failure kept from landing, in one write
+	 * and one rate-limited line naming the count and `$error`, where
+	 * `dead_letter()` would write and report each record apart and flood a
+	 * failure that repeats on every tick. Each record goes in verbatim, so
+	 * `wp nodes ingest` replays it; one the quarantine refuses as oversize is
+	 * counted out of the line. A write that fails raises, combined with
+	 * `$error`, as `dead_letter()`'s does, and so does a node with no
+	 * quarantine configured.
+	 *
+	 * @param list<array<int,mixed>> $messages The records, as they were filled.
+	 * @param string                 $reason   Why, on each record's .idx row and heading the line.
+	 * @param \Throwable             $error    What kept the batch from landing.
+	 * @throws \Throwable `$error` with no quarantine, else the failed write combined with it.
+	 */
+	protected function dead_letter_batch( array $messages, string $reason, \Throwable $error ): void {
+		$quarantine = $this->ensure_deadletter() ?? throw $error;
+		$kept       = \array_values( \array_filter( $messages, $quarantine->takes( ... ) ) );
+		$this->deadletter_reason = $reason;
+		try {
+			$this->gate_sidecar( $quarantine );
+			\array_map( $quarantine->fill( ... ), $kept );
+			$quarantine->flush();
+		} catch ( \Throwable $e ) {
+			Worker_Should_Stop::raise( [ $error, $e ] );
+		} finally {
+			$this->deadletter_reason = '';
+		}
+		$this->print_less_often( "DEAD-LETTER [{$reason}] quarantined ", \count( $kept ) . ' of ' . \count( $messages ) . ' records: ' . Core::message_of( $error ) );
+	}
+
+	/**
+	 * Build the quarantine Partition for the CONFIGURED dir and publish it into the
+	 * `deadletter` slot. Idempotent on the dir rather than on the property, for the
+	 * reason `ensure_offsetlog()` is: `arguments()` is a replay setter, so an incumbent
+	 * built for a directory the arguments have since superseded would go on
+	 * quarantining where nobody triages.
+	 *
+	 * @return Partition_Node|null The sidecar, or null when the node has no
+	 *                             directory configured.
+	 */
+	protected function ensure_deadletter(): ?Partition_Node {
+		$dir = \rtrim( $this->deadletter_dir, '/' );
+		if ( null !== $this->deadletter && $dir === $this->deadletter->partition_dir() ) {
+			return $this->deadletter;
+		}
+		$this->retract_sibling( 'deadletter' );
+		$this->deadletter = null;
+		if ( '' === $dir ) {
+			return null;
+		}
+		// All five axes explicit; an omitted one inherits <config:*> forever.
+		$deadletter = $this->make_sidecar( $dir, [
+			self::DEADLETTER_SEGMENT_SIZE,
+			self::DEADLETTER_MIN_SEGMENTS,
+			self::DEADLETTER_NUM_SEGMENTS,
+			self::DEADLETTER_MAX_SEGMENTS,
+			self::DEADLETTER_MIN_LIFETIME,
+			self::DEADLETTER_LIFETIME,
+		] );
+		// @longform Sole writer: the cap lifts so poison over PIPE_BUF still
+		// quarantines, and only then is an index sound — an .idx row records
+		// the offset a record landed at, which on a quarantine peers share is
+		// this writer's guess. A shared one loses TRIAGE metadata and nothing
+		// else: `wp nodes ingest` replays the .log verbatim either way.
+		if ( $this->deadletter_sole_writer() ) {
+			$deadletter->void_warranty();
+			$deadletter->with_index( $this->deadletter_index_row( ... ) );
+		}
+		$this->publish_sibling( 'deadletter', $deadletter );
+		$this->deadletter = $deadletter;
+		return $deadletter;
+	}
+
+	/**
+	 * Companion-index row for one quarantined record — the triage metadata written
+	 * BESIDE the byte-verbatim :deadletter record in the sibling .idx. `reason` is
+	 * staged by dead_letter() right before the fill; `attempts`/`first_crash_ts` are
+	 * the live fair-shot accounting; `locator` is the record's `segment:offset:length`
+	 * IN THE SIDECAR (paste it into dl_requeue); `source` is its origin breadcrumb
+	 * (Message::ID) — same shape, different log, hence the distinct labels.
+	 *
+	 * @param array<int,mixed>  $message  The quarantined Message.
+	 * @param array<string,int> $position Its {segment,offset,length} in the sidecar.
+	 * @return string One JSON object, the .idx line for this record.
+	 */
+	private function deadletter_index_row( array $message, array $position ): string {
+		return (string) \wp_json_encode( [
+			'reason'         => $this->deadletter_reason,
+			'attempts'       => $this->attempts,
+			'first_crash_ts' => $this->first_crash_ts,
+			'ts'             => (int) Core::$now,
+			'source'         => Core::as_string( $message[ Message::ID ] ?? '' ),
+			'locator'        => Log_Position::format( $position['segment'], $position['offset'], $position['length'] ),
+		] );
+	}
+
+	/**
+	 * Whether this node is the ONLY writer of its quarantine (readers are; a
+	 * multi-writer Partition's shared write-quarantine is not). True lifts the
+	 * sidecar's PIPE_BUF cap via void_warranty (lockless rotation) — safe only
+	 * for a sole writer.
+	 *
+	 * @return bool True when this is the quarantine's only writer.
+	 */
+	protected function deadletter_sole_writer(): bool {
+		return true;
 	}
 
 	/**

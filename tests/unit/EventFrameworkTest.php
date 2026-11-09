@@ -200,6 +200,42 @@ class EventFrameworkTest extends TestCase {
 		$this->assertSame( [], $ef->curl_handles() );
 	}
 
+	/**
+	 * A completion whose delivery meets a dir that will not list costs that
+	 * completion alone, said once naming the dir: its handle is released, the
+	 * next completion in the same drain still reaches its owner, and the loop
+	 * never ends the worker.
+	 */
+	public function test_a_completion_whose_dir_will_not_list_costs_only_itself(): void {
+		$ef   = Event_Framework::instance();
+		$opts = [];
+		$this->capture_curl( $opts );
+		$sealed  = new class extends \Newspack_Nodes\Node implements \Newspack_Nodes\Curl_Owner {
+			public function on_curl_done( \CurlHandle $handle, int $result, mixed $context ): void {
+				throw new \Newspack_Nodes\Dir_Unlistable( 'dir /srv/weka-6652.p0 will not list' );
+			}
+		};
+		$sealed->name( 'sealed-6652' );
+		$owner   = $this->curl_owner();
+		$easy_a  = $ef->start_curl( $sealed, [ \CURLOPT_URL => 'https://a-6652.example/' ], 'ctx-a-6652' );
+		$easy_b  = $ef->start_curl( $owner, [ \CURLOPT_URL => 'https://b-6653.example/' ], 'ctx-b-6653' );
+		Event_Framework::$curl_poll = static fn ( \CurlMultiHandle $m ): array => [
+			[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_a, 'result' => \CURLE_OK ],
+			[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_b, 'result' => \CURLE_OK ],
+		];
+		$stderr = $this->capture_stderr();
+		$ticks  = 0;
+
+		$ef->drain( function () use ( &$ticks ): bool {
+			Core::$now = \microtime( true );
+			return 0 === $ticks++;
+		} );
+
+		$this->assertSame( [ [ $easy_b, \CURLE_OK, 'ctx-b-6653' ] ], $owner->done );
+		$this->assertSame( [], $ef->handles_of( $sealed ), 'the failed completion is released too' );
+		$this->assertCount( 1, self::stderr_lines( $stderr, 'skipping a completion: dir /srv/weka-6652.p0 will not list' ) );
+	}
+
 	public function test_a_row_that_is_not_done_reaches_no_owner(): void {
 		$ef   = Event_Framework::instance();
 		$opts = [];

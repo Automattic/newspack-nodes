@@ -1170,4 +1170,38 @@ class LogCleanerTest extends TestCase {
 
 		$this->assertFileExists( $db, 'the unreadable topology may declare it' );
 	}
+
+	// ── a tree that will not list ──
+
+	/** A logs root that will not list raises, naming it, rather than reading as no orphans. */
+	public function test_a_logs_root_that_will_not_list_raises_naming_it(): void {
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$this->seed_log_partition( 'ghost-6620', 0 );
+
+		$e = $this->unlistable( "{$this->tmp}/logs", fn () => Log_Cleaner::cleanup_orphan_partitions( $this->tmp ) );
+
+		$this->assertSame( "dir {$this->tmp}/logs will not list", $e->getMessage() );
+	}
+
+	/** An orphan whose age will not read raises, naming it, and stays. */
+	public function test_an_orphan_that_will_not_list_raises_and_stays(): void {
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$ghost = $this->seed_log_partition( 'ghost-6620', 0 );
+
+		$e = $this->unlistable( $ghost, fn () => Log_Cleaner::cleanup_orphan_partitions( $this->tmp ) );
+
+		$this->assertSame( "dir {$ghost} will not list", $e->getMessage() );
+		$this->assertFileExists( "{$ghost}/0.log" );
+	}
+
+	/** A tables dir that will not list raises, naming it, rather than reading as no Tables. */
+	public function test_a_tables_dir_that_will_not_list_raises_naming_it(): void {
+		$this->declare_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		[ $ghost ] = $this->seed_table_files( 'lab-3:emu', 3, 7200 );
+
+		$e = $this->unlistable( \dirname( $ghost ), fn () => Log_Cleaner::cleanup_orphan_partitions( $this->tmp ) );
+
+		$this->assertSame( 'dir ' . \dirname( $ghost ) . ' will not list', $e->getMessage() );
+		$this->assertFileExists( $ghost );
+	}
 }

@@ -528,6 +528,22 @@ abstract class TestCase extends PHPUnitTestCase {
 	}
 
 	/**
+	 * What `$fn` raises while `$dir` will not list (mode 0311: enterable,
+	 * not readable), the dir's mode restored after.
+	 *
+	 * @param string   $dir The dir.
+	 * @param callable $fn  The read.
+	 */
+	protected function unlistable( string $dir, callable $fn ): \RuntimeException {
+		\chmod( $dir, 0311 );
+		try {
+			return $this->caught( $fn, "{$dir} listed though it will not list" );
+		} finally {
+			\chmod( $dir, 0755 );
+		}
+	}
+
+	/**
 	 * Build a TM_BYTESTREAM Message wrapping $value (and optional $key).
 	 * A Partition takes writes only through `$p->fill(...)`, in the canonical
 	 * packed wire format.

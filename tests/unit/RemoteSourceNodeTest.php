@@ -1312,6 +1312,35 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [], $errors->getArrayCopy() );
 	}
 
+	/**
+	 * An offsetlog root that will not list refuses a glob's reader, rate-limited
+	 * and naming the root, rather than counting no claimed dir toward the cap;
+	 * nothing is kept, so the next line builds it once the root lists.
+	 */
+	public function test_a_root_that_will_not_list_refuses_a_glob_reader_and_keeps_nothing(): void {
+		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$root = \Newspack_Nodes\Config::get_offsets_directory() . '/remote-aspen';
+		\mkdir( "{$root}/kea-6631", 0755, true );
+		$errors   = $this->capture_stderr();
+		[ $node ] = $this->make_remote( 'remote-aspen', $this->remote_args( 'remote-aspen', 'aspen' ), [ 'kea-*', 'herd-52' ] );
+		$send     = static function ( string $at ): void {
+			Core::node( 'remote-aspen:sse-in' )->process_sse_chunk( self::block_frames( 'kea-8802', $at, self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'line-8802' ] ) ) );
+		};
+
+		\chmod( $root, 0311 );
+		try {
+			$send( '3:0' );
+			$send( '3:40' );
+		} finally {
+			\chmod( $root, 0755 );
+		}
+		$this->assertSame( [], $this->readers( $node ) );
+		$this->assertCount( 1, self::stderr_lines( $errors, "refusing a glob reader: dir {$root} will not list" ) );
+
+		$send( '3:80' );
+		$this->assertSame( [ 'kea-8802' ], \array_keys( $this->readers( $node ) ) );
+	}
+
 	public function test_a_glob_builds_at_most_max_readers(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$errors   = $this->capture_stderr();

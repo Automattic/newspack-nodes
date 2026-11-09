@@ -120,6 +120,31 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->assertSame( "harbor_ledger_reader\n", \file_get_contents( "{$dir}/.read-capability" ) );
 	}
 
+	/**
+	 * A subdir that will not list stays, with its parent, and the delete says
+	 * so once, naming it, rather than leaving it in silence.
+	 */
+	public function test_delete_directory_recursive_names_a_subdir_that_will_not_list(): void {
+		$dir = "{$this->tmp}/offsets/kakapo-5520.p2";
+		\mkdir( "{$dir}/sealed-8841", 0755, true );
+		\file_put_contents( "{$dir}/sealed-8841/0.log", 'held 8841' );
+		$stderr = $this->capture_stderr();
+
+		\chmod( "{$dir}/sealed-8841", 0311 );
+		try {
+			Spawn_Coordinator::delete_directory_recursive( $dir, $this->tmp );
+			Spawn_Coordinator::delete_directory_recursive( $dir, $this->tmp );
+		} finally {
+			\chmod( "{$dir}/sealed-8841", 0755 );
+		}
+
+		$this->assertFileExists( "{$dir}/sealed-8841/0.log" );
+		$this->assertSame(
+			[ "WARNING: Spawn_Coordinator: dir {$dir}/sealed-8841 will not list; it stays" ],
+			self::stderr_lines( $stderr, 'sealed-8841' )
+		);
+	}
+
 	/** A Log's marker beside its segments also goes last. */
 	public function test_delete_directory_recursive_keeps_a_logs_marker_while_its_segment_stays(): void {
 		$dir = "{$this->tmp}/logs";
@@ -310,6 +335,18 @@ class SpawnCoordinatorTest extends TestCase {
 		$s->remove_stale_directory( "{$this->tmp}/no-such-dir", 3600 );
 		// No exception, no side effect.
 		$this->assertTrue( is_dir( $this->tmp ) );
+	}
+
+	/** A lock dir that will not list raises, naming it: its age is unknown, not young. */
+	public function test_remove_stale_directory_raises_a_dir_that_will_not_list(): void {
+		$dir = "{$this->tmp}/locks/weka-3381.p5.lock.d";
+		\mkdir( $dir, 0755, true );
+		\touch( "{$dir}/heartbeat", \time() - 7200 );
+
+		$e = $this->unlistable( $dir, fn () => ( new Spawn_Coordinator( $this->tmp ) )->remove_stale_directory( $dir, 3600 ) );
+
+		$this->assertSame( "dir {$dir} will not list", $e->getMessage() );
+		$this->assertDirectoryExists( $dir );
 	}
 
 	public function test_remove_stale_directory_skips_empty_dir(): void {

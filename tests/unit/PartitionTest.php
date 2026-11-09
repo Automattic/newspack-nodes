@@ -42,7 +42,7 @@ class PartitionTest extends TestCase {
 		$scans = 0;
 		Partition_Node::$scandir = static function ( string $d ) use ( &$scans ) {
 			++$scans;
-			return \scandir( $d );
+			return \array_map( '\basename', \Newspack_Nodes\Core::dir_entries( $d ) );
 		};
 		try {
 			// Clock threaded straight in — values distinct from the 0.0/0.25 defaults.
@@ -399,7 +399,7 @@ class PartitionTest extends TestCase {
 		// num_segments=3, hard cap=5, min_lifetime=900 protects young segments.
 		$p->arguments( [ $dir, '1048576', '2', '3', '5', '900', '0' ] );
 		// Unreadable oldest mtime: stat fails for 0.log via a vanished file.
-		Partition_Node::$scandir = static fn ( string $d ) => \scandir( $d );
+		Partition_Node::$scandir = static fn ( string $d ): array => \array_map( '\basename', \Newspack_Nodes\Core::dir_entries( $d ) );
 		\unlink( "{$dir}/0.log" );
 		\file_put_contents( "{$dir}/0.log", 'x' ); // recreate; mtime readable
 		\touch( "{$dir}/0.log", \time() - 10 ); // young: min_lifetime protects
@@ -1713,6 +1713,82 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ 0 ], \array_column( $p->get_segments( true ), 'id' ) );
 	}
 
+	/**
+	 * A rotation whose segment dir will not list sends the batch to the write
+	 * quarantine and costs the flush its tick, with one rate-limited line
+	 * naming the dir; the timer never ends the worker over it.
+	 */
+	public function test_a_flush_whose_dir_will_not_list_quarantines_the_batch_and_keeps_the_loop(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/hoiho-5501.p1";
+		\mkdir( $dir, 0755, true );
+		$p   = new Partition_Node();
+		$p->arguments( [ $dir, '1024' ] );
+		$p->name( 'hoiho-5501' );
+		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		foreach ( [ 'a', 'b' ] as $tag ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$m[ Message::VALUE ] = "hoiho-5501-{$tag}-" . \str_repeat( 'x', 600 );
+			$p->fill( $m );
+		}
+		$quarantine = ( new \ReflectionMethod( $p, 'ensure_deadletter' ) )->invoke( $p );
+		$stderr     = $this->capture_stderr();
+
+		\chmod( $dir, 0311 );
+		try {
+			$p->fire_cb();
+		} finally {
+			\chmod( $dir, 0755 );
+		}
+		$quarantine->flush();
+
+		$this->assertCount( 1, self::stderr_lines( $stderr, "dir {$dir} will not list" ) );
+		$this->assertCount( 2, $this->read_partition_values( $quarantine ) );
+	}
+
+	/**
+	 * A batch whose segment dir will not list goes to the write quarantine in
+	 * one write with one rate-limited line naming the count and the dir, each
+	 * record kept verbatim so `wp nodes ingest` replays it.
+	 */
+	public function test_a_batch_whose_dir_will_not_list_is_quarantined_in_one_write_and_one_line(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/koru-7720.p3";
+		\mkdir( $dir, 0755, true );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir, '1024' ] );
+		$p->name( 'koru-7720' );
+		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		for ( $i = 0; $i < 50; $i++ ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$m[ Message::VALUE ] = \sprintf( 'koru-%02d', $i );
+			$p->fill( $m );
+		}
+		$quarantine = ( new \ReflectionMethod( $p, 'ensure_deadletter' ) )->invoke( $p );
+		$writes     = 0;
+		Partition_Node::$fwrite = static function ( $fh, string $bytes ) use ( &$writes ) {
+			if ( \str_ends_with( \stream_get_meta_data( $fh )['uri'], '.log' ) && \str_contains( \stream_get_meta_data( $fh )['uri'], '/deadletter/' ) ) {
+				++$writes;
+			}
+			return \fwrite( $fh, $bytes );
+		};
+		$stderr = $this->capture_stderr();
+
+		\chmod( $dir, 0311 );
+		try {
+			$p->fire_cb();
+		} finally {
+			\chmod( $dir, 0755 );
+			Partition_Node::$fwrite = null;
+		}
+
+		$this->assertSame( 1, $writes );
+		$this->assertSame( [ "koru-7720: DEAD-LETTER [segment dir will not list] quarantined 50 of 50 records: dir {$dir} will not list" ], self::stderr_lines( $stderr, 'DEAD-LETTER' ) );
+		$this->assertSame( \array_map( static fn ( int $i ): string => \sprintf( 'koru-%02d', $i ), \range( 0, 49 ) ), $this->read_partition_values( $quarantine ) );
+	}
+
 	public function test_a_gated_partitions_write_quarantine_carries_the_marker(): void {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
@@ -2703,6 +2779,23 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
+	 * A segment dir that will not list raises, naming it, rather than reading
+	 * as a log with no segments; nothing is cached, so the next scan lists.
+	 */
+	public function test_a_segment_dir_that_will_not_list_raises_and_caches_nothing(): void {
+		$dir = "{$this->tmp}/sealed-7731.p1";
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/4.log", \str_repeat( 'k', 7731 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+
+		$e = $this->unlistable( $dir, static fn () => $p->get_segments( true ) );
+
+		$this->assertSame( "dir {$dir} will not list", $e->getMessage() );
+		$this->assertSame( [ [ 'id' => 4, 'size' => 7731 ] ], $p->get_segments() );
+	}
+
+	/**
 	 * A segment retention deletes between `scandir` and `stat` is gone: it is
 	 * skipped, never listed at size 0, which would also count it as a segment
 	 * a reader is behind.
@@ -2711,7 +2804,7 @@ class PartitionTest extends TestCase {
 		$dir = "{$this->tmp}/sized.p0";
 		\mkdir( $dir );
 		\file_put_contents( "{$dir}/3.log", \str_repeat( 'd', 9173 ) );
-		Partition_Node::$scandir = static fn ( string $d ) => [ '.', '..', '2.log', '3.log' ];
+		Partition_Node::$scandir = static fn ( string $d ): array => [ '2.log', '3.log' ];
 		try {
 			$p = new Partition_Node();
 			$p->arguments( [ $dir ] );
@@ -4126,34 +4219,6 @@ class PartitionTest extends TestCase {
 		$this->assertTrue( \is_dir( "{$this->tmp}.p0/blocker" ), 'blocker dir must still be present (fill must not have unlinked it)' );
 	}
 
-	// ============================================================================
-	// Coverage: get_segments scandir-failure branch.
-	// ============================================================================
-
-	public function test_get_segments_returns_empty_when_scandir_fails(): void {
-		// scandir() on a 0000-perm directory returns false for non-root users.
-		// get_segments must catch that (it asserts `! $files`) and return empty.
-		// Root bypasses permission checks; skip in that case.
-		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
-			$this->markTestSkipped( 'scandir failure on 0000 dir needs a non-root uid (production runs as the web user).' );
-		}
-
-		$p = new Partition_Node();
-
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
-		// Pre-create the partition_dir so is_dir passes — get_segments then
-		// proceeds to scandir, which fails on 0000 perms.
-		\mkdir( "{$this->tmp}.p0", 0755, true );
-		\chmod( "{$this->tmp}.p0", 0000 );
-
-		try {
-			$segments = $p->get_segments( true );
-			$this->assertSame( [], $segments, 'get_segments must return [] when scandir fails' );
-		} finally {
-			\chmod( "{$this->tmp}.p0", 0755 ); // restore for tearDown cleanup.
-		}
-	}
-
 	/** Read a protected/private property of a node via reflection. */
 	private function read_node_prop( object $node, string $prop ) {
 		$ref = new \ReflectionClass( $node );
@@ -4295,6 +4360,17 @@ class PartitionTest extends TestCase {
 
 	public function test_read_latest_snapshot_cache_returns_empty_for_no_matching_dirs(): void {
 		$this->assertSame( [], Partition_Node::read_latest_snapshot_cache( $this->tmp, 'scored.p*', 'digest' ) );
+	}
+
+	/** An offsets dir that will not list raises, naming it, rather than reading as no snapshots. */
+	public function test_read_latest_snapshot_cache_raises_a_dir_that_will_not_list(): void {
+		$offsets = "{$this->tmp}/hoiho-2284";
+		\mkdir( $offsets );
+		$this->write_value_record( "{$offsets}/scored.p3", [ 'segment' => 0, 'offset' => 0, 'cache' => [ 'digest' => [ 'items' => [ [ 'title' => 'hoiho-2284' ] ] ] ] ] );
+
+		$e = $this->unlistable( $offsets, static fn () => Partition_Node::read_latest_snapshot_cache( $offsets, 'scored.p*', 'digest' ) );
+
+		$this->assertSame( "dir {$offsets} will not list", $e->getMessage() );
 	}
 
 	public function test_read_latest_snapshot_cache_flattens_items_across_dirs(): void {
@@ -5035,7 +5111,7 @@ class PartitionTest extends TestCase {
 		$scans                   = 0;
 		Partition_Node::$scandir = function ( string $d ) use ( &$scans ) {
 			++$scans;
-			return \scandir( $d );
+			return \array_map( '\basename', \Newspack_Nodes\Core::dir_entries( $d ) );
 		};
 		try {
 			$p = new Partition_Node();
@@ -5070,7 +5146,7 @@ class PartitionTest extends TestCase {
 		$scans                   = 0;
 		Partition_Node::$scandir = function ( string $d ) use ( &$scans ) {
 			++$scans;
-			return \scandir( $d );
+			return \array_map( '\basename', \Newspack_Nodes\Core::dir_entries( $d ) );
 		};
 		try {
 			$p = new Partition_Node();

@@ -318,6 +318,33 @@ class TopicProbeTest extends TestCase {
 		return $base;
 	}
 
+	/**
+	 * Two Partitions whose dirs will not list are each passed by this sweep,
+	 * with one rate-limited line, and every other node still reports. Two, so
+	 * the per-node catch is what holds: one alone would reach `fire_cb()` as
+	 * itself, where two would reach it combined and escape.
+	 */
+	public function test_partitions_that_will_not_list_are_passed_by_and_the_rest_report(): void {
+		$base    = $this->base();
+		$sealed  = [ "{$base}/logs/sealed-8812.p1", "{$base}/logs/sealed-8814.p1" ];
+		$this->partition( 'sealed-a:partition', $sealed[0], [ 3 => 211 ] );
+		$this->partition( 'sealed-b:partition', $sealed[1], [ 5 => 307 ] );
+		$this->partition( 'ledger:partition', "{$base}/logs/ledger-8813.p1", [ 4 => 8813 ] );
+		$capture = new Capture_Sink_Node();
+		$stderr  = $this->capture_stderr();
+
+		\array_map( static fn ( string $dir ): bool => \chmod( $dir, 0311 ), $sealed );
+		try {
+			self::probe_into( $capture )->fire_cb();
+		} finally {
+			\array_map( static fn ( string $dir ): bool => \chmod( $dir, 0755 ), $sealed );
+		}
+
+		$sources = \array_column( \array_column( $capture->captured, Message::VALUE ), Probe_Record::SOURCE );
+		$this->assertSame( [ 'ledger-8813.p1' ], $sources );
+		$this->assertCount( 1, self::stderr_lines( $stderr, 'skipping a node this sweep: ' ) );
+	}
+
 	/** Tachikoma's `TopicProbe.pm` sweeps Partitions as well as Consumers. */
 	public function test_fire_emits_a_partition_record_with_a_blank_reader(): void {
 		$dir = $this->base() . '/logs/ledger.p4';

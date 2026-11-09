@@ -776,6 +776,71 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( [], $result['orphans'] );
 	}
 
+	// ── a tree that will not list ───────────────────────────────────────────
+
+	/** A logs root that will not list answers TM_ERROR naming it, never an empty diagnostic. */
+	public function test_dump_cleanup_answers_an_error_for_a_logs_root_that_will_not_list(): void {
+		$base = $this->arrange_base_dir();
+		\mkdir( "{$base}/logs/stray-9147", 0755, true );
+		\Newspack_Nodes\Topology_Registry::reset();
+
+		$this->assertSame( "dir {$base}/logs will not list\n", $this->fire_unlistable( "{$base}/logs", 'dump_cleanup' ) );
+	}
+
+	/** The on-disk partition count answers TM_ERROR naming a logs root that will not list. */
+	public function test_dump_graph_answers_an_error_for_a_logs_root_that_will_not_list(): void {
+		$base = $this->arrange_base_dir();
+		$this->seed_log_segment( $base, 'firehose', 0, 0 );
+
+		$this->assertSame( "dir {$base}/logs will not list\n", $this->fire_unlistable( "{$base}/logs", 'dump_graph' ) );
+	}
+
+	/** A declared partition's segments answer TM_ERROR naming its dir, never an empty bar. */
+	public function test_dump_graph_answers_an_error_for_segments_that_will_not_list(): void {
+		$base = $this->arrange_base_dir();
+		$this->declare_partitions( $base, 'demo-workers', [ 'firehose' ] );
+		$this->seed_log_segment( $base, 'firehose', 0, 0, 311 );
+
+		$dir = "{$base}/logs/firehose.p0";
+		$this->assertSame( "dir {$dir} will not list\n", $this->fire_unlistable( $dir, 'dump_graph' ) );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	/** A Log sink's dir answers TM_ERROR naming it, never a Log with no segments. */
+	public function test_dump_graph_answers_an_error_for_a_log_sink_that_will_not_list(): void {
+		$base = $this->arrange_base_dir();
+		$path = "{$base}/logs/gate-4419/digest.md";
+		\mkdir( \dirname( $path ), 0755, true );
+		\file_put_contents( "{$path}.2", \str_repeat( 'a', 30 ) );
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents( "{$stock}/aggregator.tsl", "make_node Log digest:log {$path} 100 7\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$dir = \dirname( $path );
+		$this->assertSame( "dir {$dir} will not list\n", $this->fire_unlistable( $dir, 'dump_graph' ) );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	/**
+	 * A `workers` command's reply while `$dir` will not list (0311), the mode
+	 * restored after.
+	 *
+	 * @param string $dir  The dir.
+	 * @param string $verb The command.
+	 * @return mixed The reply payload: a TM_ERROR answers its message and a newline.
+	 */
+	private function fire_unlistable( string $dir, string $verb ): mixed {
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		\chmod( $dir, 0311 );
+		try {
+			return CommandHarness::fire( $interpreter, 'workers', $verb );
+		} finally {
+			\chmod( $dir, 0755 );
+		}
+	}
+
 	// ── verb grammar: verb first ────────────────────────────────────────────
 
 	public function test_dump_cleanup_answers_the_orphan_diagnostic(): void {

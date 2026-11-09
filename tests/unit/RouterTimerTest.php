@@ -150,6 +150,35 @@ class RouterTimerTest extends TestCase {
 	}
 
 	/**
+	 * A hitchhiker whose dir will not list costs its own tick and says so
+	 * once, naming the dir; every timer after it in the walk still fires, and
+	 * the Router's tick never ends the worker.
+	 */
+	public function test_a_hitchhiker_whose_dir_will_not_list_costs_only_its_own_tick(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$sealed = new class() extends Timer_Node {
+			protected function fire(): void {
+				throw new \Newspack_Nodes\Dir_Unlistable( 'dir /srv/kaki-6650.p2 will not list' );
+			}
+		};
+		$sealed->name( 'sealed-6650' );
+		$sealed->sink( $router );
+		$sealed->set_timer();
+		$after = new Timer_Node();
+		$after->name( 'after-6651' );
+		$after->sink( $router );
+		$after->set_timer();
+		$stderr = $this->capture_stderr();
+
+		$router->fire_cb();
+		$router->fire_cb();
+
+		$this->assertSame( 2, $after->counter(), 'the timer after it fires on both ticks' );
+		$this->assertCount( 1, self::stderr_lines( $stderr, 'skipping a tick: dir /srv/kaki-6650.p2 will not list' ) );
+	}
+
+	/**
 	 * notify_timer must only call fire_cb() on Timer_Nodes. A plain Node (no
 	 * fire_cb method) registered under TIMER must be skipped, not fataled on —
 	 * the guard protects against a non-Timer registrant slipping through.

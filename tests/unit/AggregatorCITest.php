@@ -259,7 +259,7 @@ class AggregatorCITest extends TestCase {
 		$scanned                        = [];
 		\Newspack_Nodes\Partition_Node::$scandir = static function ( string $dir ) use ( &$scanned ) {
 			$scanned[] = \basename( $dir );
-			return \scandir( $dir );
+			return \array_map( '\basename', \Newspack_Nodes\Core::dir_entries( $dir ) );
 		};
 		try {
 			CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );

@@ -146,7 +146,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @param array<string,mixed>                                                             $topologies The active set, `Bootstrap::get_topologies()`.
 	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active     Its readable split, `Bootstrap::split_readable( $topologies )`.
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
-	 * @throws \RuntimeException When the runtime base directory will not resolve.
+	 * @throws \RuntimeException When the runtime base directory will not resolve,
+	 *                           or a log dir it reads will not list.
 	 */
 	public static function collect_dump_metadata( array $topologies, array $active ): array {
 		return self::dump_snapshot( $topologies, $active )[0];
@@ -201,7 +202,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		$messages                  = Core::message_of( ... );
 
 		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
-		$log_partitions = \count( @\glob( "{$log_base}/*", \GLOB_ONLYDIR ) ?: [] );
+		$log_partitions = \count( Core::dir_entries( $log_base, '*', only_dirs: true ) );
 
 		[ $deadletter_segments, $deadletter_by_reader ] = self::deadletter_census( $base_dir );
 
@@ -390,9 +391,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @param array{grown:int,elapsed_ms:int}|null $probe        Its growth
 	 *        window, or null where it is not swept by any worker.
 	 * @return array{name:string,partitions:array<int,mixed>,segment_size:int}
+	 * @throws \RuntimeException As `Core::dir_entries()`, when the Log's dir will not list.
 	 */
 	private static function build_log_sink_entry( string $path, string $name, int $segment_size, ?array $probe ): array {
-		$files = \glob( $path . '.[0-9]*' ) ?: [];
+		$files = Core::dir_entries( \dirname( $path ), \basename( $path ) . '.[0-9]*' );
 
 		$segments   = [];
 		$total_size = 0;
@@ -623,6 +625,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @param int|null $cursor_offset  Reader's byte offset, or null to omit both fields.
 	 * @param string   $log_base       Absolute `{base}/logs` dir.
 	 * @return array<string,mixed>
+	 * @throws \RuntimeException As `Core::dir_entries()`, when the log dir will not list.
 	 */
 	private static function build_log_status_entry(
 		string $log_name,
@@ -634,28 +637,20 @@ class Workers_CI_Node extends Service_CI_Node {
 		$segment_dir = "{$log_base}/{$log_name}";
 		$segments    = [];
 		$total_size  = 0;
-		if ( \is_dir( $segment_dir ) ) {
-			$files = @\scandir( $segment_dir );
-			if ( \is_array( $files ) ) {
-				foreach ( $files as $file ) {
-					if ( \preg_match( '/^(\d+)\.log$/D', $file, $m ) ) {
-						$path = "{$segment_dir}/{$file}";
-						if ( \is_link( $path ) ) {
-							continue;
-						}
-						$size       = @\filesize( $path );
-						$mtime      = @\filemtime( $path );
-						$segments[] = [
-							'id'    => (int) $m[1],
-							'size'  => false !== $size ? $size : 0,
-							'mtime' => false !== $mtime ? $mtime : 0,
-						];
-						$total_size += false !== $size ? $size : 0;
-					}
-				}
-				\usort( $segments, static fn ( $a, $b ) => $a['id'] <=> $b['id'] );
+		foreach ( Core::dir_entries( $segment_dir, '*.log' ) as $path ) {
+			if ( ! \preg_match( '/^(\d+)\.log$/D', \basename( $path ), $m ) || \is_link( $path ) ) {
+				continue;
 			}
+			$size       = @\filesize( $path );
+			$mtime      = @\filemtime( $path );
+			$segments[] = [
+				'id'    => (int) $m[1],
+				'size'  => false !== $size ? $size : 0,
+				'mtime' => false !== $mtime ? $mtime : 0,
+			];
+			$total_size += false !== $size ? $size : 0;
 		}
+		\usort( $segments, static fn ( $a, $b ) => $a['id'] <=> $b['id'] );
 		$entry = [
 			'name'       => $log_name,
 			'partition'  => $partition,
@@ -745,8 +740,8 @@ class Workers_CI_Node extends Service_CI_Node {
 		$base_dir = RuntimeConfig::get_base_directory();
 		$logs_dir = Log_Discovery::root( $base_dir, 'logs' );
 		$on_disk  = [];
-		// Mirror Log_Cleaner::sweep(): glob first-level dirs (layout-agnostic).
-		foreach ( @\glob( $logs_dir . '/*', \GLOB_ONLYDIR ) ?: [] as $dir ) {
+		// Mirror Log_Cleaner::sweep(): first-level dirs (layout-agnostic).
+		foreach ( Core::dir_entries( $logs_dir, '*', only_dirs: true ) as $dir ) {
 			$on_disk[] = \basename( $dir );
 		}
 		\sort( $on_disk );

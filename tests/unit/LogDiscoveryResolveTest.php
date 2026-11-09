@@ -204,6 +204,7 @@ final class LogDiscoveryResolveTest extends TestCase {
 	}
 
 	public function test_dirs_matching_answers_null_on_a_glob_fault(): void {
+		\mkdir( "{$this->tmp}/deadletter", 0755, true );
 		$seen                = [];
 		Log_Discovery::$glob = static function ( string $pattern, int $flags ) use ( &$seen ): array|false {
 			$seen[] = $pattern;
@@ -212,6 +213,21 @@ final class LogDiscoveryResolveTest extends TestCase {
 
 		$this->assertNull( Log_Discovery::dirs_matching( 'deadletter:jobs-61*', $this->tmp ) );
 		$this->assertSame( [ "{$this->tmp}/deadletter/jobs-61*" ], $seen, 'one glob, through the seam' );
+	}
+
+	/** A root that will not list answers null, a fault, never "no matches". */
+	public function test_dirs_matching_answers_null_for_a_root_that_will_not_list(): void {
+		\mkdir( "{$this->tmp}/logs/kea-6627.p3", 0755, true );
+
+		\chmod( "{$this->tmp}/logs", 0311 );
+		try {
+			$matches = Log_Discovery::dirs_matching( 'kea-6627.*', $this->tmp );
+		} finally {
+			\chmod( "{$this->tmp}/logs", 0755 );
+		}
+
+		$this->assertNull( $matches );
+		$this->assertSame( [ 'kea-6627.p3' => "{$this->tmp}/logs/kea-6627.p3" ], Log_Discovery::dirs_matching( 'kea-6627.*', $this->tmp ) );
 	}
 
 	public function test_dirs_matching_matches_a_log_dir_named_like_a_group(): void {

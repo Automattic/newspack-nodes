@@ -953,7 +953,7 @@ class CliTest extends TestCase {
 			if ( \str_ends_with( $dir, '/logs/firehose.p0' ) ) {
 				throw $refused;
 			}
-			return \scandir( $dir ) ?: [];
+			return \array_map( '\basename', \Newspack_Nodes\Core::dir_entries( $dir ) );
 		};
 
 		$caught = null;

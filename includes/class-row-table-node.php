@@ -466,11 +466,13 @@ class Row_Table_Node extends Table_Node {
 	 * @param string $name The snapshot's name.
 	 * @return list<string> The files deleted.
 	 * @throws \InvalidArgumentException As `snapshot_file()`.
-	 * @throws \RuntimeException When a file stands that will not delete.
+	 * @throws \RuntimeException When a file stands that will not delete, or
+	 *                           the tables dir will not list.
 	 */
 	public static function remove_snapshot( string $name ): array {
-		$files   = [ self::snapshot_file( $name ), ...( \glob( self::snapshot_file( $name, '*' ) ) ?: [] ) ];
-		$deleted = [];
+		$published = self::snapshot_file( $name );
+		$files     = [ $published, ...Core::dir_entries( \dirname( $published ), \basename( self::snapshot_file( $name, '*' ) ) ) ];
+		$deleted   = [];
 		foreach ( $files as $file ) {
 			\array_push( $deleted, ...Sqlite_Arm::remove_database( $file ) );
 		}

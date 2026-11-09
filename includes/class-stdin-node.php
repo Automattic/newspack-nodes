@@ -90,7 +90,22 @@ class Stdin_Node extends Timer_Node {
 			$this->stop_timer();
 			return;
 		}
-		$delivered = $this->drain_once();
+		$delivered = false;
+		try {
+			$delivered = $this->drain_once();
+		} finally {
+			// A line that threw is not a delivery, so it never spins.
+			$this->pace( $delivered );
+		}
+	}
+
+	/**
+	 * Re-arm for what the tick did: busy after a delivery, the EOF cadence
+	 * once the marker went out, idle otherwise, and no timer once it exits.
+	 *
+	 * @param bool $delivered Whether the tick delivered a line.
+	 */
+	private function pace( bool $delivered ): void {
 		if ( $this->exit ) {
 			$this->stop_timer();
 			return;

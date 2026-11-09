@@ -1211,6 +1211,75 @@ class CoreTest extends TestCase {
 		}
 		$this->assertSame( [], $raised );
 	}
+
+	/** Every entry, a dot-name included, as a sorted path; never `.` or `..`. */
+	public function test_dir_entries_lists_every_entry_as_a_sorted_path(): void {
+		$dir = $this->make_temp_dir( 'entries-' );
+		\file_put_contents( "{$dir}/weka-4471.log", '' );
+		\file_put_contents( "{$dir}/.read-capability", '' );
+		\mkdir( "{$dir}/kakapo-3302.lock.d" );
+
+		$this->assertSame(
+			[ "{$dir}/.read-capability", "{$dir}/kakapo-3302.lock.d", "{$dir}/weka-4471.log" ],
+			Core::dir_entries( $dir )
+		);
+	}
+
+	/** A pattern matches as `glob()` would: `*` passes no leading dot. */
+	public function test_dir_entries_keeps_the_names_a_pattern_matches(): void {
+		$dir = $this->make_temp_dir( 'entries-' );
+		\file_put_contents( "{$dir}/kea-8120.sqlite", '' );
+		\file_put_contents( "{$dir}/kea-8120.sqlite-wal", '' );
+		\file_put_contents( "{$dir}/.kea-9001.sqlite", '' );
+
+		$this->assertSame( [ "{$dir}/kea-8120.sqlite" ], Core::dir_entries( $dir, '*.sqlite' ) );
+	}
+
+	/** `only_dirs` keeps the entries that are dirs. */
+	public function test_dir_entries_keeps_only_dirs_when_asked(): void {
+		$dir = $this->make_temp_dir( 'entries-' );
+		\mkdir( "{$dir}/tui-5527.p3" );
+		\file_put_contents( "{$dir}/tui-5528.p4", '' );
+
+		$this->assertSame( [ "{$dir}/tui-5527.p3" ], Core::dir_entries( $dir, '*', only_dirs: true ) );
+	}
+
+	/** A dir that is not there lists as empty. */
+	public function test_dir_entries_is_empty_for_a_missing_dir(): void {
+		$this->assertSame( [], Core::dir_entries( $this->make_temp_dir( 'entries-' ) . '/moa-6034' ) );
+	}
+
+	/** A dir that is not there raises nothing, not even a warning `@` silences. */
+	public function test_dir_entries_raises_nothing_for_a_missing_dir(): void {
+		$raised = [];
+		\set_error_handler(
+			static function ( int $errno, string $errstr ) use ( &$raised ): bool {
+				$raised[] = $errstr;
+				return true;
+			}
+		);
+		try {
+			$entries = Core::dir_entries( $this->make_temp_dir( 'entries-' ) . '/pukeko-4183' );
+		} finally {
+			\restore_error_handler();
+		}
+		$this->assertSame( [], $entries );
+		$this->assertSame( [], $raised );
+	}
+
+	/** A dir that is there and will not list throws, naming it. */
+	public function test_dir_entries_throws_naming_a_dir_that_will_not_list(): void {
+		$dir = $this->make_temp_dir( 'entries-' ) . '/takahe-2219';
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/hidden.log", '' );
+		\chmod( $dir, 0311 );
+		try {
+			$e = $this->caught( static fn () => Core::dir_entries( $dir ), 'an unlistable dir listed' );
+		} finally {
+			\chmod( $dir, 0755 );
+		}
+		$this->assertSame( "dir {$dir} will not list", $e->getMessage() );
+	}
 }
 
 /**

@@ -263,7 +263,8 @@ class Event_Framework {
 	 * record is keyed by the handle's `spl_object_id`, so a node never has to
 	 * recognize its own transfer, and a handle released mid-tick finds none.
 	 * The release runs in a `finally`, so a throwing owner cannot strand its
-	 * handle on the multi.
+	 * handle on the multi. A delivery that meets a dir that will not list costs
+	 * that completion and one rate-limited line, never the rest of the drain.
 	 *
 	 * @param array<mixed,mixed> $info One `curl_multi_info_read()` row, carrying
 	 *   `handle`, `msg` and `result`.
@@ -279,6 +280,8 @@ class Event_Framework {
 		}
 		try {
 			$transfer['node']->on_curl_done( $handle, Core::num_int( $info['result'] ?? \CURLE_OK ), $transfer['context'] );
+		} catch ( Dir_Unlistable $e ) {
+			$transfer['node']->print_less_often( 'skipping a completion: ', Core::message_of( $e ) );
 		} finally {
 			$this->unregister_curl_easy( $handle );
 		}

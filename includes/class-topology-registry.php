@@ -548,7 +548,8 @@ class Topology_Registry {
 	 *
 	 * @param string $dir Absolute directory path.
 	 * @return array{mtime: int, ino: int, names: array<array-key,true>}
-	 * @throws \RuntimeException When the dir will not list; nothing is kept.
+	 * @throws \RuntimeException As `Core::dir_entries()`, when the dir will not
+	 *                           list; nothing is kept.
 	 */
 	private static function listing( string $dir ): array {
 		// A cached stat would hand back the dir from before a change.
@@ -564,14 +565,10 @@ class Topology_Registry {
 		}
 		unset( self::$listings[ $dir ] );
 		$now     = \time();
-		$entries = @\scandir( $dir );
-		if ( false === $entries ) {
-			throw new \RuntimeException( \esc_html( "topology dir {$dir} will not list" ) );
-		}
 		$listing = [
 			'mtime' => $stat['mtime'],
 			'ino'   => $stat['ino'],
-			'names' => \array_fill_keys( \array_diff( $entries, [ '.', '..' ] ), true ),
+			'names' => \array_fill_keys( \array_map( '\basename', Core::dir_entries( $dir ) ), true ),
 		];
 		if ( $stat['mtime'] < $now - 2 ) {
 			self::$listings[ $dir ] = $listing;

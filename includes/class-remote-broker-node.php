@@ -481,7 +481,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * sibling slot and a directory here, so the one builder refuses four,
 	 * rate-limited: a stamp outside the stream name grammar, one naming a slot
 	 * the broker keeps, one that is not claimed by any source, and a glob's
-	 * past `MAX_READERS`.
+	 * past `MAX_READERS`, or while the offsetlog root its count reads will not
+	 * list.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */
@@ -506,9 +507,17 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			$this->print_less_often( 'dropping a line that is not claimed by any source: ', $stamp );
 			return null;
 		}
-		if ( Log_Discovery::is_glob( $source['source'] ) && ! $this->claim_glob_stamp( $stamp ) ) {
-			$this->print_less_often( 'refusing a reader past MAX_READERS: ', (string) self::MAX_READERS );
-			return null;
+		if ( Log_Discovery::is_glob( $source['source'] ) ) {
+			try {
+				$claimed = $this->claim_glob_stamp( $stamp );
+			} catch ( Dir_Unlistable $e ) {
+				$this->print_less_often( 'refusing a glob reader: ', Core::message_of( $e ) );
+				return null;
+			}
+			if ( ! $claimed ) {
+				$this->print_less_often( 'refusing a reader past MAX_READERS: ', (string) self::MAX_READERS );
+				return null;
+			}
 		}
 		$child = new Remote_Consumer_Node();
 		$child->patron( $this );
@@ -542,6 +551,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 *
 	 * @param string $stamp The stamp the reader would read.
 	 * @return bool True when the reader may be built.
+	 * @throws Dir_Unlistable As `claimed_glob_stamps()`; nothing is kept.
 	 */
 	private function claim_glob_stamp( string $stamp ): bool {
 		$this->glob_stamps ??= $this->claimed_glob_stamps();
@@ -561,9 +571,10 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * as the disk.
 	 *
 	 * @return array<string,true>
+	 * @throws Dir_Unlistable As `Core::dir_entries()`, when the offsetlog root will not list.
 	 */
 	private function claimed_glob_stamps(): array {
-		$stamps = [ ...\array_keys( $this->readers() ), ...\array_map( '\basename', \glob( "{$this->offsetlog_root}/*", \GLOB_ONLYDIR ) ?: [] ) ];
+		$stamps = [ ...\array_keys( $this->readers() ), ...\array_map( '\basename', Core::dir_entries( $this->offsetlog_root, '*', only_dirs: true ) ) ];
 		$claimed = [];
 		foreach ( $stamps as $stamp ) {
 			$source = $this->source_for( $stamp );

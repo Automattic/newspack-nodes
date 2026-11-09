@@ -469,7 +469,7 @@ class TopologyRegistryTest extends TestCase {
 		\chmod( $this->user, 0311 );
 		try {
 			$e = $this->caught( static fn () => Topology_Registry::publish_catalog( [] ), 'an unlistable dir published' );
-			$this->assertSame( "topology dir {$this->user} will not list", $e->getMessage() );
+			$this->assertSame( "dir {$this->user} will not list", $e->getMessage() );
 		} finally {
 			\chmod( $this->user, 0755 );
 		}

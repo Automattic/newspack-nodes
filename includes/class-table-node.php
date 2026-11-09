@@ -1668,9 +1668,10 @@ class Table_Node extends Node {
 	 *
 	 * @param string $base The runtime base directory.
 	 * @return array<int,string>
+	 * @throws \RuntimeException As `Core::dir_entries()`, when the dir will not list.
 	 */
 	public static function files_in( string $base ): array {
-		return @\glob( self::dir( $base ) . '/*.sqlite' ) ?: [];
+		return Core::dir_entries( self::dir( $base ), '*.sqlite' );
 	}
 
 	/** The directory a base holds its Tables' SQLite files in. */
