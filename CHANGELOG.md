@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.150.0] - 2026-11-09
+
 ### Added
 
 - **`Core::caller_message( $e, $what )` and `Core::caller_messages( $caught )`, the one rule for what a caller may read of a throwable.** A deliberate refusal, an `\Exception`, reads as `Core::message_of()` to every caller. An engine `\Error` (TypeError, ValueError, ArgumentCountError, DivisionByZeroError, …) or a driver's exception (`Driver_Error::is_driver()`: `PDOException` or `mysqli_sql_exception`), anywhere down the `getPrevious()` chain or among a `Failures`' members, names files, lines and database paths, so its own words reach only a caller who may run a MANAGE command: a logged-in user holding manage under the session scope in force, or a worker's command whose session allows it, through the new `Capabilities::command_holds( $role )` that `require_command()` now refuses on. Anyone else, an anonymous request outside a worker included, reads `<what>: internal error; the reason is in the server's log`, and the class, message, file and line of each link go to stderr through `print_less_often()`, keyed on `<what>`. `Driver_Error::is_driver()` is the one test `Driver_Error::of()` shapes by.
