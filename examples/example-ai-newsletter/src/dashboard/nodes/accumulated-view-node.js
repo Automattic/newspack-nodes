@@ -9,13 +9,13 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * empties `Digest_Builder_Demo_Node`'s item list, so the tile drops to zero
  * after each draft and climbs again.
  *
- * The slice is the reply to `Insights_CI_Demo_Node`'s `accumulated` verb: the
+ * The slice is the reply to `Insights_CI_Demo_Node`'s `accumulated` command: the
  * `accumulated:fetch` Fetcher mints the command with FROM = `accumulated:in`, the server answers
  * TO = FROM, and the `accumulated:in` Tee fans that reply here. One slice per view is
  * what keeps a failed read off the sibling cards — a single view holding
  * `{ counts, top, accumulated }` would publish one slice's error to all three.
  *
- * The verb answers this slice as a struct and nothing reshapes it, so the base
+ * The command answers this slice as a struct and nothing reshapes it, so the base
  * class's `_parse()` stands and the empty model is all this class supplies.
  *
  * `register.js` registers the class as `AccumulatedView`, the name a TSL

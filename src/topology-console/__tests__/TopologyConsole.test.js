@@ -566,10 +566,10 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 			</button>
 			<button
 				onClick={ () =>
-					props.onUpdateVerbs && props.onUpdateVerbs( 'n1', [] )
+					props.onUpdateCommands && props.onUpdateCommands( 'n1', [] )
 				}
 			>
-				update-verbs
+				update-commands
 			</button>
 		</div>
 	);
@@ -1660,7 +1660,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch( /send_node n1 payload/ );
 	} );
 
-	it( 'Inspector trace action emits the trace verb with level', async () => {
+	it( 'Inspector trace action emits the trace command with level', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		await publishMeta();
 		fireEvent.click( getByText( 'select-n1' ) );
@@ -2581,7 +2581,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 	} );
 
-	it( 'edit mode: updateArgs + updateVerbs handlers run without throw', async () => {
+	it( 'edit mode: updateArgs + updateCommands handlers run without throw', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'make_node Echo n1\n',
 			name: 'demo',
@@ -2598,7 +2598,7 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'update-args' ) );
 		} );
 		await act( async () => {
-			fireEvent.click( getByText( 'update-verbs' ) );
+			fireEvent.click( getByText( 'update-commands' ) );
 		} );
 		expect( lastInspectorProps.selectedId ).toBe( 'n1' );
 	} );
@@ -2927,7 +2927,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( globalThis.__activateSend ).not.toHaveBeenCalled();
 	} );
 
-	it( 'confirming "Activate now?" toasts the error (not success) when the verb returns TM_ERROR', async () => {
+	it( 'confirming "Activate now?" toasts the error (not success) when the command returns TM_ERROR', async () => {
 		// activate rejects (TM_ERROR at HTTP 200): surface the error toast.
 		globalThis.__activateSend.mockResolvedValueOnce(
 			new Error( 'conflicts with active demo' )
@@ -3310,7 +3310,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to the {node}:config sibling interpreter', async () => {
-		// Verbs live on the `{name}:config` sibling, not the bare node.
+		// Commands live on the `{name}:config` sibling, not the bare node.
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { container, getByText } = render( <TopologyConsole /> );
@@ -4054,7 +4054,7 @@ describe( 'TopologyConsole boot', () => {
 		// Discard drops the dirty draft as well as flipping the mode, so a
 		// later action never re-asks, in LIVE, about a topology the operator
 		// cannot see. The drop itself is asserted on the interpreter
-		// (draft-interpreter-verbs); this covers the flow.
+		// (draft-interpreter-commands); this covers the flow.
 		hooks.fetchTopology.mockResolvedValue( {
 			tsl: 'make_node Echo n1\n',
 			name: 'demo',
@@ -4095,10 +4095,10 @@ describe( 'TopologyConsole boot', () => {
 		).toBe( false );
 	} );
 
-	it( 'handleUpdateVerbs writes back the file’s verbs, not the include’s', async () => {
+	it( 'handleUpdateCommands writes back the file’s commands, not the include’s', async () => {
 		// The Inspector renders seeded ⧺ declared as one list and lets any row
 		// be spliced. Keyed by INDEX, removing a seeded row deletes a declared
-		// verb instead — so the row's own flag has to decide.
+		// command instead — so the row's own flag has to decide.
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'include shared\ncommand_node n1:config set_b 2\n',
 			name: 'demo',
@@ -4125,7 +4125,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		const rows = mockCanvasProps.parsed.nodes.find(
 			( n ) => n.id === 'n1'
-		).verbInvocations;
+		).commandInvocations;
 		expect( rows.map( ( r ) => r.verb ) ).toEqual( [
 			'set_seeded',
 			'set_b',
@@ -4133,13 +4133,13 @@ describe( 'TopologyConsole boot', () => {
 
 		// Drop the SEEDED row, as the Inspector's × would.
 		await act( async () => {
-			lastInspectorProps.onUpdateVerbs( 'n1', rows.slice( 1 ) );
+			lastInspectorProps.onUpdateCommands( 'n1', rows.slice( 1 ) );
 		} );
 
 		expect(
 			mockCanvasProps.parsed.nodes
 				.find( ( n ) => n.id === 'n1' )
-				.verbInvocations.map( ( r ) => r.verb )
+				.commandInvocations.map( ( r ) => r.verb )
 		).toEqual( [ 'set_seeded', 'set_b' ] );
 	} );
 
@@ -5247,7 +5247,7 @@ describe( 'TopologyConsole boot', () => {
 		}
 
 		// The wire adapter is the one command entry point (shared with the
-		// "Activate now?" flow); answer only the `topologies expand` verb.
+		// "Activate now?" flow); answer only the `topologies expand` command.
 		function mockTopologyExpand( includeNames, result ) {
 			globalThis.__activateSend.mockImplementation( ( msg ) =>
 				'topologies' === msg?.to && 'expand' === msg?.verb

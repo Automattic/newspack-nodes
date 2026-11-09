@@ -372,7 +372,7 @@ describe( 'useDebugGraph', () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onRemoveNode( 'a' ) );
-		// Side-effect of remove_node verb: node leaves Core.
+		// Side-effect of remove_node command: node leaves Core.
 		expect( Core.node( 'a' ) ).toBeNull();
 		teardown();
 	} );
@@ -601,7 +601,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction echoes the equivalent commandline into the transcript (parity with the console)', () => {
-		// Bug: Inspector command dispatched the verb but never echoed it.
+		// Bug: Inspector command dispatched the command but never echoed it.
 		const { teardown } = mountExospine();
 		const dumper = mountOutput();
 		const a = new Node();

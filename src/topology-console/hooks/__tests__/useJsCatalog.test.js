@@ -44,7 +44,7 @@ describe( 'useJsCatalog', () => {
 		] );
 	} );
 
-	it( 'carries a class’s verbs without their handlers', () => {
+	it( 'carries a class’s commands without their handlers', () => {
 		const { result } = renderHook( () => useJsCatalog() );
 		const link = result.current.classes.find(
 			( c ) => 'RemoteLink' === c.shell_name

@@ -83,7 +83,7 @@ function upTo( open, depth ) {
  * @param {Function}               [props.onCompose]          (form) — sends the Compose modal's message; returns the refusal, or null once sent.
  * @param {Function}               [props.onRenameNode]       (id, next) — returns false when the name is already taken.
  * @param {Function}               [props.onUpdateArgs]       (id, args) — writes constructor args back to the draft.
- * @param {Function}               [props.onUpdateVerbs]      (id, invocations) — writes verb calls back to the draft.
+ * @param {Function}               [props.onUpdateCommands]   (id, invocations) — writes command calls back to the draft.
  * @param {Function}               [props.onSelectionChange]  (selectedId|null)
  *                                                            — mirrors the NODE selection outward; null without a selected node.
  * @param {?string}                [props.selection]          Controlled NODE selection, letting a consumer re-point it after a rename or clear it. A non-null value also clears the edge selection; null does not, because null is the node selection's own empty value and exactly what an edge selection leaves behind. The hull selection is never touched. `undefined` leaves GraphView self-controlled.
@@ -120,7 +120,7 @@ export default function GraphView( {
 	onCompose,
 	onRenameNode,
 	onUpdateArgs,
-	onUpdateVerbs,
+	onUpdateCommands,
 	onSelectionChange,
 	selection,
 	inspectorCollapsed = false,
@@ -692,7 +692,7 @@ export default function GraphView( {
 							nodeIds={ nodeIds }
 							editMode={ editMode }
 							onUpdateArgs={ onUpdateArgs }
-							onUpdateVerbs={ onUpdateVerbs }
+							onUpdateCommands={ onUpdateCommands }
 							onRemoveNode={ handleRemoveNode }
 							onRenameNode={ onRenameNode }
 							onRemoveEdge={ handleRemoveEdge }

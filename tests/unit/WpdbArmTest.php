@@ -196,7 +196,7 @@ final class WpdbArmTest extends TestCase {
 		$this->assertSame( 43, $arm->get( \str_repeat( 'k', 255 ) ) );
 	}
 
-	public function test_no_verb_opens_a_transaction_on_the_callers_connection(): void {
+	public function test_no_command_opens_a_transaction_on_the_callers_connection(): void {
 		$arm = new Wpdb_Arm( 'kea:p3' );
 		$arm->write_multi( [ 'sku-41' => 7, 'sku-42' => 1 ], 777 );
 		$arm->add( 'sku-43', 1, 777 );
@@ -361,7 +361,7 @@ final class WpdbArmTest extends TestCase {
 		$this->assertSame( [ 'wpdb_error' => '[1054] Unknown column' ], $arm->diagnostic_metadata() );
 	}
 
-	public function test_every_failed_write_verb_answers_as_a_failure(): void {
+	public function test_every_failed_write_command_answers_as_a_failure(): void {
 		$arm = new Wpdb_Arm( 'kea:p3' );
 		$arm->set( 'sku-41', 5, 777 );
 		$this->db->deny['DELETE'] = 'Lock wait timeout exceeded';

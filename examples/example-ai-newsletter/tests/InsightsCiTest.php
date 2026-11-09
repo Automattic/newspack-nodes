@@ -16,7 +16,7 @@ final class InsightsCiTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		// Service_CI verbs are gated by default; these tests dispatch them, so grant the cap.
+		// Service_CI commands are gated by default; these tests dispatch them, so grant the cap.
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 	}
 
@@ -62,13 +62,13 @@ final class InsightsCiTest extends TestCase {
 		[ 'source' => 'releases',  'title' => 'Minor fix',             'summary' => 's3', 'score' => 5.0 ],
 	];
 
-	public function test_counts_verb_returns_sources_slice_only(): void {
+	public function test_counts_command_returns_sources_slice_only(): void {
 		$ci      = $this->ci_with_snapshot( self::SEED );
 		$decoded = $ci->dispatch( 'counts' );
 		$this->assertSame( [ 'sources' => [ 'releases' => 2, 'community' => 1 ] ], $decoded );
 	}
 
-	public function test_top_verb_returns_top_slice_sorted_desc(): void {
+	public function test_top_command_returns_top_slice_sorted_desc(): void {
 		$ci      = $this->ci_with_snapshot( self::SEED );
 		$decoded = $ci->dispatch( 'top' );
 		$this->assertSame( [ 'top' ], \array_keys( $decoded ) );
@@ -78,7 +78,7 @@ final class InsightsCiTest extends TestCase {
 		$this->assertSame( 4.0, $decoded['top'][2]['score'] );
 	}
 
-	public function test_top_verb_caps_at_ten(): void {
+	public function test_top_command_caps_at_ten(): void {
 		$items = [];
 		for ( $i = 0; $i < 25; $i++ ) {
 			$items[] = [ 'source' => 'releases', 'title' => "Item $i", 'summary' => 's', 'score' => (float) $i ];
@@ -89,13 +89,13 @@ final class InsightsCiTest extends TestCase {
 		$this->assertSame( 24.0, $decoded['top'][0]['score'] ); // highest first
 	}
 
-	public function test_accumulated_verb_returns_count_slice_only(): void {
+	public function test_accumulated_command_returns_count_slice_only(): void {
 		$ci      = $this->ci_with_snapshot( self::SEED );
 		$decoded = $ci->dispatch( 'accumulated' );
 		$this->assertSame( [ 'accumulated' => 3 ], $decoded );
 	}
 
-	public function test_verbs_read_a_snapshot_over_pipe_buf(): void {
+	public function test_commands_read_a_snapshot_over_pipe_buf(): void {
 		// 60 padded items pack to well over PIPE_BUF (4096B) as one offsetlog line —
 		// the realistic accumulating-digest case the small-record tests never reach.
 		$items = [];
@@ -114,7 +114,7 @@ final class InsightsCiTest extends TestCase {
 		$this->assertSame( [ 'accumulated' => 0 ], $ci->dispatch( 'accumulated' ) );
 	}
 
-	public function test_three_verbs_share_one_memoized_read(): void {
+	public function test_three_commands_share_one_memoized_read(): void {
 		$ci    = $this->ci_with_snapshot( self::SEED );
 		$reads = 0;
 		// Spy seam: count the offsetlog snapshot read while still running the real
@@ -130,12 +130,12 @@ final class InsightsCiTest extends TestCase {
 		$ci->dispatch( 'top' );
 		$ci->dispatch( 'accumulated' );
 
-		$this->assertSame( 1, $reads, 'the three batched verbs must read the offsetlog exactly once' );
+		$this->assertSame( 1, $reads, 'the three batched commands must read the offsetlog exactly once' );
 	}
 
-	public function test_slice_verbs_are_refused_without_manage_options(): void {
+	public function test_slice_commands_are_refused_without_manage_options(): void {
 		$ci = $this->ci_with_snapshot( self::SEED );
-		// A logged-in user without the cap: dispatch() refuses each undeclared verb.
+		// A logged-in user without the cap: dispatch() refuses each undeclared command.
 		$GLOBALS['_wp_test_current_user_id']  = 7741;
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		foreach ( [ 'counts', 'top', 'accumulated' ] as $verb ) {
@@ -147,7 +147,7 @@ final class InsightsCiTest extends TestCase {
 		}
 	}
 
-	public function test_insights_god_verb_is_gone_and_slice_verbs_registered(): void {
+	public function test_insights_god_command_is_gone_and_slice_commands_registered(): void {
 		$ci = new Insights_CI_Demo_Node();
 		$ci->name( 'insights-demo' );
 		$commands = $ci->commands();

@@ -677,7 +677,7 @@ class Lock_Node extends Node {
 	/**
 	 * Hidden from the palette: PHP builds this node directly — `Worker_Base` for
 	 * a slot, `Partition_Node::allow_large_writes()` for a write lock — and a
-	 * topology line never names it, so it declares no arguments and no verbs.
+	 * topology line never names it, so it declares no arguments and no commands.
 	 * The HELD / STOLEN / RELEASED states it publishes are deliberately
 	 * undeclared too: they surface through `dump_node` and trace, and nothing
 	 * subscribes.

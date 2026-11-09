@@ -27,13 +27,13 @@ const MAX_LINES = 100000;
  * - the decaying `lps` readout (`RateSmoother.read` — idle rates fall to 0);
  * - seek tracking (`SeekTracker` breadcrumbs; publishes on segment change or
  *   the replay→live flip only, never per record);
- * - the shared control verbs: `pause`, `step`, `connection`, `browse`
+ * - the shared controls: `pause`, `step`, `connection`, `browse`
  *   (which CLEARS — a rewind starts from a clean slate), `follow`, `clear`,
  *   `filter`, and `select` (the subscription switch, which resets the tracker,
  *   clears the ring, and arms breadcrumbs for the dir it names).
  *
  * Subclasses implement `shapeRow( message )` → row fields (or null to drop),
- * and extend `_control()` / `viewModel()` for their extra verbs and model
+ * and extend `_control()` / `viewModel()` for their extra controls and model
  * fields (call `super`). Row fields should include the shared debug-mode
  * trio (`msgId`, `key`, `raw`) plus `content` so debug rendering and the
  * default filter work everywhere.
@@ -96,7 +96,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 	 *
 	 * The origin alone says which it is — ADR-7 addressing, applied to
 	 * controls. A record whose VALUE happens to carry an `action` field is
-	 * still a record, so sniffing the payload for one runs the view's verbs on
+	 * still a record, so sniffing the payload for one runs the view's controls on
 	 * live data and swallows whole streams.
 	 *
 	 * @param {Array} message The 7-field positional message.
@@ -117,9 +117,9 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * Apply one shared control verb: `pause`, `step`, `connection`, `browse`,
+	 * Apply one shared control action: `pause`, `step`, `connection`, `browse`,
 	 * `follow`, `clear`, `filter`, or `select`. Subclasses handle their own
-	 * verbs first and defer the rest here with `super._control( value )`.
+	 * actions first and defer the rest here with `super._control( value )`.
 	 *
 	 * `select` is the subscription switch: it resets the seek tracker and drops
 	 * every buffered row, since rows read under the previous subscription don't
@@ -128,7 +128,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 	 * segment ids would jitter the rail highlight, and disarms it. A payload
 	 * carrying no `dir` at all selects a single source and stays armed.
 	 *
-	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, segments?: Array<{id?: number, size?: number}>, term?: string, dir?: string}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
+	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, segments?: Array<{id?: number, size?: number}>, term?: string, dir?: string}} value The control payload: `action` picks the control, the remaining fields are that control's arguments. An unrecognised or absent action is a no-op.
 	 */
 	_control( value ) {
 		const action = value?.action;
@@ -332,7 +332,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 
 	/**
 	 * Drop every buffered row and reset the line counter and the rate window
-	 * — the ONE reset `select`, `browse`, the `clear` verb and assigning
+	 * — the ONE reset `select`, `browse`, the `clear` control and assigning
 	 * `lines` all land on, so a caller cannot half-clear the view.
 	 */
 	_clear() {

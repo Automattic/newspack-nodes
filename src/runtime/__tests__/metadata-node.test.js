@@ -192,7 +192,7 @@ describe( 'Metadata node', () => {
 		// The cadence itself belongs to TimerNode: `fireCb` decides when
 		// `fire()` runs, on the shared grid, and these cases are covered where
 		// that lives (timer-node.test.js). What is tested here is what Metadata
-		// itself does with a tick: mint the verb at the live cwd.
+		// itself does with a tick: mint the command at the live cwd.
 		it( 'mints dump_metadata at the cwd every time it is fired', () => {
 			const node = new MetadataNode();
 			node.name = '_metadata';

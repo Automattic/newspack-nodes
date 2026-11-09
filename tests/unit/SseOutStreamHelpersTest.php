@@ -28,7 +28,7 @@ final class SseOutStreamHelpersTest extends TestCase {
 	/**
 	 * Build an anonymous SSE_Out_Node subclass exposing the protected
 	 * SSE helper methods. SSE_Out_Node's node_schema() declares no
-	 * handler-bearing verbs, so the base ctor builds no sibling interpreter
+	 * handler-bearing commands, so the base ctor builds no sibling interpreter
 	 * and registers no node — construction is inert for a pure unit test.
 	 */
 	private function host(): object {

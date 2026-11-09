@@ -59,7 +59,7 @@ function isUiBound( action, payload ) {
  */
 
 /**
- * Runs one Inspector verb. `payload` is the verb's argument — a phrase for
+ * Runs one Inspector command. `payload` is the command's argument — a phrase for
  * `send`, a level for `trace`, and the `{ verb, kind, args, struct, replyTo }`
  * record for `invoke`, `args` its tokens and `struct` a structured request's
  * map.
@@ -107,7 +107,7 @@ function isUiBound( action, payload ) {
  * @property {(from: string, to: string) => void}                          onRemoveEdge      Erase an edge, then drop `to` from the FROM node's target.
  * @property {(id: string) => void}                                        onRemoveNode      Remove a node and take it off the canvas.
  * @property {(drop: { shellName: string, x: number, y: number }) => void} onDropNode        Stage a palette drop for NewNodeModal.
- * @property {InspectorAction}                                             onInspectorAction Run one Inspector verb against a node.
+ * @property {InspectorAction}                                             onInspectorAction Run one Inspector command against a node.
  * @property {(form: ComposeForm) => ?string}                              onCompose         Mint and send the Compose modal's message; the refusal, or null once sent.
  */
 
@@ -212,7 +212,7 @@ function composeMessage( form, shell ) {
 /**
  * One handler set for the canvas and Inspector gestures, shared by the debug
  * overlay and the topology console: connect, disconnect, remove, palette drop,
- * the Inspector's dump / command / tail / send / trace verbs, invoke, and the
+ * the Inspector's dump / command / tail / send / trace commands, invoke, and the
  * Compose modal's send.
  *
  * Every gesture but `invoke` and a compose becomes a command line handed to
@@ -243,7 +243,7 @@ function composeMessage( form, shell ) {
  * as a TM_ERROR on the reply path for a UI-bound one.
  *
  * `invoke` builds its own message, because a command line expresses none of
- * what it decides: whether the verb goes to the node or to its `:config`
+ * what it decides: whether the command goes to the node or to its `:config`
  * sibling (the catalog's `is_interpreter` flag), whether the message is a
  * TM_COMMAND or a TM_REQUEST, how `shell.envelope()` scopes it to the attached
  * worker's cwd, and whether `sseGuard` refuses it for want of a live stream.
@@ -255,7 +255,7 @@ function composeMessage( form, shell ) {
  * node passes `replyTo` instead of an operation id.
  *
  * Naming a `replyTo` also marks the invoke UI-bound: a button working through
- * the REPL's verbs, not a command the operator asked to watch. Its reply comes
+ * the REPL's commands, not a command the operator asked to watch. Its reply comes
  * back through the `_ui` relay — FROM `_ui/<replyTo>`, or bare `_ui` for a
  * button that does not read a reply — and neither the echo nor the reply
  * reaches the transcript unless `debug_ui` is on. Its refusal takes the same
@@ -377,7 +377,7 @@ export function useGraphHandlers( {
 			err[ VALUE ] = { name: payload.verb, payload: `${ text }\n` };
 			Core.node( names.COMMAND_INTERPRETER )?.fill( err );
 		};
-		// Invoke a verb on a node, minting its own message.
+		// Invoke a command on a node, minting its own message.
 		const invoke = ( nodeId, payload ) => {
 			if ( ! shell ) {
 				refuseInvoke( payload, noSession() );
@@ -448,7 +448,7 @@ export function useGraphHandlers( {
 				refuseInvoke( payload, refused.text, refused.logged );
 			}
 		};
-		// One Inspector verb: a command line, or invoke's own mint.
+		// One Inspector command: a command line, or invoke's own mint.
 		const act = ( action, nodeId, payload ) => {
 			if ( 'dump' === action ) {
 				dispatch( `dump_node ${ nodeId }` );

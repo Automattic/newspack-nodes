@@ -156,7 +156,7 @@ describe( 'useClassCatalog', () => {
 		expect( replyFor ).toHaveBeenCalledTimes( 2 );
 	} );
 
-	it( 'captures verb errors into state.error', async () => {
+	it( 'captures command errors into state.error', async () => {
 		replyFor.mockImplementation( () => new Error( 'network down' ) );
 		const { result } = renderHook( () =>
 			useClassCatalog( { enabled: true } )

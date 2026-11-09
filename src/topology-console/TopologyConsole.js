@@ -2,7 +2,7 @@
  * The Topology Console: one canvas over a node graph, in two modes. View mode
  * paints the live graph of the worker the cwd mounts and drives it from a
  * REPL; edit mode paints a draft `.tsl` document and edits it with the same
- * verbs. This module is the shell holding what both modes share — the cwd
+ * commands. This module is the shell holding what both modes share — the cwd
  * mirrored off the Shell, the canvas layout, the modals and the toast — and
  * delegates every mechanism to a hook.
  *
@@ -79,8 +79,8 @@ import { augmentWithVirtualEdges } from './utils/virtualEdges';
 import { splitStatements } from '../runtime/shell-node';
 import {
 	setArgumentsLine,
-	verbInvocationArgs,
-	verbUsesConfig,
+	commandInvocationArgs,
+	commandUsesConfig,
 } from './utils/editorLines';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { scopeFromCwd, workerOfPath } from './utils/scope';
@@ -373,7 +373,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		reseed: reseedDraft,
 		dump: dumpDraft,
 		setCatalog: setDraftCatalog,
-		replaceVerbs,
+		replaceCommands,
 		assertResolved,
 		revertIncludes,
 	} = draftDoc;
@@ -1471,9 +1471,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ runDraft, draft.nodes, schemasByShellName ]
 	);
 
-	// `command_node` only APPENDS, so replacement is a method, not a verb.
-	const handleUpdateVerbs = useCallback(
-		( id, verbs ) => {
+	// `command_node` only APPENDS, so replacement is a method, not a command.
+	const handleUpdateCommands = useCallback(
+		( id, invocations ) => {
 			const schema =
 				schemasByShellName[
 					draft.nodes.find( ( n ) => n.id === id )?.class
@@ -1482,18 +1482,18 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			const specOf = ( verb ) =>
 				schema?.commands?.find( ( c ) => c.name === verb )?.args ??
 				null;
-			replaceVerbs(
+			replaceCommands(
 				id,
-				verbs
+				invocations
 					.filter( ( v ) => true !== v.seeded )
 					.map( ( { seeded, ...v } ) => ( {
 						...v,
-						args: verbInvocationArgs( v.args, specOf( v.verb ) ),
-						viaConfig: verbUsesConfig( v, schema ),
+						args: commandInvocationArgs( v.args, specOf( v.verb ) ),
+						viaConfig: commandUsesConfig( v, schema ),
 					} ) )
 			);
 		},
-		[ replaceVerbs, draft.nodes, schemasByShellName ]
+		[ replaceCommands, draft.nodes, schemasByShellName ]
 	);
 
 	/**
@@ -1885,7 +1885,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									debugLevel,
 									onRenameNode: handleRenameNode,
 									onUpdateArgs: handleUpdateArgs,
-									onUpdateVerbs: handleUpdateVerbs,
+									onUpdateCommands: handleUpdateCommands,
 									hulls,
 									currentTopology: editingName,
 									onDropTopology: handleDropTopology,

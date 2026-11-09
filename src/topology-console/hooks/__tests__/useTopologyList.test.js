@@ -108,7 +108,7 @@ describe( 'useTopologyList', () => {
 		expect( result.current.reload ).toBeUndefined();
 	} );
 
-	it( 'captures verb errors into state.error', async () => {
+	it( 'captures command errors into state.error', async () => {
 		replyFor.mockImplementation( () => new Error( 'boom-4471' ) );
 		const { result } = renderHook( () =>
 			useTopologyList( { enabled: true } )

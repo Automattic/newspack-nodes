@@ -1995,7 +1995,7 @@ class RemoteConsumerNodeTest extends TestCase {
 	// Schema, DLQ triage.
 	// ---------------------------------------------------------------------
 
-	public function test_node_schema_is_off_the_palette_but_not_hidden_with_the_reader_args_and_verbs(): void {
+	public function test_node_schema_is_off_the_palette_but_not_hidden_with_the_reader_args_and_commands(): void {
 		$schema = Remote_Consumer_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertFalse( Node::hidden( $schema ), 'the console opens a reader from its broker' );

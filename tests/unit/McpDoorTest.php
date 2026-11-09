@@ -18,7 +18,7 @@ use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * The MCP door: a thin wrapper over verbs that already exist, authenticated
+ * The MCP door: a thin wrapper over commands that already exist, authenticated
  * by a scoped session and acting AS the user who minted it.
  *
  * The load-bearing property is that a scope is a CEILING. A read-scoped session
@@ -133,7 +133,7 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( '', Capabilities::$session_label, 'an unlabelled session installs an empty label' );
 	}
 
-	/** The label a verb attributes its act to is the session's own. */
+	/** The label a command attributes its act to is the session's own. */
 	public function test_a_door_request_installs_its_session_label(): void {
 		[ , $bearer ] = $this->session( Capabilities::READ, 'Fixture Desk' );
 
@@ -164,8 +164,8 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( [ 'name' => 'fixture-door', 'version' => '9.4.1' ], $reply['result']['serverInfo'] );
 	}
 
-	/** A tool's schema requires exactly the args its verb refuses to go without. */
-	public function test_each_tool_schema_requires_what_its_verb_requires(): void {
+	/** A tool's schema requires exactly the args its command refuses to go without. */
+	public function test_each_tool_schema_requires_what_its_command_requires(): void {
 		[ $door, $bearer ] = $this->door( Capabilities::TUNE );
 		$tools             = $this->listed( $door, $bearer );
 
@@ -174,7 +174,7 @@ class McpDoorTest extends TestCase {
 	}
 
 	/** A variadic arg is a list, and a typed arg carries its JSON type. */
-	public function test_each_tool_schema_types_its_args_as_the_verb_declares(): void {
+	public function test_each_tool_schema_types_its_args_as_the_command_declares(): void {
 		[ $door, $bearer ] = $this->door( Capabilities::TUNE );
 		$properties        = $this->listed( $door, $bearer )['fixture_echo']['inputSchema']['properties'];
 
@@ -183,14 +183,14 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( 'array', $properties['tags']['type'] );
 		$this->assertSame( [ 'type' => 'string' ], $properties['tags']['items'] );
 		$this->assertSame( 'Tags, one token each.', $properties['tags']['description'] );
-		$this->assertSame( 'One word, echoed back. Over 37 slots.', $properties['word']['description'], '{declared} is the verb\'s own description' );
+		$this->assertSame( 'One word, echoed back. Over 37 slots.', $properties['word']['description'], '{declared} is the command\'s own description' );
 	}
 
 	/**
 	 * A tool is offered exactly when the session may spend the capability its
-	 * verb declares; the tool map keeps no role of its own to disagree with it.
+	 * command declares; the tool map keeps no role of its own to disagree with it.
 	 */
-	public function test_tool_visibility_follows_the_verbs_declared_capability(): void {
+	public function test_tool_visibility_follows_the_commands_declared_capability(): void {
 		$probe = new Fixture_Mcp_Door( self::ALPHA );
 		$tools = ( new \ReflectionMethod( $probe, 'tools' ) )->invoke( $probe );
 		foreach ( $tools as $name => $spec ) {
@@ -233,8 +233,8 @@ class McpDoorTest extends TestCase {
 		$this->assertSame( [], $this->listed( $door, $bearer ) );
 	}
 
-	/** A tool arg its verb does not declare is drift, and fails the listing loud. */
-	public function test_a_tool_arg_its_verb_does_not_declare_fails_the_listing(): void {
+	/** A tool arg its command does not declare is drift, and fails the listing loud. */
+	public function test_a_tool_arg_its_command_does_not_declare_fails_the_listing(): void {
 		[ , $bearer ] = $this->session( Capabilities::READ );
 		$door         = new class( self::ALPHA ) extends Fixture_Mcp_Door {
 			protected function tools(): array {
@@ -342,7 +342,7 @@ class McpDoorTest extends TestCase {
 		}
 	}
 
-	public function test_a_verb_refusal_comes_back_as_a_tool_error_not_a_crash(): void {
+	public function test_a_command_refusal_comes_back_as_a_tool_error_not_a_crash(): void {
 		[ $door, $bearer ] = $this->door();
 
 		$reply = $this->call( $door, $bearer, 'fixture_echo', [ 'word' => 'kea', 'count' => 0 ], 8 );
@@ -362,7 +362,7 @@ class McpDoorTest extends TestCase {
 		$this->assertStringNotContainsString( '&quot;', $text );
 	}
 
-	/** An argument the verb does not declare answers a tool error, by name. */
+	/** An argument the command does not declare answers a tool error, by name. */
 	public function test_an_undeclared_argument_answers_a_tool_error(): void {
 		[ $door, $bearer ] = $this->door();
 
@@ -448,10 +448,10 @@ class McpDoorTest extends TestCase {
 	/**
 	 * The named-object → token-array mapping, which is the whole seam between
 	 * MCP and the command protocol: every argument rides by name, in the order
-	 * the agent gave it, because the verb binds by name and so needs no table
-	 * here to track which args a verb declares first. A list repeats its name,
+	 * the agent gave it, because the command binds by name and so needs no table
+	 * here to track which args a command declares first. A list repeats its name,
 	 * which is how a variadic arg binds by name, and a JSON false reaches the
-	 * verb as `false`, where an empty `--flag=` would read true.
+	 * command as `false`, where an empty `--flag=` would read true.
 	 *
 	 * @return array<string,array{0:mixed,1:list<string>}>
 	 */

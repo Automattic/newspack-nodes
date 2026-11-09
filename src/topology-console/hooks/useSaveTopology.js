@@ -22,10 +22,10 @@ import { TOPOLOGIES_CI } from './useCatalogs';
 /** @typedef {import('@newspack-nodes/shared/hooks/useCommandOnce').OnDone} OnDone */
 
 /**
- * Mounts the `topologies save` verb on the console's batched tick.
+ * Mounts the `topologies save` command on the console's batched tick.
  *
  * @param {OnDone} [onDone] Runs once per reply. `args[0]` is the topology the
- *                          reply answered for, and `result` carries the verb's
+ *                          reply answered for, and `result` carries the command's
  *                          `{name, path, restarted_fleets}`;
  *                          `restarted_fleets` is what tells the operator which
  *                          workers the write took down and brought back.

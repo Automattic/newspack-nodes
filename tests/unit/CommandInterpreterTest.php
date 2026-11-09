@@ -150,7 +150,7 @@ class CommandInterpreterTest extends TestCase {
 			'a secure-level refusal must reply TM_ERROR, not TM_RESPONSE'
 		);
 		$this->assertStringContainsString( 'disabled at secure level 1', (string) $resp[ Message::VALUE ]['payload'] );
-		$this->assertNull( Core::node( 'zeppelin-denied' ), 'the refused verb must not have run' );
+		$this->assertNull( Core::node( 'zeppelin-denied' ), 'the refused command must not have run' );
 	}
 
 	/**
@@ -195,7 +195,7 @@ class CommandInterpreterTest extends TestCase {
 	// ── every string reply ends with a newline (Tachikoma convention) ──────
 
 	public function test_a_string_reply_is_newline_terminated(): void {
-		// A verb's unterminated string reply printed the next prompt on the same
+		// A command's unterminated string reply printed the next prompt on the same
 		// line. Normalize once, at the reply, rather than at every return site.
 		$interpreter = new Command_Interpreter_Node();
 		$sink        = new Capture_Sink_Node();
@@ -229,8 +229,8 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
-	public function test_reply_to_runs_the_verb_locally_and_routes_its_reply_to_the_path(): void {
-		// reply_to <path> <verb> [<args>]: run <verb> HERE, but route its reply to
+	public function test_reply_to_runs_the_command_locally_and_routes_its_reply_to_the_path(): void {
+		// reply_to <path> <verb> [<args>]: run the command HERE, but route its reply to
 		// <path> (the inverse of command_node, which runs it AT <path>). This is the
 		// primitive that lets a worker drive a remote interpreter's output to one session,
 		// e.g. `cmd _repl reply_to _http/_sse:411/_output ls -als`.
@@ -239,7 +239,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->sink( $sink );
 		$message = $this->command_message( 'reply_to', 'some/target uptime', true );
 		$interpreter->fill( $message );
-		// reply_to itself replies with nothing; the sub-verb's reply rode to <path>.
+		// reply_to itself replies with nothing; the sub-command's reply rode to <path>.
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'some/target', $sink->captured[0][ Message::TO ] );
 		$this->assertSame( 'uptime', $sink->captured[0][ Message::VALUE ]['name'] );
@@ -275,7 +275,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_noreply_command_runs_but_emits_no_response(): void {
-		// A TM_NOREPLY command's verb still runs, but its (successful) reply is
+		// A TM_NOREPLY command still runs, but its (successful) reply is
 		// suppressed — a topology loaded with no console to reply to mustn't bounce
 		// a response off the absent `_output`.
 		$interpreter = new Command_Interpreter_Node();
@@ -317,8 +317,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->fill( $message );
 	}
 
-	public function test_worker_should_stop_from_a_verb_propagates(): void {
-		// Cooperative-stop is control flow, not a verb error: a verb raising
+	public function test_worker_should_stop_from_a_command_propagates(): void {
+		// Cooperative-stop is control flow, not a command error: a command raising
 		// Worker_Should_Stop must propagate so the worker stops, not be wrapped
 		// into a TM_ERROR response (ADR-14).
 		$interpreter = new Command_Interpreter_Node();
@@ -487,7 +487,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertEqualsWithDelta( 0.05, $total['avg'], 1e-9 );
 	}
 
-	public function test_taillog_is_not_a_verb(): void {
+	public function test_taillog_is_not_a_command(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'unknown command: taillog' );
 
@@ -522,7 +522,7 @@ class CommandInterpreterTest extends TestCase {
 		$message = $this->command_message( 'make_node', 'Capture_Sink ghost' ); // no LOCAL
 		$interpreter->fill( $message );
 
-		// Verb did NOT run — node never created.
+		// Command did NOT run — node never created.
 		$this->assertNull( Core::node( 'ghost' ) );
 		// An unauthorized error response was emitted.
 		$resp = $sink->captured[0] ?? null;
@@ -622,7 +622,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$interpreter->fill( $this->command_message( 'kakapo', '' ) );
 
-		$this->assertSame( 'Fixture Desk', $seen, 'the verb ran under the command\'s label' );
+		$this->assertSame( 'Fixture Desk', $seen, 'the handler ran under the command\'s label' );
 		$this->assertSame( 'Prior Desk', \Newspack_Nodes\Capabilities::$session_label );
 	}
 
@@ -655,7 +655,7 @@ class CommandInterpreterTest extends TestCase {
 	// ── $around_dispatch ────────────────────────────────────────────────────
 
 	/**
-	 * An interpreter answering one verb, `kakapo`, with 'kakapo-7731'.
+	 * An interpreter answering one command, `kakapo`, with 'kakapo-7731'.
 	 */
 	private function kakapo_interpreter(): Command_Interpreter_Node {
 		$interpreter = new Command_Interpreter_Node();
@@ -707,10 +707,10 @@ class CommandInterpreterTest extends TestCase {
 		} catch ( \DomainException $e ) {
 			$this->assertSame( 'takahe-4409', $e->getMessage() );
 		}
-		$this->assertSame( 'boom', $calls[0][1] ?? null, 'the wrapper saw the throwing verb' );
+		$this->assertSame( 'boom', $calls[0][1] ?? null, 'the wrapper saw the throwing command' );
 	}
 
-	public function test_around_dispatch_never_sees_an_unknown_verb(): void {
+	public function test_around_dispatch_never_sees_an_unknown_command(): void {
 		$interpreter = $this->kakapo_interpreter();
 		$calls       = [];
 		$this->record_around_dispatch( $calls );
@@ -724,7 +724,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [], $calls, 'a client-chosen verb name must never reach the wrapper' );
 	}
 
-	public function test_around_dispatch_never_sees_a_capability_refused_verb(): void {
+	public function test_around_dispatch_never_sees_a_capability_refused_command(): void {
 		$interpreter = $this->kakapo_interpreter();
 		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::READ;
 		$calls = [];
@@ -732,13 +732,13 @@ class CommandInterpreterTest extends TestCase {
 
 		$e = $this->caught(
 			fn () => $interpreter->dispatch( 'kakapo' ),
-			'a READ scope must not reach a MANAGE verb'
+			'a READ scope must not reach a MANAGE command'
 		);
 		$this->assertStringContainsString( 'permission denied', $e->getMessage() );
 		$this->assertSame( [], $calls );
 	}
 
-	public function test_around_dispatch_never_sees_a_secure_level_refused_verb(): void {
+	public function test_around_dispatch_never_sees_a_secure_level_refused_command(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$calls = [];
@@ -760,15 +760,15 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	/**
-	 * A service CI with a `search` verb declaring no secret argument, and a
-	 * `rotate` verb whose second argument, `token`, is declared secret. Both
+	 * A service CI with a `search` command declaring no secret argument, and a
+	 * `rotate` command whose second argument, `token`, is declared secret. Both
 	 * answer 'kea-7713', under a caller holding every role.
 	 */
 	private function weka_service_ci(): Command_Interpreter_Node {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$ci = new class() extends \Newspack_Nodes\Service_CI_Node {
 			public static function node_schema(): array {
-				$verb = static fn ( string $name, array $args ): array => [
+				$command = static fn ( string $name, array $args ): array => [
 					'name'        => $name,
 					'description' => "{$name} double",
 					'capability'  => \Newspack_Nodes\Capabilities::READ,
@@ -780,8 +780,8 @@ class CommandInterpreterTest extends TestCase {
 					'description' => 'command-line double',
 					'arguments'   => [],
 					'commands'    => [
-						$verb( 'search', [ [ 'name' => 'search', 'type' => 'string' ], [ 'name' => 'password', 'type' => 'string' ] ] ),
-						$verb(
+						$command( 'search', [ [ 'name' => 'search', 'type' => 'string' ], [ 'name' => 'password', 'type' => 'string' ] ] ),
+						$command(
 							'rotate',
 							[
 								[ 'name' => 'id', 'type' => 'string', 'required' => true ],
@@ -816,7 +816,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	/**
-	 * No name heuristic: a verb declaring no secret argument has every token
+	 * No name heuristic: a command declaring no secret argument has every token
 	 * logged verbatim, a `--password=` among them.
 	 */
 	public function test_around_dispatch_logs_every_undeclared_token_verbatim(): void {
@@ -827,7 +827,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	/**
-	 * A verb declaring a secret option masks that option's `--name=` value and
+	 * A command declaring a secret option masks that option's `--name=` value and
 	 * logs every other token verbatim.
 	 */
 	public function test_around_dispatch_masks_only_a_declared_secret_option(): void {
@@ -872,7 +872,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [], $seen );
 	}
 
-	/** A class's secret options are read from its schema once, not per verb. */
+	/** A class's secret options are read from its schema once, not per command. */
 	public function test_around_dispatch_reads_a_schema_once_for_its_secrets(): void {
 		$ci = new class() extends Command_Interpreter_Node {
 			public static int $reads = 0;
@@ -924,7 +924,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	/**
-	 * Logging must never change whether a verb runs, so the renderer takes any
+	 * Logging must never change whether a command runs, so the renderer takes any
 	 * `$args` a caller can hand `dispatch()`: a non-string token renders as
 	 * `Core::as_string()` renders it, and a keyed array by its values.
 	 */
@@ -979,7 +979,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$interpreter->fill( $this->command_message( 'kakapo', '', true ) );
 
-		$this->assertCount( 1, $calls, 'the message path wraps the verb exactly once' );
+		$this->assertCount( 1, $calls, 'the message path wraps the command exactly once' );
 		$reply = $sink->captured[0];
 		$this->assertSame( "wrapped:kakapo-7731\n", $reply[ Message::VALUE ]['payload'] );
 	}
@@ -1003,7 +1003,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'outer(inner(kakapo-7731))', $result );
 	}
 
-	public function test_around_dispatch_never_sees_a_service_ci_verb_refused_by_its_own_role(): void {
+	public function test_around_dispatch_never_sees_a_service_ci_command_refused_by_its_own_role(): void {
 		$GLOBALS['_wp_test_current_user_id']  = 8813;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 		$ci                                   = new class() extends \Newspack_Nodes\Service_CI_Node {
@@ -1015,7 +1015,7 @@ class CommandInterpreterTest extends TestCase {
 					'commands'    => [
 						[
 							'name'        => 'weka',
-							'description' => 'manage-gated verb',
+							'description' => 'manage-gated command',
 							'capability'  => \Newspack_Nodes\Capabilities::MANAGE,
 							'handler'     => static fn (): string => 'weka-8812',
 						],
@@ -1038,7 +1038,7 @@ class CommandInterpreterTest extends TestCase {
 		try {
 			$e = $this->caught(
 				fn () => $ci->dispatch( 'weka' ),
-				'a verb whose declared role the caller lacks must throw'
+				'a command whose declared role the caller lacks must throw'
 			);
 			$this->assertStringContainsString( 'permission denied', $e->getMessage() );
 		} finally {
@@ -1114,7 +1114,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_tabulate_terminates_its_last_row(): void {
 		// The write seam appends nothing, so each producer ends its own block
-		// (Tachikoma: every verb is responsible for its trailing newline).
+		// (Tachikoma: every command is responsible for its trailing newline).
 		$out = Command_Interpreter_Node::tabulate(
 			[ 'l', 'l' ],
 			[ 'NAME', 'SINK' ],
@@ -1183,7 +1183,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_thrown_error_message_is_html_decoded_in_the_reply_payload(): void {
-		// Verb handlers esc_html() their dynamic throw messages to satisfy the
+		// Command handlers esc_html() their dynamic throw messages to satisfy the
 		// phpcs EscapeOutput sniff, but the TM_ERROR payload is plain text for a
 		// JSON/terminal sink (React + the cli both re-escape / print raw). interpret()
 		// must decode so the UI shows `'`/`<`/`>`, not `&#039;`/`&lt;`/`&gt;`.
@@ -1244,7 +1244,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_old_debug_state_verb_name_no_longer_resolves(): void {
 		// The verb is `trace`; the reply strings report the `debug_state`
-		// node property, but none of the verbs answers to `debug_state`.
+		// node property, but none of the commands answers to `debug_state`.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -1706,10 +1706,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->dispatch( 'remove_node', [ '-a' ] );
 	}
 
-	public function test_help_covers_every_dispatchable_verb(): void {
+	public function test_help_covers_every_dispatchable_command(): void {
 		// Contract: every entry in $C (interpreter dispatch table) MUST be resolvable
 		// through `help <verb>` — either directly via $H or through the
-		// alias→canonical map. A regression that adds a verb without help
+		// alias→canonical map. A regression that adds a command without help
 		// would land here as a failed assertion telling us which key.
 		$ref = new \ReflectionClass( Command_Interpreter_Node::class );
 
@@ -1733,7 +1733,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_help_renders_node_schema_for_a_node_type(): void {
 		// `help <NodeType>` surfaces the node_schema — description, category,
-		// arguments WITH their descriptions, verbs — not just command help.
+		// arguments WITH their descriptions, commands — not just command help.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -2024,7 +2024,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_custom_command_table_gets_default_help_listing_its_verbs(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( 'svc' );
-		// A subclass-style custom table WITHOUT its own help verb.
+		// A subclass-style custom table WITHOUT its own help command.
 		$interpreter->commands(
 			[
 				'beta'  => static fn (): string => 'b',
@@ -2038,7 +2038,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [ 'alpha', 'beta', 'help' ], $lines );
 	}
 
-	public function test_default_help_does_not_override_a_custom_help_verb(): void {
+	public function test_default_help_does_not_override_a_custom_help_command(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( 'svc' );
 		$interpreter->commands(
@@ -2618,7 +2618,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringNotContainsString( 'sidecar', $dump );
 	}
 
-	// ── A1: instance verb table + patron pointer ─────────────────
+	// ── A1: instance command table + patron pointer ──────────────
 
 	public function test_patron_accessor_round_trips(): void {
 		$interpreter   = new Command_Interpreter_Node();
@@ -2628,7 +2628,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( $node, $interpreter->patron() );
 	}
 
-	public function test_commands_accessor_replaces_verb_table(): void {
+	public function test_commands_accessor_replaces_command_table(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( 'test_interpreter' );
 		$interpreter->commands(
@@ -2640,9 +2640,9 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'got: hello world', $result );
 	}
 
-	public function test_default_ci_still_has_default_verbs_after_refactor(): void {
+	public function test_default_ci_still_has_default_commands_after_refactor(): void {
 		// $C is per instance, and the bare `_command_interpreter` still
-		// carries the built-in verbs.
+		// carries the base commands.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$result = $interpreter->dispatch( 'ls' );
@@ -2803,7 +2803,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [ 'quarry-sump', 'lantern-sump' ], $decoded['spindle-fanout']['targets'] );
 	}
 
-	// ── Argument validation paths on verb handlers ────────────────
+	// ── Argument validation paths on command handlers ─────────────
 
 	public function test_make_node_with_too_few_args_raises_usage(): void {
 		// `make_node` alone — no type, no name — must return a usage hint
@@ -2907,7 +2907,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_connect_node_without_target_and_without_envelope_raises_usage(): void {
 		// `connect_node alice` with no envelope FROM — should fall through
 		// to the second usage branch (line 325): no target supplied, no
-		// FROM to default to, so the verb has nothing to bind alice to.
+		// FROM to default to, so the command has nothing to bind alice to.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -3278,10 +3278,10 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_interpret_wraps_handler_exceptions_as_TM_ERROR(): void {
-		// Replace the verb table with a handler that throws. The interpreter must
+		// Replace the command table with a handler that throws. The interpreter must
 		// catch it in interpret() and emit a TM_COMMAND|TM_ERROR response
 		// back along the FROM trail, instead of crashing the worker.
-		// This is the central contract for "verb handlers throw freely;
+		// This is the central contract for "command handlers throw freely;
 		// interpret() wraps as TM_ERROR".
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
@@ -3309,7 +3309,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame(
 			Message::TM_COMMAND | Message::TM_ERROR,
 			$response[ Message::TYPE ],
-			'thrown verb errors must be re-emitted as TM_COMMAND|TM_ERROR'
+			'thrown command errors must be re-emitted as TM_COMMAND|TM_ERROR'
 		);
 		$this->assertSame( '_output/777', $response[ Message::TO ], 'response walks the FROM trail back' );
 		// Response VALUE rides as a live PHP structure — no JSON string to decode.
@@ -3319,7 +3319,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_interpret_responds_with_structured_array_payload(): void {
-		// A verb returning an array (like dump_node / dump_metadata) must
+		// A command returning an array (like dump_node / dump_metadata) must
 		// produce a response whose VALUE.payload IS that array — carried as a
 		// live structure, not json-encoded. And an EMPTY array result must
 		// still produce a response (the `'' !== $result` suppression only
@@ -3445,7 +3445,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_fill_forwards_TM_COMMAND_TM_RESPONSE_to_sink(): void {
 		// Response-flavored TM_COMMAND (the reply leg) must NOT be
 		// re-interpreted — otherwise the response payload would round-
-		// trip into the verb table and crash. Covers the
+		// trip into the command table and crash. Covers the
 		// `! ( $type & TM_RESPONSE )` guard in fill().
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
@@ -3480,9 +3480,9 @@ class CommandInterpreterTest extends TestCase {
 	// ── make_node instance API: null when class not registered ───
 
 	public function test_make_node_instance_api_returns_null_for_unregistered_class(): void {
-		// The cmd_make_node verb returns "unknown class: <type>"; the
+		// The cmd_make_node command returns "unknown class: <type>"; the
 		// underlying instance API returns null. Direct unit test, since
-		// the verb wraps null into the string.
+		// the command wraps null into the string.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -3595,10 +3595,10 @@ class CommandInterpreterTest extends TestCase {
 	}
 	/**
 	 * The ladder freezes DEFINITIONS; it never disables the machine. Level 1
-	 * removes graph construction, 2 removes the verbs where the server mints a
+	 * removes graph construction, 2 removes the commands where the server mints a
 	 * command on your behalf (ours is `reply_to`), 3 removes re-pointing flow.
 	 * Everything already wired keeps running at every level — which is why the
-	 * gate is on the verb, not on the message.
+	 * gate is on the command, not on the message.
 	 */
 	public function test_level_one_blocks_make_node(): void {
 		$i = $this->armed_interpreter();
@@ -3606,7 +3606,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$e = $this->caught(
 			fn () => $i->dispatch( 'make_node', [ 'Capture_Sink', 'nope' ], $this->command_message( 'make_node' ) ),
-			'the verb must be refused'
+			'the command must be refused'
 		);
 		$this->assertStringContainsString( 'disabled at secure level 1', $e->getMessage() );
 		$this->assertNull( Core::node( 'nope' ) );
@@ -3630,7 +3630,7 @@ class CommandInterpreterTest extends TestCase {
 		$i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
 	}
 
-	/** Undeclared and unratcheted processes run every verb. */
+	/** Undeclared and unratcheted processes run every command. */
 	public function test_an_undeclared_level_blocks_nothing(): void {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 0;
@@ -3641,7 +3641,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	/** A read still reads at every level: the machine keeps working. */
-	public function test_a_read_verb_survives_the_top_level(): void {
+	public function test_a_read_command_survives_the_top_level(): void {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 3;
 
@@ -3777,21 +3777,21 @@ class CommandInterpreterTest extends TestCase {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 1;
 
-		// It reaches the verb, which refuses on its own grounds — not the ladder's.
+		// It reaches the command, which refuses on its own grounds — not the ladder's.
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'unknown node: a' );
 		$i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
 	}
 
 	/**
-	 * Teardown verbs join `make_node`, as in Tachikoma, where `cmd_remove_node`
+	 * Teardown commands join `make_node`, as in Tachikoma, where `cmd_remove_node`
 	 * and `cmd_move_node` both `verify_key( ..., 'make_node' )`. A ladder that
 	 * freezes construction but leaves demolition open freezes nothing: the
 	 * graph is just as rebuildable through `remove_node` plus a survivor.
 	 *
 	 * @dataProvider provide_construction_class_verbs
 	 */
-	public function test_construction_class_verbs_are_disabled_at_level_1( string $verb ): void {
+	public function test_construction_class_commands_are_disabled_at_level_1( string $verb ): void {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 1;
 
@@ -3816,12 +3816,12 @@ class CommandInterpreterTest extends TestCase {
 
 	/**
 	 * `register` and `unregister` rewire event delivery, so they are wiring
-	 * verbs and share `connect_node`'s rung — Tachikoma classifies both that
+	 * commands and share `connect_node`'s rung — Tachikoma classifies both that
 	 * way. Level 3 freezes wiring; leaving these open leaves it unfrozen.
 	 *
 	 * @dataProvider provide_wiring_class_verbs
 	 */
-	public function test_wiring_class_verbs_are_disabled_at_level_3( string $verb ): void {
+	public function test_wiring_class_commands_are_disabled_at_level_3( string $verb ): void {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 3;
 
@@ -3848,7 +3848,7 @@ class CommandInterpreterTest extends TestCase {
 	 * schema-driven node's declaration was read off the wrong object and the
 	 * extension point silently did nothing.
 	 */
-	public function test_a_patrons_schema_classifies_its_own_verbs(): void {
+	public function test_a_patrons_schema_classifies_its_own_commands(): void {
 		$node = new class() extends Node {
 			use Schema_Reflection;
 
@@ -3935,7 +3935,7 @@ class CommandInterpreterTest extends TestCase {
 	 * already excludes TM_ERROR; the interpreter's own gate did not.
 	 *
 	 * Asserted through a SIDE EFFECT: `make_node` builds a node when it runs,
-	 * so the registry says whether the verb executed.
+	 * so the registry says whether the command executed.
 	 */
 	public function test_a_TM_ERROR_command_is_not_executed(): void {
 		$interpreter = new Command_Interpreter_Node();
@@ -3949,7 +3949,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$this->assertNull(
 			\Newspack_Nodes\Core::node( 'ghost-of-a-refusal' ),
-			'a reply carrying TM_ERROR must never execute its verb'
+			'a reply carrying TM_ERROR must never execute its command'
 		);
 	}
 

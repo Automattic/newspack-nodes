@@ -43,7 +43,7 @@ make_node Partition completed:partition <config:logs_dir>/completed.p{partition}
 cmd fanout:config set_multi_writer true
 connect firehose:consumer fanout
 
-# cd cwd block: bare set_*target verbs route to the cwd node.
+# cd cwd block: bare set_*target commands route to the cwd node.
 cd fanout:config
     set_completed_target completed:tee
     set_errors_target    errors:partition
@@ -54,7 +54,7 @@ cd ..
 connect fanout \
         requests:partition
 
-# `command` alias (config verbs on the requests partition).
+# `command` alias (config commands on the requests partition).
 command requests:partition:config with_index request-index
 command requests:partition:config void_warranty
 

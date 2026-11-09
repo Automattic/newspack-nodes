@@ -11,13 +11,13 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * `dispatch()` binds a schema-declared verb's tokens against its `args` before
+ * `dispatch()` binds a schema-declared command's tokens against its `args` before
  * the handler runs, for a service CI and a `:config` interpreter alike, and
  * hands the handler the bound values by name.
  */
 #[CoversClass( Command_Interpreter_Node::class )]
 #[CoversClass( Command_Args::class )]
-class VerbArgBindingTest extends TestCase {
+class CommandArgBindingTest extends TestCase {
 
 	/** @var array<int,mixed> What the last handler received. */
 	private static array $received = [];
@@ -61,13 +61,13 @@ class VerbArgBindingTest extends TestCase {
 		return $ci;
 	}
 
-	public function test_a_config_verb_receives_its_bound_values_by_name(): void {
+	public function test_a_config_command_receives_its_bound_values_by_name(): void {
 		$this->config_interpreter()->dispatch( 'graft', [ '--depth=9', 'kowhai-3317' ] );
 
 		$this->assertSame( [ 'node' => 'kowhai-3317', 'depth' => 9 ], self::$received );
 	}
 
-	public function test_a_verb_declaring_no_args_receives_its_raw_tokens(): void {
+	public function test_a_command_declaring_no_args_receives_its_raw_tokens(): void {
 		$this->config_interpreter()->dispatch( 'prune', [ 'totara-3317', '--deep' ] );
 
 		$this->assertSame( [ 'totara-3317', '--deep' ], self::$received );
@@ -83,7 +83,7 @@ class VerbArgBindingTest extends TestCase {
 		$this->assertSame( [], self::$received );
 	}
 
-	/** The refusal is the verb's ordinary TM_ERROR reply, addressed TO=FROM. */
+	/** The refusal is the command's ordinary TM_ERROR reply, addressed TO=FROM. */
 	public function test_a_refused_binding_answers_the_caller_with_a_tm_error(): void {
 		$ci   = $this->config_interpreter();
 		$sink = new Capture_Sink_Node();
@@ -102,7 +102,7 @@ class VerbArgBindingTest extends TestCase {
 		$this->assertSame( "missing required argument: node\n", $reply[ Message::VALUE ]['payload'] );
 	}
 
-	public function test_a_service_ci_verb_receives_its_bound_values_by_name(): void {
+	public function test_a_service_ci_command_receives_its_bound_values_by_name(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$ci = new class() extends \Newspack_Nodes\Service_CI_Node {
 			public static function node_schema(): array {

@@ -856,7 +856,7 @@ class Bootstrap {
 	 * the catalog carries takes `partitions_of()` of that entry, exactly as
 	 * `expand_workers()` does, and only a name the catalog lacks is synthesized
 	 * from its TSL frontmatter. It serves names that may be inactive, since the
-	 * admin localizer and the `topologies.dump` verb list every registered
+	 * admin localizer and the `topologies.dump` command list every registered
 	 * topology; a caller holding an active entry reads `partitions_of()`.
 	 *
 	 * A caller looping names passes the catalog in, built once for the loop.

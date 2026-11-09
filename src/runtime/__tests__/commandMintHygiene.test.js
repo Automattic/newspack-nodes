@@ -4,9 +4,9 @@
  * A reply is addressed, not correlated: the minter stamps `FROM = <its own
  * name>`, the server replies `TO = FROM`, and the reply lands on that node for
  * its `fill()` to handle. Stamping an id so a reply can be matched — or
- * pressing KEY into service as a demux discriminator when several verbs batch
+ * pressing KEY into service as a demux discriminator when several commands batch
  * into one tick — re-implements routing that already happened. The fix for
- * "N verbs need telling apart" is N nodes, not a correlation table.
+ * "N commands need telling apart" is N nodes, not a correlation table.
  *
  * These pin the minters. A reply ECHOING the inbound ID/KEY back
  * (`CommandInterpreterNode._respond`, Router's error path) is a different

@@ -414,7 +414,7 @@ final class Oauth_Server {
 	/**
 	 * Whether the current user can grant a scope through OAuth: one of
 	 * `Oauth_Store::SCOPES`, whose own capability they hold. A broader role
-	 * does not stand in for it: each verb checks its own role's capability.
+	 * does not stand in for it: each command checks its own role's capability.
 	 *
 	 * @api The approval page offers the scopes it admits.
 	 * @param string $scope The scope.

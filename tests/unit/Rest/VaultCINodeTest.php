@@ -3,10 +3,10 @@
  * VaultCINodeTest: unit tests for Vault_CI, the substrate `vault` service CI
  * ported from event-logger-nodes' Servers_CI.
  *
- * Six verbs proxy the substrate Vault credential store: list, get, add,
+ * Six commands proxy the substrate Vault credential store: list, get, add,
  * update, delete, test. Asserts the public credential-stripped shape (no
  * `logs`, no credentials), the manage_options auth gate on the four mutating
- * verbs, the decoupled `newspack_nodes/vault/changed` action firing on
+ * commands, the decoupled `newspack_nodes/vault/changed` action firing on
  * mutations, and the `/command` status probe wire shape via the static
  * `$http_call` closure seam.
  *
@@ -21,7 +21,7 @@ use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Vault_CI_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Vault;
 
@@ -50,7 +50,7 @@ class VaultCINodeTest extends TestCase {
 		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::forget_session( $spoke );
 		}
-		VerbHarness::reset();
+		CommandHarness::reset();
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$GLOBALS['_wp_actions']               = [];
@@ -71,7 +71,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'list' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'list' );
 
 		$this->assertIsArray( $out );
 		$this->assertArrayHasKey( 'spoke1', $out );
@@ -88,7 +88,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'spoke1' );
 
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $out['id'] );
@@ -112,7 +112,7 @@ class VaultCINodeTest extends TestCase {
 			2
 		);
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
 
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $out['id'] );
@@ -123,7 +123,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_add_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'permission denied', $out );
@@ -145,7 +145,7 @@ class VaultCINodeTest extends TestCase {
 			2
 		);
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --url=https://changed.example' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --url=https://changed.example' );
 
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $captured['id'] );
@@ -166,7 +166,7 @@ class VaultCINodeTest extends TestCase {
 			2
 		);
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'spoke1' );
 
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $out['id'] );
@@ -181,7 +181,7 @@ class VaultCINodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	public function test_add_stores_user_and_password_options_under_the_auth_keys(): void {
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'add',
@@ -204,7 +204,7 @@ class VaultCINodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -226,7 +226,7 @@ class VaultCINodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 
-		VerbHarness::fire(
+		CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -248,7 +248,7 @@ class VaultCINodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 
-		VerbHarness::fire(
+		CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -262,13 +262,13 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// An option the verb does not read is refused, because both writers read
+	// An option the command does not read is refused, because both writers read
 	// an absent option as an intention: `add` stores a blank field and reports
 	// the id, `update` leaves the stored one alone and reports a save.
 	// ---------------------------------------------------------------------
 
 	public function test_add_refuses_an_option_it_does_not_read(): void {
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'add',
@@ -282,7 +282,7 @@ class VaultCINodeTest extends TestCase {
 		);
 		$this->assertIsString( $out, 'an unread option is a refusal, not a stored entry' );
 		$this->assertStringContainsString( 'unknown option --credential', $out );
-		$this->assertStringContainsString( 'this verb takes --id, --url, --group, --user, --password, --header, --scheme', $out );
+		$this->assertStringContainsString( 'this command takes --id, --url, --group, --user, --password, --header, --scheme', $out );
 	}
 
 	public function test_update_refuses_an_option_it_does_not_read(): void {
@@ -293,9 +293,9 @@ class VaultCINodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 
-		// `auth_password` is the stored KEY, not an option this verb reads —
+		// `auth_password` is the stored KEY, not an option this command reads —
 		// one instance of the general rule, and the shape a stale script sends.
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -304,7 +304,7 @@ class VaultCINodeTest extends TestCase {
 
 		$this->assertIsString( $out, 'an unread option is a refusal, not a save that changed nothing' );
 		$this->assertStringContainsString( 'unknown option --auth_password', $out );
-		$this->assertStringContainsString( 'this verb takes --id, --new_id, --url, --group, --user, --password, --header, --scheme', $out );
+		$this->assertStringContainsString( 'this command takes --id, --new_id, --url, --group, --user, --password, --header, --scheme', $out );
 		Vault::get_instance()->reset_cache();
 		$stored = Vault::get_instance()->get( 'vault-unknown-6650' );
 		$this->assertSame( 'vault-pw-6650', $stored['auth_password'], 'a refused update leaves the stored credential alone' );
@@ -314,7 +314,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'vault-known-3308', [ 'url' => 'https://before.example' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -327,13 +327,13 @@ class VaultCINodeTest extends TestCase {
 
 	// ---------------------------------------------------------------------
 	// A valueless option is refused too. A bare `--key` is boolean true, which
-	// only a `bool` arg takes, and every arg these two verbs read carries a
+	// only a `bool` arg takes, and every arg these two commands read carries a
 	// value — so a shell that ate the value, or an operator who forgot it,
 	// would otherwise cast to the literal '1' and store it as the credential.
 	// ---------------------------------------------------------------------
 
 	public function test_add_refuses_a_valueless_password(): void {
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'add',
@@ -360,7 +360,7 @@ class VaultCINodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -382,7 +382,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'vault-bare-2764', [ 'url' => 'https://bare.example' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -404,7 +404,7 @@ class VaultCINodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	public function test_add_refuses_a_missing_url(): void {
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'add',
@@ -434,7 +434,7 @@ class VaultCINodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -465,7 +465,7 @@ class VaultCINodeTest extends TestCase {
 			3
 		);
 
-		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-was-4471 --new_id=vault-now-6612' );
+		CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-was-4471 --new_id=vault-now-6612' );
 
 		// ONCE: two announcements are indistinguishable to a listener, and every
 		// current one re-reads the whole vault, so the second only duplicates
@@ -489,7 +489,7 @@ class VaultCINodeTest extends TestCase {
 
 		// Present and empty asks to move the entry to nothing, and swallowing
 		// it reports a rename that never happened.
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -507,7 +507,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'vault-onto-9074', [ 'url' => 'https://onto.example' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-from-3318 --new_id=vault-onto-9074' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-from-3318 --new_id=vault-onto-9074' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'vault-onto-9074', $out );
@@ -520,7 +520,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'vault-keep-7735', [ 'url' => 'https://before.example' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'update',
@@ -534,10 +534,10 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// test verb — status.get probe through the /command endpoint.
+	// test command — status.get probe through the /command endpoint.
 	// ---------------------------------------------------------------------
 
-	public function test_test_verb_posts_status_get_command(): void {
+	public function test_test_command_posts_status_get_command(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 
@@ -550,7 +550,7 @@ class VaultCINodeTest extends TestCase {
 			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 		};
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $out['id'] );
@@ -566,7 +566,7 @@ class VaultCINodeTest extends TestCase {
 		$this->assertSame( 'get', $decoded[ Message::VALUE ]['name'] );
 	}
 
-	public function test_test_verb_extracts_reply_from_stderr_polluted_stream(): void {
+	public function test_test_command_extracts_reply_from_stderr_polluted_stream(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 
@@ -586,53 +586,53 @@ class VaultCINodeTest extends TestCase {
 			return [ 'response' => [ 'code' => 200 ], 'body' => $body ];
 		};
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertSame( 'connected', $out['status'] );
 	}
 
-	public function test_test_verb_returns_error_on_non_200(): void {
+	public function test_test_command_returns_error_on_non_200(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 
 		HTTP_Out_Node::$http_call = static fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 503 ], 'body' => '' ];
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( '503', $out );
 	}
 
-	public function test_test_verb_rejects_unauthorized(): void {
+	public function test_test_command_rejects_unauthorized(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'permission denied', $out );
 	}
 
 	// ---------------------------------------------------------------------
-	// not-found / bad-argument throw paths across the verbs.
+	// not-found / bad-argument throw paths across the commands.
 	// ---------------------------------------------------------------------
 
 	public function test_get_throws_on_unknown_server(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'ghost' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'ghost' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'server not found: ghost', $out );
 	}
 
 	public function test_get_throws_when_id_missing(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'get' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'missing required argument: id', $out );
 	}
 
 	public function test_add_throws_on_invalid_id(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'bad!id --url=https://e.com' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'bad!id --url=https://e.com' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'invalid server id', $out );
 	}
@@ -640,21 +640,21 @@ class VaultCINodeTest extends TestCase {
 	public function test_add_throws_when_server_already_exists(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'server already exists: spoke1', $out );
 	}
 
 	public function test_add_throws_when_registry_rejects_config(): void {
 		// Valid id, no collision, but a non-HTTPS URL trips validate_config.
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=http://insecure.example' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=http://insecure.example' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'add failed', $out );
 	}
 
 	/**
-	 * The line a dispatch wrapper records for one vault verb. It is rendered
-	 * before the handler runs, so a verb that then refuses still has one.
+	 * The line a dispatch wrapper records for one vault command. It is rendered
+	 * before the handler runs, so a command that then refuses still has one.
 	 *
 	 * @param list<string> $args Argument tokens.
 	 */
@@ -700,7 +700,7 @@ class VaultCINodeTest extends TestCase {
 		\update_option( Vault::OPTION_KEY, [ 'spoke-7713' => [ 'url' => 'https://kea:s3cret7713@spoke.example' ] ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke-7713 --group=edge-7713' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke-7713 --group=edge-7713' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'stored url', $out );
@@ -710,7 +710,7 @@ class VaultCINodeTest extends TestCase {
 
 	/** Userinfo in `--url` is refused by name, without echoing the password. */
 	public function test_add_refuses_a_url_carrying_userinfo(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke-7713 --url=https://admin:s3cret7713@spoke.example' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke-7713 --url=https://admin:s3cret7713@spoke.example' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( '--user', $out );
@@ -720,7 +720,7 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	/**
-	 * The verb judges the url the store would keep, through `Vault`'s own rule,
+	 * The command judges the url the store would keep, through `Vault`'s own rule,
 	 * so a url that sanitizes into userinfo, or will not parse, is refused by
 	 * name rather than as a bare `add failed`.
 	 *
@@ -738,7 +738,7 @@ class VaultCINodeTest extends TestCase {
 
 	#[DataProvider( 'refused_url_provider' )]
 	public function test_add_refuses_a_url_the_store_would_refuse_by_name( string $url ): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', [ 'spoke-7713', "--url={$url}" ] );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', [ 'spoke-7713', "--url={$url}" ] );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( '--user', $out );
@@ -750,7 +750,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'spoke-7713', [ 'url' => 'https://spoke-7713.example' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke-7713 --url=https://admin:s3cret7713@spoke.example' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke-7713 --url=https://admin:s3cret7713@spoke.example' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( '--user', $out );
@@ -759,7 +759,7 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	public function test_add_refuses_a_malformed_group_by_name(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com --group=bad!group' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com --group=bad!group' );
 		$this->assertSame( "invalid group: bad!group\n", $out );
 		$this->assertNull( Vault::fresh()->get( 'spoke1' ) );
 	}
@@ -767,19 +767,19 @@ class VaultCINodeTest extends TestCase {
 	public function test_update_refuses_a_malformed_group_by_name(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'group' => 'edge-5' ] );
 		Vault::get_instance()->reset_cache();
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --group=bad!group' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --group=bad!group' );
 		$this->assertSame( "invalid group: bad!group\n", $out );
 		$this->assertSame( 'edge-5', Vault::fresh()->get( 'spoke1' )['group'] );
 	}
 
 	public function test_update_throws_when_id_missing(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', '--url=https://e.com' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', '--url=https://e.com' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'missing required argument: id', $out );
 	}
 
 	public function test_update_throws_on_unknown_server(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'ghost --url=https://e.com' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'ghost --url=https://e.com' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'server not found: ghost', $out );
 	}
@@ -788,19 +788,19 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		// Downgrading to a non-HTTPS URL fails validate_config → registry returns false.
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --url=http://insecure.example' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --url=http://insecure.example' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'update failed', $out );
 	}
 
 	public function test_delete_throws_on_unknown_server(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'ghost' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'ghost' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'server not found: ghost', $out );
 	}
 
-	public function test_test_verb_throws_on_unknown_server(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'ghost' );
+	public function test_test_command_throws_on_unknown_server(): void {
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'ghost' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'server not found: ghost', $out );
 	}
@@ -809,7 +809,7 @@ class VaultCINodeTest extends TestCase {
 	// probe_remote — default wp_remote_post closure + response classification.
 	// ---------------------------------------------------------------------
 
-	public function test_test_verb_uses_default_wp_remote_post_when_no_seam(): void {
+	public function test_test_command_uses_default_wp_remote_post_when_no_seam(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		// Leave $http_call null so probe_remote falls through to its lazily
@@ -819,38 +819,38 @@ class VaultCINodeTest extends TestCase {
 		$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => [ 'lag' => 7 ] ];
 		$GLOBALS['_wp_test_remote_post_response'] = [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
 		$this->assertIsArray( $out );
 		$this->assertSame( 'connected', $out['status'] );
 	}
 
-	public function test_test_verb_errors_when_transport_returns_wp_error(): void {
+	public function test_test_command_errors_when_transport_returns_wp_error(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		HTTP_Out_Node::$http_call = static fn ( string $url, array $args ): \WP_Error =>
 			new \WP_Error( 'http_request_failed', 'down' );
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'could not connect', $out );
 	}
 
-	public function test_test_verb_errors_on_malformed_envelope(): void {
+	public function test_test_command_errors_on_malformed_envelope(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		HTTP_Out_Node::$http_call = static fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 200 ], 'body' => '"just-a-string"' ];
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'malformed command envelope', $out );
 	}
 
-	public function test_test_verb_errors_when_server_returns_tm_error(): void {
+	public function test_test_command_errors_when_server_returns_tm_error(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
@@ -860,13 +860,13 @@ class VaultCINodeTest extends TestCase {
 			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 		};
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'TM_ERROR', $out );
 	}
 
-	public function test_test_verb_errors_on_malformed_command_response(): void {
+	public function test_test_command_errors_on_malformed_command_response(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
@@ -876,13 +876,13 @@ class VaultCINodeTest extends TestCase {
 			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 		};
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'malformed command response', $out );
 	}
 
-	public function test_test_verb_errors_on_non_array_payload(): void {
+	public function test_test_command_errors_on_non_array_payload(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
@@ -892,14 +892,14 @@ class VaultCINodeTest extends TestCase {
 			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 		};
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
 		// Message generalized when the POST+parse moved to HTTP_Out_Node::probe_command().
 		$this->assertStringContainsString( 'non-array command payload', $out );
 	}
 
-	public function test_test_verb_answers_a_verdict_and_forwards_no_spoke_fields(): void {
+	public function test_test_command_answers_a_verdict_and_forwards_no_spoke_fields(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
@@ -916,7 +916,7 @@ class VaultCINodeTest extends TestCase {
 			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 		};
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsArray( $out );
 		// Exact key set: a future whitelist cannot creep a spoke's payload back in.
@@ -926,7 +926,7 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	public function test_add_stores_the_header_and_scheme_options_under_the_auth_keys(): void {
-		$out = VerbHarness::fire(
+		$out = CommandHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
 			'add',
@@ -944,7 +944,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'linear-44', [ 'url' => 'https://api.linear-44.example', 'auth_password' => 'lin-pw-44', 'auth_header' => 'X-Old-44', 'auth_scheme' => 'Old-9' ] );
 		Vault::get_instance()->reset_cache();
 
-		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'linear-44', '--header=Authorization', '--scheme=' ] );
+		CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'linear-44', '--header=Authorization', '--scheme=' ] );
 
 		$stored = Vault::fresh()->get( 'linear-44' );
 		$this->assertSame( 'Authorization', $stored['auth_header'] );
@@ -956,7 +956,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'linear-45', [ 'url' => 'https://api.linear-45.example', 'auth_password' => 'lin-pw-45', 'auth_header' => 'X-Keep-45', 'auth_scheme' => 'Keep-2' ] );
 		Vault::get_instance()->reset_cache();
 
-		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'linear-45 --url=https://api.linear-45b.example' );
+		CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'linear-45 --url=https://api.linear-45b.example' );
 
 		$stored = Vault::fresh()->get( 'linear-45' );
 		$this->assertSame( 'X-Keep-45', $stored['auth_header'] );
@@ -964,7 +964,7 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	public function test_add_refuses_a_header_that_would_rewrite_the_request_by_name(): void {
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'hdr-52 --url=https://hdr-52.example --password=pw-52 --header=Content-Length' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'hdr-52 --url=https://hdr-52.example --password=pw-52 --header=Content-Length' );
 
 		$this->assertSame( "invalid header: Content-Length\n", $out );
 		$this->assertNull( Vault::fresh()->get( 'hdr-52' ) );
@@ -974,7 +974,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'hdr-53', [ 'url' => 'https://hdr-53.example', 'auth_password' => 'pw-53', 'auth_header' => 'X-Key-53', 'auth_scheme' => 'Good-53' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'hdr-53', '--scheme=Bad:53' ] );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'hdr-53', '--scheme=Bad:53' ] );
 
 		$this->assertSame( "invalid scheme: Bad:53\n", $out );
 		$this->assertSame( 'Good-53', Vault::fresh()->get( 'hdr-53' )['auth_scheme'] );
@@ -984,7 +984,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'slack-61', [ 'url' => 'https://slack-61.example', 'auth_password' => 'xoxb-6119', 'auth_header' => 'Authorization', 'auth_scheme' => 'Bearer' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'slack-61' );
+		$out = CommandHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'slack-61' );
 
 		$this->assertSame( 'Authorization', $out['auth_header'] );
 		$this->assertSame( 'Bearer', $out['auth_scheme'] );
@@ -997,49 +997,49 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'bare-62', [ 'url' => 'https://bare-62.example', 'auth_password' => 'pw-62' ] );
 		Vault::get_instance()->reset_cache();
 
-		$this->assertFalse( VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'bare-62' )['has_credentials'] );
+		$this->assertFalse( CommandHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'bare-62' )['has_credentials'] );
 	}
 
 	public function test_add_and_update_carry_group(): void {
-		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'tw9 --url=https://tw9.example --group=tw-edge' );
+		CommandHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'tw9 --url=https://tw9.example --group=tw-edge' );
 		Vault::get_instance()->reset_cache();
-		VerbHarness::reset();
-		$this->assertSame( 'tw-edge', VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'tw9' )['group'] );
+		CommandHarness::reset();
+		$this->assertSame( 'tw-edge', CommandHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'tw9' )['group'] );
 
-		VerbHarness::reset();
-		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'tw9', '--group=' ] );
+		CommandHarness::reset();
+		CommandHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'tw9', '--group=' ] );
 		Vault::get_instance()->reset_cache();
-		VerbHarness::reset();
-		$this->assertSame( '', VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'tw9' )['group'] );
+		CommandHarness::reset();
+		$this->assertSame( '', CommandHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'tw9' )['group'] );
 	}
 
 	// ---------------------------------------------------------------------
 	// schema
 	// ---------------------------------------------------------------------
 
-	public function test_node_schema_lists_verbs_without_logs_arg(): void {
-		$verbs = [];
-		foreach ( Vault_CI_Node::node_schema()['commands'] as $verb ) {
-			$verbs[ $verb['name'] ] = $verb;
+	public function test_node_schema_lists_commands_without_logs_arg(): void {
+		$commands = [];
+		foreach ( Vault_CI_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
 		}
 		foreach ( [ 'list', 'get', 'add', 'update', 'delete', 'test' ] as $name ) {
-			$this->assertArrayHasKey( $name, $verbs );
-			$this->assertIsCallable( $verbs[ $name ]['handler'] );
+			$this->assertArrayHasKey( $name, $commands );
+			$this->assertIsCallable( $commands[ $name ]['handler'] );
 		}
 		foreach ( [ 'add', 'update' ] as $name ) {
-			$arg_names = \array_map( static fn ( array $a ): string => $a['name'], $verbs[ $name ]['args'] );
+			$arg_names = \array_map( static fn ( array $a ): string => $a['name'], $commands[ $name ]['args'] );
 			$this->assertNotContains( 'logs', $arg_names, "'{$name}' must not declare a logs arg" );
 			$this->assertNotContains( 'enabled', $arg_names, "'{$name}' must not declare an enabled arg" );
 		}
 	}
 
 	public function test_add_and_update_declare_the_credentials_as_user_and_password(): void {
-		$verbs = [];
-		foreach ( Vault_CI_Node::node_schema()['commands'] as $verb ) {
-			$verbs[ $verb['name'] ] = $verb;
+		$commands = [];
+		foreach ( Vault_CI_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
 		}
 		foreach ( [ 'add', 'update' ] as $name ) {
-			$arg_names = \array_map( static fn ( array $a ): string => $a['name'], $verbs[ $name ]['args'] );
+			$arg_names = \array_map( static fn ( array $a ): string => $a['name'], $commands[ $name ]['args'] );
 			$this->assertContains( 'user', $arg_names, "'{$name}' must declare a user arg" );
 			$this->assertContains( 'password', $arg_names, "'{$name}' must declare a password arg" );
 			$this->assertNotContains( 'auth_username', $arg_names, "'{$name}' must not declare auth_username" );

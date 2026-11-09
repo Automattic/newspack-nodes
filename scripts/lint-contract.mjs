@@ -15,8 +15,8 @@
  * A subclass computing its own boundary, or a hook naming a class, works
  * until a second cadence or a second bundle arrives.
  *
- * Six rules read PHP: a verb checking its own role, which `dispatch()` does
- * against the role the verb declares (ADR-26); a durable arm built outside the
+ * Six rules read PHP: a command checking its own role, which `dispatch()` does
+ * against the role the command declares (ADR-26); a durable arm built outside the
  * Table that owns it (ADR-24); a log stamp spelled by hand (ADR-29); a class
  * taking `Fanout_Targets` without ever fanning out, which declares a target
  * that is not read by any delivery (ADR-19); a command signed outside
@@ -200,7 +200,7 @@ const RULES = [
 		lang: 'php',
 		test: /scope_covers\(\s*Capabilities::\$session_scope|Capabilities::require\(/,
 		skip: ( match, rel ) => 'includes/class-capabilities.php' === rel,
-		why: 'a verb checking its own role: declare the role in node_schema and dispatch() refuses it (ADR-26)',
+		why: 'a command checking its own role: declare the role in node_schema and dispatch() refuses it (ADR-26)',
 	},
 	{
 		id: 'durable-arm-outside-table',

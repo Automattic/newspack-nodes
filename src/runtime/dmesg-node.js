@@ -1,5 +1,5 @@
 /**
- * DmesgNode — the topology console's stderr-tail readout. The `dmesg` verb
+ * DmesgNode — the topology console's stderr-tail readout. The `dmesg` command
  * returns an interpreter's bounded stderr tail as text; this node turns that
  * text into the per-level counts the inspector's process-stats header shows.
  * See PollerNode for the ask-on-the-tick, publish-the-reply mechanism it
@@ -57,7 +57,7 @@ function countLevels( text ) {
  * when cwd is a worker — rather than the browser's own telemetry.
  */
 export class DmesgNode extends PollerNode {
-	/** The level tally, derived from a tail the `dmesg` verb prints whole. */
+	/** The level tally, derived from a tail the `dmesg` command prints whole. */
 	static dumpOmits = [ 'dmesg' ];
 
 	/**

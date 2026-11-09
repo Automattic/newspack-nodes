@@ -419,7 +419,7 @@ class OwnedSiblingsTest extends TestCase {
 
 	/**
 	 * `config_line()` addresses the interpreter's ACTUAL slot. A patron that
-	 * re-keys it through `sibling_suffix()` gets its verbs addressed there;
+	 * re-keys it through `sibling_suffix()` gets its commands addressed there;
 	 * spelling `{name}:config` would emit a line routable to nothing.
 	 */
 	public function test_config_line_addresses_the_slot_the_interpreter_was_keyed_into(): void {
@@ -449,7 +449,7 @@ class OwnedSiblingsTest extends TestCase {
 				$this->publish_sibling( 'escort', $this->escort );
 			}
 
-			/** @api Emit one verb line addressed at the interpreter's slot. */
+			/** @api Emit one command line addressed at the interpreter's slot. */
 			public function line(): string {
 				return $this->config_line( 'weigh', 'anchor' );
 			}

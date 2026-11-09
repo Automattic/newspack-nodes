@@ -1,6 +1,6 @@
 /**
  * usePoller — one poller node mounted on the backbone for the life of a view,
- * asking its verb of `_cwd`, the scope the console draws, and handing back the
+ * asking its command of `_cwd`, the scope the console draws, and handing back the
  * field it publishes.
  *
  * The node is a `Poller`, or a subclass such as `Metadata` that says what a

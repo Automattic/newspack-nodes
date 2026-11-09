@@ -53,7 +53,7 @@ export class EchoNode extends Node {
 
 	/**
 	 * Declare the console-palette entry: a routing primitive that takes no
-	 * positional arguments and answers no verbs.
+	 * positional arguments and answers no commands.
 	 *
 	 * @return {Object} The node schema.
 	 */

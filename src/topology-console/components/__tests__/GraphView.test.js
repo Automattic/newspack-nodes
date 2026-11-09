@@ -128,7 +128,7 @@ jest.mock( '../Inspector', () => ( props ) => {
 			<button onClick={ () => props.onOpenNode?.( 'n1:seen' ) }>
 				open-seen
 			</button>
-			<button>verb</button>
+			<button>command</button>
 		</div>
 	);
 } );
@@ -1054,7 +1054,7 @@ describe( 'GraphView — sidecars', () => {
 		expect( cards[ 0 ].id ).not.toBe( '' );
 		expect( onSelectionChange ).not.toHaveBeenCalled();
 		expect( inspectorText( getByTestId ) ).toBe(
-			'insp:remove-selectedopen-owneropen-seenverb'
+			'insp:remove-selectedopen-owneropen-seencommand'
 		);
 	} );
 
@@ -1295,7 +1295,7 @@ describe( 'GraphView — sidecars', () => {
 				'n1:seen',
 			] );
 			expect( inspectorText( getByTestId ) ).toBe(
-				'insp:remove-selectedopen-owneropen-seenverb'
+				'insp:remove-selectedopen-owneropen-seencommand'
 			);
 		} );
 
@@ -1390,7 +1390,7 @@ describe( 'GraphView — sidecars', () => {
 				popovers()[ 1 ].querySelector( '.topology-sidecars__card' )
 			);
 			await flush();
-			press( getByText( 'verb' ) );
+			press( getByText( 'command' ) );
 			await flush();
 			expect( popovers() ).toHaveLength( 2 );
 			expect( inspectorText( getByTestId ) ).toContain(
@@ -1400,7 +1400,7 @@ describe( 'GraphView — sidecars', () => {
 
 		it( 'closes every grid on an Inspector click while it shows no picked sidecar', async () => {
 			const { getByText } = await openNested();
-			press( getByText( 'verb' ) );
+			press( getByText( 'command' ) );
 			await flush();
 			expect( popovers() ).toHaveLength( 0 );
 		} );
@@ -1435,7 +1435,7 @@ describe( 'GraphView — sidecars', () => {
 			dialog.className = 'topology-modal newspack-nodes-modal';
 			dialog.setAttribute( 'role', 'dialog' );
 			const button = document.createElement( 'button' );
-			button.textContent = 'run verb';
+			button.textContent = 'run command';
 			dialog.appendChild( button );
 			document.body.appendChild( dialog );
 			return button;

@@ -41,7 +41,7 @@ describe( 'a broker’s add_source lines', () => {
 		] );
 	} );
 
-	it( 'skip a line the verb refuses', () => {
+	it( 'skip a line the command refuses', () => {
 		const graph = graphFromTsl(
 			'make_node Remote_Source spoke-q7 lone o d\n' +
 				'command_node spoke-q7:config add_source jobstats.p7\n' +
@@ -56,7 +56,7 @@ describe( 'a broker’s add_source lines', () => {
 		] );
 	} );
 
-	it( 'draw a repeated source once, as the verb takes it once', () => {
+	it( 'draw a repeated source once, as the command takes it once', () => {
 		const graph = graphFromTsl(
 			'make_node Remote_Source spoke-r4 lone o d\n' +
 				'command_node spoke-r4:config add_source wren.p6 wren-sink\n' +

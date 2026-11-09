@@ -79,7 +79,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 *
 	 * @param Remote_Consumer_Node $child The reader asking.
 	 * @param string               $verb  `read_message` or `read_block`.
-	 * @param list<string>         $args  The verb's argument tokens, which the reply echoes.
+	 * @param list<string>         $args  The command's argument tokens, which the reply echoes.
 	 * @return bool True once the command is queued.
 	 */
 	public function send_read( Remote_Consumer_Node $child, string $verb, array $args ): bool {
@@ -301,7 +301,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * Palette entry: `Remote_Source`'s arguments and verbs over block fetches,
+	 * Palette entry: `Remote_Source`'s arguments and commands over block fetches,
 	 * and the optional `retry_ms`.
 	 *
 	 * @api Dynamic entrypoint.

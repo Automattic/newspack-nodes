@@ -7,8 +7,8 @@ use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Per-verb capability roles: a verb may declare `'capability' => 'read'` in
- * node_schema(); unmarked verbs stay `manage`. With the default map both
+ * Per-command capability roles: a command may declare `'capability' => 'read'` in
+ * node_schema(); unmarked commands stay `manage`. With the default map both
  * resolve manage_options — nothing changes until a site relaxes `read`.
  */
 #[CoversClass( Service_CI_Node::class )]
@@ -48,7 +48,7 @@ class ServiceCiCapabilityTest extends TestCase {
 		return $ci;
 	}
 
-	public function test_read_verb_honors_a_relaxed_read_cap(): void {
+	public function test_read_command_honors_a_relaxed_read_cap(): void {
 		add_filter(
 			'newspack_nodes/capability_map',
 			static fn ( array $map ): array => [ 'read' => 'edit_posts' ] + $map
@@ -62,12 +62,12 @@ class ServiceCiCapabilityTest extends TestCase {
 
 		$e = $this->caught(
 			fn () => $ci->dispatch( 'mutate' ),
-			'an unmarked verb must stay manage-gated'
+			'an unmarked command must stay manage-gated'
 		);
 		$this->assertStringContainsString( 'permission denied', $e->getMessage() );
 	}
 
-	public function test_default_map_keeps_read_verbs_admin_only(): void {
+	public function test_default_map_keeps_read_commands_admin_only(): void {
 		$GLOBALS['_wp_test_current_user_id']  = 5527;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 		$ci = $this->ci();

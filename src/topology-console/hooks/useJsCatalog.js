@@ -1,7 +1,7 @@
 /**
  * The palette catalog for the graph running in the BROWSER.
  *
- * The HTTP `classes dump` verb answers with the PHP substrate's catalog — the
+ * The HTTP `classes dump` command answers with the PHP substrate's catalog — the
  * classes a WORKER can build. That is the right catalog for editing a topology
  * and for driving a worker over SSE, and `useClassCatalog` serves it. It is the
  * wrong one for the local browser graph and the debug overlay, where
@@ -103,13 +103,13 @@ export function useJsCatalog() {
 				is_interpreter: derivedFrom( CommandInterpreterNode, cls ),
 				// The ADD modal renders a field per declared ctor argument.
 				arguments: schema.arguments ?? [],
-				// Verbs as PHP's strip_entries() ships them: no handler.
-				commands: ( schema.commands ?? [] ).map( ( verb ) => ( {
-					name: verb.name,
-					description: verb.description ?? '',
-					args: verb.args ?? [],
+				// Commands as PHP's strip_entries() ships them: no handler.
+				commands: ( schema.commands ?? [] ).map( ( command ) => ( {
+					name: command.name,
+					description: command.description ?? '',
+					args: command.args ?? [],
 					...Object.fromEntries(
-						COMMAND_FLAGS.filter( ( f ) => verb[ f ] ).map(
+						COMMAND_FLAGS.filter( ( f ) => command[ f ] ).map(
 							( f ) => [ f, true ]
 						)
 					),

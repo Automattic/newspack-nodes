@@ -10,7 +10,7 @@ use Newspack_Nodes\Oauth_Store;
 use Newspack_Nodes\Rest\Sessions_CI_Node;
 use Newspack_Nodes\Sessions;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
@@ -34,7 +34,7 @@ class SessionsCINodeTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		Cache_Backend::$apcu_usable           = static fn (): bool => false;
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		Core::$memd                           = $this->prev_memd;
@@ -46,9 +46,9 @@ class SessionsCINodeTest extends TestCase {
 	 * and re-seat the memcached double, which Core::reset() clears.
 	 */
 	private function fire( string $verb, $args = [] ) {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		Core::$memd = $this->memd;
-		return VerbHarness::fire( new Sessions_CI_Node(), 'sessions', $verb, $args );
+		return CommandHarness::fire( new Sessions_CI_Node(), 'sessions', $verb, $args );
 	}
 
 	public function test_list_is_empty_before_anything_is_issued(): void {
@@ -189,7 +189,7 @@ class SessionsCINodeTest extends TestCase {
 	}
 
 	/**
-	 * The verb's MANAGE check runs before binding (ADR-26), so a READ caller
+	 * The command's MANAGE check runs before binding (ADR-26), so a READ caller
 	 * with a malformed command learns nothing of the args it declares.
 	 */
 	public function test_a_read_caller_with_malformed_args_hears_the_role_refusal_first(): void {
@@ -289,9 +289,9 @@ class SessionsCINodeTest extends TestCase {
 	}
 
 	/** Handing out access is `manage`, for the same reason the vault is. */
-	public function test_every_verb_is_manage(): void {
-		foreach ( Sessions_CI_Node::node_schema()['commands'] as $verb ) {
-			$this->assertSame( Capabilities::MANAGE, $verb['capability'] ?? Capabilities::MANAGE );
+	public function test_every_command_is_manage(): void {
+		foreach ( Sessions_CI_Node::node_schema()['commands'] as $command ) {
+			$this->assertSame( Capabilities::MANAGE, $command['capability'] ?? Capabilities::MANAGE );
 		}
 	}
 }

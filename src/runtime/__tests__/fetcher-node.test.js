@@ -336,7 +336,7 @@ const replyNaming = ( path = '', args = [], value = {} ) => {
  *
  * An ask stands in the Fetcher's outbox until its reply settles it, and a
  * trigger that finds one there mints nothing, so a dashboard on a one-second
- * refresh does not build a queue of identical asks behind a slow verb.
+ * refresh does not build a queue of identical asks behind a slow command.
  */
 describe( 'FetcherNode — the outbox', () => {
 	const mount = ( verb = 'counts' ) => {
@@ -471,7 +471,7 @@ describe( 'FetcherNode — the outbox', () => {
 		expect( sent ).toHaveLength( 0 );
 	} );
 
-	// A transport refusal never reached the verb, so the ask is unanswered:
+	// A transport refusal never reached the command, so the ask is unanswered:
 	// asking again is the recovery, and waiting out the window is not.
 	it( 're-asks on the next trigger when the batch never landed', () => {
 		const { f, sent } = mount();
@@ -953,7 +953,7 @@ test( 'declares its trailing command_args as the one variadic argument', () => {
 /**
  * TM_INFO carries a scalar, and `settled` carries the ask object, so it is an
  * event for closures alone (`useNodeEvent` declares it), never a node-name
- * registration a `register` verb could reach.
+ * registration a `register` command could reach.
  */
 test( 'settled is not a declared node-name registration', () => {
 	expect( FetcherNode.nodeSchema().registrations ?? [] ).not.toContain(

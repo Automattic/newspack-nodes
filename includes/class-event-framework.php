@@ -608,7 +608,7 @@ class Event_Framework {
 	}
 
 	/**
-	 * The nodes holding a registered easy handle, for the `list_handles` verb:
+	 * The nodes holding a registered easy handle, for the `list_handles` command:
 	 * one entry per node, however many handles it holds.
 	 *
 	 * @return array<int,Node> Keyed by the node's `spl_object_id`.

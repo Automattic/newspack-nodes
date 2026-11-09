@@ -114,7 +114,7 @@ class Sessions {
 
 	/**
 	 * Mint a session and index it when it carries a label: the one issuing
-	 * path, which `/auth`, the `sessions create` verb and `wp nodes session
+	 * path, which `/auth`, the `sessions create` command and `wp nodes session
 	 * issue` share. Each caller keeps its own policy for a scope or TTL out of
 	 * bounds — REST and the CI clamp, the CLI refuses — and hands this the
 	 * result.

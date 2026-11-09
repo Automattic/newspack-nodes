@@ -56,7 +56,7 @@ class DumperTest extends TestCase {
 	/**
 	 * The verbosity-2 branch dumped the envelope and returned, so TM_EOF never
 	 * reached its callback: after an operator raised verbosity with the
-	 * `debug_level` REPL verb, `wp nodes cli` sat until its 5s deadline instead
+	 * `debug_level` REPL command, `wp nodes cli` sat until its 5s deadline instead
 	 * of exiting on the echo. Default level is 0, so this never bit an operator
 	 * who left verbosity alone. Inherited from Tachikoma, which still has it —
 	 * a reason, not a justification.

@@ -46,7 +46,7 @@ describe( 'formatCommandArgs', () => {
 describe( 'bindCommandArgs', () => {
 	const specs = brokerSchemas
 		.find( ( entry ) => 'Remote_Source' === entry.shell_name )
-		.commands.find( ( verb ) => 'add_source' === verb.name ).args;
+		.commands.find( ( command ) => 'add_source' === command.name ).args;
 
 	const bindings = addSourceCases.filter(
 		( [ , , want ] ) => ! want.refused

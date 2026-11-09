@@ -87,8 +87,8 @@ describe( 'CommandResultNode', () => {
 	} );
 
 	// A refusal the TRANSPORT minted — a 401, a 5xx, a dropped connection —
-	// says the verb was never reached, which is a different thing from the
-	// verb saying no. A retried read asks again on the first and not the
+	// says the command was never reached, which is a different thing from the
+	// command saying no. A retried read asks again on the first and not the
 	// second, so the difference has to survive as far as the model.
 	it( 'marks a reply the transport minted as undelivered', () => {
 		const node = new CommandResultNode();
@@ -211,7 +211,7 @@ describe( 'the subject rides in the address', () => {
 /**
  * TM_INFO carries a scalar, and `result` carries the reply object, so it is an
  * event for closures alone (`useNodeEvent` declares it), never a node-name
- * registration a `register` verb could reach.
+ * registration a `register` command could reach.
  */
 test( 'result is not a declared node-name registration', () => {
 	expect( CommandResultNode.nodeSchema().registrations ?? [] ).not.toContain(

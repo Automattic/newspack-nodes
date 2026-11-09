@@ -3,7 +3,7 @@
  * topology mutation is refused, or an activation succeeds with a warning.
  *
  * `useTopologyManager`'s activate, deactivate and restart are fire-and-forget:
- * the refusal arrives a tick later as the verb's error text on the node that
+ * the refusal arrives a tick later as the command's error text on the node that
  * asked (TO=FROM, ADR-7), with no promise to reject. Without a dialog the
  * operator sees the toggle snap back and nothing else, so the reason — an
  * unknown name, or an activate that would put two fleets on one log — is what
@@ -32,7 +32,7 @@ import { useFocusTrap } from '@newspack-nodes/shared/hooks/useFocusTrap';
  * @param {string}     props.title   Dialog heading, and its only accessible
  *                                   name; Overview names the topology that
  *                                   refused.
- * @param {string}     props.message The refusal text the verb returned.
+ * @param {string}     props.message The refusal text the command returned.
  * @param {() => void} props.onClose Dismiss handler; runs on OK, ESC, and backdrop click.
  * @return {import('react').ReactElement} The modal.
  */

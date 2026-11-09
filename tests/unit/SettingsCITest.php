@@ -4,7 +4,7 @@
  *
  * Asserts the writer for the seven substrate-owned integer keys
  * (num_partitions, segment_size, min_segments, num_segments, min_lifetime,
- * lifetime, max_segments), plus the `get` verb that returns the same surface
+ * lifetime, max_segments), plus the `get` command that returns the same surface
  * as a snapshot. Substrate config is seeded via
  * `TestCase::use_base_dir()`, mirroring StatusCITest / AggregatorCITest.
  *
@@ -17,7 +17,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Rest\Settings_CI_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Settings_Event_Writer;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Settings_CI_Node::class )]
@@ -38,7 +38,7 @@ class SettingsCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		\Newspack_Nodes\Topology_Registry::reset();
 		Settings_Event_Writer::$append_seam = null;
 		unset( $GLOBALS['_wp_actions'][ \Newspack_Nodes\Config::RESET_ACTION ] );
@@ -48,7 +48,7 @@ class SettingsCITest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_get_verb_returns_current_settings_from_wp_options(): void {
+	public function test_get_command_returns_current_settings_from_wp_options(): void {
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 8;
 		$GLOBALS['_wp_options']['newspack_nodes_max_segments']   = 4;
 		$GLOBALS['_wp_options']['newspack_nodes_segment_size']   = 65536;
@@ -56,7 +56,7 @@ class SettingsCITest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 
 		$interpreter     = new Settings_CI_Node();
-		$result = VerbHarness::fire( $interpreter, 'settings', 'get' );
+		$result = CommandHarness::fire( $interpreter, 'settings', 'get' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 8, $result['num_partitions'] );
@@ -65,13 +65,13 @@ class SettingsCITest extends TestCase {
 		$this->assertSame( 86400, $result['min_lifetime'] );
 	}
 
-	public function test_get_verb_falls_through_to_defaults_when_options_unset(): void {
-		// No WP options set — verb should still return a 7-key shape using
+	public function test_get_command_falls_through_to_defaults_when_options_unset(): void {
+		// No WP options set — the command should still return a 7-key shape using
 		// whatever the substrate Config defaults supply (driven by the
 		// per-test base_dir config file). num_partitions defaults to 1 from
 		// the substrate-config-defaults overlay.
 		$interpreter     = new Settings_CI_Node();
-		$result = VerbHarness::fire( $interpreter, 'settings', 'get' );
+		$result = CommandHarness::fire( $interpreter, 'settings', 'get' );
 
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'num_partitions', $result );
@@ -84,11 +84,11 @@ class SettingsCITest extends TestCase {
 		$this->assertIsInt( $result['num_partitions'] );
 	}
 
-	// ── set verb (normalized positional receiver) ──────────────────────────
+	// ── set command (normalized positional receiver) ───────────────────────
 
-	public function test_set_verb_applies_single_positional_int_setting(): void {
+	public function test_set_command_applies_single_positional_int_setting(): void {
 		$interpreter = new Settings_CI_Node();
-		$result      = VerbHarness::fire(
+		$result      = CommandHarness::fire(
 			$interpreter,
 			'settings',
 			'set',
@@ -101,9 +101,9 @@ class SettingsCITest extends TestCase {
 		$this->assertSame( 8, $GLOBALS['_wp_options']['newspack_nodes_max_segments'] );
 	}
 
-	public function test_set_verb_rejects_unknown_option(): void {
+	public function test_set_command_rejects_unknown_option(): void {
 		$interpreter = new Settings_CI_Node();
-		$result      = VerbHarness::fire(
+		$result      = CommandHarness::fire(
 			$interpreter,
 			'settings',
 			'set',
@@ -114,27 +114,27 @@ class SettingsCITest extends TestCase {
 		$this->assertArrayNotHasKey( 'newspack_nodes_not_in_allowlist', $GLOBALS['_wp_options'] );
 	}
 
-	public function test_set_verb_accepts_the_short_name_without_the_option_prefix(): void {
+	public function test_set_command_accepts_the_short_name_without_the_option_prefix(): void {
 		$interpreter = new Settings_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments 9' );
+		$result      = CommandHarness::fire( $interpreter, 'settings', 'set', 'max_segments 9' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 9, $result['max_segments'] );
 		$this->assertSame( 9, $GLOBALS['_wp_options']['newspack_nodes_max_segments'] );
 	}
 
-	public function test_set_verb_asks_every_worker_to_re_read_its_config(): void {
+	public function test_set_command_asks_every_worker_to_re_read_its_config(): void {
 		// num_partitions restarts nothing, and without a reload signal a running
 		// worker serves its boot-time value for the rest of its ~595s lifetime
 		// instead of picking it up within 15s.
 		$this->activate_partition_topology();
 
-		VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_partitions 7' );
+		CommandHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_partitions 7' );
 
 		$this->assertFileExists( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
 	}
 
-	public function test_set_verb_to_the_value_already_stored_recycles_nothing(): void {
+	public function test_set_command_to_the_value_already_stored_recycles_nothing(): void {
 		// The hub's settings-sync re-pushes EVERY registered option every 300s
 		// whether or not it changed. Acting on a no-op push flags a restart on
 		// every matching worker, so the whole fleet recycles each sweep.
@@ -142,7 +142,7 @@ class SettingsCITest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 13;
 		\Newspack_Nodes\Config::reset();
 
-		VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 13' );
+		CommandHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 13' );
 
 		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RESTART_FLAG );
 		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
@@ -154,7 +154,7 @@ class SettingsCITest extends TestCase {
 	 * shape, write nothing, and neither fire an option action nor flag a
 	 * worker.
 	 */
-	public function test_set_verb_pushing_the_stored_string_int_in_its_wire_form_writes_nothing(): void {
+	public function test_set_command_pushing_the_stored_string_int_in_its_wire_form_writes_nothing(): void {
 		$this->activate_partition_topology();
 		$GLOBALS['_wp_options']['newspack_nodes_remote_min_segments'] = '11';
 		\Newspack_Nodes\Config::reset();
@@ -165,9 +165,9 @@ class SettingsCITest extends TestCase {
 		$GLOBALS['_test_fire_option_actions'] = true;
 		\add_action( 'update_option', $count );
 		try {
-			$first = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'newspack_nodes_remote_min_segments 11' );
-			VerbHarness::reset();
-			$second = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'newspack_nodes_remote_min_segments 11' );
+			$first = CommandHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'newspack_nodes_remote_min_segments 11' );
+			CommandHarness::reset();
+			$second = CommandHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'newspack_nodes_remote_min_segments 11' );
 		} finally {
 			unset( $GLOBALS['_test_fire_option_actions'] );
 		}
@@ -180,41 +180,41 @@ class SettingsCITest extends TestCase {
 		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
 	}
 
-	public function test_set_verb_to_a_new_value_still_restarts_and_reloads(): void {
+	public function test_set_command_to_a_new_value_still_restarts_and_reloads(): void {
 		// The counterpart guard: gating the no-op push must not gate the real one.
 		$this->activate_partition_topology();
 		$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 13;
 		\Newspack_Nodes\Config::reset();
 
-		VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 21' );
+		CommandHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 21' );
 
 		$this->assertSame( 21, $GLOBALS['_wp_options']['newspack_nodes_num_segments'] );
 		$this->assertFileExists( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RESTART_FLAG );
 		$this->assertFileExists( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
 	}
 
-	public function test_set_verb_to_the_value_already_stored_still_returns_the_snapshot(): void {
+	public function test_set_command_to_the_value_already_stored_still_returns_the_snapshot(): void {
 		// The hub reads the reply to confirm convergence; a no-op must still answer.
 		$this->activate_partition_topology();
 		$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 13;
 		\Newspack_Nodes\Config::reset();
 
-		$result = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 13' );
+		$result = CommandHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 13' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 13, $result['num_segments'] );
 	}
 
-	public function test_set_verb_refuses_nine_partitions(): void {
-		$result = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_partitions 9' );
+	public function test_set_command_refuses_nine_partitions(): void {
+		$result = CommandHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_partitions 9' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid value for setting', $result );
 	}
 
-	public function test_set_verb_rejects_a_value_outside_the_declared_bounds(): void {
+	public function test_set_command_rejects_a_value_outside_the_declared_bounds(): void {
 		$interpreter = new Settings_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments ' . \PHP_INT_MAX );
+		$result      = CommandHarness::fire( $interpreter, 'settings', 'set', 'max_segments ' . \PHP_INT_MAX );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid value for setting', $result );
@@ -223,25 +223,25 @@ class SettingsCITest extends TestCase {
 
 	// ── schema-driven dispatch ──────────────────────────────────────────────
 
-	public function test_node_schema_lists_both_verbs_with_handlers(): void {
-		$verbs = [];
-		foreach ( Settings_CI_Node::node_schema()['commands'] as $verb ) {
-			$verbs[ $verb['name'] ] = $verb;
+	public function test_node_schema_lists_both_commands_with_handlers(): void {
+		$commands = [];
+		foreach ( Settings_CI_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
 		}
 
-		$this->assertArrayHasKey( 'get', $verbs );
-		$this->assertArrayHasKey( 'set', $verbs );
-		$this->assertIsCallable( $verbs['get']['handler'] );
-		$this->assertIsCallable( $verbs['set']['handler'] );
+		$this->assertArrayHasKey( 'get', $commands );
+		$this->assertArrayHasKey( 'set', $commands );
+		$this->assertIsCallable( $commands['get']['handler'] );
+		$this->assertIsCallable( $commands['set']['handler'] );
 	}
 
-	public function test_get_verb_declares_no_args(): void {
+	public function test_get_command_declares_no_args(): void {
 		// `get` does not read $payload or $args — it just returns the snapshot.
-		$verbs = self::verbs_by_name();
-		$this->assertSame( [], $verbs['get']['args'] );
+		$commands = self::commands_by_name();
+		$this->assertSame( [], $commands['get']['args'] );
 	}
 
-	public function test_set_verb_declares_required_option_and_value(): void {
+	public function test_set_command_declares_required_option_and_value(): void {
 		// `set` applies a single setting by full option name → both required:
 		// option (string) + value (int). Inspector renders the two fields.
 		$args = self::args_by_name( 'set' );
@@ -260,7 +260,7 @@ class SettingsCITest extends TestCase {
 	 * the CI surfaces under 'Service'.
 	 */
 	public function test_appears_in_class_catalog_as_service(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertArrayHasKey( 'classes', $result );
 		// A stale classmap (no composer dump-autoload -o) yields zero classes and
@@ -308,23 +308,23 @@ class SettingsCITest extends TestCase {
 	 *
 	 * @return array<string,array<string,mixed>>
 	 */
-	private static function verbs_by_name(): array {
-		$verbs = [];
-		foreach ( Settings_CI_Node::node_schema()['commands'] as $verb ) {
-			$verbs[ $verb['name'] ] = $verb;
+	private static function commands_by_name(): array {
+		$commands = [];
+		foreach ( Settings_CI_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
 		}
-		return $verbs;
+		return $commands;
 	}
 
 	/**
-	 * A verb's args[] indexed by arg name.
+	 * A command's args[] indexed by arg name.
 	 *
 	 * @param string $verb Verb name.
 	 * @return array<string,array<string,mixed>>
 	 */
 	private static function args_by_name( string $verb ): array {
 		$out = [];
-		foreach ( self::verbs_by_name()[ $verb ]['args'] as $arg ) {
+		foreach ( self::commands_by_name()[ $verb ]['args'] as $arg ) {
 			$out[ $arg['name'] ] = $arg;
 		}
 		return $out;

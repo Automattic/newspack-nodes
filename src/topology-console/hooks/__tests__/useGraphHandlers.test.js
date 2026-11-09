@@ -304,7 +304,7 @@ describe( 'useGraphHandlers', () => {
 		expect( dispatch ).toHaveBeenCalledWith( 'trace *' );
 	} );
 
-	it( 'onInspectorAction command handles a verb with no args', () => {
+	it( 'onInspectorAction command handles a command with no args', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'command', null, 'dmesg' );
 		expect( dispatch ).toHaveBeenCalledWith( 'dmesg' );

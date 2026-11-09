@@ -83,9 +83,9 @@ final class DigestBuilderTest extends TestCase {
 		$this->assertSame( [ 'verb' => 'FLUSH', 'data' => [ 'flushed' => 5 ] ], $replies[0][ Message::VALUE ], 'all five accumulated items counted' );
 	}
 
-	public function test_flush_request_verb_is_documented_in_schema(): void {
+	public function test_the_flush_request_is_documented_in_schema(): void {
 		// FLUSH is a runtime trigger: a TM_REQUEST handled in fill(), documented
-		// under node_schema()['requests'] (NOT a TM_COMMAND verb under 'commands').
+		// under node_schema()['requests'] (NOT a command under 'commands').
 		$schema = Digest_Builder_Demo_Node::node_schema();
 		$this->assertArrayHasKey( 'requests', $schema );
 		$names = array_column( $schema['requests'], 'name' );

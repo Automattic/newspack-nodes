@@ -56,7 +56,7 @@ import {
 	formatGroupedCount,
 } from '@newspack-nodes/shared/utils/formatters';
 import { processStats } from '../utils/processStats';
-import { isConfigurableVerb } from '../utils/editorLines';
+import { isConfigurableCommand } from '../utils/editorLines';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeField } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
@@ -83,7 +83,7 @@ function isConsumerNode( node ) {
  * Whether the node's configuration belongs to the console rather than the user.
  *
  * A reserved anchor is auto-mounted by the runtime, so rename, delete,
- * constructor and verb affordances stay hidden: editing them would describe a
+ * constructor and command affordances stay hidden: editing them would describe a
  * node the next boot rebuilds anyway. `_repl` is matched by id as well, so it
  * stays locked even when its metadata carries no `reserved` flag.
  *
@@ -408,24 +408,24 @@ function NameField( { node, takenNames, onRenameNode } ) {
 }
 
 /**
- * One editable verb in the Verbs section. A plain verb renders a checkbox that
- * toggles its invocation; a `multiple` verb renders one headed row per call,
+ * One editable command in the Class Commands section. A plain command renders a checkbox that
+ * toggles its invocation; a `multiple` command renders one headed row per call,
  * each removable. The two shapes need different callbacks, so each callback is
  * optional and only the one its shape uses is ever called.
  *
  * @param {Object}                             props
- * @param {Object}                             props.spec         Verb entry from the class schema — name, description, args.
- * @param {?Object}                            props.invocation   This verb's call in the draft, or null when it isn't invoked.
- * @param {(on: boolean) => void}              [props.onToggle]   Ticks a plain verb on or off; unused when `multiple`.
+ * @param {Object}                             props.spec         Command entry from the class schema — name, description, args.
+ * @param {?Object}                            props.invocation   This command's call in the draft, or null when it isn't invoked.
+ * @param {(on: boolean) => void}              [props.onToggle]   Ticks a plain command on or off; unused when `multiple`.
  * @param {(argIdx: number, value: *) => void} props.onArgChange  Writes one positional arg into the draft.
  * @param {() => void}                         [props.onRemove]   Drops this invocation; `multiple` rows only.
- * @param {boolean}                            [props.multiple]   Verb the schema allows more than once: row per call, no checkbox.
+ * @param {boolean}                            [props.multiple]   Command the schema allows more than once: row per call, no checkbox.
  * @param {string[]}                           [props.nodeNames]  Other draft node names, offered for `node_name` args.
  * @param {Array}                              [props.formatters] Registered formatters, offered for `formatter` args.
  * @param {Array}                              [props.vaults]     Vault entries, offered for `vault` args.
- * @return {import('react').ReactElement} The verb row.
+ * @return {import('react').ReactElement} The command row.
  */
-function VerbRow( {
+function CommandRow( {
 	spec,
 	invocation,
 	onToggle,
@@ -437,17 +437,17 @@ function VerbRow( {
 	vaults = [],
 } ) {
 	const checked = !! invocation;
-	const id = `topology-verb-${ spec.name }`;
-	// A `multiple` verb: one row per invocation (removable), not a checkbox.
+	const id = `topology-command-${ spec.name }`;
+	// A `multiple` command: one row per invocation (removable), not a checkbox.
 	const showArgs =
 		( multiple || checked ) &&
 		invocation &&
 		spec.args &&
 		spec.args.length > 0;
 	return (
-		<div className="topology-edit-verb">
+		<div className="topology-edit-command">
 			{ multiple ? (
-				<div className="topology-edit-row topology-edit-verb__head">
+				<div className="topology-edit-row topology-edit-command__head">
 					<span
 						className="topology-edit-row__label"
 						title={ spec.description || undefined }
@@ -456,7 +456,7 @@ function VerbRow( {
 					</span>
 					<button
 						type="button"
-						className="button button-small button-link-delete is-circle topology-edit-verb__remove"
+						className="button button-small button-link-delete is-circle topology-edit-command__remove"
 						aria-label={ `Remove ${ spec.name }` }
 						onClick={ onRemove }
 					>
@@ -484,7 +484,7 @@ function VerbRow( {
 				</label>
 			) }
 			{ showArgs && (
-				<div className="topology-edit-verb__args">
+				<div className="topology-edit-command__args">
 					{ spec.args.map( ( arg, i ) => (
 						<CtorField
 							key={ arg.name }
@@ -585,9 +585,9 @@ function TargetsField( {
  * blur adds nothing, so a half-typed path never reaches `connect_node`. It
  * suggests only nodes this one is not already wired to, and adds nothing for
  * a wired one, since re-adding an existing target is a no-op the runtime
- * would accept silently. A virtual edge comes from a verb argument rather
+ * would accept silently. A virtual edge comes from a command argument rather
  * than a `connect_node` line, so its chip carries no clear button — removing
- * it means editing the verb.
+ * it means editing the command.
  *
  * @param {Object}   props
  * @param {Object}   props.node           The selected node.
@@ -652,7 +652,7 @@ function TeeTargetsField( {
  * Any path is accepted, local or remote, and Enter or blur commits it.
  * `connect_node` on a node that does not fan out replaces its target, so
  * switching needs no disconnect first and only clearing the input removes the
- * edge. The verb-derived edges are named in a hint rather than offered,
+ * edge. The command-derived edges are named in a hint rather than offered,
  * because this control edits the one physical target.
  *
  * @param {Object}   props
@@ -670,7 +670,7 @@ function SingleTargetField( {
 	onConnect,
 	onRemoveEdge,
 } ) {
-	// Physical edge only; virtual (verb-derived) edges live in Verbs section.
+	// Physical edge only; command-derived virtual edges live in Class Commands.
 	const physical = targets.find( ( e ) => ! e.virtual ) || null;
 	const currentTarget = physical ? physical.to : '';
 
@@ -705,7 +705,7 @@ function SingleTargetField( {
 			{ targets.some( ( e ) => e.virtual ) && (
 				<span className="topology-edit-row__hint">
 					{ __(
-						'Plus virtual edge(s) from verb args — manage in Verbs.',
+						'Plus virtual edge(s) from command args — manage in Class Commands.',
 						'newspack-nodes'
 					) }
 				</span>
@@ -719,7 +719,7 @@ function SingleTargetField( {
  *
  * @param {Object}        props
  * @param {string}        props.label     Target node name.
- * @param {boolean}       [props.virtual] Edge derived from a verb argument: styled apart, never cleared here.
+ * @param {boolean}       [props.virtual] Edge derived from a command argument: styled apart, never cleared here.
  * @param {?(() => void)} [props.onClear] Removes the edge; absent on a virtual edge or a read-only pane.
  * @return {import('react').ReactElement} The chip.
  */
@@ -750,24 +750,24 @@ function RoutingChip( { label, virtual, onClear } ) {
 }
 
 /**
- * A locked verb's arguments as disabled inputs.
+ * A locked command's arguments as disabled inputs.
  *
  * Disabled inputs rather than plain text, so a locked row occupies the same
  * space as an editable one and the pane does not reflow as the selection moves
  * between a declared node and a borrowed one.
  *
  * @param {Object}  props
- * @param {Object}  props.spec       Verb entry from the class schema.
+ * @param {Object}  props.spec       Command entry from the class schema.
  * @param {?Object} props.invocation The call whose args are shown; nullish renders nothing.
  * @return {?import('react').ReactElement} The argument rows, or null when there are none.
  */
-function LockedVerbArgs( { spec, invocation } ) {
+function LockedCommandArgs( { spec, invocation } ) {
 	const argSpecs = spec.args || [];
 	if ( ! invocation || argSpecs.length === 0 ) {
 		return null;
 	}
 	return (
-		<div className="topology-edit-verb__args">
+		<div className="topology-edit-command__args">
 			{ argSpecs.map( ( arg, i ) => (
 				<input
 					key={ arg.name }
@@ -783,19 +783,19 @@ function LockedVerbArgs( { spec, invocation } ) {
 }
 
 /**
- * A verb the including topology declared: a disabled checkbox and its args.
+ * A command the including topology declared: a disabled checkbox and its args.
  *
  * Shown rather than hidden, because the setting is in force on the running
  * node and a reader who cannot see it will declare it a second time.
  *
  * @param {Object}  props
- * @param {Object}  props.spec       Verb entry from the class schema.
- * @param {?Object} props.invocation The seeded call, or null when the verb is not invoked.
- * @return {import('react').ReactElement} The locked verb row.
+ * @param {Object}  props.spec       Command entry from the class schema.
+ * @param {?Object} props.invocation The seeded call, or null when the command is not invoked.
+ * @return {import('react').ReactElement} The locked command row.
  */
-function LockedVerb( { spec, invocation } ) {
+function LockedCommand( { spec, invocation } ) {
 	return (
-		<div className="topology-edit-verb">
+		<div className="topology-edit-command">
 			<div className="topology-edit-row">
 				<input
 					type="checkbox"
@@ -811,25 +811,25 @@ function LockedVerb( { spec, invocation } ) {
 					<code>{ spec.name }</code>
 				</span>
 			</div>
-			<LockedVerbArgs spec={ spec } invocation={ invocation } />
+			<LockedCommandArgs spec={ spec } invocation={ invocation } />
 		</div>
 	);
 }
 
 /**
- * A `multiple` verb the including topology declared: one locked row per call.
+ * A `multiple` command the including topology declared: one locked row per call.
  *
  * @param {Object} props
- * @param {Object} props.spec        Verb entry from the class schema.
+ * @param {Object} props.spec        Command entry from the class schema.
  * @param {Array}  props.invocations The seeded calls; an empty list renders nothing.
  * @return {import('react').ReactElement} The locked rows.
  */
-function LockedMultipleVerb( { spec, invocations } ) {
+function LockedMultipleCommand( { spec, invocations } ) {
 	return (
-		<div className="topology-edit-verb-group">
+		<div className="topology-edit-command-group">
 			{ invocations.map( ( invocation, i ) => (
-				<div className="topology-edit-verb" key={ i }>
-					<div className="topology-edit-row topology-edit-verb__head">
+				<div className="topology-edit-command" key={ i }>
+					<div className="topology-edit-row topology-edit-command__head">
 						<span
 							className="topology-edit-row__label"
 							title={ spec.description || undefined }
@@ -837,7 +837,10 @@ function LockedMultipleVerb( { spec, invocations } ) {
 							<code>{ spec.name }</code>
 						</span>
 					</div>
-					<LockedVerbArgs spec={ spec } invocation={ invocation } />
+					<LockedCommandArgs
+						spec={ spec }
+						invocation={ invocation }
+					/>
 				</div>
 			) ) }
 		</div>
@@ -850,18 +853,18 @@ function LockedMultipleVerb( { spec, invocations } ) {
  * The constructor is read-only and there is no rename or delete: those
  * arguments belong to the topology that defines the node, and editing them
  * here would write a line this file cannot own. Routing stays editable, and
- * so do the verb calls this document aims at it — `VerbsSection` locks the
+ * so do the command calls this document aims at it — `CommandsSection` locks the
  * seeded half by itself.
  *
  * @param {Object}   props
- * @param {Object}   props.node            The selected borrowed node.
- * @param {Array}    props.catalog         Class catalog entries.
- * @param {string[]} props.formatters      Registered formatter names.
- * @param {Array}    props.vaults          Vault entries.
- * @param {Object}   props.parsed          The draft graph, `{ nodes, edges }`.
- * @param {Function} [props.onUpdateVerbs] (nodeId, invocations) — writes the verb calls back.
- * @param {Function} [props.onConnect]     (from, to) — adds a target.
- * @param {Function} [props.onRemoveEdge]  (from, to) — drops one.
+ * @param {Object}   props.node               The selected borrowed node.
+ * @param {Array}    props.catalog            Class catalog entries.
+ * @param {string[]} props.formatters         Registered formatter names.
+ * @param {Array}    props.vaults             Vault entries.
+ * @param {Object}   props.parsed             The draft graph, `{ nodes, edges }`.
+ * @param {Function} [props.onUpdateCommands] (nodeId, invocations) — writes the command calls back.
+ * @param {Function} [props.onConnect]        (from, to) — adds a target.
+ * @param {Function} [props.onRemoveEdge]     (from, to) — drops one.
  * @return {import('react').ReactElement} The locked form.
  */
 function LockedForm( {
@@ -870,7 +873,7 @@ function LockedForm( {
 	formatters,
 	vaults,
 	parsed,
-	onUpdateVerbs,
+	onUpdateCommands,
 	onConnect,
 	onRemoveEdge,
 } ) {
@@ -880,19 +883,24 @@ function LockedForm( {
 		node.ctorArgs || [],
 		argumentSpecs.length
 	);
-	// Read-only mirror of the edit Verbs list: same filter, no editing.
+	// Read-only mirror of the edit Class Commands: same filter, no editing.
 	const commandSpecs = ( schema?.commands || [] ).filter(
-		isConfigurableVerb
+		isConfigurableCommand
 	);
-	const verbInvocations = ( node.verbInvocations || [] ).map( ( inv ) => {
-		const cspec = ( schema?.commands || [] ).find(
-			( c ) => c.name === inv.verb
-		);
-		return {
-			...inv,
-			args: absorbTrailingArgs( inv.args, ( cspec?.args || [] ).length ),
-		};
-	} );
+	const commandInvocations = ( node.commandInvocations || [] ).map(
+		( inv ) => {
+			const cspec = ( schema?.commands || [] ).find(
+				( c ) => c.name === inv.verb
+			);
+			return {
+				...inv,
+				args: absorbTrailingArgs(
+					inv.args,
+					( cspec?.args || [] ).length
+				),
+			};
+		}
+	);
 
 	return (
 		<aside className="topology-inspector">
@@ -949,71 +957,71 @@ function LockedForm( {
 					</div>
 				) ) }
 			</Section>
-			<VerbsSection
+			<CommandsSection
 				node={ node }
 				commandSpecs={ commandSpecs }
-				verbInvocations={ verbInvocations }
+				commandInvocations={ commandInvocations }
 				nodeNames={ ( parsed?.nodes || [] )
 					.map( ( n ) => n.id )
 					.filter( ( id ) => id !== node.id ) }
 				formatters={ formatters }
 				vaults={ vaults }
-				onUpdateVerbs={ onUpdateVerbs }
+				onUpdateCommands={ onUpdateCommands }
 			/>
 		</aside>
 	);
 }
 
 /**
- * The Verbs section, shared by the edit and the borrowed form.
+ * The Class Commands section, shared by the edit and the borrowed form.
  *
  * A borrowed node's INCLUDE half is read-only — that configuration belongs to
  * the topology that defines it — while the lines THIS document aims at the
  * node are for this document to edit. Event-logger-nodes' `hub-control.tsl.php` is
  * exactly that shape: `include settings-sync`, then `add_setting` lines aimed
- * at the included node. `handleUpdateVerbs` drops the seeded half before it
+ * at the included node. `handleUpdateCommands` drops the seeded half before it
  * writes, so an edit here can only change the file's own declarations.
  *
  * @param {Object}   props
- * @param {Object}   props.node            The selected node.
- * @param {Array}    props.commandSpecs    Configurable verbs from the class schema.
- * @param {Array}    props.verbInvocations This node's calls; a seeded row came from the include.
- * @param {string[]} props.nodeNames       Other node ids, offered for `node_name` args.
- * @param {string[]} props.formatters      Registered formatter names.
- * @param {Array}    props.vaults          Vault entries.
- * @param {Function} props.onUpdateVerbs   (nodeId, invocations) — writes the calls back.
+ * @param {Object}   props.node               The selected node.
+ * @param {Array}    props.commandSpecs       Configurable commands from the class schema.
+ * @param {Array}    props.commandInvocations This node's calls; a seeded row came from the include.
+ * @param {string[]} props.nodeNames          Other node ids, offered for `node_name` args.
+ * @param {string[]} props.formatters         Registered formatter names.
+ * @param {Array}    props.vaults             Vault entries.
+ * @param {Function} props.onUpdateCommands   (nodeId, invocations) — writes the calls back.
  * @return {import('react').ReactElement} The section.
  */
-function VerbsSection( {
+function CommandsSection( {
 	node,
 	commandSpecs,
-	verbInvocations,
+	commandInvocations,
 	nodeNames,
 	formatters,
 	vaults,
-	onUpdateVerbs,
+	onUpdateCommands,
 } ) {
 	return (
-		<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
+		<Section title={ __( 'Class Commands', 'newspack-nodes' ) }>
 			{ commandSpecs.length === 0 && (
 				<div className="newspack-nodes-empty-state topology-edit-empty">
-					{ __( 'No verbs registered.', 'newspack-nodes' ) }
+					{ __( 'No commands registered.', 'newspack-nodes' ) }
 				</div>
 			) }
 			{ commandSpecs.map( ( cspec ) => {
-				// `multiple` verb: row per call + Add, not checkbox.
+				// `multiple` command: row per call + Add, not checkbox.
 				if ( cspec.multiple ) {
-					const invIdxs = verbInvocations
+					const invIdxs = commandInvocations
 						.map( ( inv, i ) =>
 							inv.verb === cspec.name ? i : -1
 						)
 						.filter( ( i ) => i >= 0 );
 					const handleAdd = () => {
-						if ( ! onUpdateVerbs ) {
+						if ( ! onUpdateCommands ) {
 							return;
 						}
-						onUpdateVerbs( node.id, [
-							...verbInvocations,
+						onUpdateCommands( node.id, [
+							...commandInvocations,
 							{
 								verb: cspec.name,
 								args: ( cspec.args || [] ).map( () => '' ),
@@ -1023,32 +1031,34 @@ function VerbsSection( {
 					return (
 						<div
 							key={ cspec.name }
-							className="topology-edit-verb-group"
+							className="topology-edit-command-group"
 						>
 							{ invIdxs.map( ( invIdx ) =>
-								verbInvocations[ invIdx ].seeded ? (
-									<LockedMultipleVerb
+								commandInvocations[ invIdx ].seeded ? (
+									<LockedMultipleCommand
 										key={ invIdx }
 										spec={ cspec }
 										invocations={ [
-											verbInvocations[ invIdx ],
+											commandInvocations[ invIdx ],
 										] }
 									/>
 								) : (
-									<VerbRow
+									<CommandRow
 										key={ invIdx }
 										spec={ cspec }
-										invocation={ verbInvocations[ invIdx ] }
+										invocation={
+											commandInvocations[ invIdx ]
+										}
 										multiple
 										nodeNames={ nodeNames }
 										formatters={ formatters }
 										vaults={ vaults }
 										onArgChange={ ( argIdx, value ) => {
-											if ( ! onUpdateVerbs ) {
+											if ( ! onUpdateCommands ) {
 												return;
 											}
 											const next =
-												verbInvocations.slice();
+												commandInvocations.slice();
 											const args =
 												next[ invIdx ].args.slice();
 											args[ argIdx ] = value;
@@ -1056,23 +1066,23 @@ function VerbsSection( {
 												...next[ invIdx ],
 												args,
 											};
-											onUpdateVerbs( node.id, next );
+											onUpdateCommands( node.id, next );
 										} }
 										onRemove={ () => {
-											if ( ! onUpdateVerbs ) {
+											if ( ! onUpdateCommands ) {
 												return;
 											}
 											const next =
-												verbInvocations.slice();
+												commandInvocations.slice();
 											next.splice( invIdx, 1 );
-											onUpdateVerbs( node.id, next );
+											onUpdateCommands( node.id, next );
 										} }
 									/>
 								)
 							) }
 							<button
 								type="button"
-								className="button button-small topology-edit-verb__add"
+								className="button button-small topology-edit-command__add"
 								onClick={ handleAdd }
 							>
 								{ `+ ${ cspec.name }` }
@@ -1080,14 +1090,14 @@ function VerbsSection( {
 						</div>
 					);
 				}
-				const idx = verbInvocations.findIndex(
+				const idx = commandInvocations.findIndex(
 					( inv ) => inv.verb === cspec.name
 				);
-				const invocation = idx >= 0 ? verbInvocations[ idx ] : null;
+				const invocation = idx >= 0 ? commandInvocations[ idx ] : null;
 				// An include's declaration belongs to the include.
 				if ( invocation?.seeded ) {
 					return (
-						<LockedVerb
+						<LockedCommand
 							key={ cspec.name }
 							spec={ cspec }
 							invocation={ invocation }
@@ -1095,35 +1105,35 @@ function VerbsSection( {
 					);
 				}
 				const handleToggle = ( on ) => {
-					if ( ! onUpdateVerbs ) {
+					if ( ! onUpdateCommands ) {
 						return;
 					}
 					if ( on && idx < 0 ) {
-						onUpdateVerbs( node.id, [
-							...verbInvocations,
+						onUpdateCommands( node.id, [
+							...commandInvocations,
 							{
 								verb: cspec.name,
 								args: ( cspec.args || [] ).map( () => '' ),
 							},
 						] );
 					} else if ( ! on && idx >= 0 ) {
-						const next = verbInvocations.slice();
+						const next = commandInvocations.slice();
 						next.splice( idx, 1 );
-						onUpdateVerbs( node.id, next );
+						onUpdateCommands( node.id, next );
 					}
 				};
 				const handleArgChange = ( argIdx, value ) => {
-					if ( ! onUpdateVerbs || idx < 0 ) {
+					if ( ! onUpdateCommands || idx < 0 ) {
 						return;
 					}
-					const next = verbInvocations.slice();
+					const next = commandInvocations.slice();
 					const args = next[ idx ].args.slice();
 					args[ argIdx ] = value;
 					next[ idx ] = { ...next[ idx ], args };
-					onUpdateVerbs( node.id, next );
+					onUpdateCommands( node.id, next );
 				};
 				return (
-					<VerbRow
+					<CommandRow
 						key={ cspec.name }
 						spec={ cspec }
 						invocation={ invocation }
@@ -1142,23 +1152,23 @@ function VerbsSection( {
 /**
  * The edit-mode form for a node this document declares.
  *
- * Identity, Routing, Constructor and Verbs, every one of them generated from
+ * Identity, Routing, Constructor and Class Commands, every one of them generated from
  * the class schema. A reserved anchor keeps its header alone: the runtime
  * mounts it, so a rename, a deletion or a changed argument would describe a
  * node the next boot rebuilds from its own definition.
  *
  * @param {Object}   props
- * @param {Object}   props.node            The selected draft node.
- * @param {Array}    props.catalog         Class catalog entries.
- * @param {string[]} props.formatters      Registered formatter names.
- * @param {Array}    props.vaults          Vault entries.
- * @param {Object}   props.parsed          The draft graph, `{ nodes, edges }`.
- * @param {Function} [props.onUpdateArgs]  (nodeId, args) — writes the constructor args back.
- * @param {Function} [props.onUpdateVerbs] (nodeId, invocations) — writes the verb calls back.
- * @param {Function} [props.onRemoveNode]  (nodeId) — deletes the node.
- * @param {Function} [props.onRenameNode]  (oldId, newId) — returns false when it refuses.
- * @param {Function} [props.onRemoveEdge]  (from, to) — drops a target.
- * @param {Function} [props.onConnect]     (from, to) — adds one.
+ * @param {Object}   props.node               The selected draft node.
+ * @param {Array}    props.catalog            Class catalog entries.
+ * @param {string[]} props.formatters         Registered formatter names.
+ * @param {Array}    props.vaults             Vault entries.
+ * @param {Object}   props.parsed             The draft graph, `{ nodes, edges }`.
+ * @param {Function} [props.onUpdateArgs]     (nodeId, args) — writes the constructor args back.
+ * @param {Function} [props.onUpdateCommands] (nodeId, invocations) — writes the command calls back.
+ * @param {Function} [props.onRemoveNode]     (nodeId) — deletes the node.
+ * @param {Function} [props.onRenameNode]     (oldId, newId) — returns false when it refuses.
+ * @param {Function} [props.onRemoveEdge]     (from, to) — drops a target.
+ * @param {Function} [props.onConnect]        (from, to) — adds one.
  * @return {import('react').ReactElement} The edit form.
  */
 function EditForm( {
@@ -1168,7 +1178,7 @@ function EditForm( {
 	vaults,
 	parsed,
 	onUpdateArgs,
-	onUpdateVerbs,
+	onUpdateCommands,
 	onRemoveNode,
 	onRenameNode,
 	onRemoveEdge,
@@ -1176,25 +1186,30 @@ function EditForm( {
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
-	// Actions and schema plumbing are not settings; see isConfigurableVerb.
+	// Actions and schema plumbing are not settings; see isConfigurableCommand.
 	const commandSpecs = ( schema?.commands || [] ).filter(
-		isConfigurableVerb
+		isConfigurableCommand
 	);
 	// Absorb each free-text trailing arg into its declared slot (normalized).
 	const ctorArgs = absorbTrailingArgs(
 		node.ctorArgs || [],
 		argumentSpecs.length
 	);
-	const verbInvocations = ( node.verbInvocations || [] ).map( ( inv ) => {
-		const cspec = ( schema?.commands || [] ).find(
-			( c ) => c.name === inv.verb
-		);
-		return {
-			...inv,
-			args: absorbTrailingArgs( inv.args, ( cspec?.args || [] ).length ),
-		};
-	} );
-	// Names of every other draft node, for node_name verb-arg selects.
+	const commandInvocations = ( node.commandInvocations || [] ).map(
+		( inv ) => {
+			const cspec = ( schema?.commands || [] ).find(
+				( c ) => c.name === inv.verb
+			);
+			return {
+				...inv,
+				args: absorbTrailingArgs(
+					inv.args,
+					( cspec?.args || [] ).length
+				),
+			};
+		}
+	);
+	// Names of every other draft node, for node_name command-arg selects.
 	const nodeNames = ( parsed?.nodes || [] )
 		.map( ( n ) => n.name || n.id )
 		.filter( ( n ) => n && n !== node.id );
@@ -1280,14 +1295,14 @@ function EditForm( {
 			) }
 
 			{ ! isReserved( node ) && (
-				<VerbsSection
+				<CommandsSection
 					node={ node }
 					commandSpecs={ commandSpecs }
-					verbInvocations={ verbInvocations }
+					commandInvocations={ commandInvocations }
 					nodeNames={ nodeNames }
 					formatters={ formatters }
 					vaults={ vaults }
-					onUpdateVerbs={ onUpdateVerbs }
+					onUpdateCommands={ onUpdateCommands }
 				/>
 			) }
 		</aside>
@@ -1310,9 +1325,9 @@ function parseStruct( text ) {
 }
 
 /**
- * Collects a verb's arguments, then invokes it on the live node.
+ * Collects a command's arguments, then invokes it on the live node.
  *
- * Each argument renders through `CtorField`, so a verb argument gets the same
+ * Each argument renders through `CtorField`, so a command argument gets the same
  * schema-driven widget a constructor argument does — one pickers-and-types
  * implementation, not two. A command names every filled argument as one
  * `--name=value` token, which the server binds by name, so a field left blank
@@ -1326,11 +1341,11 @@ function parseStruct( text ) {
  * disabled Run blocks.
  *
  * @param {Object}     props
- * @param {string}     props.nodeId     Node the verb runs on.
+ * @param {string}     props.nodeId     Node the command runs on.
  * @param {string}     props.verb       Verb name; titles the dialog.
  * @param {string}     props.kind       `command` or `request`; picks the message type minted.
  * @param {string}     [props.value]    `struct` where the request declares a structured VALUE.
- * @param {Array}      props.args       The verb's argument specs from the class schema.
+ * @param {Array}      props.args       The command's argument specs from the class schema.
  * @param {string[]}   props.formatters Registered formatter names.
  * @param {Array}      props.vaults     Vault entries.
  * @param {string[]}   props.nodeNames  Nodes offered for `node_name` arguments.
@@ -1338,7 +1353,7 @@ function parseStruct( text ) {
  * @param {() => void} props.onDismiss  Closes the dialog.
  * @return {import('react').ReactElement} The dialog.
  */
-function VerbArgModal( {
+function CommandArgModal( {
 	nodeId,
 	verb,
 	kind,
@@ -1428,15 +1443,15 @@ function VerbArgModal( {
 }
 
 /**
- * One verb from the class schema, as a button.
+ * One command from the class schema, as a button.
  *
- * An argument-free verb fires on the click; one that takes arguments opens
- * `VerbArgModal` first. The label is the bare verb name either way, so a
- * `request` verb names its TM_REQUEST type in the tooltip instead.
+ * An argument-free command fires on the click; one that takes arguments opens
+ * `CommandArgModal` first. The label is the bare verb name either way, so a
+ * request names its TM_REQUEST type in the tooltip instead.
  *
  * @param {Object}   props
- * @param {string}   props.nodeId     Node the verb runs on.
- * @param {Object}   props.spec       Verb entry from the class schema.
+ * @param {string}   props.nodeId     Node the command runs on.
+ * @param {Object}   props.spec       Command entry from the class schema.
  * @param {string}   props.kind       `command` or `request`; picks the message type minted.
  * @param {string[]} props.formatters Registered formatter names.
  * @param {Array}    props.vaults     Vault entries.
@@ -1444,7 +1459,7 @@ function VerbArgModal( {
  * @param {Function} [props.onAction] (action, nodeId, payload) — dispatches the invoke.
  * @return {import('react').ReactElement} The button, and its dialog while open.
  */
-function VerbButton( {
+function CommandButton( {
 	nodeId,
 	spec,
 	kind,
@@ -1479,7 +1494,7 @@ function VerbButton( {
 				title={
 					spec.description ||
 					sprintf(
-						// translators: %s: verb name (TM_REQUEST-prefixed for request verbs).
+						// translators: %s: verb name (TM_REQUEST-prefixed for requests).
 						__( 'Send %s', 'newspack-nodes' ),
 						verbLabel
 					)
@@ -1488,7 +1503,7 @@ function VerbButton( {
 				{ spec.name }
 			</button>
 			{ open && (
-				<VerbArgModal
+				<CommandArgModal
 					nodeId={ nodeId }
 					verb={ spec.name }
 					kind={ kind }
@@ -1506,10 +1521,10 @@ function VerbButton( {
 }
 
 /**
- * The value-taking node verbs, keyed by the action the inspector dispatches.
+ * The value-taking node commands, keyed by the action the inspector dispatches.
  *
  * One `PromptModal` serves all five: the entry supplies the confirm label and
- * the noun the prompt asks for, so a sixth verb is a line here rather than
+ * the noun the prompt asks for, so a sixth command is a line here rather than
  * another dialog.
  */
 const PROMPT_VERBS = {
@@ -1832,39 +1847,39 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  * open from the "…" on its card in its owner's grid.
  *
  * @param {Object}                  props
- * @param {?string}                 props.selectedId        Selected node id; null falls through to the hull or process view.
- * @param {?string}                 [props.sidecar]         An owned node shown in the selection's place; null shows the selection.
- * @param {?Object}                 [props.sidecarGraph]    The polled rows the shown sidecar's is among; null until they answer.
- * @param {(name: string) => void}  [props.onOpenNode]      Shows a node an owner link or a back link names.
- * @param {?string}                 [props.selectedHull]    Selected include,
- *                                                          shown only without a selected node.
- * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]`.
- * @param {Function}                [props.onOpenTopology]  (name) — drill into a hull's own topology.
- * @param {Object}                  props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
- * @param {?string}                 props.streamStatus      SSE state; absent or 'open' reads as live.
- * @param {?Object}                 props.rateInfo          The shown node's rate history and last-changed timestamp, a sidecar's included.
- * @param {Object}                  props.rateSeries        `{ in, out, read, write }` sample rings for the whole graph.
- * @param {Object}                  props.hullRateSeries    The same rings, scoped to the selected hull.
- * @param {boolean}                 [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
- * @param {number}                  [props.debugLevel]      Live `debug_level`; lights the debug and verbose toggles.
- * @param {Function}                [props.onAction]        (action, nodeId, value) — every command this pane sends but a compose.
- * @param {Function}                props.onCompose         (form) — sends the Compose modal's message; returns the refusal, or null once sent.
- * @param {(name: string) => void}  [props.onSelect]        Follows a node link.
- * @param {(name: ?string) => void} [props.onHover]         Highlights a link's target on the canvas, null on leave.
- * @param {Set<string>}             [props.nodeIds]         Ids that exist; a name outside it renders as dim text, not a link.
- * @param {boolean}                 [props.editMode]        Draft graph: the node view becomes the config form.
- * @param {Function}                [props.onUpdateArgs]    (nodeId, args) — writes constructor args back to the draft.
- * @param {Function}                [props.onUpdateVerbs]   (nodeId, invocations) — writes verb calls back to the draft.
- * @param {Function}                [props.onRemoveNode]    (nodeId) — delete the node from the draft.
- * @param {Function}                [props.onRenameNode]    (oldId, newId) — returns false when the name is already taken.
- * @param {Function}                [props.onRemoveEdge]    (from, to) — drop a physical edge.
- * @param {Function}                [props.onConnect]       (from, to) — add a target; a non-fan-out node replaces its own.
- * @param {Object}                  [props.tree]            Nested include tree, for the no-selection Includes list.
- * @param {string[]}                [props.includes]        Directly-declared includes — only those have a line to remove.
- * @param {(name: string) => void}  [props.onRemoveInclude] Removes a declared include line.
- * @param {Function}                [props.onRemoveHull]    (name) — remove the include a hull stands for.
- * @param {(name: string) => void}  [props.onSelectHull]    Selects an include's hull by its name in a list.
- * @param {string}                  [props.currentTopology] The topology being edited; titles the edit-mode panel shown with nothing selected.
+ * @param {?string}                 props.selectedId         Selected node id; null falls through to the hull or process view.
+ * @param {?string}                 [props.sidecar]          An owned node shown in the selection's place; null shows the selection.
+ * @param {?Object}                 [props.sidecarGraph]     The polled rows the shown sidecar's is among; null until they answer.
+ * @param {(name: string) => void}  [props.onOpenNode]       Shows a node an owner link or a back link names.
+ * @param {?string}                 [props.selectedHull]     Selected include,
+ *                                                           shown only without a selected node.
+ * @param {Array}                   [props.hulls]            Every hull, `{ include, nodeIds }[]`.
+ * @param {Function}                [props.onOpenTopology]   (name) — drill into a hull's own topology.
+ * @param {Object}                  props.parsed             The graph — `{ nodes, edges, pwd, profiling }`.
+ * @param {?string}                 props.streamStatus       SSE state; absent or 'open' reads as live.
+ * @param {?Object}                 props.rateInfo           The shown node's rate history and last-changed timestamp, a sidecar's included.
+ * @param {Object}                  props.rateSeries         `{ in, out, read, write }` sample rings for the whole graph.
+ * @param {Object}                  props.hullRateSeries     The same rings, scoped to the selected hull.
+ * @param {boolean}                 [props.local]            Browser graph: read IoTelemetry rather than rolling up dump_metadata.
+ * @param {number}                  [props.debugLevel]       Live `debug_level`; lights the debug and verbose toggles.
+ * @param {Function}                [props.onAction]         (action, nodeId, value) — every command this pane sends but a compose.
+ * @param {Function}                props.onCompose          (form) — sends the Compose modal's message; returns the refusal, or null once sent.
+ * @param {(name: string) => void}  [props.onSelect]         Follows a node link.
+ * @param {(name: ?string) => void} [props.onHover]          Highlights a link's target on the canvas, null on leave.
+ * @param {Set<string>}             [props.nodeIds]          Ids that exist; a name outside it renders as dim text, not a link.
+ * @param {boolean}                 [props.editMode]         Draft graph: the node view becomes the config form.
+ * @param {Function}                [props.onUpdateArgs]     (nodeId, args) — writes constructor args back to the draft.
+ * @param {Function}                [props.onUpdateCommands] (nodeId, invocations) — writes command calls back to the draft.
+ * @param {Function}                [props.onRemoveNode]     (nodeId) — delete the node from the draft.
+ * @param {Function}                [props.onRenameNode]     (oldId, newId) — returns false when the name is already taken.
+ * @param {Function}                [props.onRemoveEdge]     (from, to) — drop a physical edge.
+ * @param {Function}                [props.onConnect]        (from, to) — add a target; a non-fan-out node replaces its own.
+ * @param {Object}                  [props.tree]             Nested include tree, for the no-selection Includes list.
+ * @param {string[]}                [props.includes]         Directly-declared includes — only those have a line to remove.
+ * @param {(name: string) => void}  [props.onRemoveInclude]  Removes a declared include line.
+ * @param {Function}                [props.onRemoveHull]     (name) — remove the include a hull stands for.
+ * @param {(name: string) => void}  [props.onSelectHull]     Selects an include's hull by its name in a list.
+ * @param {string}                  [props.currentTopology]  The topology being edited; titles the edit-mode panel shown with nothing selected.
  * @return {import('react').ReactElement} The inspector pane.
  */
 export default function Inspector( {
@@ -1889,7 +1904,7 @@ export default function Inspector( {
 	nodeIds,
 	editMode = false,
 	onUpdateArgs,
-	onUpdateVerbs,
+	onUpdateCommands,
 	onRemoveNode,
 	onRenameNode,
 	onRemoveEdge,
@@ -1907,7 +1922,7 @@ export default function Inspector( {
 		vaults,
 		composeTargets,
 	} = useCatalog();
-	// Which value-taking verb's prompt modal is open, or null (shared modal).
+	// Which value-taking command's prompt is open, or null (shared modal).
 	const [ promptVerb, setPromptVerb ] = useState( null );
 	// Whether the "Register a listener" modal is open.
 	const [ registerOpen, setRegisterOpen ] = useState( false );
@@ -2181,7 +2196,7 @@ export default function Inspector( {
 							</button>
 						</div>
 					</Section>
-					{ /* Stateless verb dumps into the transcript. */ }
+					{ /* Stateless commands dump into the transcript. */ }
 					<Section title={ __( 'Commands', 'newspack-nodes' ) }>
 						<div className="topology-insp__commands">
 							{ NO_NODE_COMMANDS.map( ( [ label, cmd ] ) => (
@@ -2250,7 +2265,7 @@ export default function Inspector( {
 					formatters={ formatters }
 					vaults={ vaults }
 					parsed={ parsed }
-					onUpdateVerbs={ onUpdateVerbs }
+					onUpdateCommands={ onUpdateCommands }
 					onConnect={ onConnect }
 					onRemoveEdge={ onRemoveEdge }
 				/>
@@ -2264,7 +2279,7 @@ export default function Inspector( {
 				vaults={ vaults }
 				parsed={ parsed }
 				onUpdateArgs={ onUpdateArgs }
-				onUpdateVerbs={ onUpdateVerbs }
+				onUpdateCommands={ onUpdateCommands }
 				onRemoveNode={ onRemoveNode }
 				onRenameNode={ onRenameNode }
 				onRemoveEdge={ onRemoveEdge }
@@ -2780,7 +2795,7 @@ export default function Inspector( {
 					) }
 				</div>
 			</Section>
-			{ /* Class verbs; a reserved anchor's config does not belong to the user. */ }
+			{ /* Class commands; a reserved anchor's config does not belong to the user. */ }
 			{ ! isReserved( node ) &&
 				( () => {
 					const schema = catalog.find(
@@ -2806,10 +2821,12 @@ export default function Inspector( {
 						.map( ( n ) => n.name || n.id )
 						.filter( ( n ) => n && n !== node.id );
 					return (
-						<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
+						<Section
+							title={ __( 'Class Commands', 'newspack-nodes' ) }
+						>
 							<div className="topology-insp__actions">
 								{ commands.map( ( spec ) => (
-									<VerbButton
+									<CommandButton
 										key={ `cmd-${ spec.name }` }
 										nodeId={ node.id }
 										spec={ spec }
@@ -2821,7 +2838,7 @@ export default function Inspector( {
 									/>
 								) ) }
 								{ requests.map( ( spec ) => (
-									<VerbButton
+									<CommandButton
 										key={ `req-${ spec.name }` }
 										nodeId={ node.id }
 										spec={ spec }

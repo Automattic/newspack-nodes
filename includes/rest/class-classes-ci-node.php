@@ -2,7 +2,7 @@
 /**
  * Classes_CI: the node-class catalog behind the topology console's palette.
  *
- * The `dump` verb scans the composer classmap for concrete `*_Node` classes
+ * The `dump` command scans the composer classmap for concrete `*_Node` classes
  * under a registered namespace prefix, inlines the serializable half of each
  * `node_schema()`, drops the classes the palette must not offer, sorts by
  * `[category, shell_name]`, and ships the formatter registry beside them so an
@@ -14,7 +14,7 @@
  * without `composer dump-autoload -o` is absent from the palette, with nothing
  * else wrong.
  *
- * Like the other service interpreters, this extends Service_CI_Node: the verb is
+ * Like the other service interpreters, this extends Service_CI_Node: the command is
  * declared once in `node_schema()` carrying its handler and its capability, and
  * the base derives the dispatch table and the capability gate from that.
  *
@@ -35,13 +35,13 @@ use Newspack_Nodes\Tee_Node;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Service interpreter for the `classes` scope: one read-only verb, `dump`.
+ * Service interpreter for the `classes` scope: one read-only command, `dump`.
  */
 class Classes_CI_Node extends Service_CI_Node {
 	/**
 	 * What a command entry carries past `strip_entries()`: `args` always, and
 	 * three flags — `multiple` renders one row per invocation, `hidden` drops
-	 * the Inspector's verb button, `action` keeps the verb out of the editor.
+	 * the Inspector's command button, `action` keeps the command out of the editor.
 	 */
 	private const COMMAND_FIELDS = [
 		'args'     => 'always',
@@ -62,7 +62,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	];
 
 	/**
-	 * `dump` verb: every concrete Node class this process can build, each
+	 * `dump` command: every concrete Node class this process can build, each
 	 * carrying the serializable half of its `node_schema()`, plus the names the
 	 * formatter registry holds.
 	 *
@@ -73,7 +73,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	 * it, so the two string tests run first on a classmap holding every class
 	 * in the process. The last gate refuses two shapes: no category at all, and
 	 * the `hidden` flag that keeps a class off every console surface. A
-	 * `Hidden` category stays, because the Inspector reads a sidecar's verbs
+	 * `Hidden` category stays, because the Inspector reads a sidecar's commands
 	 * and arguments here; the palette leaves that category out itself.
 	 *
 	 * The console reads this as one slice of its batched poll, so the whole
@@ -129,8 +129,8 @@ class Classes_CI_Node extends Service_CI_Node {
 					'description'    => $schema['description'] ?? '',
 					'arguments'      => $schema['arguments']   ?? [],
 					// Strip non-serializable handler; keep palette fields.
-					'commands'       => self::strip_entries( self::declared_verbs( $fqcn ), self::COMMAND_FIELDS ),
-					'requests'       => self::strip_entries( self::declared_verbs( $fqcn, 'requests' ), self::REQUEST_FIELDS ),
+					'commands'       => self::strip_entries( self::declared_commands( $fqcn ), self::COMMAND_FIELDS ),
+					'requests'       => self::strip_entries( self::declared_commands( $fqcn, 'requests' ), self::REQUEST_FIELDS ),
 					// Valid register events; inspector UI lists them per node.
 					'registrations'  => $schema['registrations'] ?? [],
 					'accepts_fill'   => (bool) ( $schema['accepts_fill'] ?? true ),
@@ -157,8 +157,8 @@ class Classes_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Strip declared verbs — `commands[]` or `requests[]`, as
-	 * `declared_verbs()` indexes them — to the serializable fields the console
+	 * Strip declared commands and requests — `commands[]` or `requests[]`, as
+	 * `declared_commands()` indexes them — to the serializable fields the console
 	 * renders: `name` and `description`, then each field `$fields` names, kept
 	 * by its rule. The non-serializable `handler`, the `capability`
 	 * `dispatch()` enforces server-side, and any field that is not named by a
@@ -199,7 +199,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The manifest and the verb table in one declaration: `Service_CI_Node`
+	 * The manifest and the command table in one declaration: `Service_CI_Node`
 	 * builds the dispatch table from `commands[]`, and `dispatch()` refuses a
 	 * caller below the capability each entry names (ADR-26).
 	 *

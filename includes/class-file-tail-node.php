@@ -631,7 +631,7 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * Palette entry: the one Tail declares, carrying the file-mode description. Arguments, verbs
+	 * Palette entry: the one Tail declares, carrying the file-mode description. Arguments, commands
 	 * and category are inherited verbatim.
 	 *
 	 * @return array<string,mixed>

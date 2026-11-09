@@ -5,7 +5,7 @@
  * `Consumer` and `Job_Worker` — classes the PHP substrate implements and this
  * bundle does not. A stub carries what the topology DECLARED about such a node
  * and none of what it does: the class name, the constructor arguments, the
- * include provenance and whether the class fans out. The structural verbs
+ * include provenance and whether the class fans out. The structural commands
  * (`connect_node`, `move_node`, `remove_node`, `set_sink`) and `dump_config`
  * therefore work on it unchanged, which is what lets a draft be an interpreter
  * at its own cwd rather than a second implementation of one.
@@ -20,7 +20,7 @@ import { Node } from './node';
  * Stands in for a declared node whose class has no JS implementation.
  *
  * It holds what the topology said — class name, constructor arguments, include
- * provenance, fan-out semantics — so the structural verbs and `dump_config`
+ * provenance, fan-out semantics — so the structural commands and `dump_config`
  * treat it like any other node while it runs none of the behaviour it
  * describes.
  */

@@ -142,7 +142,7 @@ class CliCommandTest extends TestCase {
 	}
 
 	/**
-	 * A stdin fixture holding `$lines` copies of a verb that renders.
+	 * A stdin fixture holding `$lines` copies of a command that renders.
 	 *
 	 * @return resource
 	 */

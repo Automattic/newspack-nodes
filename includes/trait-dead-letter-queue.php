@@ -6,7 +6,7 @@
  * and its triage index, the `dead_letter()` writer, the wrap that turns a raw source
  * line back into a replayable Message (`poison_from_line`), the attempt accounting a
  * respawn resumes (`resume_attempts_from_frame` and `record_poison_strike`), crawl
- * mode, and the `dl_*` triage verbs. What DECIDES when to call any of it — the buffer,
+ * mode, and the `dl_*` triage commands. What DECIDES when to call any of it — the buffer,
  * the cursor and its advance — belongs to `Durable_Reader`, so a reader can
  * never adopt the quarantine and forget the accounting.
  *
@@ -36,8 +36,8 @@ namespace Newspack_Nodes;
  *
  * In return it gets the quarantine and its triage index, the `dead_letter()` writer,
  * the attempt accounting a respawn resumes, and crawl mode. Two surfaces stay opt-in
- * because they belong to the using class's own schema: merge `deadletter_verbs()` into
- * `node_schema()['commands']` for the `dl_*` triage verbs, and `deadletter_metadata()`
+ * because they belong to the using class's own schema: merge `deadletter_commands()` into
+ * `node_schema()['commands']` for the `dl_*` triage commands, and `deadletter_metadata()`
  * into `dump_metadata()` for the badge count. `deadletter_sole_writer()` and
  * `requeue_deadletter()` are the seams a class with another writer, or another
  * downstream, overrides.
@@ -91,7 +91,7 @@ trait Dead_Letter_Queue {
 	/** Hard cap, pruned unconditionally: the quarantine cannot grow past 32 segments. */
 	public const DEADLETTER_MAX_SEGMENTS = 32;
 
-	/** Newest-first page size for the `dl_list` triage verb without a limit. */
+	/** Newest-first page size for the `dl_list` triage command without a limit. */
 	public const DEADLETTER_LIST_DEFAULT_LIMIT = 50;
 
 	/** Status of a record without a tombstone: what `dl_list`'s total counts. */
@@ -277,7 +277,7 @@ trait Dead_Letter_Queue {
 	 * error would invite a second delivery.
 	 *
 	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
-	 * @return string The `ok:` line the verb replies, with any warning after it.
+	 * @return string The `ok:` line the command replies, with any warning after it.
 	 * @throws \RuntimeException When there is no queue, no sink, no such record, no route, or it was removed.
 	 */
 	public function requeue_deadletter( string $locator ): string {
@@ -321,7 +321,7 @@ trait Dead_Letter_Queue {
 	 * replays it.
 	 *
 	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
-	 * @return string The `ok:` line the verb replies.
+	 * @return string The `ok:` line the command replies.
 	 * @throws \RuntimeException When there is no queue, no listed record there, or it was removed.
 	 */
 	public function remove_deadletter( string $locator ): string {
@@ -509,7 +509,7 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * The dead-letter sidecar, for a verb that cannot answer without one.
+	 * The dead-letter sidecar, for a command that cannot answer without one.
 	 *
 	 * @return Partition_Node The sidecar.
 	 * @throws \RuntimeException When the node has no dead-letter directory
@@ -598,19 +598,19 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * The triage verb table, merged into a using node's `node_schema()['commands']` so
+	 * The triage command table, merged into a using node's `node_schema()['commands']` so
 	 * Consumer and Remote_Consumer both expose dl_list, dl_show, dl_requeue, dl_remove
 	 * and dl_purge on their `{name}:config` interpreter (auto-wired by Schema_Reflection — no CI
-	 * edits). Every verb is hidden because the Inspector's Triage modal drives them:
+	 * edits). Every command is hidden because the Inspector's Triage modal drives them:
 	 * dl_show, dl_requeue and dl_remove need a sidecar locator only its listing supplies, so a
-	 * generic verb button would offer an operator a field they cannot fill.
+	 * generic command button would offer an operator a field they cannot fill.
 	 *
-	 * A handler refuses by throwing, like every verb, so the reply is a TM_ERROR the
+	 * A handler refuses by throwing, like every command, so the reply is a TM_ERROR the
 	 * modal shows in its status line.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
-	public static function deadletter_verbs(): array {
+	public static function deadletter_commands(): array {
 		return [
 			[
 				'name'        => 'dl_list',
@@ -661,7 +661,7 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * `dl_purge` verb handler — delete all dead-letter segments; reply the count.
+	 * `dl_purge` command handler — delete all dead-letter segments; reply the count.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
 	 * @return string The `ok:` count line.
@@ -672,10 +672,10 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * `dl_remove` verb handler — tombstone one record; reply the `ok:` line.
+	 * `dl_remove` command handler — tombstone one record; reply the `ok:` line.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: locator, from dl_list.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: locator, from dl_list.
 	 * @return string The `ok:` line.
 	 */
 	public static function cmd_dl_remove( Command_Interpreter_Node $interpreter, array $args ): string {
@@ -684,10 +684,10 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * `dl_requeue` verb handler — redeliver one record; reply the `ok:` line.
+	 * `dl_requeue` command handler — redeliver one record; reply the `ok:` line.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: locator, from dl_list.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: locator, from dl_list.
 	 * @return string The `ok:` line.
 	 */
 	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
@@ -696,10 +696,10 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * `dl_show` verb handler — decode one record and reply with it.
+	 * `dl_show` command handler — decode one record and reply with it.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: locator, from dl_list.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: locator, from dl_list.
 	 * @return array{type: int, type_flags: string, timestamp: mixed, from: string, to: string, id: string, key: string, value: mixed, size: int} The record.
 	 */
 	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): array {
@@ -708,10 +708,10 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * `dl_list` verb handler — reply the triage page.
+	 * `dl_list` command handler — reply the triage page.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: the optional
+	 * @param array<array-key,mixed>   $args        Bound command arguments: the optional
 	 *                                              limit; absent takes
 	 *                                              DEADLETTER_LIST_DEFAULT_LIMIT and 0
 	 *                                              clamps to 1.
@@ -725,10 +725,10 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * The node behind a `{name}:config` interpreter, which must be one using this
-	 * trait. The verbs run on a node's own interpreter, so a foreign patron is a
+	 * trait. The commands run on a node's own interpreter, so a foreign patron is a
 	 * wiring bug, refused rather than fatal on a method the patron lacks.
 	 *
-	 * @param Command_Interpreter_Node $interpreter The interpreter dispatching the verb.
+	 * @param Command_Interpreter_Node $interpreter The interpreter dispatching the command.
 	 * @return self The using node.
 	 * @throws \RuntimeException When the patron is something else.
 	 */

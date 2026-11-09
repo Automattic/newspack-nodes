@@ -30,7 +30,7 @@ You already know these ideas — they wear different names here. The right colum
 | Reading that table in a loop | [`Consumer_Node`](../includes/class-consumer-node.php) | A durable cursor: crash, respawn, resume where you left off |
 | Transient / object-cache value | [`Table_Node`](../includes/class-table-node.php) | Keyed store any process reads via `Table_Node::table( $ns, $ttl )->lookup( $key )` |
 | `get_option()` for a plugin setting | [`Config::value( $key )`](../includes/class-config.php) on your plugin's own `Config` | Four layers resolve one key — schema default, config file, `LOCAL_NEWSPACK_NODES_CONF` file, stored option — and an undeclared key throws instead of falling back. `\Newspack_Nodes\Config::value()` resolves the substrate's own keys and returns null for yours, so give your plugin its own `Config` over its own `Config_System\Schema` and register its keys on `newspack_nodes/declare_config_keys` for the same fail-loud check |
-| REST endpoint per admin action | a CI verb ([`Service_CI_Node`](../includes/class-service-ci-node.php)) | One schema entry: dispatch, auth, and help come free |
+| REST endpoint per admin action | a CI command ([`Service_CI_Node`](../includes/class-service-ci-node.php)) | One schema entry: dispatch, auth, and help come free |
 | admin-ajax polling | the [SSE stream](API.md#sse-stream) | Push, not poll: one connection carries every subscription a dashboard opens |
 
 ## The whole idea, one screen
@@ -48,7 +48,7 @@ Two wires connect nodes:
 - **`sink`** — the *physical* next node. When a node is done, `fill()` hands the message to its sink.
 - **`target`** — a *logical* address (a string path). When a message has no destination yet, the base `fill()` stamps `target` into the message's `TO` field. `_router` then resolves `TO` by peeling off the leading path segment and looking up that node.
 
-A **topology** is one worker's whole graph, written in a `.tsl` file whose `make_node` lines construct the nodes and whose `connect_node` lines point each one at the next. Those are the same verbs the REPL takes.
+A **topology** is one worker's whole graph, written in a `.tsl` file whose `make_node` lines construct the nodes and whose `connect_node` lines point each one at the next. Those are the same commands the REPL takes.
 
 A **message** is a 7-field indexed array — `[ TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE ]` — always addressed by the `Message::*` constants. `VALUE` is the payload: a string (`TM_BYTESTREAM`) or an array (`TM_STRUCT`). That's the entire data model.
 
@@ -79,12 +79,12 @@ Echo_Node {
     "sink": "_command_interpreter",
     "target": ""
 }
-/> help make_node           # every verb documents itself; bare `help` lists all
+/> help make_node           # every command documents itself; bare `help` lists all
 ```
 
-`help` also takes a node type: `help Consumer` prints that class's description, arguments, commands and registrations straight from its `node_schema()`, and `help Job_Worker` adds the requests section — the runtime verbs, which Consumer declares none of. An empty section prints nothing, so a node that declares none — `Tee`, say — comes back as its description alone.
+`help` also takes a node type: `help Consumer` prints that class's description, arguments, commands and registrations straight from its `node_schema()`, and `help Job_Worker` adds the requests section — the runtime requests, which Consumer declares none of. An empty section prints nothing, so a node that declares none — `Tee`, say — comes back as its description alone.
 
-Run it as the same user as the workers; `wp nodes cli` refuses root. Exit with ctrl-D. Everything else in these docs — building graphs, inspecting workers, rewiring live topologies — is these same verbs, either here or pivoted into a running worker (`wp nodes cli <worker>.p<N>`). The full verb table is in [troubleshooting.md](troubleshooting.md), every `wp nodes` subcommand is in [cli.md](cli.md), and the terms are in the [glossary](README.md#glossary).
+Run it as the same user as the workers; `wp nodes cli` refuses root. Exit with ctrl-D. Everything else in these docs — building graphs, inspecting workers, rewiring live topologies — is these same commands, either here or pivoted into a running worker (`wp nodes cli <worker>.p<N>`). The full command table is in [troubleshooting.md](troubleshooting.md), every `wp nodes` subcommand is in [cli.md](cli.md), and the terms are in the [glossary](README.md#glossary).
 
 ## Feel it in 5 minutes
 
@@ -165,7 +165,7 @@ Six failures you'll probably meet, and what each one is telling you:
 - **A Node class you just added isn't in the topology-editor palette** (and `make_node` can't resolve it). The palette scans the *composer classmaps* for concrete `*_Node` classes — [`Classes_CI_Node::cmd_dump()`](../includes/rest/class-classes-ci-node.php) walks every registered `ClassLoader`'s `getClassMap()` — so a brand-new class file stays invisible until you regenerate the map: `composer dump-autoload -o`. A class already in a fresh map but still missing from the palette is hiding itself — an empty or `Hidden` `category`, or a `hidden` flag, in its `node_schema()`. `make_node` builds it all the same, and so does `help <Type>`, which renders the schema whatever the palette does with it — a help block back means the class resolved and the classmap is fresh, `no such topic` means it did not.
 - **``no worker 'exmaple-ai-newsletter.p0' (run `wp nodes status` to list active workers)``** — from `wp nodes cli <typo>`. The reader id doesn't match a live worker. Do what it says and run `wp nodes status`. The cause is often not a typo at all: the active set is empty (nothing spawns by surprise), so run `wp nodes activate <topology>` first.
 - **`wp nodes cli must run as the same user as the workers, not root.`** — the guard that keeps a root session from seeding the worker's IPC directory as root and locking the web user out. Re-run under the web user. If a root run already created those directories, recover with `chown -R <web-user>:<web-user> {base_directory}/ipc/`.
-- **`Runtime directory /tmp/newspack-nodes is owned by uid 501, but this process runs as uid 33`** — the runtime tree must be privately owned by the process using it, and [`Config::ensure_path()`](../includes/class-config.php) adopts an existing directory as readily as it creates one, so whichever account ran a `wp nodes` verb first owns everything under `base_directory`. `chown -R` it to the web user, or point `base_directory` at a fresh path; the same gate refuses a tree that is group- or other-writable. [`wp nodes doctor`](cli.md#doctor-health-report)'s `ownership` row makes the comparison before a worker does.
+- **`Runtime directory /tmp/newspack-nodes is owned by uid 501, but this process runs as uid 33`** — the runtime tree must be privately owned by the process using it, and [`Config::ensure_path()`](../includes/class-config.php) adopts an existing directory as readily as it creates one, so whichever account ran a `wp nodes` command first owns everything under `base_directory`. `chown -R` it to the web user, or point `base_directory` at a fresh path; the same gate refuses a tree that is group- or other-writable. [`wp nodes doctor`](cli.md#doctor-health-report)'s `ownership` row makes the comparison before a worker does.
 - **`Command_Auth: no APCu and no memcache; refusing command (single-use unverifiable)`** in the log — a wire command reached [`Command_Auth`](../includes/class-command-auth.php), the verifier, with no usable cache backend behind it, so it cannot enforce single-use nonces and fails closed. For a normal REST-spawned worker, enable web APCu or configure Memcached. For a directly launched `wp nodes run`, enable CLI APCu or configure Memcached; across hosts or independent web pools, use Memcached (see *Before you start*).
 
 ## Next: build one yourself

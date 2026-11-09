@@ -71,7 +71,7 @@ describe( 'parseStatements', () => {
 		expect( stmts[ 0 ].line ).toBe( 3 );
 	} );
 
-	it( 'resolves cd cwd: a bare verb inside a cd becomes command_node <path> <verb>', () => {
+	it( 'resolves cd cwd: a bare command inside a cd becomes command_node <path> <verb>', () => {
 		const stmts = parseStatements(
 			'cd worker/inner\nset_multi_writer true'
 		);
@@ -93,7 +93,7 @@ describe( 'parseStatements', () => {
 		] );
 	} );
 
-	it( 'a bare make_node inside a cwd is a command to that node, like any verb', () => {
+	it( 'a bare make_node inside a cwd is a command to that node, like any command', () => {
 		const stmts = parseStatements( 'cd deep\nmake_node Topic leaf' );
 		expect( stmts[ 0 ].values ).toEqual( [
 			'command_node',

@@ -3,10 +3,10 @@
  * Vault_CI: the command surface the Vault admin tab and the REPL reach the
  * credential store through.
  *
- * Six verbs sit over `Vault`: `list` and `get` read, `add`, `update` and
+ * Six commands sit over `Vault`: `list` and `get` read, `add`, `update` and
  * `delete` write, and `test` proves a spoke still answers. Every one of them
- * gates at MANAGE — none of the verbs declares a `capability`, and
- * `Service_CI_Node` hands an undeclared verb the strictest role rather than the
+ * gates at MANAGE — none of the commands declares a `capability`, and
+ * `Service_CI_Node` hands an undeclared command the strictest role rather than the
  * loosest.
  *
  * `add` and `update` declare `password` `'secret' => true`, the only secret
@@ -16,11 +16,11 @@
  * `password`.
  *
  * A read never carries the password. `public_shape()` is the one projection
- * both reading verbs return, and it says what else it keeps and why. A write
+ * both reading commands return, and it says what else it keeps and why. A write
  * never acts on its own consequences: it announces on
  * `newspack_nodes/vault/changed`, and `fire_changed()` names the listeners.
  *
- * `test` is the only verb that leaves the site. Its POST and JSONL parse are
+ * `test` is the only command that leaves the site. Its POST and JSONL parse are
  * `HTTP_Out_Node::probe_command()`, shared with `Aggregator_CI`; what this
  * class owns there is the verdict it reduces the spoke's reply to.
  *
@@ -37,7 +37,7 @@ use Newspack_Nodes\Vault;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The six `vault` verbs over the substrate credential store, each declared
+ * The six `vault` commands over the substrate credential store, each declared
  * once in `node_schema()` and gated there by `Service_CI_Node`.
  */
 class Vault_CI_Node extends Service_CI_Node {
@@ -56,14 +56,14 @@ class Vault_CI_Node extends Service_CI_Node {
 	];
 
 	/**
-	 * Verb arg name => stored config key, for the fields `add` and `update`
+	 * Command arg name => stored config key, for the fields `add` and `update`
 	 * write. One declaration serves both the whole blob and the partial
 	 * one; `url` and `group` are the same word on both sides.
 	 */
 	private const OPTION_TO_KEY = [ 'url' => 'url', 'group' => 'group' ] + self::CREDENTIAL_OPTION_TO_KEY;
 
 	/**
-	 * `list` verb handler — every registered server in its public shape,
+	 * `list` command handler — every registered server in its public shape,
 	 * keyed by id.
 	 *
 	 * @return array<array-key,array<string,mixed>> Keys are array-key, not string: PHP coerces a numeric id to int.
@@ -79,9 +79,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `get` verb handler — one server's public shape, by id.
+	 * `get` command handler — one server's public shape, by id.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id.
+	 * @param array<array-key,mixed> $args Bound command arguments: id.
 	 * @return array<string,mixed> The public server record.
 	 * @throws \RuntimeException When the id is not claimed by any entry.
 	 */
@@ -101,7 +101,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * `Vault::credential_header()` sends a line. The username, the header and
 	 * the scheme stay: each is half an address, not a secret, and an edit form
 	 * cannot offer to change what it cannot show — which holds only while
-	 * every vault verb is MANAGE by construction. Declaring one READ discloses
+	 * every vault command is MANAGE by construction. Declaring one READ discloses
 	 * them.
 	 *
 	 * @param string              $id     Server id.
@@ -121,9 +121,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `add` verb handler — register a server under `id`; returns that id.
+	 * `add` command handler — register a server under `id`; returns that id.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id, url, and the optional group, user, password, header, scheme.
+	 * @param array<array-key,mixed> $args Bound command arguments: id, url, and the optional group, user, password, header, scheme.
 	 * @return array<string,mixed> The stored id, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When the id is malformed or taken, the group,
 	 *                           header or scheme is malformed, the url carries
@@ -165,11 +165,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `update` verb handler — merge the args given into an existing
+	 * `update` command handler — merge the args given into an existing
 	 * entry, moving it when `new_id` names somewhere else. Returns the id the
 	 * entry now carries.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id, and the optional new_id, url, group, user, password, header, scheme.
+	 * @param array<array-key,mixed> $args Bound command arguments: id, and the optional new_id, url, group, user, password, header, scheme.
 	 * @return array<string,mixed> The entry's id after the write, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When the id is unknown, the new id, the group,
 	 *                           the header or the scheme is unusable, the url it
@@ -206,7 +206,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * absent arg binds null and is left out, so `update` leaves its field
 	 * untouched and `add` stores ''.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments.
+	 * @param array<array-key,mixed> $args Bound command arguments.
 	 * @return array<string,string> Arg name => given value, for the `OPTION_TO_KEY` names.
 	 */
 	private static function given( array $args ): array {
@@ -323,9 +323,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `delete` verb handler — remove a server; returns the id it had.
+	 * `delete` command handler — remove a server; returns the id it had.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id.
+	 * @param array<array-key,mixed> $args Bound command arguments: id.
 	 * @return array<string,mixed> The removed id, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When the id is not claimed by any entry, or the
 	 *                           store refuses the write.
@@ -370,9 +370,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `test` verb handler — probe a stored spoke and report whether it answers.
+	 * `test` command handler — probe a stored spoke and report whether it answers.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id.
+	 * @param array<array-key,mixed> $args Bound command arguments: id.
 	 * @return array{id:string,status:string} The probe verdict.
 	 * @throws \RuntimeException When the id is not claimed by any entry, or the
 	 *                           spoke does not answer usably.
@@ -397,12 +397,12 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * verdict, not a field to interpret.
 	 *
 	 * `Status_CI` is the substrate's own health probe, mounted unconditionally,
-	 * so the verb reaches a spoke whatever consumer plugins it does or does not
+	 * so the command reaches a spoke whatever consumer plugins it does or does not
 	 * carry. A spoke whose substrate predates that node answers `status` with a
-	 * TM_ERROR and fails this verb — a mixed-version fleet is the normal state,
+	 * TM_ERROR and fails this command — a mixed-version fleet is the normal state,
 	 * so read a failure against the spoke's substrate version before reading it
 	 * as a bad credential. Nothing the spoke sent is forwarded: a caller never
-	 * reads a field off this verb, and a remote gets no say in what this site
+	 * reads a field off this command, and a remote gets no say in what this site
 	 * renders.
 	 *
 	 * @param string              $id     Server id, which also picks the session key the command is signed under.
@@ -420,10 +420,10 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Declare the verb surface once: the console palette, `help` and the
+	 * Declare the command surface once: the console palette, `help` and the
 	 * dispatch table `Service_CI_Node` builds all read this.
 	 *
-	 * None of the verbs declares a `capability`, so all six gate at MANAGE.
+	 * None of the commands declares a `capability`, so all six gate at MANAGE.
 	 * Lowering `list` or `get` to READ would put `auth_username` in front of a
 	 * role that cannot otherwise read the vault; `public_shape()` carries the
 	 * argument.

@@ -32,7 +32,7 @@ import { isControl } from '../helpers/controlMsg';
  * controls straight in. A control is recognised by WHO SENT IT, never by what
  * its payload looks like: a reply carrying an `action` field is still a reply.
  *
- * A slice, and only a slice. A verb somebody awaits is minted from its own node
+ * A slice, and only a slice. A command somebody awaits is minted from its own node
  * and its reply is addressed there (ADR-7), so nothing that lands here needs
  * telling apart from anything else that lands here.
  *
@@ -41,7 +41,7 @@ import { isControl } from '../helpers/controlMsg';
  * more than its slice — its own `fill()`, a timer, a teardown.
  */
 export class SliceViewNode extends ReactBridge( Node ) {
-	/** The slice on screen: a verb's whole reply, bulk that buries the state. */
+	/** The slice on screen: a command's whole reply, bulk that buries the state. */
 	static dumpOmits = [ 'view' ];
 
 	/**
@@ -81,7 +81,7 @@ export class SliceViewNode extends ReactBridge( Node ) {
 	 * The origin decides the first branch, the TYPE flag the second. A control
 	 * is recognised by WHO SENT IT — ADR-7 addressing, applied to controls —
 	 * and the TM_ERROR test precedes the parse because a transport refusal
-	 * arrives as a bare STRING VALUE rather than the object a verb answers
+	 * arrives as a bare STRING VALUE rather than the object a command answers
 	 * with.
 	 *
 	 * A TM_ERROR reply keeps the slice already on screen and adds `error`,
@@ -123,15 +123,15 @@ export class SliceViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * Apply one control verb: `loading` flips the spinner and clears the error
+	 * Apply one control action: `loading` flips the spinner and clears the error
 	 * while keeping the data on screen, `clear` resets to the empty slice, and
 	 * `error` surfaces a caller-side failure without blanking the data. Each
-	 * publishes the new model; an unrecognised verb publishes nothing.
+	 * publishes the new model; an unrecognised action publishes nothing.
 	 *
-	 * Subclasses handle their own verbs first and defer the rest here with
+	 * Subclasses handle their own actions first and defer the rest here with
 	 * `super._control( value )`.
 	 *
-	 * @param {?{action?: string, error?: string}} value The control payload: `action` picks the verb, `error` carries the caller's message. An unrecognised or absent verb is a no-op.
+	 * @param {?{action?: string, error?: string}} value The control payload: `action` picks the control, `error` carries the caller's message. An unrecognised or absent action is a no-op.
 	 */
 	_control( value ) {
 		const action = value?.action;
@@ -164,8 +164,8 @@ export class SliceViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * Parse a slice verb's reply payload into the slice this view publishes.
-	 * The verb answers a struct, so the base takes an object payload as the
+	 * Parse a slice command's reply payload into the slice this view publishes.
+	 * The command answers a struct, so the base takes an object payload as the
 	 * slice itself. Subclasses override it to reshape that struct.
 	 *
 	 * Report a payload you cannot use by returning null, never by throwing:

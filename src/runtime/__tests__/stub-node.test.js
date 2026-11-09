@@ -7,7 +7,7 @@
  * Partition firehose` cannot construct anything in a browser.
  *
  * A stub carries the declared class name and arguments without behaviour, so
- * every structural verb — connect_node, move_node, remove_node, set_sink — and
+ * every structural command — connect_node, move_node, remove_node, set_sink — and
  * `dump_config` work on it unchanged. That is what lets the draft be an
  * interpreter at its own cwd rather than a second implementation of one.
  */

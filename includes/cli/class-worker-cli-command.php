@@ -3,7 +3,7 @@
  * The operator's control surface over the worker fleet: what is running, how to
  * stop, start and restart it, and which topologies it spawns.
  *
- * There is no supervisor process to interrogate, so every verb reads the
+ * There is no supervisor process to interrogate, so every subcommand reads the
  * evidence the fleet itself writes — the `.lock.d` directories under `locks/`,
  * the persisted deploy hold, and the Topic_Probe log carrying consumer
  * positions (`CLI::consumer_rows()`).
@@ -17,14 +17,14 @@ namespace Newspack_Nodes;
 
 /**
  * `wp nodes {types,run,restart,stop,start,status,activate,deactivate,gc,doctor}`,
- * one public method per verb, registered against a single shared instance in
+ * one public method per subcommand, registered against a single shared instance in
  * `newspack-nodes.php`.
  *
  * WP-CLI parses the docblocks below as the command definition rather than as
- * prose: `## OPTIONS` and `## EXAMPLES` become the verb's `--help` output,
+ * prose: `## OPTIONS` and `## EXAMPLES` become the subcommand's `--help` output,
  * `@when after_wp_load` defers the callback until WordPress has loaded, and
  * `@alias` names a second spelling. WP-CLI hands every subcommand the same
- * `( array $args, array $assoc_args )` pair, so a verb that reads neither still
+ * `( array $args, array $assoc_args )` pair, so a subcommand that reads neither still
  * declares both.
  *
  * @phpstan-import-type Worker_Descriptor from Bootstrap
@@ -414,7 +414,7 @@ class Worker_CLI_Command {
 	 * Topologies tabs share one TopologyControls cluster). Validates
 	 * the name against the catalog (`Topology_Registry::describe()`), then delegates
 	 * the option-write + cache-invalidate + immediate spawn to the shared
-	 * `Topology_Registry::activate()` (the same primitive the REST/UI verb calls).
+	 * `Topology_Registry::activate()` (the same primitive the REST/UI command calls).
 	 * Idempotent — an already-active topology re-spawns without a duplicate entry.
 	 *
 	 * ## OPTIONS
@@ -452,7 +452,7 @@ class Worker_CLI_Command {
 	 * Deactivate a topology: remove it from the active set and drain its fleet now.
 	 *
 	 * Symmetric with `activate`. Delegates to the shared
-	 * `Topology_Registry::deactivate()` (the same primitive the REST/UI verb calls):
+	 * `Topology_Registry::deactivate()` (the same primitive the REST/UI command calls):
 	 * remove the name, persist, invalidate the config cache, then drop a restart
 	 * flag on every live worker lock dir so the fleet drains immediately.
 	 *
@@ -662,13 +662,13 @@ class Worker_CLI_Command {
 
 		// A load failure, or anything the run raised, surfaces as the error.
 		$result = $wb->execute( $topology, $spawn_url, $token );
-		// The debugging verb: the skip reason IS the diagnosis — print it.
+		// Debugging subcommand: the skip reason IS the diagnosis; print it.
 		$detail = $result['reason'] ?? '';
 		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] . ( '' !== $detail ? " ({$detail})" : '' ) );
 	}
 
 	/**
-	 * The validated runtime state root every verb reads `locks/` and the log tree
+	 * The validated runtime state root every subcommand reads `locks/` and the log tree
 	 * under.
 	 *
 	 * @return string Canonical base directory.
@@ -810,7 +810,7 @@ class Worker_CLI_Command {
 
 	/**
 	 * Restart every partition of one fleet by topology name — the handler wired to
-	 * `newspack_nodes/restart_fleet`, which the `topologies` service verb fires.
+	 * `newspack_nodes/restart_fleet`, which the `topologies` service command fires.
 	 *
 	 * Best-effort: a name that is not carried by any active topology restarts
 	 * nothing, because an action handler has no caller to report a refusal to.

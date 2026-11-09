@@ -261,8 +261,8 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( "got: hi\n", $payload['payload'] );
 	}
 
-	public function test_log_verb_broadcasts_its_stderr_line_into_the_jsonl_body(): void {
-		// `log` is a BROADCAST verb (unlike `echo`, which replies): it writes a
+	public function test_log_command_broadcasts_its_stderr_line_into_the_jsonl_body(): void {
+		// `log` is a BROADCAST command (unlike `echo`, which replies): it writes a
 		// stderr line and returns nothing. In the ephemeral /command process the
 		// wired stderr sink is `_http`, so the line rides back as a JSONL body
 		// record (a bare TM_BYTESTREAM, not a command response). This is how `log`
@@ -1362,9 +1362,9 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( [ 200 ], $GLOBALS['_wp_test_status_headers'] );
 	}
 
-	public function test_node_schema_is_hidden_with_empty_ctor_and_verbs(): void {
+	public function test_node_schema_is_hidden_with_empty_ctor_and_commands(): void {
 		// HTTP_In is bootstrap-instantiated at request scope only — never via
-		// `make_node` from a topology. Hidden category + empty ctor/verbs
+		// `make_node` from a topology. Hidden category + empty ctor/commands
 		// locks that contract.
 		$schema = HTTP_In_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );

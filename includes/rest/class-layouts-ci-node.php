@@ -11,7 +11,7 @@
  * never enter that .tsl — writing them there would route every drag through
  * `topologies save`, which restarts the matching active fleet.
  *
- * Verbs:
+ * Commands:
  *   get  — args `{name}`. Returns `{name, positions: object|"auto"}`. A
  *          missing, unreadable or malformed file answers "auto", as does one
  *          placing no node; the saved file's other top-level keys stay
@@ -22,7 +22,7 @@
  *          rather than refusing the write. Saving "auto", or a map that places
  *          no node, removes the file at `path`.
  *
- * Each verb names its role in `node_schema()`, `get` READ and `save` TUNE, and
+ * Each command names its role in `node_schema()`, `get` READ and `save` TUNE, and
  * `dispatch()` refuses a caller below it (ADR-26). A refusal throws
  * \RuntimeException, which `Command_Interpreter_Node::interpret()`
  * catches and returns as TM_COMMAND|TM_ERROR.
@@ -78,7 +78,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * a `positions` that is not a map is malformed, and an empty map places
 	 * no node. Only the `positions` key of the file is returned.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: name.
+	 * @param array<array-key,mixed> $args Bound command arguments: name.
 	 *
 	 * @return array<string,mixed> `{name, positions}`, positions a map or AUTO.
 	 * @throws \RuntimeException When the name is not file-name safe.
@@ -107,7 +107,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `save` verb — persist a layout's node positions, creating the layouts
+	 * `save` command — persist a layout's node positions, creating the layouts
 	 * directory on the first write, or remove the file for AUTO or for a map
 	 * placing no node, which reads as AUTO.
 	 *
@@ -118,7 +118,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * positional message array `Message::packed_size()` takes; every real
 	 * envelope is one, so the cap always applies.
 	 *
-	 * @param array<array-key,mixed>  $args     Bound verb arguments: name, and positions as one JSON token.
+	 * @param array<array-key,mixed>  $args     Bound command arguments: name, and positions as one JSON token.
 	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, or [] for an inline dispatch.
 	 *
 	 * @return array<string,mixed> `{name, path, positions}`, positions being AUTO, the file at `path` removed, or what survived sanitizing.
@@ -263,9 +263,9 @@ class Layouts_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The console manifest and the verb table in one declaration.
+	 * The console manifest and the command table in one declaration.
 	 * `Service_CI_Node` builds the dispatch table from `commands[]` here, so a
-	 * verb is named once and the `capability` beside it is the role below which
+	 * command is named once and the `capability` beside it is the role below which
 	 * `dispatch()` refuses it (ADR-26).
 	 *
 	 * @api Used by the substrate to provide UI etc.

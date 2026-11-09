@@ -7,7 +7,7 @@
  * back byte-for-byte.
  *
  * The classes below (Topic, Partition, Consumer, Flame_Builder) have no JS
- * implementation. They resolve to stubs; every structural verb still applies.
+ * implementation. They resolve to stubs; every structural command still applies.
  */
 
 import { Core } from '../core';
@@ -43,7 +43,7 @@ beforeEach( () => Core.reset() );
  *
  * The ONE place a draft interpreter differs from the live one: an unresolvable
  * class is a node it cannot run, not an error. Everything downstream — every
- * structural verb, dump_config — is inherited untouched.
+ * structural command, dump_config — is inherited untouched.
  *
  * @return {CommandInterpreterNode} The draft interpreter, named and registered.
  */
@@ -188,7 +188,7 @@ describe( 'a draft interpreter holding a server topology', () => {
 		//
 		// A DRAFT must diverge here: the console already rewrote
 		// edges, because silently breaking the topology you are editing is not
-		// a defensible editor. Same verb, different interpreter, different
+		// a defensible editor. Same command, different interpreter, different
 		// meaning — the `secure` split again.
 		const draft = draftInterpreter();
 		evalTsl( draft, TSL );
@@ -205,7 +205,7 @@ describe( 'a draft interpreter holding a server topology', () => {
 	} );
 
 	it( 'reports ITS OWN graph from dump_metadata, with declared classes', () => {
-		// The verb the canvas paints from. Reading Core here would draw the
+		// The command the canvas paints from. Reading Core here would draw the
 		// live graph in the draft's place — and report a stub as `Stub`,
 		// which misses in the class catalog and loses every port.
 		const live = new StubNode();
@@ -421,12 +421,12 @@ describe( 'a document that configures a borrowed node', () => {
 } );
 
 /**
- * A rename has to follow every reference, and a verb argument typed
+ * A rename has to follow every reference, and a command argument typed
  * `node_name` is a reference. Which arguments those are is the class catalog's
  * answer, so the draft carries one — the same catalog `make_node` resolves
  * against, not a second source of truth.
  */
-describe( 'move_node against a verb argument that names a node', () => {
+describe( 'move_node against a command argument that names a node', () => {
 	const CATALOG = [
 		{
 			shell_name: 'Grep',

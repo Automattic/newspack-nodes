@@ -924,17 +924,17 @@ class DeadLetterQueueTest extends TestCase {
 	}
 
 	public function test_dl_remove_is_declared_beside_dl_requeue_with_its_role(): void {
-		$verbs = \array_column( Dead_Letter_Queue_Double::deadletter_verbs(), null, 'name' );
+		$commands = \array_column( Dead_Letter_Queue_Double::deadletter_commands(), null, 'name' );
 
-		$this->assertArrayHasKey( 'dl_remove', $verbs );
-		$this->assertSame( $verbs['dl_requeue']['capability'] ?? null, $verbs['dl_remove']['capability'] ?? null );
-		$this->assertTrue( $verbs['dl_remove']['hidden'] );
-		$this->assertSame( [ [ 'name' => 'locator', 'type' => 'string', 'required' => true ] ], $verbs['dl_remove']['args'] );
+		$this->assertArrayHasKey( 'dl_remove', $commands );
+		$this->assertSame( $commands['dl_requeue']['capability'] ?? null, $commands['dl_remove']['capability'] ?? null );
+		$this->assertTrue( $commands['dl_remove']['hidden'] );
+		$this->assertSame( [ [ 'name' => 'locator', 'type' => 'string', 'required' => true ] ], $commands['dl_remove']['args'] );
 	}
 
 	public function test_dl_list_describes_status_removal_and_what_total_counts(): void {
-		$verbs       = \array_column( Dead_Letter_Queue_Double::deadletter_verbs(), null, 'name' );
-		$description = Core::as_string( $verbs['dl_list']['description'] );
+		$commands    = \array_column( Dead_Letter_Queue_Double::deadletter_commands(), null, 'name' );
+		$description = Core::as_string( $commands['dl_list']['description'] );
 
 		$this->assertStringContainsString( 'status (quarantined or requeued)', $description );
 		$this->assertStringContainsString( 'removed records are omitted', $description );
@@ -1072,12 +1072,12 @@ class DeadLetterQueueTest extends TestCase {
 		$d->show_deadletter( '0:0:10' );
 	}
 
-	public function test_dl_show_is_in_the_shared_verb_table(): void {
-		$names = \array_column( Dead_Letter_Queue_Double::deadletter_verbs(), 'name' );
+	public function test_dl_show_is_in_the_shared_command_table(): void {
+		$names = \array_column( Dead_Letter_Queue_Double::deadletter_commands(), 'name' );
 		$this->assertContains( 'dl_show', $names );
 	}
 
-	// ── verb handlers, handed bound args: cmd_dl_list / show / requeue / purge ──
+	// ── command handlers, handed bound args: cmd_dl_list / show / requeue / purge ──
 
 	public function test_cmd_dl_list_errors_when_no_patron_is_set(): void {
 		$interpreter = new Command_Interpreter_Node();

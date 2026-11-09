@@ -156,7 +156,7 @@ class Tail_Node extends Consumer_Node {
 	 * Topology console manifest: the one Consumer declares, with argument 0 replaced.
 	 *
 	 * A Tail's first token is a file base rather than a partition directory. The
-	 * offsetlog and dead-letter arguments, the verbs, the requests and the
+	 * offsetlog and dead-letter arguments, the commands, the requests and the
 	 * category stay Consumer's verbatim, so a seam added there reaches this class
 	 * with no edit here.
 	 *

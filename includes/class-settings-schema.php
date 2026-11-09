@@ -6,7 +6,7 @@
  * its worker-restart class — and every other view of that key derives from the
  * Field. `Config` reads the defaults, the overlay key-list and the declared-key
  * set; `Admin` registers, renders and resets the settings page through it;
- * `Settings_CI_Node` bounds-checks the `settings` verb against the same min/max
+ * `Settings_CI_Node` bounds-checks the `settings set` command against the same min/max
  * the page clamps to; `Restart_Planner` reads the restart class;
  * `Settings_Event_Writer` derives the Config Audit values allowlist from the
  * rendered option names.

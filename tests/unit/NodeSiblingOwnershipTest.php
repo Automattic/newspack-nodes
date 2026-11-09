@@ -103,7 +103,7 @@ final class NodeSiblingOwnershipTest extends TestCase {
 	public function test_without_config_names_the_node_with_no_config(): void {
 		$mount = new Partition_Node();
 		$this->assertTrue( $mount->wants_config() );
-		$this->assertNotNull( $mount->interpreter(), 'a Partition declares verbs' );
+		$this->assertNotNull( $mount->interpreter(), 'a Partition declares commands' );
 
 		$this->assertSame( $mount, $mount->without_config() );
 		$mount->name( 'mount-3391' );

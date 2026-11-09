@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
  * siblings, an `HTTP_Out_Node` (`<name>:http-out`) that carries its commands
  * and its readers' reads, and a `Null_Node` (`<name>:null`) that HTTP_Out
  * targets so unaddressed reply-leg traffic is discarded. A source comes by
- * the `add_source <remote_log> <local_node>` verb, and each stamp a source
+ * the `add_source <remote_log> <local_node>` command, and each stamp a source
  * claims is read by its own `Remote_Consumer_Node`, published as the
  * sibling `<broker>:<stamp>`: the cursor, offsetlog, dead letters and
  * debugger all belong to that reader. Each tick, riding the Router's tick, builds
@@ -142,7 +142,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/** Fanned out to every reader, present or built later. */
 	protected bool $assume_clean_shutdown = false;
 
-	/** Tachikoma-parity: no-arg ctor. Auto-wire the `{name}:config` interpreter for the verb table. */
+	/** Tachikoma-parity: no-arg ctor. Auto-wire the `{name}:config` interpreter for the command table. */
 	public function __construct() {
 		parent::__construct();
 		$this->auto_wire_interpreter();
@@ -384,7 +384,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * The sources a run of `add_source` and `remove_source` commands leaves
-	 * declared, as written and in order, each bound as its verb binds it and
+	 * declared, as written and in order, each bound as its declaration binds it and
 	 * folded by `fold_source()` at partition 0, so a line the load refuses
 	 * refuses the run and the analyzer reads the topology as unreadable. The
 	 * browser's `sourcesOf()` folds the same, held to this by
@@ -392,7 +392,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 *
 	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
 	 * @return list<array{source:string,target:string}>
-	 * @throws \InvalidArgumentException The first command the verb refuses.
+	 * @throws \InvalidArgumentException The first command refused.
 	 */
 	public static function sources_of( array $commands ): array {
 		$sources = [];
@@ -400,7 +400,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			if ( self::ADD_SOURCE !== $verb && self::REMOVE_SOURCE !== $verb ) {
 				continue;
 			}
-			$bound   = Command_Args::bind( Core::arr( Command_Interpreter_Node::declared_verbs( static::class )[ $verb ]['args'] ?? [] ), $tokens );
+			$bound   = Command_Args::bind( Core::arr( Command_Interpreter_Node::declared_commands( static::class )[ $verb ]['args'] ?? [] ), $tokens );
 			$sources = self::fold_source( $sources, $verb, Core::as_string( $bound['remote_log'] ), Core::as_string( $bound['local_node'] ), 0 );
 		}
 		return $sources;
@@ -625,7 +625,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 *
 	 * @param Remote_Consumer_Node $child The reader asking.
 	 * @param string               $verb  `read_message` or `read_block`.
-	 * @param list<string>         $args  The verb's argument tokens, which the reply echoes.
+	 * @param list<string>         $args  The command's argument tokens, which the reply echoes.
 	 * @return bool True once the command is queued.
 	 */
 	public function send_read( Remote_Consumer_Node $child, string $verb, array $args ): bool {
@@ -943,10 +943,10 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * `add_source` verb handler: give the patron a source.
+	 * `add_source` command handler: give the patron a source.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: remote_log, local_node.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: remote_log, local_node.
 	 * @return string
 	 * @throws \InvalidArgumentException What `add_source()` refused.
 	 */
@@ -958,10 +958,10 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * `remove_source` verb handler: take a source back from the patron.
+	 * `remove_source` command handler: take a source back from the patron.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: remote_log, local_node.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: remote_log, local_node.
 	 * @return string
 	 * @throws \InvalidArgumentException What `remove_source()` refused.
 	 */
@@ -1074,7 +1074,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * Configuration form: the vault and the two roots each reader's dirs
-	 * nest under, and the verbs: `add_source` and `remove_source`, then the
+	 * nest under, and the commands: `add_source` and `remove_source`, then the
 	 * two that reach every reader.
 	 *
 	 * @api Dynamic entrypoint.
@@ -1120,7 +1120,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 					'toggle'      => 'multi_writer',
 				],
 				[
-					...Remote_Consumer_Node::pump_verbs()[0],
+					...Remote_Consumer_Node::pump_commands()[0],
 					'description' => 'Treat a plain Worker_Should_Stop like Worker_Should_Stop_Clean in every reader — commit PAST the in-flight message on a cooperative stop instead of replaying it. For a durable-before-stop chain with no snapshot node (aggregator, Consumer→Partition, job-router). Only a true word enables.',
 				],
 			],

@@ -61,7 +61,7 @@ class Echo_Node extends Node {
 
 	/**
 	 * Console-palette entry: a routing primitive with no positional arguments
-	 * and no verbs.
+	 * and no commands.
 	 *
 	 * @return array<string,mixed>
 	 */

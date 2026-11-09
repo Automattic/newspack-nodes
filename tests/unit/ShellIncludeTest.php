@@ -82,7 +82,7 @@ class ShellIncludeTest extends TestCase {
 
 	/**
 	 * Every command line the Shell dispatched, in order, reconstructed from the
-	 * captured Message. `command`-shaped verbs (make_node, connect_node, ...) carry
+	 * captured Message. Commands of the `command` shape (make_node, connect_node, ...) carry
 	 * VALUE as ['name' => ..., 'arguments' => ...] (Shell::parse()'s default case);
 	 * others (tell_node, ...) carry a plain string VALUE.
 	 *
@@ -143,7 +143,7 @@ class ShellIncludeTest extends TestCase {
 	}
 
 	public function test_include_provides_cwd_context_as_though_piped_into_the_repl(): void {
-		// A cd\'d include: the included file\'s bare verb routes to the cwd.
+		// A cd\'d include: the included file\'s bare command routes to the cwd.
 		$this->write_tsl( 'tuning', "set_x 41941\n" );
 		$shell = new Shell_Node();
 		$sink  = new Capture_Sink_Node();

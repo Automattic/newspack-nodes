@@ -338,7 +338,7 @@ class ConsumerSealGraceTest extends TestCase {
 		$this->assertTrue( $prop->getValue( $c ) );
 	}
 
-	public function test_set_multi_writer_verb_enables_only_on_truthy_arg(): void {
+	public function test_set_multi_writer_command_enables_only_on_truthy_arg(): void {
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/d", "{$this->tmp}/o" ] );
 		$interp = $this->read_private( $c, 'interpreter' );

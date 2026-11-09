@@ -842,7 +842,7 @@ describe( 'AggregatorStatus', () => {
 		} );
 		const { container } = mount();
 		clickProbe( container, 0 );
-		// The probe verb takes the VAULT credential key, not the node name —
+		// The probe command takes the VAULT credential key, not the node name —
 		// they differ in real topologies, so this must not regress to `id`.
 		expect( probeServer ).toHaveBeenCalledWith( 'server1-vault-cred' );
 		expect( probeServer ).toHaveBeenCalledTimes( 1 );

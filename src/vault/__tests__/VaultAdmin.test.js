@@ -151,7 +151,7 @@ describe( 'VaultAdmin', () => {
 		return { ...r, container: r.baseElement };
 	}
 
-	// @longform The row shows the work while a verb about it is outstanding —
+	// @longform The row shows the work while a command about it is outstanding —
 	// and it asks the graph, which owns the outbox, instead of keeping a flag
 	// flipped at the click and cleared in the answer. A flag beside every call
 	// site is the thing that goes stale when a path forgets to clear it.
@@ -535,7 +535,7 @@ describe( 'VaultAdmin', () => {
 		} );
 	} );
 
-	// The store holds the header rule; the verb's named refusal is the message.
+	// The store holds the header rule; the command's named refusal is the message.
 	it( 'sends a refused header to the server and shows its refusal', async () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();

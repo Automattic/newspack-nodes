@@ -2,7 +2,7 @@
  * Aggregator Status — the hub's screen for every spoke whose log it pulls.
  *
  * A thin view over the `aggregator:*` node graph `useAggregatorStatusGraph`
- * mounts. That graph polls two independent slices, each on its own verb with
+ * mounts. That graph polls two independent slices, each on its own command with
  * its own reply path:
  *
  *   summary:view — the header strip: connected/idle/total counts, the

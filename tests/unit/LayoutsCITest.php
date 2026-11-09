@@ -1,15 +1,15 @@
 <?php
 /**
  * LayoutsCITest: unit tests for Layouts_CI, the service interpreter for
- * topology layout persistence. Uses ClassesCITest's VerbHarness
+ * topology layout persistence. Uses ClassesCITest's CommandHarness
  * pattern with a per-test filesystem fixture (use_base_dir() points
- * Config at a tmp directory; the verb writes its .layout file under
+ * Config at a tmp directory; the command writes its .layout file under
  * `{base}/layouts/`).
  *
  * The interpreter returns raw payloads (decoded JSON), not
  * {code, message, status} envelopes. Errors bubble as RuntimeException;
  * CommandInterpreter::interpret() catches them and emits TM_COMMAND |
- * TM_ERROR. VerbHarness::fire() unwraps the success payload and
+ * TM_ERROR. CommandHarness::fire() unwraps the success payload and
  * surfaces error payloads as plain strings, so tests assert "no
  * exception + decoded shape" on success and "RuntimeException +
  * message" on failure.
@@ -23,7 +23,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Rest\Layouts_CI_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Layouts_CI_Node::class )]
@@ -35,21 +35,21 @@ class LayoutsCITest extends TestCase {
 		parent::setUp();
 		$this->base_dir = $this->make_temp_dir( 'layouts-ci-' );
 		$this->use_base_dir( $this->base_dir );
-		// Verbs gate on manage_options; allow it by default. Tests that
+		// Commands gate on manage_options; allow it by default. Tests that
 		// exercise the denial path override before firing.
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 	}
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		$this->rmdir_recursive( $this->base_dir );
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		parent::tearDown();
 	}
 
-	// ── schema + get verb ─────────────────────────────────────────────────
+	// ── schema + get command ──────────────────────────────────────────────
 
-	public function test_node_schema_declares_its_verbs(): void {
+	public function test_node_schema_declares_its_commands(): void {
 		$schema = Layouts_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
@@ -59,7 +59,7 @@ class LayoutsCITest extends TestCase {
 
 	/** A missing file reads as one that says auto: the canvas lays itself out. */
 	public function test_get_answers_auto_when_file_missing(): void {
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -80,7 +80,7 @@ class LayoutsCITest extends TestCase {
 			(string) \json_encode( $payload )
 		);
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -98,7 +98,7 @@ class LayoutsCITest extends TestCase {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents( "{$this->base_dir}/layouts/garbage.layout", '{not json}' );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -116,7 +116,7 @@ class LayoutsCITest extends TestCase {
 			(string) \json_encode( [ 'something_else' => true ] )
 		);
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -140,7 +140,7 @@ class LayoutsCITest extends TestCase {
 			)
 		);
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -152,11 +152,11 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_get_rejects_invalid_name(): void {
-		// Substrate interpreter contract: verb throws RuntimeException →
+		// Substrate interpreter contract: a command throws RuntimeException →
 		// CommandInterpreter::interpret() catches it and emits the
-		// message string as a TM_COMMAND|TM_ERROR payload. VerbHarness
+		// message string as a TM_COMMAND|TM_ERROR payload. CommandHarness
 		// returns the raw string (the message isn't valid JSON).
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -167,7 +167,7 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_get_rejects_name_with_slash(): void {
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -179,7 +179,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_get_rejects_without_manage_options(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -189,10 +189,10 @@ class LayoutsCITest extends TestCase {
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
-	// ── save verb ─────────────────────────────────────────────────────────
+	// ── save command ──────────────────────────────────────────────────────
 
 	public function test_save_writes_clean_positions_and_returns_payload(): void {
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
@@ -205,7 +205,7 @@ class LayoutsCITest extends TestCase {
 		$this->assertSame( 'happy', $result['name'] );
 		$this->assertSame( "{$this->base_dir}/layouts/happy.layout", $result['path'] );
 		// Whole floats are JSON-normalized to ints in transit through
-		// the verb's wp_json_encode + the harness's json_decode — so
+		// the command's wp_json_encode + the harness's json_decode — so
 		// -3.0 round-trips as int -3. Non-whole floats survive.
 		$this->assertEquals(
 			[
@@ -226,7 +226,7 @@ class LayoutsCITest extends TestCase {
 	public function test_save_creates_layouts_dir_if_missing(): void {
 		$this->assertDirectoryDoesNotExist( "{$this->base_dir}/layouts" );
 
-		VerbHarness::fire(
+		CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
@@ -238,7 +238,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_then_get_round_trips_positions(): void {
 		$interpreter = new Layouts_CI_Node();
-		VerbHarness::fire(
+		CommandHarness::fire(
 			$interpreter,
 			'layouts',
 			'save',
@@ -247,9 +247,9 @@ class LayoutsCITest extends TestCase {
 				'beta'  => [ -50.5, 75.25 ],
 			] )
 		);
-		VerbHarness::reset();
+		CommandHarness::reset();
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
@@ -279,7 +279,7 @@ class LayoutsCITest extends TestCase {
 			'42'        => [ 7, 8 ],
 		];
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'mixed', (string) \json_encode( $positions ) ] );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'mixed', (string) \json_encode( $positions ) ] );
 
 		$clean = $result['positions'];
 		$this->assertArrayHasKey( 'keep_me', $clean );
@@ -293,7 +293,7 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_save_accepts_dotted_and_colon_node_ids(): void {
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
@@ -313,7 +313,7 @@ class LayoutsCITest extends TestCase {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents( "{$this->base_dir}/layouts/empty-3309.layout", '{"positions":{"kea":[1.5,2.5]}}' );
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'empty-3309', '{}' ] );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'empty-3309', '{}' ] );
 
 		$this->assertSame( 'auto', $result['positions'] );
 		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/empty-3309.layout" );
@@ -321,7 +321,7 @@ class LayoutsCITest extends TestCase {
 
 	/** A map whose every entry fails validation does not place any node either. */
 	public function test_save_of_a_map_left_empty_by_validation_removes_the_layout(): void {
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'dropped-3310', '{"bad node!":[1,2]}' ] );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'dropped-3310', '{"bad node!":[1,2]}' ] );
 
 		$this->assertSame( 'auto', $result['positions'] );
 		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/dropped-3310.layout" );
@@ -332,7 +332,7 @@ class LayoutsCITest extends TestCase {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents( "{$this->base_dir}/layouts/spokes-4412.layout", '{"positions":{"kea":[3.5,7.25]}}' );
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'spokes-4412', '"auto"' ] );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'spokes-4412', '"auto"' ] );
 
 		$this->assertSame( 'auto', $result['positions'] );
 		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/spokes-4412.layout" );
@@ -341,7 +341,7 @@ class LayoutsCITest extends TestCase {
 
 	/** Saving auto where nothing is saved writes nothing, and succeeds. */
 	public function test_save_auto_with_nothing_saved_writes_nothing(): void {
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'hub-7708', '"auto"' ] );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'hub-7708', '"auto"' ] );
 
 		$this->assertSame( 'auto', $result['positions'] );
 		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/hub-7708.layout" );
@@ -358,7 +358,7 @@ class LayoutsCITest extends TestCase {
 		\mkdir( "{$this->base_dir}/layouts", 0755, true );
 		\file_put_contents( "{$this->base_dir}/layouts/odd.layout", $body );
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'get', 'odd' );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'get', 'odd' );
 
 		$this->assertSame( 'auto', $result['positions'] );
 	}
@@ -383,7 +383,7 @@ class LayoutsCITest extends TestCase {
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'not_a_map_or_auto' )]
 	public function test_save_refuses_positions_neither_object_nor_auto( string $positions ): void {
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'refused', $positions ] );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'refused', $positions ] );
 
 		$this->assertIsString( $result );
 		$this->assertSame( 'invalid arguments: positions must be an object or "auto"', \trim( $result ) );
@@ -408,14 +408,14 @@ class LayoutsCITest extends TestCase {
 		$saved = '{"positions":{"kept-6610":[13,29]}}';
 		\file_put_contents( "{$this->base_dir}/layouts/kept.layout", $saved );
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'kept', '[[31,47]]' ] );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'kept', '[[31,47]]' ] );
 
 		$this->assertSame( 'invalid arguments: positions must be an object or "auto"', \trim( (string) $result ) );
 		$this->assertSame( $saved, (string) \file_get_contents( "{$this->base_dir}/layouts/kept.layout" ) );
 	}
 
 	public function test_save_rejects_invalid_name(): void {
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
@@ -426,7 +426,7 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_save_rejects_missing_positions(): void {
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
@@ -437,7 +437,7 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_save_rejects_positions_not_array(): void {
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
@@ -453,7 +453,7 @@ class LayoutsCITest extends TestCase {
 		$args = 'big ' . (string) \json_encode( [ 'n' => [ 1, 2 ], '_pad' => \str_repeat( 'x', 1048577 ) ] );
 		$this->assertGreaterThan( 1048576, \strlen( $args ) );
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $args );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $args );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'too large', $result );
 	}
@@ -469,7 +469,7 @@ class LayoutsCITest extends TestCase {
 		$this->assertGreaterThan( 65536, \strlen( $args ) );
 		$this->assertLessThan( 1048576, \strlen( $args ) );
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $args );
+		$result = CommandHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $args );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'big', $result['name'] );
@@ -478,7 +478,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_rejects_without_manage_options(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',

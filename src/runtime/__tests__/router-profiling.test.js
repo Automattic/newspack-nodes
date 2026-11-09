@@ -1,7 +1,7 @@
 /**
  * Router profiling after Tachikoma's Router.pm (see PHP RouterProfilingTest —
  * the twins must agree): push/pop self-time frames with parent subtraction, TTL trim,
- * and the profile [on|off] / list_profiles verbs.
+ * and the profile [on|off] / list_profiles commands.
  */
 import { RouterNode } from '../router-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
@@ -141,7 +141,7 @@ test( 'a throwing fill still pops its frame and records elapsed', () => {
 	expect( calm.captured ).toHaveLength( 1 );
 } );
 
-test( 'bare profile verb toggles both directions', () => {
+test( 'bare profile command toggles both directions', () => {
 	const r = new RouterNode();
 	r.name = '_router';
 	const ci = new CommandInterpreterNode();
@@ -174,7 +174,7 @@ test( 'profile on/off is an idempotent set with already-replies', () => {
 // @longform
 // `-s` is the SAME rows the text table prints, so a view can sort them without
 // parsing a fixed-width table — and so the two renderings cannot drift, which
-// is what happened when the struct lived in a separate runtime_stats verb and
+// is what happened when the struct lived in a separate runtime_stats command and
 // carried four of the seven columns.
 test( 'list_profiles -s returns every column the text table prints', () => {
 	const r = new RouterNode();

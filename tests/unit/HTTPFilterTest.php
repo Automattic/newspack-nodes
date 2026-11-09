@@ -100,10 +100,10 @@ class HTTPFilterTest extends TestCase {
 		$this->assertSame( '_sse:' . self::HANDLE, HTTP_Filter_Node::head( Node_Names::SSE, self::HANDLE ) );
 	}
 
-	public function test_node_schema_is_hidden_with_empty_ctor_and_verbs(): void {
+	public function test_node_schema_is_hidden_with_empty_ctor_and_commands(): void {
 		// HTTP_Filter is built by its stream with the session handle; it
 		// must never appear in the `make_node` factory's discoverable
-		// category list or expose user-facing verbs.
+		// category list or expose user-facing commands.
 		$schema = HTTP_Filter_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertSame( [], $schema['arguments'] );

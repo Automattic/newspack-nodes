@@ -13,8 +13,8 @@
 /**
  * THE bool parse for browser schema args: the true half of PHP
  * `Command_Args::BOOL_WORDS`. Exported because a second spelling of this list
- * elsewhere is how a toggle verb such as `set_is_hub` ends up taking
- * `true`/`1` and refusing `yes`/`on`. A PHP verb or `make_node` token of type
+ * elsewhere is how a toggle command such as `set_is_hub` ends up taking
+ * `true`/`1` and refusing `yes`/`on`. A PHP command or `make_node` token of type
  * `bool` is stricter: `Command_Args::typed()` refuses a word outside
  * `BOOL_WORDS`, where this reads false.
  *

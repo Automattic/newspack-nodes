@@ -83,7 +83,7 @@ const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
  * put all three on stderr, and on the REST command path into the response body,
  * where the `SECRET_NAME_PATTERNS` entries never match to mask them. The
  * command's own `payload` goes with them: Tachikoma prints neither, and a
- * credential reaches a verb through it as readily as through an argument.
+ * credential reaches a command through it as readily as through an argument.
  *
  * The caller redacts the WHOLE VALUE first, so a secret keyed by name at any
  * depth of `arguments` is masked as surely as a `--password=…` token. A keyed
@@ -856,7 +856,7 @@ export class Node {
 	}
 
 	/**
-	 * Serializable state snapshot for the `dump_node` verb: every own field,
+	 * Serializable state snapshot for the `dump_node` command: every own field,
 	 * plus the subclass name under `class`. A node reference renders as
 	 * '{...}' instead of recursing into a second node's whole state, and every
 	 * value passes through `maskForDump()`, since an operator reads this —
@@ -968,7 +968,7 @@ function serializeArgs( tokens ) {
  * goes through the same quoting. `make_node Echo echo foo bar` reads as if `echo`
  * were the name and `foo bar` the arguments; the command's actual arguments are
  * all four. Mirror of PHP Node::command_line (public there: subclass
- * dump_config overrides call it; JS nodes never emit verb lines).
+ * dump_config overrides call it; JS nodes never emit command lines).
  *
  * @param {...string} tokens Tokens of the line, verb first.
  * @return {string} The quoted line, newline-terminated.

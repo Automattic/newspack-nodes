@@ -38,7 +38,7 @@
 <div class="stations">
   <div class="card">
     <h3>1. Mint</h3>
-    <p><span class="mono">POST /newspack-nodes/v1/auth</span>, or the <span class="mono">sessions create</span> verb.</p>
+    <p><span class="mono">POST /newspack-nodes/v1/auth</span>, or the <span class="mono">sessions create</span> command.</p>
     <p>The response carries <span class="mono">handle</span>, <span class="mono">secret</span>, the clamped <span class="mono">scope</span>, <span class="mono">expires_in</span> and <span class="mono">now</span>, the server clock the client aligns its signed TIMESTAMP to.</p>
   </div>
   <div class="card">
@@ -77,13 +77,13 @@
   </div>
 
   <div style="flex:1 1 0" class="panel mcp">
-    <header>The same verbs, over JSON-RPC to an agent</header>
+    <header>The same commands, over JSON-RPC to an agent</header>
     <div class="body">
       <div class="chip"><span class="mono">POST /newspack-event-logger-nodes/v1/mcp</span></div>
-      <div class="chip">Each tool names a service interpreter, a verb and the role that verb declares.</div>
+      <div class="chip">Each tool names a service interpreter, a command and the role that command declares.</div>
       <div class="chip">The bearer credential is <span class="mono">handle.secret</span>. It names a live session, and the request runs as that session's minting user under its scope.</div>
       <div class="chip">The server filters the tool list to that scope, so an agent is offered only what it can run.</div>
-      <div class="chip">Named arguments become the verb's token list, and replies come back JSON-encoded inside a <span class="mono">&lt;site-data&gt;</span> fence.</div>
+      <div class="chip">Named arguments become the command's token list, and replies come back JSON-encoded inside a <span class="mono">&lt;site-data&gt;</span> fence.</div>
       <div class="chip danger">One handle gets 20 calls per 10 seconds.</div>
     </div>
   </div>

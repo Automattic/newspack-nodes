@@ -1,7 +1,7 @@
 <?php
 /**
  * CLI: worker discovery, consumer position, restart flags and attached-cli IPC
- * paths for the `wp nodes` verbs and the dashboard that mirrors them.
+ * paths for the `wp nodes` subcommands and the dashboard that mirrors them.
  *
  * Every instance method works one runtime tree on disk — lock dirs for worker
  * liveness, the topicprobe log for consumer position, offsetlogs and segment
@@ -575,7 +575,7 @@ class CLI {
 	/**
 	 * `WP_CLI::error` (exits) when this process is root.
 	 *
-	 * A root-run verb seeds `ipc/` and `locks/` root-owned, and the workers run
+	 * A root-run subcommand seeds `ipc/` and `locks/` root-owned, and the workers run
 	 * as the web user, so they are the ones left unable to append to their own
 	 * IPC directories.
 	 *

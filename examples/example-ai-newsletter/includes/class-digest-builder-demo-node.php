@@ -47,7 +47,7 @@ class Digest_Builder_Demo_Node extends Node {
 	 * Answer a TM_REQUEST, accumulate a TM_STRUCT item, ignore everything else.
 	 *
 	 * FLUSH is a runtime trigger, so it arrives as a TM_REQUEST rather than as a
-	 * TM_COMMAND verb on the `:config` interpreter: commands build and
+	 * TM_COMMAND on the `:config` interpreter: commands build and
 	 * administer a graph, requests drive one that already runs.
 	 * `answer_request()` answers it from the schema. A TM_STRUCT whose VALUE is
 	 * not an array is dropped rather than accumulated, because the renderer

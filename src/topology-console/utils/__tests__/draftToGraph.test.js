@@ -94,10 +94,10 @@ describe( 'draftToGraph', () => {
 	} );
 } );
 
-describe( 'verb rows carry their provenance', () => {
-	it( 'marks the include’s verbs seeded and the file’s not', () => {
+describe( 'command rows carry their provenance', () => {
+	it( 'marks the include’s commands seeded and the file’s not', () => {
 		// The Inspector renders one list and lets any row be spliced. Keyed by
-		// INDEX, removing a seeded row deletes a declared verb instead; the
+		// INDEX, removing a seeded row deletes a declared command instead; the
 		// flag is what makes the write-back identity-based.
 		const graph = graphFromTsl(
 			[
@@ -120,7 +120,7 @@ describe( 'verb rows carry their provenance', () => {
 		);
 		const rows = graph.nodes.find(
 			( n ) => n.id === 'jobs'
-		).verbInvocations;
+		).commandInvocations;
 
 		expect( rows.map( ( r ) => [ r.verb, r.seeded ] ) ).toEqual( [
 			[ 'set_seeded', true ],

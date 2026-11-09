@@ -28,7 +28,7 @@ namespace Newspack_Nodes;
  */
 class Tables_CLI_Command {
 
-	/** Default seconds a verb waits for the owning workers' replies. */
+	/** Default seconds a subcommand waits for the owning workers' replies. */
 	public const REPLY_TIMEOUT_S = 10;
 
 	/** The node every command here is sent FROM, so its reply lands there. */

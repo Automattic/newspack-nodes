@@ -65,7 +65,7 @@ table.seam td { padding:6px 8px 6px 0; border-top:1px solid #E3E4E6; vertical-al
   </div>
   <div class="card">
     <h2>The lease, and who keeps it alive</h2>
-    <p>Both stream routes draw on one host-wide pool. A browser's <span class="mono">_heartbeat</span> node pokes every 15 s with <span class="mono">workers heartbeat [ slot, owner ]</span>, both canonical decimal tokens from the <span class="mono">connected</span> handshake; the server owns the TTL and the client cannot lengthen it. A closed tab pokes nothing, so its slot frees itself one TTL after the last poke. <span class="mono">workers heartbeat</span> is a <span class="blue">read</span> verb because manage would expire every read-only stream after one TTL.</p>
+    <p>Both stream routes draw on one host-wide pool. A browser's <span class="mono">_heartbeat</span> node pokes every 15 s with <span class="mono">workers heartbeat [ slot, owner ]</span>, both canonical decimal tokens from the <span class="mono">connected</span> handshake; the server owns the TTL and the client cannot lengthen it. A closed tab pokes nothing, so its slot frees itself one TTL after the last poke. <span class="mono">workers heartbeat</span> is a <span class="blue">read</span> command because manage would expire every read-only stream after one TTL.</p>
     <div class="nums">
       <div><b>6</b><span class="mono">sse_max_streams</span> per host</div>
       <div><b>3</b><span class="mono">sse_max_slots</span> per identity</div>

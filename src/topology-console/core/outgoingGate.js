@@ -116,7 +116,7 @@ export class OutgoingGateNode extends Node {
 
 	/**
 	 * Declare the gate's shape for anything reflecting on the class: no
-	 * positional arguments, no verbs, and no output port, because it forwards
+	 * positional arguments, no commands, and no output port, because it forwards
 	 * to its `sink` and stamps no target. `Hidden` states the exclusion the
 	 * palette already gets from the class's absence from `includeNodes` — an
 	 * unaddressable node is a node a TSL line should never be able to name.

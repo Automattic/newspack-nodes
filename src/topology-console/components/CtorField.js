@@ -1,6 +1,6 @@
 /**
  * One schema-driven argument input, shared by the edit-mode Inspector, its
- * verb-argument modals and the live-drop NewNodeModal. All of them read the
+ * command-argument modals and the live-drop NewNodeModal. All of them read the
  * same `node_schema()` declaration, so all of them render the same widget for
  * a given argument: a picker for a formatter, a vault or a vault group, a
  * suggesting text input for a node path, typed text everywhere else, and a
@@ -74,8 +74,8 @@ export function coerceValue( type, raw ) {
 }
 
 /**
- * One constructor argument, as a node's `node_schema()` declares it. A verb
- * argument carries the same shape, which is what lets the verb modals render
+ * One constructor argument, as a node's `node_schema()` declares it. A command
+ * argument carries the same shape, which is what lets the command modals render
  * their arguments through this component too.
  *
  * @typedef  {Object}  CtorArgSpec
@@ -273,7 +273,7 @@ export function CtorField( {
 		);
 	}
 	if ( 'node_name' === spec.type ) {
-		// A node_name verb arg also draws a virtual edge on the canvas.
+		// A node_name command arg also draws a virtual edge on the canvas.
 		return (
 			<div className="topology-edit-row">
 				<label

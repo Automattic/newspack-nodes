@@ -1,6 +1,6 @@
 /**
  * usePoller — one poller node mounted on the backbone for the life of a
- * view, asking its verb of `_cwd` at the live cadence and handing back the
+ * view, asking its command of `_cwd` at the live cadence and handing back the
  * field it publishes, filtered to the subject it asks about now.
  */
 
@@ -54,7 +54,7 @@ function answer( name, payload, subject = null ) {
 const flush = () => act( async () => {} );
 
 describe( 'usePoller', () => {
-	it( 'mounts the class it names, asking its verb of _cwd at the live cadence', () => {
+	it( 'mounts the class it names, asking its command of _cwd at the live cadence', () => {
 		renderHook( () =>
 			usePoller( {
 				name: 'kea:fetch',

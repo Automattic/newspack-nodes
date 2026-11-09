@@ -29,12 +29,12 @@ final class AddSourceArgsTest extends TestCase {
 	}
 
 	/**
-	 * @param list<string>          $tokens   The verb's tokens.
+	 * @param list<string>          $tokens   The command's tokens.
 	 * @param array<string,string> $expected The bound args, or `refused` and its words.
 	 */
 	#[DataProvider( 'cases' )]
 	public function test_bind_reads_the_shared_case_list( array $tokens, array $expected ): void {
-		$specs = Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class )['add_source']['args'];
+		$specs = Command_Interpreter_Node::declared_commands( Remote_Source_Node::class )['add_source']['args'];
 		try {
 			$bound = Command_Args::bind( $specs, $tokens );
 		} catch ( \InvalidArgumentException $e ) {

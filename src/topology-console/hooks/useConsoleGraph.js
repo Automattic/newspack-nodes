@@ -164,7 +164,7 @@ export function useConsoleGraph( {
 			shell: shellTap,
 			teardown: teardownSpine,
 		} = mountExospine();
-		// Interpreter ships the PHP verb set as built-ins (no overrides).
+		// Interpreter ships the PHP command set (no overrides).
 
 		// Rule #2: the Dumper sinks into the interpreter and stamps no target.
 		const dumper = new DumperNode();

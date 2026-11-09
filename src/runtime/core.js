@@ -1,7 +1,7 @@
 /**
  * Core — the browser side of the runtime's per-process state, counterpart of
  * PHP `Newspack_Nodes\Core`. It owns the clock, the log-line prefix, the
- * rate-limited stderr path and the bounded ring the `dmesg` verb reads, the
+ * rate-limited stderr path and the bounded ring the `dmesg` command reads, the
  * secret-name rule every redactor asks, and the two rebuild signals a mounted
  * graph subscribes to.
  *
@@ -30,7 +30,7 @@ import { NodeRegistry } from './node-registry';
 const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
 
 /**
- * Lines the stderr tail keeps for the `dmesg` verb. Tachikoma caps its
+ * Lines the stderr tail keeps for the `dmesg` command. Tachikoma caps its
  * RECENT_LOG ring at the same 100.
  */
 const RECENT_LOG_MAX = 100;
@@ -136,7 +136,7 @@ class CoreImpl {
 		this._lastPrint = new Map();
 		// Unread; printLessOften throttles on _lastPrint alone.
 		this._countSince = new Map();
-		this.recentLog = []; // bounded stderr tail for the dmesg verb
+		this.recentLog = []; // bounded stderr tail for the dmesg command
 		this._inStderr = false; // re-entry guard for the stderr reply-sink emit
 		this.initTime = this.now(); // uptime baseline (PHP Core::$init_time)
 		/**

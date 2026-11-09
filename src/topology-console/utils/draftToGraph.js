@@ -5,7 +5,7 @@
  * The console's view layer wants `{ nodes, edges, includes, … }`; the draft is
  * a node table. This is the whole adapter between them, and it is a READ: it
  * derives, never decides. Anything that looks like a decision here belongs in
- * the interpreter, where a TSL verb can reach it.
+ * the interpreter, where a TSL command can reach it.
  *
  * `seededInvocationsFor`, `declaredInvocationsFor` and `seededEdges` exist on
  * the interpreter FOR this function — they are its read API, not incidental
@@ -40,7 +40,7 @@ import { CONFIG_TARGET_VERB_RE, withConfigEdges } from './consoleGraph';
  */
 
 /**
- * One verb invocation in the shape the Inspector renders and edits.
+ * One command invocation in the shape the Inspector renders and edits.
  *
  * `viaConfig` rides along because it records the `:config` spelling the file
  * used, and `dumpDocument` writes that same spelling back.
@@ -70,15 +70,15 @@ function valueOf( span ) {
 /**
  * The sources a node's `add_source` and `remove_source` lines leave, as
  * written and in order: a broker's, or a Vault_Group's, which the group
- * forwards to its child class. Each line is bound as its verb binds it and
- * folded by `foldSource()`, the one rule the link's verbs and PHP
+ * forwards to its child class. Each line is bound as its command binds it and
+ * folded by `foldSource()`, the one rule the link's commands and PHP
  * `Remote_Broker_Node::fold_source()` apply: at partition 0 for a class whose
  * schema marks an argument `partition: 'bound'`, as a PHP broker's roots are,
  * and with none bound for any other, as a browser link refuses
  * `{partition}`. Where the load refuses
  * a line, and the analyzer the whole topology, this reader skips that line
  * and folds on, so a draft mid-edit keeps drawing; a class whose catalog
- * entry declares neither verb draws nothing.
+ * entry declares neither command draws nothing.
  *
  * @param {string}        className   The node's shell class.
  * @param {Array<string>} spans       Its constructor arguments, as written.
@@ -87,10 +87,10 @@ function valueOf( span ) {
  * @return {Array<{source:string,target:string}>} The sources, in order.
  */
 function sourcesOf( className, spans, invocations, catalog ) {
-	const verbClass =
+	const commandClass =
 		'Vault_Group' === className ? valueOf( spans[ 0 ] ?? '' ) : className;
-	const entry = catalog.find( ( c ) => c.shell_name === verbClass );
-	const verbs = entry?.commands ?? [];
+	const entry = catalog.find( ( c ) => c.shell_name === commandClass );
+	const commands = entry?.commands ?? [];
 	const partition = ( entry?.arguments ?? [] ).some(
 		( argument ) => 'bound' === argument.partition
 	)
@@ -98,14 +98,17 @@ function sourcesOf( className, spans, invocations, catalog ) {
 		: null;
 	let sources = [];
 	for ( const inv of invocations ) {
-		const verb = [ ADD_SOURCE, REMOVE_SOURCE ].includes( inv.verb )
-			? verbs.find( ( c ) => c.name === inv.verb )
+		const command = [ ADD_SOURCE, REMOVE_SOURCE ].includes( inv.verb )
+			? commands.find( ( c ) => c.name === inv.verb )
 			: null;
-		if ( ! inv.viaConfig || ! verb ) {
+		if ( ! inv.viaConfig || ! command ) {
 			continue;
 		}
 		try {
-			const bound = bindCommandArgs( verb.args, inv.args.map( valueOf ) );
+			const bound = bindCommandArgs(
+				command.args,
+				inv.args.map( valueOf )
+			);
 			sources = foldSource(
 				sources,
 				inv.verb,
@@ -153,7 +156,7 @@ function withoutPairs( seeded, from, targets ) {
  * marked `seeded`: the flag is what lets the Inspector lock those rows and
  * drop them before a save writes the document's own half back.
  *
- * A `set_*target` verb on a borrowed node ALSO becomes a `configOverrides`
+ * A `set_*target` command on a borrowed node ALSO becomes a `configOverrides`
  * entry, because the expansion may already carry a config-role edge for that
  * slot and an edge list cannot express vacating one: `withConfigEdges` does
  * that before drawing the new endpoint. An argument-less setter rides with an
@@ -189,7 +192,7 @@ export function draftToGraph( interpreter ) {
 			target: targets[ 0 ] ?? '',
 			also: targets.slice( 1 ),
 			ctorArgs: ( node.arguments || [] ).slice(),
-			verbInvocations: [
+			commandInvocations: [
 				...included.map( ( inv ) => ( {
 					...invocation( inv ),
 					seeded: true,

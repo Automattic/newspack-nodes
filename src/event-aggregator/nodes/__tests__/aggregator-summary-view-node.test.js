@@ -1,7 +1,7 @@
 /**
  * aggregator summary:view tests — the HEADER slice. Owns ONLY the
  * connected/total counts + snapshot clock the dashboard header renders. Fed by
- * its own `summary` slice verb (FROM=summary:view), it maps the struct
+ * its own `summary` slice command (FROM=summary:view), it maps the struct
  * payload `{ connected, total, server_now }` into its slice and publishes via
  * setState('view', …) for the <AggregatorSummary> widget. No server cards, no
  * partition data — that's the servers slice's job.
@@ -26,7 +26,7 @@ function makeView() {
 	return node;
 }
 
-// A reply Message as the slice verb emits: VALUE.payload = the summary struct.
+// A reply Message as the slice command emits: VALUE.payload = the summary struct.
 function reply( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;

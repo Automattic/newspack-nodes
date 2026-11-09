@@ -17,7 +17,7 @@
  * - Replay sends `{ [sub]: 'start' }`, the token the server resolves to the
  *   earliest retained record.
  *
- * The rail rides `dump_log`, so browsing costs no verb of its own.
+ * The rail rides `dump_log`, so browsing costs no command of its own.
  *
  * `useSegmentBrowse`, at the foot of the file, composes all of this into the
  * one controller a dashboard mounts: rail maintenance, the seek handlers, and
@@ -104,9 +104,9 @@ export function replayPositions( sub ) {
 }
 
 /**
- * The read-verb position a Step should ask for: the pending seek if there is
+ * The read-command position a Step should ask for: the pending seek if there is
  * one, else wherever the live stream left off. A token ('start' from Replay)
- * rides through verbatim, because the read verbs speak the same position
+ * rides through verbatim, because the read commands speak the same position
  * vocabulary as the seek transport; an explicit cursor formats as
  * `<segment>:<offset>`, or `:<offset>` when the generation is unknown.
  *

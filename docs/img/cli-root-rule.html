@@ -22,8 +22,8 @@
 .below > * { flex:1; }
 </style>
 <div class="sheet">
-<h1>What each verb does when root runs it</h1>
-<p class="sub">Workers run as the web user and own every lock, IPC and segment file. Root is refused by two verbs and fails every write that flags a worker, so a root run never reports a signal it did not send; <span class="mono">memcache flush</span> alone warns and carries on. The exception is <span class="mono">ingest</span>, which writes as root and leaves the damage for later.</p>
+<h1>What each command does when root runs it</h1>
+<p class="sub">Workers run as the web user and own every lock, IPC and segment file. Root is refused by two commands and fails every write that flags a worker, so a root run never reports a signal it did not send; <span class="mono">memcache flush</span> alone warns and carries on. The exception is <span class="mono">ingest</span>, which writes as root and leaves the damage for later.</p>
 
 <div class="tree">
   <svg viewBox="0 0 1052 130">
@@ -37,7 +37,7 @@
     <path d="M930 96 V126" marker-end="url(#a)"/>
   </svg>
 
-  <div class="q">Is the effective uid 0?<small><span class="mono">CLI::uid()</span> answers; each verb asks for itself, cli and run at entry, the rest before each write</small></div>
+  <div class="q">Is the effective uid 0?<small><span class="mono">CLI::uid()</span> answers; each command asks for itself, cli and run at entry, the rest before each write</small></div>
 </div>
 <div class="branches">
   <div class="branch refuse card">
@@ -64,7 +64,7 @@
   <div class="branch ok card">
     <h3>Work as usual</h3>
     <div class="verbs"><span>status</span><span>types</span><span>doctor</span></div>
-    <p>Read-only verbs need no write, so denial costs them nothing.</p>
+    <p>Read-only commands need no write, so denial costs them nothing.</p>
   </div>
 </div>
 

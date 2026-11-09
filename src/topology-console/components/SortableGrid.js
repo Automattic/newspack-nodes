@@ -22,7 +22,7 @@ import './inspector-views.scss';
 
 /**
  * One grid row: cell values keyed by column key, as the `-s` form of a REPL
- * verb hands them back — strings, numbers, booleans, and null where the scope
+ * command hands them back — strings, numbers, booleans, and null where the scope
  * has no value to report. A `name` doubles as the React key and the row's
  * `data-name` attribute.
  *

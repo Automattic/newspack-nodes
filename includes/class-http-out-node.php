@@ -439,11 +439,11 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * @param array<array-key,mixed> $server    Decrypted vault server config.
 	 * @param string                 $to        Target node path on the spoke.
 	 * @param string                 $verb      Command verb name.
-	 * @param list<string>           $verb_args Argument tail (Command_Args grammar).
+	 * @param list<string>           $command_args Argument tail (Command_Args grammar).
 	 * @return array<array-key,mixed> The reply's `payload` array.
 	 * @throws \RuntimeException On any transport, auth, or envelope failure.
 	 */
-	public static function probe_command( string $dest, array $server, string $to, string $verb, array $verb_args = [] ): array {
+	public static function probe_command( string $dest, array $server, string $to, string $verb, array $command_args = [] ): array {
 		$base = Vault::url_of( $server );
 		if ( Vault::https_required( $base ) ) {
 			throw new \RuntimeException( 'vault_require_ssl is set but the server url is not https' );
@@ -451,7 +451,7 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 
 		self::establish_session( $dest, $server, $base );
 
-		$message = self::command_message( Node_Names::HTTP, $to, $verb, $verb_args );
+		$message = self::command_message( Node_Names::HTTP, $to, $verb, $command_args );
 		Command_Auth::sign_for( $dest, $message );
 
 		$response = self::blocking_post(
@@ -723,10 +723,10 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	}
 
 	/**
-	 * `allow_replies_to` verb handler: declare a reply destination on the patron.
+	 * `allow_replies_to` command handler: declare a reply destination on the patron.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: path.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: path.
 	 * @return string
 	 * @throws \RuntimeException When the path is blank.
 	 */

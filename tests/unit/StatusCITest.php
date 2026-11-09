@@ -15,7 +15,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Rest\Status_CI_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Config as RuntimeConfig;
@@ -29,8 +29,8 @@ class StatusCITest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		// Service CI verbs are gate-by-default (manage_options) in the substrate;
-		// these happy-path verbs run as an authorized admin (deny-path is its own test).
+		// Service CI commands are gate-by-default (manage_options) in the substrate;
+		// these happy-path commands run as an authorized admin (deny-path is its own test).
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		// /tmp directly to dodge symlink-resolved sys_get_temp_dir on macOS,
 		// matching AggregatorCITest.
@@ -56,7 +56,7 @@ class StatusCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$this->rmdir_recursive( $this->tmp );
 		// activate_topologies() caches a substrate config snapshot; the base
@@ -67,7 +67,7 @@ class StatusCITest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_get_verb_returns_canonical_status_payload(): void {
+	public function test_get_command_returns_canonical_status_payload(): void {
 		$this->use_base_dir( $this->tmp, [
 			'num_partitions' => 4,
 		] );
@@ -76,7 +76,7 @@ class StatusCITest extends TestCase {
 		$interpreter         = new Status_CI_Node();
 
 		$before = \time();
-		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
+		$result = CommandHarness::fire( $interpreter, 'status', 'get' );
 		$after  = \time();
 
 		$this->assertIsArray( $result );
@@ -98,7 +98,7 @@ class StatusCITest extends TestCase {
 		$this->activate_topologies( [ 'job-worker', 'no-such-topology' ] );
 		$interpreter = new Status_CI_Node();
 
-		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
+		$result = CommandHarness::fire( $interpreter, 'status', 'get' );
 
 		$this->assertSame( [ 'job-worker' ], $result['topologies'] );
 	}
@@ -108,7 +108,7 @@ class StatusCITest extends TestCase {
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		$interpreter                = new Status_CI_Node();
 
-		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
+		$result = CommandHarness::fire( $interpreter, 'status', 'get' );
 
 		$this->assertFalse( $result['cache_available'] );
 		$this->assertSame( 'ok', $result['status'] );
@@ -119,7 +119,7 @@ class StatusCITest extends TestCase {
 		Cache_Backend::$apcu_usable = static fn (): bool => true;
 		$interpreter                = new Status_CI_Node();
 
-		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
+		$result = CommandHarness::fire( $interpreter, 'status', 'get' );
 
 		$this->assertTrue( $result['cache_available'] );
 		$this->assertSame( 'ok', $result['status'] );
@@ -133,7 +133,7 @@ class StatusCITest extends TestCase {
 		$this->activate_topologies( [] );
 		$interpreter = new Status_CI_Node();
 
-		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
+		$result = CommandHarness::fire( $interpreter, 'status', 'get' );
 
 		$this->assertSame( 1, $result['num_partitions'] );
 		$this->assertSame( [], $result['topologies'] );
@@ -148,7 +148,7 @@ class StatusCITest extends TestCase {
 		);
 	}
 
-	public function test_node_schema_declares_get_verb_with_category(): void {
+	public function test_node_schema_declares_get_command_with_category(): void {
 		$schema = Status_CI_Node::node_schema();
 
 		$this->assertIsArray( $schema );
@@ -167,7 +167,7 @@ class StatusCITest extends TestCase {
 	 * the CI surfaces under 'Service'.
 	 */
 	public function test_appears_in_class_catalog_as_service(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertArrayHasKey( 'classes', $result );
 		// A stale classmap (no composer dump-autoload -o) yields zero classes and

@@ -7,10 +7,10 @@
  *
  * Shown inside the Inspector's Runtime modal. It mounts TWO `Poller` nodes
  * (router-TIMER-hitchhiking TimerNodes publishing their reply as `reply`) on
- * the backbone while the modal is open — one per verb, `list_timers -s` and
+ * the backbone while the modal is open — one per command, `list_timers -s` and
  * `list_handles -s` — each routed through `_cwd` so it reports the current
  * scope: browser-local at root, the cd'd worker when pivoted. One node per
- * verb is the contract rather than a convenience — a reply comes back
+ * command is the contract rather than a convenience — a reply comes back
  * addressed to the node that minted it, so nothing here correlates anything
  * (ADR-7) — and both mints still leave in the one POST the tick batches.
  *
@@ -35,7 +35,7 @@ const TIMER_POLLER = 'timers:fetch';
 /** Registered name of the `list_handles` poller the handles grid reads. */
 const HANDLE_POLLER = 'handles:fetch';
 
-/** Both verbs answer rows rather than a text table. */
+/** Both commands answer rows rather than a text table. */
 const SORTABLE = [ '-s' ];
 
 /**
@@ -74,7 +74,7 @@ const HANDLE_COLS = [
 export default function RuntimeView() {
 	const [ timerSort, onTimerSort ] = useSortState( 'name' );
 	const [ handleSort, onHandleSort ] = useSortState( 'name' );
-	// One poller per verb, both asking `_cwd`; null until the first reply.
+	// One poller per command, both asking `_cwd`; null until the first reply.
 	const { value: data } = usePoller( {
 		name: TIMER_POLLER,
 		verb: 'list_timers',

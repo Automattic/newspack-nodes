@@ -126,7 +126,7 @@ const STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
  * the words `start` / `recent` / `end` as aliases.
  *
  * `recent` (-2) has no JS spelling. It is live on the PHP side — `wp nodes
- * reqgrep --recent` and the `grep_requests` verb's `scope=recent` both seek it —
+ * reqgrep --recent` and the `grep_requests` command's `scope=recent` both seek it —
  * but both build a local Consumer rather than crossing this wire, so a browser
  * caller never asks for it. Add it when one does, not before.
  */

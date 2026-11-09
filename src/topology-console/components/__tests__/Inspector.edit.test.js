@@ -1,7 +1,7 @@
 /**
  * Inspector — edit-mode (EditForm) paths. Covers identity rename,
  * routing target field (single + Tee multi-chip), ctor field input
- * variants, verb checkbox + arg inputs, and the delete-node button.
+ * variants, command checkbox + arg inputs, and the delete-node button.
  */
 
 import { fireEvent, screen } from '@testing-library/react';
@@ -90,7 +90,7 @@ describe( 'Inspector (edit mode)', () => {
 						origin: [ 'request-builder' ],
 						via: [ 'performance', 'request-builder' ],
 						ctorArgs: [],
-						verbInvocations: [],
+						commandInvocations: [],
 					},
 					{ id: 'request-builder', class: 'Tee', ctorArgs: [] },
 				],
@@ -118,7 +118,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( getByText( 'Routing' ) ).not.toBeNull();
 	} );
 
-	it( "shows a borrowed node's configured verbs read-only", () => {
+	it( "shows a borrowed node's configured commands read-only", () => {
 		const borrowedProps = {
 			...baseProps,
 			selectedId: 'errors:partition',
@@ -130,7 +130,7 @@ describe( 'Inspector (edit mode)', () => {
 						origin: [ 'request-builder' ],
 						via: [ 'request-builder' ],
 						ctorArgs: [],
-						verbInvocations: [
+						commandInvocations: [
 							{ verb: 'void_warranty', args: [], seeded: true },
 							{
 								verb: 'with_index',
@@ -165,29 +165,29 @@ describe( 'Inspector (edit mode)', () => {
 			}
 		);
 
-		// Ticked verb: checked, but immutable here (borrowed).
+		// Ticked command: checked, but immutable here (borrowed).
 		const ticked = getByLabelText( 'void_warranty' );
 		expect( ticked.checked ).toBe( true );
 		expect( ticked.disabled ).toBe( true );
-		// A verb the include never invoked is listed unticked — and ticking it
+		// A command the include never invoked is listed unticked — and ticking it
 		// is how this document adds its OWN `cmd <node>:config` line.
 		expect(
-			document.getElementById( 'topology-verb-allow_large_writes' )
+			document.getElementById( 'topology-command-allow_large_writes' )
 				.checked
 		).toBe( false );
-		// A verb's arg value is shown read-only.
+		// A command's arg value is shown read-only.
 		expect( getByDisplayValue( 'quokka-idx' ).disabled ).toBe( true );
 	} );
 
-	it( 'lets the document edit its OWN verbs on a borrowed node', () => {
+	it( 'lets the document edit its OWN commands on a borrowed node', () => {
 		// stock hub-control.tsl.php is exactly this: `include settings-sync` plus
 		// `cmd settings-sync:config add_setting ...` lines aimed at it. The
 		// include's half stays read-only; the file's half belongs to the file.
-		const onUpdateVerbs = jest.fn();
+		const onUpdateCommands = jest.fn();
 		const props = {
 			...baseProps,
 			selectedId: 'settings-sync',
-			onUpdateVerbs,
+			onUpdateCommands,
 			parsed: {
 				nodes: [
 					{
@@ -196,7 +196,7 @@ describe( 'Inspector (edit mode)', () => {
 						origin: [ 'settings-sync' ],
 						via: [ 'settings-sync' ],
 						ctorArgs: [ '300' ],
-						verbInvocations: [
+						commandInvocations: [
 							{
 								verb: 'add_setting',
 								args: [
@@ -254,10 +254,10 @@ describe( 'Inspector (edit mode)', () => {
 		const mine = getByDisplayValue( 'from_the_file' );
 		expect( mine.disabled ).toBeFalsy();
 		fireEvent.change( mine, { target: { value: 'edited' } } );
-		expect( onUpdateVerbs ).toHaveBeenCalled();
+		expect( onUpdateCommands ).toHaveBeenCalled();
 	} );
 
-	it( 'shows a quoted borrowed verb arg as its VALUE, quotes stripped', () => {
+	it( 'shows a quoted borrowed command arg as its VALUE, quotes stripped', () => {
 		// The stored token is the raw TSL span; quotes are tokenizer syntax
 		// and must not leak into the form field.
 		const borrowedProps = {
@@ -271,7 +271,7 @@ describe( 'Inspector (edit mode)', () => {
 						origin: [ 'newspack-intelligence-digest' ],
 						via: [ 'newspack-intelligence-digest' ],
 						ctorArgs: [],
-						verbInvocations: [
+						commandInvocations: [
 							{
 								verb: 'add_profile',
 								args: [ '"Engineers build tools."' ],
@@ -311,9 +311,9 @@ describe( 'Inspector (edit mode)', () => {
 		);
 	} );
 
-	it( 'absorbs a multi-token borrowed verb arg into its single declared slot', () => {
+	it( 'absorbs a multi-token borrowed command arg into its single declared slot', () => {
 		// An unquoted `add_profile Do not produce tables.` parses to 4 tokens;
-		// a one-arg verb must display the whole line, not just `Do`.
+		// a one-arg command must display the whole line, not just `Do`.
 		const borrowedProps = {
 			...baseProps,
 			selectedId: 'digest',
@@ -325,7 +325,7 @@ describe( 'Inspector (edit mode)', () => {
 						origin: [ 'newspack-intelligence-digest' ],
 						via: [ 'newspack-intelligence-digest' ],
 						ctorArgs: [],
-						verbInvocations: [
+						commandInvocations: [
 							{
 								verb: 'add_profile',
 								args: [ 'Do', 'not', 'produce', 'tables.' ],
@@ -365,7 +365,7 @@ describe( 'Inspector (edit mode)', () => {
 		);
 	} );
 
-	it( 'shows every invocation of a borrowed multiple-verb read-only', () => {
+	it( 'shows every invocation of a borrowed multiple-command read-only', () => {
 		const borrowedProps = {
 			...baseProps,
 			selectedId: 'fanout:tap',
@@ -377,7 +377,7 @@ describe( 'Inspector (edit mode)', () => {
 						origin: [ 'request-builder' ],
 						via: [ 'request-builder' ],
 						ctorArgs: [],
-						verbInvocations: [
+						commandInvocations: [
 							{
 								verb: 'add_target',
 								args: [ 'alpha-sink' ],
@@ -426,7 +426,7 @@ describe( 'Inspector (edit mode)', () => {
 	// An action RUNS something on a live node — `Table flush` deletes every row,
 	// `Request_Builder purge` drops every in-flight request — so it is not
 	// configuration, and a draft has no live node to run it on.
-	it( 'hides verbs flagged action in node_schema from the edit Verbs list', () => {
+	it( 'hides commands flagged action in node_schema from the edit Class Commands list', () => {
 		const { getByText, queryByText } = renderWithCatalog(
 			<Inspector { ...baseProps } />,
 			{
@@ -446,7 +446,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( queryByText( 'purge' ) ).toBeNull();
 	} );
 
-	it( 'hides verbs flagged hidden in node_schema from the edit Verbs list', () => {
+	it( 'hides commands flagged hidden in node_schema from the edit Class Commands list', () => {
 		const { getByText, queryByText } = renderWithCatalog(
 			<Inspector { ...baseProps } />,
 			{
@@ -466,7 +466,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( queryByText( 'seek_frame' ) ).toBeNull();
 	} );
 
-	it( 'surfaces a verb description as a tooltip in the edit Verbs list', () => {
+	it( 'surfaces a command description as a tooltip in the edit Class Commands list', () => {
 		const { container } = renderWithCatalog(
 			<Inspector { ...baseProps } />,
 			{
@@ -626,7 +626,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRenameNode ).toHaveBeenCalledWith( 'echo', 'beta' );
 	} );
 
-	describe( 'multiple verb (1 vs N invocations)', () => {
+	describe( 'multiple command (1 vs N invocations)', () => {
 		const multiProps = {
 			...baseProps,
 			selectedId: 'ss',
@@ -635,7 +635,7 @@ describe( 'Inspector (edit mode)', () => {
 					{
 						id: 'ss',
 						class: 'Settings_Sync',
-						verbInvocations: [
+						commandInvocations: [
 							{
 								verb: 'add_setting',
 								args: [ 'a', 'settings', 'x' ],
@@ -684,14 +684,14 @@ describe( 'Inspector (edit mode)', () => {
 				}
 			);
 			const argBlocks = container.querySelectorAll(
-				'.topology-edit-verb__args'
+				'.topology-edit-command__args'
 			);
 			expect( argBlocks.length ).toBe( 3 );
 		} );
 
 		it( 'editing one arg of an over-long invocation keeps the other declared args', () => {
 			// 4 tokens vs a 3-arg schema; editing `to` must keep other args.
-			const onUpdateVerbs = jest.fn();
+			const onUpdateCommands = jest.fn();
 			const overlongProps = {
 				...multiProps,
 				parsed: {
@@ -699,7 +699,7 @@ describe( 'Inspector (edit mode)', () => {
 						{
 							id: 'ss',
 							class: 'Settings_Sync',
-							verbInvocations: [
+							commandInvocations: [
 								{
 									verb: 'add_setting',
 									args: [ 'a', 'settings', 'x', 'extra' ],
@@ -713,7 +713,7 @@ describe( 'Inspector (edit mode)', () => {
 			const { container } = renderWithCatalog(
 				<Inspector
 					{ ...overlongProps }
-					onUpdateVerbs={ onUpdateVerbs }
+					onUpdateCommands={ onUpdateCommands }
 				/>,
 				{
 					classes: overlongProps.catalog,
@@ -726,15 +726,18 @@ describe( 'Inspector (edit mode)', () => {
 			fireEvent.change( container.querySelector( '#topology-ctor-to' ), {
 				target: { value: 'S' },
 			} );
-			expect( onUpdateVerbs ).toHaveBeenCalledWith( 'ss', [
+			expect( onUpdateCommands ).toHaveBeenCalledWith( 'ss', [
 				{ verb: 'add_setting', args: [ 'a', 'S', 'x extra' ] },
 			] );
 		} );
 
 		it( 'Add appends a fresh invocation; remove drops the chosen one', () => {
-			const onUpdateVerbs = jest.fn();
+			const onUpdateCommands = jest.fn();
 			const { getByText, container } = renderWithCatalog(
-				<Inspector { ...multiProps } onUpdateVerbs={ onUpdateVerbs } />,
+				<Inspector
+					{ ...multiProps }
+					onUpdateCommands={ onUpdateCommands }
+				/>,
 				{
 					classes: multiProps.catalog,
 					formatters: multiProps.formatters,
@@ -744,7 +747,7 @@ describe( 'Inspector (edit mode)', () => {
 				}
 			);
 			fireEvent.click( getByText( /^\+ add_setting$/ ) );
-			expect( onUpdateVerbs ).toHaveBeenCalledWith(
+			expect( onUpdateCommands ).toHaveBeenCalledWith(
 				'ss',
 				expect.arrayContaining( [
 					expect.objectContaining( {
@@ -753,20 +756,20 @@ describe( 'Inspector (edit mode)', () => {
 					} ),
 				] )
 			);
-			onUpdateVerbs.mockClear();
+			onUpdateCommands.mockClear();
 			const removes = container.querySelectorAll(
-				'.topology-edit-verb__remove'
+				'.topology-edit-command__remove'
 			);
 			expect( removes.length ).toBe( 3 );
 			fireEvent.click( removes[ 1 ] );
-			expect( onUpdateVerbs ).toHaveBeenCalledWith( 'ss', [
+			expect( onUpdateCommands ).toHaveBeenCalledWith( 'ss', [
 				{ verb: 'add_setting', args: [ 'a', 'settings', 'x' ] },
 				{ verb: 'add_setting', args: [ 'c', 'settings', 'z' ] },
 			] );
 		} );
 	} );
 
-	describe( 'free-text verb arg (spaces) absorbs trailing tokens', () => {
+	describe( 'free-text command arg (spaces) absorbs trailing tokens', () => {
 		// A free-text arg shows the WHOLE line, not just the first token.
 		const freeTextProps = {
 			...baseProps,
@@ -776,7 +779,7 @@ describe( 'Inspector (edit mode)', () => {
 					{
 						id: 'summarizer',
 						class: 'Summarizer',
-						verbInvocations: [
+						commandInvocations: [
 							{
 								verb: 'add_profile',
 								args: [ 'Engineers', 'building', 'tools' ],
@@ -816,12 +819,12 @@ describe( 'Inspector (edit mode)', () => {
 			expect( input.value ).toBe( 'Engineers building tools' );
 		} );
 
-		it( 'editing collapses the tail so onUpdateVerbs gets a single-slot args array', () => {
-			const onUpdateVerbs = jest.fn();
+		it( 'editing collapses the tail so onUpdateCommands gets a single-slot args array', () => {
+			const onUpdateCommands = jest.fn();
 			const { container } = renderWithCatalog(
 				<Inspector
 					{ ...freeTextProps }
-					onUpdateVerbs={ onUpdateVerbs }
+					onUpdateCommands={ onUpdateCommands }
 				/>,
 				{
 					classes: freeTextProps.catalog,
@@ -835,7 +838,7 @@ describe( 'Inspector (edit mode)', () => {
 				container.querySelector( '#topology-ctor-text' ),
 				{ target: { value: 'Engineers building great tools' } }
 			);
-			expect( onUpdateVerbs ).toHaveBeenCalledWith( 'summarizer', [
+			expect( onUpdateCommands ).toHaveBeenCalledWith( 'summarizer', [
 				{
 					verb: 'add_profile',
 					args: [ 'Engineers building great tools' ],
@@ -902,7 +905,7 @@ describe( 'Inspector (edit mode)', () => {
 			expect( container.textContent ).toMatch( /_repl/ );
 		} );
 
-		it( 'hides Routing, Constructor, and Verbs sections (no settings on a reserved node)', () => {
+		it( 'hides Routing, Constructor, and Class Commands sections (no settings on a reserved node)', () => {
 			// Reserved-node settings are fixed, not round-trippable via TSL.
 			const { container, queryByText } = renderWithCatalog(
 				<Inspector { ...reservedProps } />,
@@ -916,7 +919,7 @@ describe( 'Inspector (edit mode)', () => {
 			);
 			expect( queryByText( 'Routing' ) ).toBeNull();
 			expect( queryByText( 'Constructor' ) ).toBeNull();
-			expect( queryByText( 'Verbs' ) ).toBeNull();
+			expect( queryByText( 'Class Commands' ) ).toBeNull();
 			// And the Partition's catalog fields must not slip through.
 			expect( container.textContent ).not.toMatch( /base_dir/ );
 			expect( container.textContent ).not.toMatch( /segment_size/ );
@@ -1260,7 +1263,7 @@ describe( 'Inspector (edit mode)', () => {
 		).toBe( 'true' );
 	} );
 
-	it( 'Empty Verbs section: surfaces a placeholder', () => {
+	it( 'Empty Class Commands section: surfaces a placeholder', () => {
 		const { container } = renderWithCatalog(
 			<Inspector { ...baseProps } />,
 			{
@@ -1271,11 +1274,11 @@ describe( 'Inspector (edit mode)', () => {
 				classCatalog: baseProps.classCatalog,
 			}
 		);
-		expect( container.textContent ).toMatch( /No verbs registered/ );
+		expect( container.textContent ).toMatch( /No commands registered/ );
 	} );
 
-	it( 'VerbRow: toggling on appends a new invocation', () => {
-		const onUpdateVerbs = jest.fn();
+	it( 'CommandRow: toggling on appends a new invocation', () => {
+		const onUpdateCommands = jest.fn();
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -1284,18 +1287,21 @@ describe( 'Inspector (edit mode)', () => {
 			},
 		];
 		const { container } = renderWithCatalog(
-			<Inspector { ...baseProps } onUpdateVerbs={ onUpdateVerbs } />,
+			<Inspector
+				{ ...baseProps }
+				onUpdateCommands={ onUpdateCommands }
+			/>,
 			{ classes: catalog }
 		);
-		const checkbox = container.querySelector( '#topology-verb-reset' );
+		const checkbox = container.querySelector( '#topology-command-reset' );
 		fireEvent.click( checkbox );
-		expect( onUpdateVerbs ).toHaveBeenCalledWith( 'echo', [
+		expect( onUpdateCommands ).toHaveBeenCalledWith( 'echo', [
 			{ verb: 'reset', args: [] },
 		] );
 	} );
 
-	it( 'VerbRow: toggling off removes the invocation', () => {
-		const onUpdateVerbs = jest.fn();
+	it( 'CommandRow: toggling off removes the invocation', () => {
+		const onUpdateCommands = jest.fn();
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -1308,7 +1314,7 @@ describe( 'Inspector (edit mode)', () => {
 				{
 					id: 'echo',
 					class: 'Echo',
-					verbInvocations: [ { verb: 'reset', args: [] } ],
+					commandInvocations: [ { verb: 'reset', args: [] } ],
 				},
 			],
 			edges: [],
@@ -1317,16 +1323,16 @@ describe( 'Inspector (edit mode)', () => {
 			<Inspector
 				{ ...baseProps }
 				parsed={ parsed }
-				onUpdateVerbs={ onUpdateVerbs }
+				onUpdateCommands={ onUpdateCommands }
 			/>,
 			{ classes: catalog }
 		);
-		fireEvent.click( container.querySelector( '#topology-verb-reset' ) );
-		expect( onUpdateVerbs ).toHaveBeenCalledWith( 'echo', [] );
+		fireEvent.click( container.querySelector( '#topology-command-reset' ) );
+		expect( onUpdateCommands ).toHaveBeenCalledWith( 'echo', [] );
 	} );
 
-	it( 'VerbRow: changing an enabled verb arg rewrites that invocation args array', () => {
-		const onUpdateVerbs = jest.fn();
+	it( 'CommandRow: changing an enabled command arg rewrites that invocation args array', () => {
+		const onUpdateCommands = jest.fn();
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -1344,7 +1350,7 @@ describe( 'Inspector (edit mode)', () => {
 				{
 					id: 'echo',
 					class: 'Echo',
-					verbInvocations: [
+					commandInvocations: [
 						{ verb: 'set_target', args: [ 'old' ] },
 					],
 				},
@@ -1355,14 +1361,14 @@ describe( 'Inspector (edit mode)', () => {
 			<Inspector
 				{ ...baseProps }
 				parsed={ parsed }
-				onUpdateVerbs={ onUpdateVerbs }
+				onUpdateCommands={ onUpdateCommands }
 			/>,
 			{ classes: catalog }
 		);
 		fireEvent.change( container.querySelector( '#topology-ctor-target' ), {
 			target: { value: 'new' },
 		} );
-		expect( onUpdateVerbs ).toHaveBeenCalledWith( 'echo', [
+		expect( onUpdateCommands ).toHaveBeenCalledWith( 'echo', [
 			{ verb: 'set_target', args: [ 'new' ] },
 		] );
 	} );
@@ -1655,7 +1661,7 @@ describe( 'Inspector (edit mode)', () => {
 			name: 'shared-tee',
 			class: 'Tee',
 			ctorArgs: [],
-			verbInvocations: [],
+			commandInvocations: [],
 			origin: [ 'performance' ],
 			via: [ 'performance', 'request-builder' ],
 		};

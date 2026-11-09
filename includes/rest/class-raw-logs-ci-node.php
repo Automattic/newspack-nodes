@@ -2,11 +2,11 @@
 /**
  * Raw_Logs_CI: the read-only inspection surface behind the Raw Logs dashboard.
  *
- * The dashboard asks three questions and gets one verb each: which partition
+ * The dashboard asks three questions and gets one command each: which partition
  * directories and registry sources exist (`list_logs`), how much one of them
  * holds (`dump_log`), and what the record at a given position decodes to
  * (`read_message`). A fourth, `read_block`, returns up to one block of a
- * log's raw bytes from a position. Every verb reads substrate state; none
+ * log's raw bytes from a position. Every command reads substrate state; none
  * writes.
  * Live tailing belongs to `SSE_Out_Node`, not to this interpreter.
  *
@@ -32,16 +32,16 @@ use Newspack_Nodes\Service_CI_Node;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The `raw-logs` service interpreter: four READ verbs over on-disk partitions.
+ * The `raw-logs` service interpreter: four READ commands over on-disk partitions.
  *
- * Each verb declares `Capabilities::READ` in `node_schema()`, and
+ * Each command declares `Capabilities::READ` in `node_schema()`, and
  * `dispatch()` refuses a caller below it (ADR-26). Nothing here writes, so
  * nothing here asks for a heavier role.
  */
 class Raw_Logs_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `list_logs` verb handler — the catalog the dashboard's log picker mounts.
+	 * `list_logs` command handler — the catalog the dashboard's log picker mounts.
 	 * A row that does not name a log carries no `key`.
 	 *
 	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
@@ -92,10 +92,10 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `dump_log` verb handler — segment count and total size of one log, a
+	 * `dump_log` command handler — segment count and total size of one log, a
 	 * partition dir or a `sources:<name>` registry source, by its stamp.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: the log stamp;
+	 * @param array<array-key,mixed> $args Bound command arguments: the log stamp;
 	 *                                     one that is not carried by any dir or
 	 *                                     registry entry throws.
 	 * @return array{log_id:string,segments:list<array{id:int,size:int}>,segment_count:int,total_size:int}
@@ -112,13 +112,13 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `read_message` verb handler — the single record AT a position, decoded,
+	 * `read_message` command handler — the single record AT a position, decoded,
 	 * through `Log_Sources::read()`, so a dir and a registry source step
 	 * through one read model and the record carries the stamped FROM and the
 	 * `seg:offset:length` ID breadcrumb a streamed row does. A malformed
 	 * position and an unknown log throw; an absent record is a result.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: log, and the `<segment>:<offset>[:<length>]` position.
+	 * @param array<array-key,mixed> $args Bound command arguments: log, and the `<segment>:<offset>[:<length>]` position.
 	 * @return array<string,mixed> The record, or null, and the post-step cursor.
 	 */
 	public static function cmd_read_message( array $args ): array {
@@ -126,7 +126,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `read_block` verb handler — one raw block from a position, through
+	 * `read_block` command handler — one raw block from a position, through
 	 * `Log_Sources::read_block()`, answered to the asker as the two messages
 	 * `Consumer_Node::block_messages()` builds rather than a command reply.
 	 * The header's OFFSET can differ from the position asked, which a word, a
@@ -137,7 +137,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * TM_NOREPLY read sends nothing, as `interpret()` suppresses any reply.
 	 *
 	 * @param Command_Interpreter_Node $self     This interpreter.
-	 * @param array<array-key,mixed>   $args     Bound verb arguments: log, position and multi_writer.
+	 * @param array<array-key,mixed>   $args     Bound command arguments: log, position and multi_writer.
 	 * @param array<array-key,mixed>   $envelope The command, whose FROM the answers go TO.
 	 * @return string '', so a command reply never follows the two.
 	 */
@@ -157,9 +157,9 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Palette entry, verb table and capabilities for the topology console.
+	 * Palette entry, command table and capabilities for the topology console.
 	 *
-	 * Declaring a verb here is its whole registration: `Service_CI_Node` derives
+	 * Declaring a command here is its whole registration: `Service_CI_Node` derives
 	 * the dispatch table from the `handler` entries, and `dispatch()` refuses a
 	 * caller below the `capability` beside each (ADR-26).
 	 *

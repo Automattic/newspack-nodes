@@ -1,31 +1,31 @@
 /**
- * One class-catalog entry, as far as this pass reads it: the verbs the class
- * declares, and the type of each verb argument. `node_name` is the type that
+ * One class-catalog entry, as far as this pass reads it: the commands the class
+ * declares, and the type of each command argument. `node_name` is the type that
  * makes an argument a destination.
  *
  * @typedef {Object} CatalogClass
  * @property {string}                                               shell_name The class name a node's `class` matches.
- * @property {Array<{name: string, args?: Array<{type?: string}>}>} [commands] Verb specs; a class declaring none contributes no edge.
+ * @property {Array<{name: string, args?: Array<{type?: string}>}>} [commands] Command specs; a class declaring none contributes no edge.
  */
 
 /**
- * Synthesize "virtual" edges from a node's verb arguments, so the layout and
+ * Synthesize "virtual" edges from a node's command arguments, so the layout and
  * the canvas draw destinations a document never spells out as edges.
  *
  * `connect_node` is the only edge-producing line a document has, so a target
- * wired through a config verb — Request_Builder's `set_errors_target
+ * wired through a config command — Request_Builder's `set_errors_target
  * errors:partition` — reaches the draft graph as an invocation and never as an
  * edge. The runtime has no such gap: the node declares that destination through
  * `extra_targets()`, and `dump_metadata` ships it in the `targets` display
  * union live mode draws from
  * ([ADR-19](../../../docs/architecture-decisions.md)). Underived, the
- * verb-targeted node has no inbound edge at all, so `autoLayout` reads it as a
+ * command-targeted node has no inbound edge at all, so `autoLayout` reads it as a
  * source, seated by what it feeds, instead of placing it downstream of its
  * producer.
  *
- * Each verb argument whose class-schema `type` is `node_name` yields one edge,
+ * Each command argument whose class-schema `type` is `node_name` yields one edge,
  * flagged `virtual: true`: the canvas dims it and refuses click-to-delete,
- * because the `disconnect_node` a deletion issues would not remove the verb
+ * because the `disconnect_node` a deletion issues would not remove the command's
  * line that named the target.
  *
  * A `<ns:key>` argument names nothing client-side — only the server resolves a
@@ -39,7 +39,7 @@
  * appended.
  *
  * @param {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} graph   The graph to augment; `resolvedConfigEdges` is the server's answer for `<ns:key>` config targets, and is absent or null when the document carries no token to resolve.
- * @param {Array<CatalogClass>}                                        classes Class catalog, the source of each verb's declared argument types.
+ * @param {Array<CatalogClass>}                                        classes Class catalog, the source of each command's declared argument types.
  * @return {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} The graph, with any virtual edges appended.
  */
 export function augmentWithVirtualEdges( graph, classes ) {
@@ -53,7 +53,7 @@ export function augmentWithVirtualEdges( graph, classes ) {
 		if ( ! schema || ! schema.commands ) {
 			continue;
 		}
-		for ( const inv of node.verbInvocations || [] ) {
+		for ( const inv of node.commandInvocations || [] ) {
 			const cspec = schema.commands.find( ( v ) => v.name === inv.verb );
 			if ( ! cspec || ! cspec.args ) {
 				continue;

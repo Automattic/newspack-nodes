@@ -105,7 +105,7 @@ class Topic_Node extends Node {
 	 */
 	public function __construct() {
 		parent::__construct();
-		// This node's three verbs dispatch through the `{name}:config` sibling.
+		// Its three commands dispatch through the `{name}:config` sibling.
 		$this->auto_wire_interpreter();
 	}
 
@@ -336,10 +336,10 @@ class Topic_Node extends Node {
 	}
 
 	/**
-	 * `allow_large_writes` verb — lift the cap on every partition, with the lock.
+	 * `allow_large_writes` command — lift the cap on every partition, with the lock.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the Topic.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: the optional debounce_ms.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: the optional debounce_ms.
 	 * @throws \RuntimeException When a partition cannot acquire its write lock.
 	 * @return string `"ok\n"`.
 	 */
@@ -351,7 +351,7 @@ class Topic_Node extends Node {
 	}
 
 	/**
-	 * `void_warranty` verb — lift the cap on every partition with NO lock.
+	 * `void_warranty` command — lift the cap on every partition with NO lock.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the Topic.
 	 * @return string `"ok\n"`.
@@ -364,10 +364,10 @@ class Topic_Node extends Node {
 	}
 
 	/**
-	 * `with_index` verb — name the companion-index formatter for every partition.
+	 * `with_index` command — name the companion-index formatter for every partition.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the Topic.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: formatter.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: formatter.
 	 * @throws \RuntimeException When the formatter name is not registered.
 	 * @return string `"ok\n"`.
 	 */
@@ -383,7 +383,7 @@ class Topic_Node extends Node {
 	}
 
 	/**
-	 * Emit the base `make_node` line plus one config line per verb that is set,
+	 * Emit the base `make_node` line plus one config line per setting that is set,
 	 * read back from STATE rather than from what a caller passed, so a replayed
 	 * topology arrives at the same modes. Partition's does the same.
 	 *
@@ -450,7 +450,7 @@ class Topic_Node extends Node {
 
 	/**
 	 * Topology console manifest: the palette entry, the eight positional
-	 * arguments `parse_schema_args()` assigns, and the three config verbs.
+	 * arguments `parse_schema_args()` assigns, and the three config commands.
 	 *
 	 * @return array<string,mixed>
 	 */

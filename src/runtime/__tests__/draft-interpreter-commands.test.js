@@ -1,8 +1,8 @@
 /**
  * The draft's mutation vocabulary IS the TSL grammar.
  *
- * There is no parallel set of graph mutators with the same NAMES as verbs but
- * their own semantics: the verbs are the mutators, so each case runs the
+ * There is no parallel set of graph mutators with the same NAMES as commands but
+ * their own semantics: the commands are the mutators, so each case runs the
  * statement and reads the node table.
  *
  * Every no-op case matters as much as the mutating ones: an editor that
@@ -227,7 +227,7 @@ describe( 'include / remove_include', () => {
 } );
 
 describe( 'the document survives its mutations', () => {
-	it( 'keeps frontmatter and includes across every verb', () => {
+	it( 'keeps frontmatter and includes across every command', () => {
 		const d = draft(
 			[
 				'var num_partitions = 4',
@@ -340,7 +340,7 @@ describe( 'what a save must not lose', () => {
 		expect( d.secureLevel ).toBe( '' );
 	} );
 
-	it( 'quotes a verb argument containing whitespace', () => {
+	it( 'quotes a command argument containing whitespace', () => {
 		const d = draft( 'make_node Echo aardvark' );
 		d.replaceInvocations( 'aardvark', [
 			{ verb: 'add_profile', args: [ 'hello world' ], viaConfig: true },
@@ -387,7 +387,7 @@ describe( 'what a save must not lose', () => {
 		d.run( 'remove_node -a pangol.*' );
 
 		expect( [ ...d.childRegistry.nodes.keys() ] ).toEqual( [] );
-		// A later node reusing the name must not inherit the dead verb list.
+		// A later node reusing the name must not inherit the dead command list.
 		expect( d.declaredInvocationsFor( 'pangolin' ) ).toEqual( [] );
 	} );
 
@@ -429,7 +429,7 @@ describe( 'a node the document declares is the document’s', () => {
 } );
 
 describe( 'round-trip defects the second review found', () => {
-	it( 'holds a sparse verb-arg slot open instead of shifting later args left', () => {
+	it( 'holds a sparse command-arg slot open instead of shifting later args left', () => {
 		// The Inspector writes `args[i] = value` into a short list, leaving a
 		// hole. Rendered as nothing, the tokenizer collapses the gap and every
 		// later argument moves down one slot.
@@ -468,7 +468,7 @@ describe( 'round-trip defects the second review found', () => {
 		expect( d.dumpDocument( baseline ) ).not.toContain( 'disconnect_node' );
 	} );
 
-	it( 'strips quoting from the document verbs, which name things', () => {
+	it( 'strips quoting from the document commands, which name things', () => {
 		// Node ARGUMENTS keep their spans — the quote type is meaning. An
 		// include NAME is a name: `include "shared"` includes `shared`.
 		const d = draft( 'include "shared"\nvar num = "4"\nsecure "2"' );
@@ -780,7 +780,7 @@ describe( 'a broker’s pair edges', () => {
 	} );
 } );
 
-describe( 'set_sink is a verb the document can carry', () => {
+describe( 'set_sink is a command the document can carry', () => {
 	it( 'writes it back instead of dropping it on save', () => {
 		// The draft EXECUTES set_sink on load, so a file carrying one renders
 		// correctly and then saves without the line.

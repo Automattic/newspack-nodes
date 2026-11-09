@@ -3,7 +3,7 @@
  * Capabilities
  *
  * The substrate's capability model: three roles cut by BLAST RADIUS — `read`
- * (dashboards, SSE, introspection verbs), `tune` (declared configuration and
+ * (dashboards, SSE, introspection commands), `tune` (declared configuration and
  * application data, bounded by a schema) and `manage` (fleet control and
  * credentials) — resolved through ONE filterable map. All three default to
  * `manage_options`, so the cut is descriptive until a site filters one down or
@@ -13,12 +13,12 @@
  *   add_filter( 'newspack_nodes/capability_map',
  *       fn ( $map ) => [ 'read' => 'edit_posts' ] + $map );
  *
- * Verbs declare their role in `node_schema()` (`'capability' => 'read'`,
+ * Commands declare their role in `node_schema()` (`'capability' => 'read'`,
  * default manage) — a service CI in its own schema, a `:config` interpreter in its
- * patron's schema — and `Command_Interpreter_Node::dispatch()` refuses every verb
- * through `require_verb()` against the role declared (ADR-26). The base
+ * patron's schema — and `Command_Interpreter_Node::dispatch()` refuses every command
+ * through `require_command()` against the role declared (ADR-26). The base
  * interpreter's own vocabulary declares nothing, so it demands MANAGE, except
- * the read-only builtins `READ_VERBS` lists, which answer READ. REST
+ * the read-only commands `READ_VERBS` lists, which answer READ. REST
  * permission callbacks call `can()`.
  *
  * `$session_scope` is the second half: a scoped command session lowers the
@@ -30,13 +30,13 @@
  * The operator's `allowed_users` list is the third half, and it narrows every
  * role rather than the admin menus alone: a login absent from a populated list
  * holds nothing, so `/command`, `/auth`, both SSE streams, the spawn endpoint's
- * external path and every gated verb refuse it. It applies to an authenticated
+ * external path and every gated command refuse it. It applies to an authenticated
  * actor only — see `allowed_by_operator_list()`.
  *
  * Know what you grant: `read` is not just the shaped dashboards. It reaches
  * the RAW log firehose — request URLs, hooks, payloads — live on the SSE
  * stream beside worker IPC and REPL output, and record by record through
- * `Raw_Logs_CI_Node`'s `read_message` and `read_block` verbs, for every log
+ * `Raw_Logs_CI_Node`'s `read_message` and `read_block` commands, for every log
  * whose dir carries no read-capability marker (ADR-39). The
  * map is fully trusted too: a filter can LOWER `manage` below
  * manage_options, and there is no floor.
@@ -53,7 +53,7 @@ namespace Newspack_Nodes;
  */
 class Capabilities {
 
-	/** Dashboards, the SSE streams, and read-only introspection verbs. */
+	/** Dashboards, the SSE streams, and read-only introspection commands. */
 	public const READ = 'read';
 
 	/** Declared configuration and application data: settings, saved layouts. */
@@ -101,20 +101,20 @@ class Capabilities {
 	public static ?string $session_scope = null;
 
 	/**
-	 * Label of the command session in force, which a verb reads to name the
+	 * Label of the command session in force, which a command reads to name the
 	 * caller, or null for none. Written wherever `$session_scope` is written
 	 * from a session record: '' for a session minted without a label, null
 	 * for the per-site secret and on any refusal. `interpret()` restores what
 	 * stood before.
 	 *
-	 * @api A consuming plugin's verb reads it.
+	 * @api A consuming plugin's command reads it.
 	 * @var string|null
 	 */
 	public static ?string $session_label = null;
 
 	/**
 	 * The one authorisation gate, which `Command_Interpreter_Node::dispatch()`
-	 * puts in front of every verb: throw unless the command being handled may
+	 * puts in front of every command: throw unless the command being handled may
 	 * run at $role (ADR-26). `interpret()` catches and wraps the refusal as
 	 * TM_COMMAND|TM_ERROR.
 	 *
@@ -128,7 +128,7 @@ class Capabilities {
 	 * @throws \RuntimeException When the role is refused.
 	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map does not name.
 	 */
-	public static function require_verb( string $role ): void {
+	public static function require_command( string $role ): void {
 		$allowed = 0 !== Core::current_user_id()
 			? self::can( $role )
 			: self::scope_covers( self::$session_scope ?? self::MANAGE, $role );

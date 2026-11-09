@@ -4,9 +4,9 @@
  *
  * `Shell_Node::parse()` is the authority: it mints the Message. `parse_statements()`
  * only re-renders the same line as a cwd-free canonical statement, so replaying
- * that statement at the root cwd has to mint the very same Message. Every verb
- * parse() dispatches — the minting family, `pwd`, the run_builtin() state verbs,
- * and the bare-verb default — is driven through both halves here.
+ * that statement at the root cwd has to mint the very same Message. Every command
+ * parse() dispatches — the minting family, `pwd`, the run_builtin() state builtins,
+ * and the bare-command default — is driven through both halves here.
  *
  * @package Newspack_Nodes
  */
@@ -23,8 +23,8 @@ use Newspack_Nodes\Tests\TestCase;
 class StatementRuntimeParityTest extends TestCase {
 
 	/**
-	 * Every minting verb aimed at a node inside a cwd, plus the state verbs and
-	 * a bare verb for contrast. Names are deliberately unlike every other
+	 * Every minting command aimed at a node inside a cwd, plus the state builtins and
+	 * a bare command for contrast. Names are deliberately unlike every other
 	 * fixture so a stale expectation cannot pass by coincidence.
 	 */
 	private const SCRIPT = <<<'TSL'
@@ -146,7 +146,7 @@ TSL;
 	 * Shell's ping, while `command_node foo ping` names a REMOTE verb the Shell
 	 * must pass through untouched.
 	 */
-	public function test_ping_as_a_command_name_is_not_the_ping_verb(): void {
+	public function test_ping_as_a_command_name_is_not_the_ping_builtin(): void {
 		$statements = Shell_Node::parse_statements(
 			"command_node _command_interpreter ping\ncd depot\ncommand_node beacon ping"
 		);

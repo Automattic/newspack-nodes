@@ -19,10 +19,10 @@ namespace Newspack_Nodes;
  * into the interpreter that built it, which is what makes a bare `list_nodes`
  * mean "the nodes I made".
  *
- * Two policies stand in front of the verb table and answer different questions.
+ * Two policies stand in front of the command table and answer different questions.
  * `Core::$secure_level` is a per-process ratchet over what may still be DEFINED;
  * `Capabilities` asks who the caller is. Both are enforced in `dispatch()`
- * before the table lookup, so a subclass that installs its own verbs through
+ * before the table lookup, so a subclass that installs its own commands through
  * `commands()` inherits them without wiring anything.
  */
 class Command_Interpreter_Node extends Node {
@@ -50,7 +50,7 @@ class Command_Interpreter_Node extends Node {
 	 *
 	 * The declared-role refusal (ADR-26), the secure-level refusal, the
 	 * unknown-verb throw and the argument binding all run first, so a wrapper
-	 * sees only a verb its caller may run.
+	 * sees only a command its caller may run.
 	 *
 	 * One slot serves every plugin, so an assigner composes rather than
 	 * replaces: it reads the current value and calls it from its own wrapper,
@@ -59,7 +59,7 @@ class Command_Interpreter_Node extends Node {
 	 *
 	 * `$command` renders, on demand, the command as the REPL echoes it,
 	 * `/<name>> <verb> <args>`, each token quoted, and only the shape of a
-	 * verb whose schema declares any argument `secret` — see
+	 * command whose schema declares any argument `secret` — see
 	 * `masked_command()` — so a wrapper that records it cannot leak a
 	 * credential by forgetting to mask, and one that records nothing pays
 	 * nothing. The raw tokens never cross the hook. A wrapper composing over
@@ -76,7 +76,7 @@ class Command_Interpreter_Node extends Node {
 	 * Verb classes disabled at each secure level, modeled on Tachikoma's
 	 * %DISABLED. DECLARED per level — each entry says only what that level
 	 * ADDS, which is how Tachikoma's Ruleset and Scheduler declare only their
-	 * own level-3 verbs. ENFORCED cumulatively: `refuse_at_secure_level()`
+	 * own level-3 commands. ENFORCED cumulatively: `refuse_at_secure_level()`
 	 * refuses a class declared at ANY level at or below the current one, which
 	 * is the union Tachikoma's `CommandInterpreter::disabled()` setter
 	 * materializes by folding 1 into 2 and 2 into 3 when the map is assigned.
@@ -85,7 +85,7 @@ class Command_Interpreter_Node extends Node {
 	 * refusal could never be put back.
 	 *
 	 * The ladder freezes definitions and never disables the machine: reads
-	 * still read, wired flow still flows, defined verbs still run.
+	 * still read, wired flow still flows, defined commands still run.
 	 *
 	 * @var array<int,list<string>>
 	 */
@@ -96,8 +96,8 @@ class Command_Interpreter_Node extends Node {
 	];
 
 	/**
-	 * Verb name => class, for the substrate's own verbs. A node classifies its
-	 * own verbs through `node_schema()['verb_classes']`, so a consumer plugin
+	 * Verb name => class, for the substrate's own commands. A node classifies its
+	 * own commands through `node_schema()['verb_classes']`, so a consumer plugin
 	 * joins a class without editing this file.
 	 *
 	 * @var array<string,string>
@@ -132,7 +132,7 @@ class Command_Interpreter_Node extends Node {
 	protected static array $namespaces = [];
 
 	/**
-	 * Shared default verb table the bare `_command_interpreter` starts from.
+	 * Shared default command table the bare `_command_interpreter` starts from.
 	 *
 	 * @var array<string,\Closure(Command_Interpreter_Node,list<string>,array<int,mixed>): mixed>|null Verb → handler. Initialized lazily.
 	 */
@@ -156,7 +156,7 @@ class Command_Interpreter_Node extends Node {
 	private static array $resolve_cache = [];
 
 	/**
-	 * `declared_verbs()`'s memo: each class's schema lists, keyed by class,
+	 * `declared_commands()`'s memo: each class's schema lists, keyed by class,
 	 * then list, then verb name.
 	 *
 	 * @var array<string,array<string,array<string,array<array-key,mixed>>>>
@@ -172,7 +172,7 @@ class Command_Interpreter_Node extends Node {
 	public ?\Closure $authorize = null;
 
 	/**
-	 * Base verbs that only READ, and so answer READ where every other verb that
+	 * Base commands that only READ, and so answer READ where every other command that
 	 * is not declared by any schema demands MANAGE (ADR-26). Every dashboard on
 	 * the site drives some of these — the debug overlay polls `dump_metadata`
 	 * every tick — so the read surface stays open to a read-only caller the
@@ -214,7 +214,7 @@ class Command_Interpreter_Node extends Node {
 	 * make every interpreter along a path eat the commands meant for its
 	 * downstream peers. The response bit is the other half of the guard: a verb
 	 * reply is minted TM_COMMAND|TM_RESPONSE, so one arriving with its TO already
-	 * peeled empty passes through instead of re-entering the verb table. TM_PING
+	 * peeled empty passes through instead of re-entering the command table. TM_PING
 	 * and TM_EOF with an empty TO bounce back along FROM: the cli emits that
 	 * TM_EOF when stdin closes and leaves its drain loop running until the bounce
 	 * arrives, so replies still in flight reach the terminal first.
@@ -246,15 +246,15 @@ class Command_Interpreter_Node extends Node {
 	 * Authorize one command, dispatch it, and route the reply.
 	 *
 	 * A handler refuses by throwing, and the catch here is that contract — which
-	 * is why a verb never carries its own try/catch. `Worker_Should_Stop` is
-	 * control flow rather than a verb error, so it re-throws (ADR-14). The
+	 * is why a command never carries its own try/catch. `Worker_Should_Stop` is
+	 * control flow rather than a command error, so it re-throws (ADR-14). The
 	 * reply goes TO=FROM carrying the inbound ID and KEY, because the address
 	 * the caller minted IS the correlation (ADR-7); an empty string result
 	 * sends nothing.
 	 *
 	 * A TM_NOREPLY command — every line a topology load sends — asked for no
 	 * reply, so a TM_ERROR can never carry its failure: the refusal, or the
-	 * throwable the verb raised, propagates to whatever filled the command,
+	 * throwable the command raised, propagates to whatever filled the command,
 	 * and a broken line fails the load instead of booting half a graph.
 	 *
 	 * A VALUE that is not an array, or that carries no `name` key, is dropped
@@ -262,7 +262,7 @@ class Command_Interpreter_Node extends Node {
 	 * caller gets no reply at all.
 	 *
 	 * @param array<int,mixed> $message Incoming command Message to interpret.
-	 * @throws \Throwable A stop from the verb; any failure of a TM_NOREPLY command.
+	 * @throws \Throwable A stop from the command; any failure of a TM_NOREPLY command.
 	 */
 	private function interpret( array $message ): void {
 		$cmd = $message[ Message::VALUE ];
@@ -360,23 +360,23 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Dispatch a verb by name. The result rides the Message VALUE unencoded (never
+	 * Dispatch a command by name. The result rides the Message VALUE unencoded (never
 	 * JSON here).
 	 *
 	 * The role the verb's schema declares is checked first, through
-	 * `Capabilities::require_verb()`, so a caller lacking it learns nothing
+	 * `Capabilities::require_command()`, so a caller lacking it learns nothing
 	 * the verb would say — not whether it exists, not the args it binds — and
 	 * a handler never checks a role of its own (ADR-26). The secure-level
 	 * refusal follows, then the unknown-verb throw; all three sit BEFORE the
-	 * verb table, so they cover a subclass's own table as well as the shared
+	 * command table, so they cover a subclass's own table as well as the shared
 	 * one.
 	 *
-	 * A verb whose schema declares `args` — a service CI's own schema, or for a
+	 * A command whose schema declares `args` — a service CI's own schema, or for a
 	 * `:config` interpreter its patron's schema — has its tokens bound by `Command_Args::bind()`
 	 * before `$around_dispatch`, as an unknown verb is refused before it, so the
 	 * handler receives the values by NAME, a binding refusal is the verb's own
 	 * TM_ERROR, and a wrapper never renders a command that does not fit — a
-	 * secret given by position among them (ADR-25). A verb declaring no `args`
+	 * secret given by position among them (ADR-25). A command declaring no `args`
 	 * receives its tokens as they came.
 	 *
 	 * @param string           $name     Verb name.
@@ -385,7 +385,7 @@ class Command_Interpreter_Node extends Node {
 	 * @return mixed The handler's return value, a string or a struct, unencoded.
 	 */
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
-		Capabilities::require_verb( $this->capability_for( $name ) );
+		Capabilities::require_command( $this->capability_for( $name ) );
 		$refusal = $this->refuse_at_secure_level( $name );
 		if ( null !== $refusal ) {
 			throw new \RuntimeException( \esc_html( $refusal ) );
@@ -414,7 +414,7 @@ class Command_Interpreter_Node extends Node {
 	 * verbatim.
 	 *
 	 * It is total over whatever `dispatch()` accepts, so logging can never
-	 * change whether a verb runs: the array is reindexed, and a non-string
+	 * change whether a command runs: the array is reindexed, and a non-string
 	 * token renders through `Core::as_string()`, as `command_summary()` renders
 	 * a dropped message's arguments.
 	 *
@@ -470,29 +470,29 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * $verb's `commands` entry in the schema declaring this interpreter's
-	 * verbs — the patron's for a `:config` interpreter, this class's own
+	 * commands — the patron's for a `:config` interpreter, this class's own
 	 * otherwise. Null when the schema does not name the verb.
 	 *
 	 * @param string $verb Verb name.
 	 * @return array<array-key,mixed>|null
 	 */
 	private function declaration( string $verb ): ?array {
-		return self::declared_verbs( ( $this->patron() ?? $this )::class )[ $verb ] ?? null;
+		return self::declared_commands( ( $this->patron() ?? $this )::class )[ $verb ] ?? null;
 	}
 
 	/**
 	 * $class's `node_schema()[ $list ]` — `commands` or `requests` — keyed by
 	 * verb name: the one reader of either list, which every dispatch table,
 	 * dump, forwarder, request answer and catalog filters in its own terms. An
-	 * entry is a verb when it carries a non-empty name, so a non-array entry,
+	 * entry is a declaration when it carries a non-empty name, so a non-array entry,
 	 * which carries none, is not one. A class's schema is static, so each list
 	 * is read once per process.
 	 *
-	 * @param class-string<Node>     $class Class whose schema declares the verbs.
+	 * @param class-string<Node>     $class Class whose schema declares the list.
 	 * @param 'commands'|'requests' $list  Schema list to read.
 	 * @return array<string,array<array-key,mixed>>
 	 */
-	public static function declared_verbs( string $class, string $list = 'commands' ): array {
+	public static function declared_commands( string $class, string $list = 'commands' ): array {
 		if ( ! isset( self::$declarations[ $class ][ $list ] ) ) {
 			$by_verb = [];
 			foreach ( Core::arr( $class::node_schema()[ $list ] ?? [] ) as $declared ) {
@@ -574,8 +574,8 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Default `help` for an interpreter with a custom verb table: its verb names, sorted,
-	 * one per line (includes `help` itself). The base table's own `help` verb in self::$C
+	 * Default `help` for an interpreter with a custom command table: its verb names, sorted,
+	 * one per line (includes `help` itself). The base table's own `help` command in self::$C
 	 * displaces this with the tabulated topic list and the per-topic text.
 	 *
 	 * @return string Newline-separated sorted verb names.
@@ -592,7 +592,7 @@ class Command_Interpreter_Node extends Node {
 	 * A table passed here REPLACES the instance table. The JS port's `commands()`
 	 * merges instead, so a caller cannot carry one port's assumption to the other.
 	 *
-	 * @param array<string,callable>|null $table Replacement verb table.
+	 * @param array<string,callable>|null $table Replacement command table.
 	 * @return array<string,callable>
 	 */
 	public function commands( ?array $table = null ): array {
@@ -622,8 +622,8 @@ class Command_Interpreter_Node extends Node {
 			return;
 		}
 		self::$H = [
-			// interpreter-dispatched verbs.
-			'secure'   => "secure [<level>]\n    note: climbs 1..3 and never descends; each level removes management verbs.\n",
+			// interpreter-dispatched commands.
+			'secure'   => "secure [<level>]\n    note: climbs 1..3 and never descends; each level removes management commands.\n",
 			'insecure' => "insecure\n    note: declares this process deliberately unratcheted; refused once secured.\n",
 			'make_node' => "make_node <type> <name> [<arguments>]\n    alias: make\n",
 			'set_sink'  => "set_sink <node> <target>\n",
@@ -672,7 +672,7 @@ class Command_Interpreter_Node extends Node {
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n    default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
 
-			// Shell-handled verbs, listed only so `help` covers them too.
+			// Shell-handled commands, listed only so `help` covers them too.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
 			'include' => "include <file>\n    note: shell builtin — reads <file> and evals each line through\n          THIS shell, as though piped into the REPL (cwd and vars\n          apply). Never a wire command.\n",
 			'debug_level' => "debug_level [0|1|2]\n    note: sets the local Dumper verbosity level.\n",
@@ -732,7 +732,7 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Refuse a verb whose class is disabled at the current secure level, or
+	 * Refuse a command whose class is disabled at the current secure level, or
 	 * null to proceed. VERB_CLASSES answers first; a verb it does not name falls
 	 * through to the patron's `node_schema()['verb_classes']`.
 	 *
@@ -755,17 +755,17 @@ class Command_Interpreter_Node extends Node {
 
 	/** The patron's class for a verb, or this node's own; '' when unclassified. */
 	private function schema_verb_class( string $verb ): string {
-		$schema = $this->verb_schema();
+		$schema = $this->command_schema();
 		$map    = \is_array( $schema['verb_classes'] ?? null ) ? $schema['verb_classes'] : [];
 		return Core::as_string( $map[ $verb ] ?? '' );
 	}
 
 	/**
-	 * The schema declaring this interpreter's verbs: its patron's schema, or its own.
+	 * The schema declaring this interpreter's commands: its patron's schema, or its own.
 	 *
 	 * @return array<string,mixed>
 	 */
-	private function verb_schema(): array {
+	private function command_schema(): array {
 		$patron = $this->patron();
 		return null !== $patron ? $patron::node_schema() : static::node_schema();
 	}
@@ -775,7 +775,7 @@ class Command_Interpreter_Node extends Node {
 	 *
 	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
 	 *
-	 * @param list<string>            $args     Verb arguments.
+	 * @param list<string>            $args     Command arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_list_nodes( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
@@ -1361,7 +1361,7 @@ class Command_Interpreter_Node extends Node {
 	 * and a topic that does not name a verb falls through to that node type's
 	 * schema help.
 	 *
-	 * @param list<string>            $args     Verb arguments.
+	 * @param list<string>            $args     Command arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_help( array $args, array $envelope = [] ): string {
@@ -1527,7 +1527,7 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * Coerce a dispatch closure's raw `array $args` to the canonical argv shape —
-	 * a re-indexed list of strings. The verb dispatch closures are declared
+	 * a re-indexed list of strings. The command dispatch closures are declared
 	 * `array $args` (an inline closure param can't carry a narrower phpdoc type),
 	 * so a handler wanting an argv list normalizes at entry; the few that only
 	 * test one token read `$args` directly. The tokens are already strings at
@@ -1546,7 +1546,7 @@ class Command_Interpreter_Node extends Node {
 	 * level must be all digits, be at least 1, and may never descend. Both forms
 	 * cap at 3, so `secure 9` lands on 3. Follows Tachikoma's $C{secure}.
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param list<string> $args Command arguments.
 	 */
 	private static function cmd_secure( array $args ): string {
 		$current = Core::$secure_level ?? 0;
@@ -1585,7 +1585,7 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Shell entry: parse `<type> <name> [<args>...]` and delegate to `make_node()`.
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param list<string> $args Command arguments.
 	 */
 	private static function cmd_make_node( Command_Interpreter_Node $self, array $args ): string {
 		if ( \count( $args ) < 2 ) {
@@ -1601,9 +1601,9 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `pwd` verb: return ` <cwd> -> <envelope.from>`.
+	 * `pwd` command: return ` <cwd> -> <envelope.from>`.
 	 *
-	 * @param list<string>            $args     Verb arguments.
+	 * @param list<string>            $args     Command arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_pwd( array $args, array $envelope ): string {
@@ -1619,7 +1619,7 @@ class Command_Interpreter_Node extends Node {
 	 * Both names must already be registered: a sink is a node REFERENCE, not the
 	 * string path a `target` carries (ADR-7).
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param list<string> $args Command arguments.
 	 */
 	private static function cmd_set_sink( array $args ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
@@ -1644,7 +1644,7 @@ class Command_Interpreter_Node extends Node {
 	 * omitted target defaults to the issuing message's FROM, which tees the node's
 	 * flow back to the session that asked for it.
 	 *
-	 * @param list<string>            $args     Verb arguments.
+	 * @param list<string>            $args     Command arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_connect_node( array $args, array $envelope = [] ): string {
@@ -1677,7 +1677,7 @@ class Command_Interpreter_Node extends Node {
 	 * when there is no FROM to fall back on. Every other node holds a scalar
 	 * target, which `Node::disconnect_node()` clears whatever name it is handed.
 	 *
-	 * @param list<string>            $args     Verb arguments.
+	 * @param list<string>            $args     Command arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_disconnect_node( array $args, array $envelope = [] ): string {
@@ -1784,7 +1784,7 @@ class Command_Interpreter_Node extends Node {
 	 * keep the dead node. Reports each refusal beside the removals rather than
 	 * abandoning the rest of the batch.
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param list<string> $args Command arguments.
 	 */
 	private static function cmd_remove_node( Command_Interpreter_Node $self, array $args ): string {
 		if ( empty( $args ) ) {
@@ -1870,13 +1870,13 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `log <message>` builtin — broadcast `$args` through this node's stderr chain.
+	 * `log <message>` command — broadcast `$args` through this node's stderr chain.
 	 *
 	 * It returns nothing, so the text reaches the session out of band through the
 	 * stderr sink `Core::reset()` wires — the first of `_repl`, `_sse` and
 	 * `_output` that is mounted — instead of as a command reply.
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param list<string> $args Command arguments.
 	 */
 	private static function cmd_log( Command_Interpreter_Node $self, array $args ): string {
 		$self->stderr( \implode( ' ', $args ) );
@@ -1884,7 +1884,7 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `dmesg` builtin — dump Core's recent stderr ring buffer.
+	 * `dmesg` command — dump Core's recent stderr ring buffer.
 	 */
 	private static function cmd_dmesg(): string {
 		return \implode( '', Core::$recent_log );
@@ -2004,10 +2004,10 @@ class Command_Interpreter_Node extends Node {
 	 * name targets that node, and `*` writes one level across every registered
 	 * node — toggling from this interpreter's own state when the command gives
 	 * no level. The replies name `debug_state` because that is the property the
-	 * verb writes, and the two self-targeting forms name `_command_interpreter`
+	 * command writes, and the two self-targeting forms name `_command_interpreter`
 	 * literally, whichever interpreter handled the command.
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param list<string> $args Command arguments.
 	 */
 	private static function cmd_trace( Command_Interpreter_Node $self, array $args ): string {
 		[ $first, $second ] = \array_pad( $args, 2, '' );
@@ -2062,7 +2062,7 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_reply_to( Command_Interpreter_Node $self, array $args ): string {
 		$path      = $args[0] ?? '';
 		$verb      = $args[1] ?? '';
-		$verb_args = \array_slice( $args, 2 );
+		$command_args = \array_slice( $args, 2 );
 		if ( '' === $path || '' === $verb ) {
 			throw new \RuntimeException( 'usage: reply_to <node path> <command>' );
 		}
@@ -2073,7 +2073,7 @@ class Command_Interpreter_Node extends Node {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_COMMAND;
 		$m[ Message::FROM ]  = $path;
-		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $verb_args ];
+		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $command_args ];
 		$m[ Message::LOCAL ] = true;
 		$self->fill( $m );
 		return '';

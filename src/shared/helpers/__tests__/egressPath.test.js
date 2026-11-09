@@ -27,7 +27,7 @@ describe( 'egressPath( group, ci )', () => {
 		expect( Core.node( 'quokka:shell' ) ).toBeNull();
 	} );
 
-	test( 'stops at `_http` for an interpreter builtin', () => {
+	test( 'stops at `_http` for an interpreter command', () => {
 		expect( egressPath( 'quokka' ) ).toBe( 'quokka:shell/_http' );
 	} );
 

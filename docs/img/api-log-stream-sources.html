@@ -25,7 +25,7 @@ h2 { font-size:15px; margin:0 0 8px; }
 </style>
 <div class="sheet">
 <h1>A log source is a registry name, never a path</h1>
-<p class="sub">A <span class="mono">sources:&lt;name&gt;</span> subscription on <span class="mono">/messages/stream</span> and the <span class="mono">raw-logs</span> verbs read the same <span class="mono">Log_Sources</span> registry, so a caller has no traversal surface. Three families merge in priority order, each entry carries one of two tail modes, and one read model answers the single-step reader.</p>
+<p class="sub">A <span class="mono">sources:&lt;name&gt;</span> subscription on <span class="mono">/messages/stream</span> and the <span class="mono">raw-logs</span> commands read the same <span class="mono">Log_Sources</span> registry, so a caller has no traversal surface. Three families merge in priority order, each entry carries one of two tail modes, and one read model answers the single-step reader.</p>
 
 <h2>The registry: first name wins, then a realpath dedupe keeps the first</h2>
 <div class="fam">

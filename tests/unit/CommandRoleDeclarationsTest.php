@@ -16,9 +16,9 @@ use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Every substrate service verb states its role, and this is the statement.
+ * Every substrate service command states its role, and this is the statement.
  *
- * Service_CI_Node defaults an undeclared verb to MANAGE, so a surface that
+ * Service_CI_Node defaults an undeclared command to MANAGE, so a surface that
  * declared nothing would be manage BY OMISSION, and a read-only stream would
  * need an administrator's application password. The table below states each
  * role deliberately, cut by BLAST RADIUS: `read` changes
@@ -26,7 +26,7 @@ use Newspack_Nodes\Tests\TestCase;
  * site down or hands out access.
  */
 #[CoversClass( Service_CI_Node::class )]
-class VerbRoleDeclarationsTest extends TestCase {
+class CommandRoleDeclarationsTest extends TestCase {
 
 	/**
 	 * Verb → role, per service CI. An entry omitted here is asserted MANAGE.
@@ -95,16 +95,16 @@ class VerbRoleDeclarationsTest extends TestCase {
 	 * @param array<string,string>          $expected
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'role_map' )]
-	public function test_each_verb_declares_its_role( string $class, array $expected ): void {
+	public function test_each_command_declares_its_role( string $class, array $expected ): void {
 		$schema = $class::node_schema();
 		$seen   = [];
-		foreach ( $schema['commands'] as $verb ) {
-			$name          = $verb['name'];
-			$seen[ $name ] = $verb['capability'] ?? Capabilities::MANAGE;
+		foreach ( $schema['commands'] as $command ) {
+			$name          = $command['name'];
+			$seen[ $name ] = $command['capability'] ?? Capabilities::MANAGE;
 		}
 
 		foreach ( $expected as $name => $role ) {
-			$this->assertArrayHasKey( $name, $seen, "{$class} lost its `{$name}` verb" );
+			$this->assertArrayHasKey( $name, $seen, "{$class} lost its `{$name}` command" );
 			$this->assertSame( $role, $seen[ $name ], "{$class}::{$name} must be `{$role}`" );
 		}
 	}
@@ -146,12 +146,12 @@ class VerbRoleDeclarationsTest extends TestCase {
 	}
 
 	/** The vault is manage BY DECISION: a scope that could edit it could re-credential the hub link. */
-	public function test_no_vault_verb_is_reachable_below_manage(): void {
-		foreach ( Vault_CI_Node::node_schema()['commands'] as $verb ) {
+	public function test_no_vault_command_is_reachable_below_manage(): void {
+		foreach ( Vault_CI_Node::node_schema()['commands'] as $command ) {
 			$this->assertSame(
 				Capabilities::MANAGE,
-				$verb['capability'] ?? Capabilities::MANAGE,
-				'vault verbs escalate; they stay manage'
+				$command['capability'] ?? Capabilities::MANAGE,
+				'vault commands escalate; they stay manage'
 			);
 		}
 	}

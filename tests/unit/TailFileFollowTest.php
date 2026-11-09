@@ -881,10 +881,10 @@ class TailFileFollowTest extends TestCase {
 	}
 
 	/**
-	 * Off p0, the dead-letter verbs do not reach any quarantine: p0's own, in
+	 * Off p0, the dead-letter commands do not reach any quarantine: p0's own, in
 	 * the same dir, is neither redelivered from nor purged.
 	 */
-	public function test_off_partition_zero_the_dead_letter_verbs_touch_nothing_of_p0(): void {
+	public function test_off_partition_zero_the_dead_letter_commands_touch_nothing_of_p0(): void {
 		$path                         = $this->tmp . '/php-errors-3310.log';
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 		\file_put_contents( $path, "gannet-1\n" );

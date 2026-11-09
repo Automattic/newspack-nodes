@@ -1,7 +1,7 @@
 <?php
 /**
  * A topology's `var max_runtime`, from its frontmatter to the worker it
- * builds, and the `shutdown` verb that ends a worker the normal way.
+ * builds, and the `shutdown` command that ends a worker the normal way.
  *
  * @package Newspack_Nodes
  */

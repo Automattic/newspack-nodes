@@ -52,7 +52,7 @@ class Command_Auth {
 	 * still verify, or a replay finds its claim expired. That is the FULL
 	 * acceptance span (MAX_PAST_S + MAX_FUTURE_S = 30s of verifier-wall time)
 	 * for a clock-skewed verifier, and BATCH_MAX_AGE_S (140s) for a command
-	 * queued behind slow verbs in one `/command` batch, which a host's 120s
+	 * queued behind slow commands in one `/command` batch, which a host's 120s
 	 * gateway timeout bounds.
 	 */
 	public const NONCE_TTL_S = 150;
@@ -504,7 +504,7 @@ class Command_Auth {
 	 * here, and the sessions it has read, so k commands under one handle cost
 	 * one read and a batch begun beside it touches neither. Every command's freshness is judged at
 	 * that arrival: the commands dispatch one after another, so against the
-	 * clock at each one's turn a slow verb would age the commands behind it
+	 * clock at each one's turn a slow command would age the commands behind it
 	 * past MAX_PAST_S. The wall clock at its turn still bounds a command: one
 	 * reached BATCH_MAX_AGE_S (140 s) or more after it was signed is refused,
 	 * because its nonce claim, taken at the first verification, lasts

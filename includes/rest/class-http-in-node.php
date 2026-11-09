@@ -158,10 +158,10 @@ class HTTP_In_Node extends Node {
 	 * unauthenticated burst cannot spend a user's slots — the ordering
 	 * `Spawn_Controller` uses.
 	 *
-	 * The door demands the LEAST any verb behind it needs, and authority is then
-	 * decided per verb, by the role its schema declares, which `dispatch()`
-	 * holds MANAGE for a verb that declares none (ADR-26). Demanding MANAGE
-	 * here would make the strictest verb set the
+	 * The door demands the LEAST any command behind it needs, and authority is then
+	 * decided per command, by the role its schema declares, which `dispatch()`
+	 * holds MANAGE for a command that declares none (ADR-26). Demanding MANAGE
+	 * here would make the strictest command set the
 	 * privilege level of every caller, leaving the log aggregator holding an
 	 * administrator's application password to pull a read-only stream.
 	 *
@@ -360,7 +360,7 @@ class HTTP_In_Node extends Node {
 	 * This door owns only the naming. `Bootstrap::mount_request_graph()`
 	 * builds `_router` and `_command_interpreter` and fires
 	 * `newspack_nodes/request_graph_ready` for the service CIs, shared with every
-	 * other command door so a door never ends up with a different verb surface
+	 * other command door so a door never ends up with a different command surface
 	 * behind it.
 	 *
 	 * @return Command_Interpreter_Node The base interpreter the batch fills.

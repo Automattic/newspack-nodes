@@ -1,7 +1,7 @@
-# Parser fixture — per-verb dispatch inside and outside a cwd. Not meant to run.
+# Parser fixture — per-command dispatch inside and outside a cwd. Not meant to run.
 # It pins the static front-end against Shell_Node::parse(): a builtin stays bare
-# wherever it sits, a minting verb resolves arg[0] against the cwd, `pwd` targets
-# the cwd itself and echoes it, and every other bare verb becomes a command to
+# wherever it sits, a minting command resolves arg[0] against the cwd, `pwd` targets
+# the cwd itself and echoes it, and every other bare command is addressed to
 # the cwd node. At the root cwd every form is bare, so only the cd block
 # discriminates.
 
@@ -28,7 +28,7 @@ cd depot
 	request_struct_node beacon '{"ADD":{"kea":["weka",37]}}'
 	send_eof beacon
 
-	# `ping` here is a verb on the REMOTE node, not the Shell's ping builtin.
+	# `ping` here is a command on the REMOTE node, not the Shell's ping builtin.
 	command_node beacon ping
 	cmd beacon set_retention --segments=41
 

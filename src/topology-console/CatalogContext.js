@@ -39,7 +39,7 @@ const NO_SCHEMAS = Object.freeze( {} );
  *
  * @param {Object}                    props                  Component props.
  * @param {Object}                    [props.classCatalog]   One class entry per shell name; the canvas reads its port flags.
- * @param {ReadonlyArray<Object>}     [props.classes]        Class list — the palette's tiles and the inspector's verb schemas.
+ * @param {ReadonlyArray<Object>}     [props.classes]        Class list — the palette's tiles and the inspector's command schemas.
  * @param {ReadonlyArray<string>}     [props.formatters]     Registered formatter names, offered in the argument editors.
  * @param {ReadonlyArray<Object>}     [props.vaults]         Vault catalog, behind the `vault_id` and `vault_group` argument pickers.
  * @param {ReadonlyArray<Object>}     [props.topologies]     `topologies dump` entries, the palette's topology tiles.

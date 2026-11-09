@@ -123,7 +123,7 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "GET: backend read failed\n" ] ], self::shape( $this->ask( "GET sku-41\n" ) ) );
 	}
 
-	public function test_a_scan_is_refused_as_an_unknown_verb(): void {
+	public function test_a_scan_is_refused_as_an_unknown_command(): void {
 		$this->table->store( 'urltoken:ab:wolf:c1', 'c1' );
 		$this->assertSame( [ [ Message::TM_ERROR, '', "SCAN: unknown verb\n" ] ], self::shape( $this->ask( "SCAN urltoken:ab:wo 5\n" ) ) );
 	}
@@ -139,15 +139,15 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( 'kea-4471', $this->table->lookup( 'sku-4471' ) );
 	}
 
-	public function test_a_structured_verb_sent_as_a_string_is_refused_with_what_it_carries(): void {
+	public function test_a_structured_command_sent_as_a_string_is_refused_with_what_it_carries(): void {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "ADD: needs a map of key => [ value, ttl ]\n" ] ], self::shape( $this->ask( "ADD sku-41\n" ) ) );
 	}
 
-	public function test_a_declared_string_verb_no_reply_answers_is_refused_as_such(): void {
+	public function test_a_declared_string_command_no_reply_answers_is_refused_as_such(): void {
 		$peeking = new class() extends Table_Node {
 			public static function node_schema(): array {
 				$schema               = parent::node_schema();
-				$schema['requests'][] = [ 'name' => 'PEEK', 'description' => 'A verb declared and never answered.', 'args' => [], 'reply_shape' => 'none' ];
+				$schema['requests'][] = [ 'name' => 'PEEK', 'description' => 'A request declared and never answered.', 'args' => [], 'reply_shape' => 'none' ];
 				return $schema;
 			}
 		};
@@ -214,7 +214,7 @@ final class TableProtocolTest extends TestCase {
 		$this->assertNull( $this->table->lookup( 'sku-42' ) );
 	}
 
-	public function test_an_unknown_verb_is_refused_to_the_asker_and_logged_with_its_origin(): void {
+	public function test_an_unknown_command_is_refused_to_the_asker_and_logged_with_its_origin(): void {
 		$logged = [];
 		\add_action(
 			'newspack_nodes/stderr',
@@ -687,19 +687,19 @@ final class TableProtocolTest extends TestCase {
 
 	// ── flush: every row and member, MANAGE by declaring nothing, for the writer alone ──
 
-	/** The `flush` verb as a worker's `:config` interpreter answers it. */
-	private function flush_verb( string $table = 'lab-7:kea' ): mixed {
+	/** The `flush` command as a worker's `:config` interpreter answers it. */
+	private function flush_command( string $table = 'lab-7:kea' ): mixed {
 		return Core::node( "{$table}:config" )->dispatch( 'flush' );
 	}
 
-	public function test_the_flush_verb_recreates_a_sqlite_file_and_answers_the_bytes_released(): void {
+	public function test_the_flush_command_recreates_a_sqlite_file_and_answers_the_bytes_released(): void {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$this->table->store( 'sku-43', 'kea-43' );
 		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1, 'u-43' => 3 ] ] ] ], self::STRUCT );
 		$file = Table_Node::file( 'lab-7:kea', 3 );
 		( new \PDO( 'sqlite:' . $file ) )->exec( 'PRAGMA user_version = 4471' );
 
-		$reply = $this->flush_verb();
+		$reply = $this->flush_command();
 
 		$this->assertSame( [ 'bytes' ], \array_keys( $reply ) );
 		$this->assertGreaterThan( 0, $reply['bytes'] );
@@ -717,7 +717,7 @@ final class TableProtocolTest extends TestCase {
 		}
 		Core::$now = 1790004471.0;
 
-		$this->flush_verb();
+		$this->flush_command();
 
 		$this->assertSame(
 			[ 'checkpoint_due' => 1790004471 + Table_Node::CHECKPOINT_INTERVAL_S, 'wal_stalled' => 0, 'wal_stall_frames' => 0, 'purge_behind' => false ],
@@ -730,15 +730,15 @@ final class TableProtocolTest extends TestCase {
 		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
 		$owl->store( 'sku-41', 'owl-41' );
 		$this->ask( [ 'SADD' => [ 'word:owl' => [ [ 'u-41' => 1, 'u-43' => 3 ] ] ] ], self::STRUCT, $owl );
-		$this->assertSame( [ 'rows' => 3 ], $this->flush_verb( 'lab-7:owl' ) );
+		$this->assertSame( [ 'rows' => 3 ], $this->flush_command( 'lab-7:owl' ) );
 	}
 
-	public function test_the_flush_verb_refuses_a_session_scope_below_manage(): void {
+	public function test_the_flush_command_refuses_a_session_scope_below_manage(): void {
 		$this->table->store( 'sku-47', 'kea-47' );
 		foreach ( [ \Newspack_Nodes\Capabilities::READ, \Newspack_Nodes\Capabilities::TUNE ] as $scope ) {
 			\Newspack_Nodes\Capabilities::$session_scope = $scope;
 			try {
-				$this->flush_verb();
+				$this->flush_command();
 				$this->fail( "a {$scope} session flushed" );
 			} catch ( \RuntimeException $e ) {
 				$this->assertSame( 'permission denied: manage capability required', $e->getMessage() );
@@ -749,20 +749,20 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( 'kea-47', $this->table->lookup( 'sku-47' ) );
 		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::MANAGE;
 		try {
-			$this->assertArrayHasKey( 'bytes', $this->flush_verb(), 'a manage session flushes' );
+			$this->assertArrayHasKey( 'bytes', $this->flush_command(), 'a manage session flushes' );
 		} finally {
 			\Newspack_Nodes\Capabilities::$session_scope = null;
 		}
 	}
 
-	public function test_the_flush_verb_is_refused_on_a_mount_and_a_volatile_table(): void {
+	public function test_the_flush_command_is_refused_on_a_mount_and_a_volatile_table(): void {
 		$this->table->store( 'sku-49', 'kea-49' );
 		$this->mounted_kea();
 		Core::$memd = new InMemoryMemcached();
 		$this->worker_table( 'lab-7:owl-memcache', 'owl:p3', 'memcache' );
 		foreach ( [ 'lab-7:kea.p3' => 'flush: lab-7:kea.p3 is a mounted Table, which serves reads only', 'lab-7:owl-memcache' => 'flush needs a durable backend; lab-7:owl-memcache is memcache' ] as $table => $refusal ) {
 			try {
-				$this->flush_verb( $table );
+				$this->flush_command( $table );
 				$this->fail( "{$table} flushed" );
 			} catch ( \RuntimeException $e ) {
 				$this->assertSame( $refusal, $e->getMessage() );
@@ -776,7 +776,7 @@ final class TableProtocolTest extends TestCase {
 		$this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
 		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_members`'] = 'Lock wait timeout 4473';
 		$this->expectExceptionMessage( 'Table lab-7:owl: flush failed: wpdb wp_newspack_nodes_table: [0] Lock wait timeout 4473' );
-		$this->flush_verb( 'lab-7:owl' );
+		$this->flush_command( 'lab-7:owl' );
 	}
 
 	// ── A mount serves reads only: the declaring worker is the file's one writer ──
@@ -785,7 +785,7 @@ final class TableProtocolTest extends TestCase {
 		return Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $this->sink );
 	}
 
-	public function test_a_mount_refuses_every_write_verb(): void {
+	public function test_a_mount_refuses_every_write_command(): void {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$mount  = $this->mounted_kea();
 		$struct = Message::TM_REQUEST | Message::TM_STRUCT;

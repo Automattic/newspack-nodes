@@ -78,10 +78,10 @@ stream bound.
 None of the seven appears on Settings → Nodes Runtime, because [`Settings_Schema`](../includes/class-settings-schema.php)
 declares each of them `ui: false`. Set one in [`newspack-nodes-config.php`](../newspack-nodes-config.php), in
 the file `LOCAL_NEWSPACK_NODES_CONF` names, or as a `newspack_nodes_<key>`
-option. The `settings set` verb refuses a value outside the declared bounds; a
+option. The `settings set` command refuses a value outside the declared bounds; a
 value written straight into a config file or an option is taken as written, and
 only the pool's own clamps in `max_streams()`, `max_slots()`,
-`reserved_slots()` and `ttl()` bind it. That verb reaches only a Field
+`reserved_slots()` and `ttl()` bind it. That command reaches only a Field
 declaring a minimum, so it refuses `sse_idle_timeout`, `sse_max_lifetime` and `sse_retry_ms`
 as unknown settings; a config file or an option is the only way to move them.
 

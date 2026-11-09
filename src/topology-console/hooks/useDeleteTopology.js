@@ -18,10 +18,10 @@ import { TOPOLOGIES_CI } from './useCatalogs';
 /** @typedef {import('@newspack-nodes/shared/hooks/useCommandOnce').OnDone} OnDone */
 
 /**
- * Mounts the `topologies delete` verb on the console's batched tick.
+ * Mounts the `topologies delete` command on the console's batched tick.
  *
  * @param {OnDone} [onDone] Runs once per reply. `args[0]` is the topology the
- *                          reply answered for, and `result` carries the verb's
+ *                          reply answered for, and `result` carries the command's
  *                          `{name, deleted, pruned_active, restarted_fleets}`.
  * @return {{remove: ( o: {name: string} ) => void, pending: boolean}}
  *   `remove()` parks the delete for the next tick; `pending` holds while one is

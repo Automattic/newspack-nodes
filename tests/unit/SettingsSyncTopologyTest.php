@@ -79,11 +79,11 @@ class SettingsSyncTopologyTest extends TestCase {
 
 	/**
 	 * Every option this topology pushes must be an option the receiving spoke's `set`
-	 * verb accepts. Two lists can drift silently: an allowlist holding only
+	 * command accepts. Two lists can drift silently: an allowlist holding only
 	 * the LOCAL axis names would refuse every remote_* push as an unknown
 	 * setting.
 	 */
-	public function test_every_pushed_option_is_accepted_by_the_spoke_set_verb(): void {
+	public function test_every_pushed_option_is_accepted_by_the_spoke_set_command(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$pushed = $this->pushed_options();
 		$this->assertNotEmpty( $pushed, 'the topology must push something' );
@@ -111,7 +111,7 @@ class SettingsSyncTopologyTest extends TestCase {
 			$this->assertSame(
 				$expected,
 				$GLOBALS['_wp_options'][ $option ] ?? null,
-				"the spoke's set verb refused {$option}"
+				"the spoke's set command refused {$option}"
 			);
 		}
 	}

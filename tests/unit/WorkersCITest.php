@@ -3,7 +3,7 @@
  * WorkersCITest: unit tests for Workers_CI, the workers service interpreter.
  *
  * Each test instantiates the interpreter with stubbed dependencies, fires a
- * verb through VerbHarness, and asserts on the decoded payload.
+ * command through CommandHarness, and asserts on the decoded payload.
  *
  * @package Newspack_Nodes
  */
@@ -18,7 +18,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Rest\Workers_CI_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Workers_CI_Node::class )]
@@ -42,7 +42,7 @@ class WorkersCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		\Newspack_Nodes\SSE_Slot_Pool::$ttl   = $this->slot_ttl;
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
@@ -56,7 +56,7 @@ class WorkersCITest extends TestCase {
 
 	/**
 	 * Set up a per-test base dir + register topologies so the dump_metadata
-	 * verb has a fleet to enumerate. Mirrors WorkersControllerRealShapeTest's
+	 * command has a fleet to enumerate. Mirrors WorkersControllerRealShapeTest's
 	 * topology filter and the per-test tmp-dir pattern from PerformanceCITest.
 	 *
 	 * @return string The base dir path (so tests can seed files under it).
@@ -194,7 +194,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 	}
 
-	public function test_node_schema_declares_its_verbs(): void {
+	public function test_node_schema_declares_its_commands(): void {
 		$schema = Workers_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
@@ -205,7 +205,7 @@ class WorkersCITest extends TestCase {
 		$this->assertNotEmpty( $schema['description'] );
 	}
 
-	public function test_dump_metadata_verb_is_no_longer_registered(): void {
+	public function test_dump_metadata_command_is_no_longer_registered(): void {
 		// The dashboard payload verb is dump_graph; dump_metadata must
 		// dispatch to nothing. CommandInterpreter throws
 		// "unknown command: <name>" and wraps it as TM_COMMAND|TM_ERROR, so
@@ -214,7 +214,7 @@ class WorkersCITest extends TestCase {
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_metadata' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_metadata' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'unknown command: dump_metadata', $result );
@@ -238,7 +238,7 @@ class WorkersCITest extends TestCase {
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertArrayHasKey( 'graph', $result );
 		$this->assertIsArray( $result['graph'] );
@@ -273,7 +273,7 @@ class WorkersCITest extends TestCase {
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsArray( $result, 'one broken topology answers the rest' );
 		$this->assertSame( [ 'demo-workers' ], \array_keys( $result['unreadable'] ) );
@@ -342,7 +342,7 @@ class WorkersCITest extends TestCase {
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertArrayHasKey( 'heartbeat_interval_s', $result );
 		$this->assertSame(
@@ -362,7 +362,7 @@ class WorkersCITest extends TestCase {
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertArrayHasKey( 'log_partitions', $result );
 		$this->assertSame( 3, $result['log_partitions'] );
@@ -379,7 +379,7 @@ class WorkersCITest extends TestCase {
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$catalog = \array_column( $result['logs'], 'name' );
 		// Every GC-declared log dir must appear in the dashboard catalog (the catalog
@@ -407,7 +407,7 @@ class WorkersCITest extends TestCase {
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
 		foreach ( $result['logs'] as $log ) {
@@ -422,7 +422,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_list_verb_returns_workers_from_cli(): void {
+	public function test_list_command_returns_workers_from_cli(): void {
 		$fake_cli = new class {
 			public function ls_workers(): array {
 				return [
@@ -438,14 +438,14 @@ class WorkersCITest extends TestCase {
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli = $fake_cli;
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'list' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'list' );
 
 		$this->assertIsArray( $result );
 		$this->assertCount( 1, $result );
 		$this->assertSame( 'demo-workers', $result[0]['type'] );
 	}
 
-	public function test_restart_verb_calls_cli_and_returns_count(): void {
+	public function test_restart_command_calls_cli_and_returns_count(): void {
 		$fake_cli = new class {
 			public ?array $called_with = null;
 			public function ls_workers(): array {
@@ -471,7 +471,7 @@ class WorkersCITest extends TestCase {
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli = $fake_cli;
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', 'demo-workers' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'restart', 'demo-workers' );
 
 		$this->assertSame( [ 'restarted' => 1 ], $result );
 		$this->assertSame( [ 'demo-workers' => true ], $fake_cli->called_with['filter'] );
@@ -500,12 +500,12 @@ class WorkersCITest extends TestCase {
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $fake_cli;
 
-		VerbHarness::fire( $interpreter, 'workers', 'restart', [ 'tui-workers' ] );
+		CommandHarness::fire( $interpreter, 'workers', 'restart', [ 'tui-workers' ] );
 
 		$this->assertSame( -1, $fake_cli->partition );
 	}
 
-	public function test_restart_verb_refuses_a_malformed_partition_option(): void {
+	public function test_restart_command_refuses_a_malformed_partition_option(): void {
 		$fake_cli = new class {
 			public ?array $called_with = null;
 			public function ls_workers(): array {
@@ -521,14 +521,14 @@ class WorkersCITest extends TestCase {
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $fake_cli;
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', [ 'demo-workers', '--partition=abc' ] );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'restart', [ 'demo-workers', '--partition=abc' ] );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'partition', $result );
 		$this->assertNull( $fake_cli->called_with, 'a refused command must not reach the fleet' );
 	}
 
-	public function test_heartbeat_verb_refreshes_slot_via_pool(): void {
+	public function test_heartbeat_command_refreshes_slot_via_pool(): void {
 		// The client sends only the exact lease pair; the server applies its own
 		// deliberately non-default TTL (47), not a client-provided fallback.
 		$memd                            = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
@@ -544,7 +544,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			$interpreter,
 			'workers',
 			'heartbeat',
@@ -563,18 +563,18 @@ class WorkersCITest extends TestCase {
 
 	// ── heartbeat error paths ───────────────────────────────────────────────
 
-	public function test_heartbeat_verb_errors_when_no_memd_configured(): void {
+	public function test_heartbeat_command_errors_when_no_memd_configured(): void {
 		// The shared Memcached handle is wired in production by the application
-		// bootstrap; absent it, the verb fails fast with a clear runtime error
+		// bootstrap; absent it, the command fails fast with a clear runtime error
 		// so the dashboard caller sees the misconfiguration instead of a silent
-		// no-op. CommandInterpreter catches verb exceptions and wraps them as
+		// no-op. CommandInterpreter catches command exceptions and wraps them as
 		// TM_COMMAND|TM_ERROR with the message in VALUE, so the payload IS the
 		// error string.
 		\Newspack_Nodes\Core::$memd = null;
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', [ '7', '42424243' ] );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'heartbeat', [ '7', '42424243' ] );
 
 		$this->assertSame( "cache not configured\n", $result );
 	}
@@ -598,19 +598,19 @@ class WorkersCITest extends TestCase {
 	}
 
 	#[DataProvider( 'malformed_heartbeat_arguments' )]
-	public function test_heartbeat_verb_rejects_malformed_lease( array $args, string $expected ): void {
+	public function test_heartbeat_command_rejects_malformed_lease( array $args, string $expected ): void {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', $args );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'heartbeat', $args );
 
-		// Verb errors are newline-terminated; the provider carries the message.
+		// Command errors are newline-terminated; the provider carries the message.
 		$this->assertSame( $expected . "\n", $result );
 		\Newspack_Nodes\Core::$memd = null;
 	}
 
-	public function test_heartbeat_verb_throws_on_owner_mismatch(): void {
+	public function test_heartbeat_command_throws_on_owner_mismatch(): void {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
 			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
@@ -626,7 +626,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			$interpreter,
 			'workers',
 			'heartbeat',
@@ -636,7 +636,7 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( "SSE slot lease not owned: pointer_owner_mismatch\n", $result );
 	}
 
-	public function test_heartbeat_verb_tells_a_released_slot_from_a_stolen_one(): void {
+	public function test_heartbeat_command_tells_a_released_slot_from_a_stolen_one(): void {
 		// release() tombstones the pointer to 0, which is not a takeover: an idle
 		// stream ending releases its slot, and a client heartbeat already in
 		// flight lands on the tombstone. Reporting that as an owner mismatch
@@ -659,7 +659,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			$interpreter,
 			'workers',
 			'heartbeat',
@@ -670,20 +670,20 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = null;
 	}
 
-	public function test_heartbeat_verb_names_a_slot_that_was_never_claimed(): void {
+	public function test_heartbeat_command_names_a_slot_that_was_never_claimed(): void {
 		// Nothing ever acquired this slot — a pool namespace mismatch (the request
 		// reached a different host, user or IP than the stream did) reads this way.
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', [ '4', '9182736455' ] );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'heartbeat', [ '4', '9182736455' ] );
 
 		$this->assertSame( "SSE slot lease not owned: pointer_missing\n", $result );
 		\Newspack_Nodes\Core::$memd = null;
 	}
 
-	public function test_heartbeat_verb_names_a_lease_that_expired_under_a_live_pointer(): void {
+	public function test_heartbeat_command_names_a_lease_that_expired_under_a_live_pointer(): void {
 		// The client went quiet longer than the slot TTL, or memcached evicted the
 		// liveness key. Distinct from a steal: the pointer still names this owner.
 		$memd                       = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
@@ -704,7 +704,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			$interpreter,
 			'workers',
 			'heartbeat',
@@ -718,7 +718,7 @@ class WorkersCITest extends TestCase {
 	// ── dump_cleanup verb ─────────────────────────────────────────────────
 
 	public function test_dump_cleanup_returns_diagnostic_envelope_with_orphans(): void {
-		// Verb mirrors the Log_Cleaner sweep: it globs the flat `{base}/logs/*` dirs
+		// The command mirrors the Log_Cleaner sweep: it globs the flat `{base}/logs/*` dirs
 		// (GLOB_ONLYDIR, layout-agnostic — no `.p{N}` regex) and diffs against the
 		// resolved declared set, so the diagnostic matches what the GC actually deletes
 		// (including non-`.p{N}`-shaped dir names like `0-req`).
@@ -747,7 +747,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
 
 		$this->assertSame( $logs, $result['logs_dir'] );
 		$this->assertSame( [ '0-req', '1-req', 'ghost' ], $result['on_disk_basenames'] );
@@ -769,7 +769,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
 
 		$this->assertSame( [], $result['on_disk_basenames'] );
 		$this->assertSame( [], $result['expected_basenames'] );
@@ -785,7 +785,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( [ 'stray-renamed-7d3a' ], $result['orphans'] );
@@ -797,7 +797,7 @@ class WorkersCITest extends TestCase {
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'cleanup_status' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'cleanup_status' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'unknown command: cleanup_status', $result );
@@ -813,7 +813,7 @@ class WorkersCITest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// dump_graph verb — the operator-grade payload the Worker Status
+	// dump_graph command — the operator-grade payload the Worker Status
 	// dashboard (event-dashboards / WorkerStatus.js) consumes; .list stays
 	// minimal for CLI / topology callers.
 	// -------------------------------------------------------------------------
@@ -827,7 +827,7 @@ class WorkersCITest extends TestCase {
 		$interpreter    = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsArray( $result );
 		foreach (
@@ -868,7 +868,7 @@ class WorkersCITest extends TestCase {
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertSame( 5, $result['max_segments'] );
 	}
@@ -888,7 +888,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$workers = \array_values( \array_filter(
 			$result['workers'],
@@ -922,7 +922,7 @@ class WorkersCITest extends TestCase {
 	private function dashboard_states(): array {
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 		return \array_column( $result['workers'], 'state', 'type' );
 	}
 
@@ -933,7 +933,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$rows             = \array_column( VerbHarness::fire( $interpreter, 'workers', 'dump_graph' )['workers'], null, 'type' );
+		$rows             = \array_column( CommandHarness::fire( $interpreter, 'workers', 'dump_graph' )['workers'], null, 'type' );
 
 		$this->assertSame( 'stale', $rows['job-workers']['state'], 'as `wp nodes status` reads it' );
 		$this->assertNull( $rows['job-workers']['heartbeat_age'] );
@@ -959,7 +959,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$workers          = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' )['workers'];
+		$workers          = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' )['workers'];
 
 		$this->assertCount( 1, $reads );
 		$this->assertNotContains( 'kea-departed', \array_column( $workers, 'type' ), 'a departed lock is not a dashboard slot' );
@@ -1035,7 +1035,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertSame( 2, $result['unparseable_lines'] );
 		$this->assertSame( [ 'firehose.p0' ], \array_column( $result['consumers'], 'reader' ) );
@@ -1048,7 +1048,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertSame( [ 'demo-workers.firehose.p0' ], \array_column( $result['consumers'], 'reader' ) );
 	}
@@ -1061,7 +1061,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$consumers = \array_values( \array_filter(
 			$result['consumers'],
@@ -1080,7 +1080,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_reader = [];
 		foreach ( $result['consumers'] as $c ) {
@@ -1104,7 +1104,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsArray( $result['logs'] );
 		$names = \array_column( $result['logs'], 'name' );
@@ -1144,7 +1144,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = \array_column( $result['logs'], 'partitions', 'name' );
 		$this->assertSame( [ 'grown' => 6871, 'elapsed_ms' => 15_250 ], $by_name['firehose.p0'][0]['probe'] );
@@ -1169,7 +1169,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = \array_column( $result['logs'], 'partitions', 'name' );
 		$this->assertSame( [ 'grown' => 613, 'elapsed_ms' => 14_900 ], $by_name['digest.md'][0]['probe'] );
@@ -1188,7 +1188,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsFloat( $result['logs_at'] );
 		$this->assertGreaterThanOrEqual( $before, $result['logs_at'] );
@@ -1210,7 +1210,7 @@ class WorkersCITest extends TestCase {
 		try {
 			$interpreter      = new Workers_CI_Node();
 			$interpreter->cli = $this->stub_cli();
-			$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+			$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 		} finally {
 			Core::$clock = null;
 		}
@@ -1233,7 +1233,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertArrayNotHasKey( 'probed', $envelope );
 		$this->assertArrayNotHasKey( 'probed', $result );
@@ -1285,7 +1285,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result             = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
 		foreach ( $result['logs'] as $log ) {
@@ -1315,7 +1315,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$names = \array_column( $result['logs'], 'name' );
 		$this->assertContains( 'jobintake.p0', $names );
@@ -1352,7 +1352,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
 		foreach ( $result['logs'] as $log ) {
@@ -1391,7 +1391,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result             = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
 		foreach ( $result['logs'] as $log ) {
@@ -1437,7 +1437,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result             = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$names = \array_column( $result['logs'], 'name' );
 		// num_partitions=1 → the resolver yields exactly the P0 concrete dir,
@@ -1478,7 +1478,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result             = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$by_name = [];
 		foreach ( $result['logs'] as $log ) {
@@ -1521,7 +1521,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertArrayHasKey( 'deadletter_segments', $result );
 		$this->assertSame( 3, $result['deadletter_segments'] );
@@ -1546,7 +1546,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertSame( [ 'firehose.p0' => 5, 'hub.tw0:firehose.p0' => 3 ], $result['deadletter_by_reader'] );
 		$this->assertSame( 3, $result['deadletter_segments'] );
@@ -1566,7 +1566,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertSame(
 			[
@@ -1586,7 +1586,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertSame( 0, $result['deadletter_segments'] );
 	}
@@ -1607,7 +1607,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$logs = [];
 		foreach ( $result['logs'] as $l ) {
@@ -1638,7 +1638,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$rows = \array_values( \array_filter(
 			$result['workers'],
@@ -1653,12 +1653,12 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_metadata_rejects_unauthorized(): void {
-		// The verb is gated on manage_options.
+		// The command is gated on manage_options.
 		$this->arrange_base_dir();
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
@@ -1672,7 +1672,7 @@ class WorkersCITest extends TestCase {
 	 * public property assignment AFTER construction, not through the ctor.
 	 *
 	 * This pins that contract: a bare `new Workers_CI_Node()` succeeds, and
-	 * `$interpreter->cli = ...` plus a verb dispatch threads the assigned dep
+	 * `$interpreter->cli = ...` plus a command dispatch threads the assigned dep
 	 * into the handler.
 	 */
 	public function test_constructible_via_no_arg_ctor_and_public_property_assignment(): void {
@@ -1689,7 +1689,7 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( $fake_cli, $interpreter->cli );
 
 		// `list` is the Cli::ls_workers() liveness projection, threaded off $self->cli.
-		$result = VerbHarness::fire( $interpreter, 'workers', 'list' );
+		$result = CommandHarness::fire( $interpreter, 'workers', 'list' );
 		$this->assertSame( 'demo-workers', $result[0]['type'] );
 		$this->assertTrue( $result[0]['live'] );
 	}
@@ -1720,7 +1720,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$sized = \array_values( \array_filter(
 			$result['logs'],
@@ -1755,7 +1755,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		$result           = CommandHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$feed = \array_values( \array_filter(
 			$result['logs'],

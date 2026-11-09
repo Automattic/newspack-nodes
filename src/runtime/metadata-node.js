@@ -435,7 +435,7 @@ export function computePollIntervalMs( nodeCount ) {
 
 /**
  * Metadata — `_metadata`. A Poller on `dump_metadata`: it rides the `_router`
- * TIMER, mints the verb at the live cwd, and publishes the parsed graph for the
+ * TIMER, mints the command at the live cwd, and publishes the parsed graph for the
  * canvas ( useNodeField( '_metadata', 'metadata' ) ). It holds no throttle of
  * its own — the base times it on the shared grid (ADR-17), so this poll leaves
  * in the same POST as everything else due that tick — and a cwd change repaints
@@ -523,7 +523,7 @@ export class MetadataNode extends PollerNode {
 
 	/**
 	 * Optimistic local edit: merge `patch` into one entry of the raw map and
-	 * re-publish, so the canvas reflects a verb before its reply lands. The
+	 * re-publish, so the canvas reflects a command before its reply lands. The
 	 * next poll reconciles. Does nothing without a node name.
 	 *
 	 * @param {string}  name  Node name to patch.
@@ -545,7 +545,7 @@ export class MetadataNode extends PollerNode {
 
 	/**
 	 * Fan one patch across every non-header entry in a SINGLE publish — what a
-	 * whole-graph verb such as `trace *` needs, so the canvas repaints once
+	 * whole-graph command such as `trace *` needs, so the canvas repaints once
 	 * instead of once per node.
 	 *
 	 * @param {Object} patch Raw `dump_metadata` fields to merge into every node.

@@ -1,6 +1,6 @@
 <?php
 /**
- * TopologiesActivateTest: unit tests for the activate / deactivate verbs on
+ * TopologiesActivateTest: unit tests for the activate / deactivate commands on
  * Topologies_CI_Node — the first CI writers of the `newspack_nodes_topologies`
  * active-set option.
  *
@@ -30,7 +30,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Topologies_CI_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
 
@@ -63,7 +63,7 @@ class TopologiesActivateTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->stock );
 		$this->rmdir_recursive( $this->user );
@@ -80,7 +80,7 @@ class TopologiesActivateTest extends TestCase {
 	public function test_activate_adds_name_to_option_and_spawns_fleet(): void {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\nmake_node Echo e\n" );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'activate',
@@ -109,7 +109,7 @@ class TopologiesActivateTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'broken-4410' ];
 		Config::reset();
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
+		$result = CommandHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
 
 		$this->assertIsArray( $result );
 		$this->assertArrayNotHasKey( 'unchecked', $result, 'the warning carries the names' );
@@ -123,7 +123,7 @@ class TopologiesActivateTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'beta' ];
 		Config::reset();
 
-		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
+		CommandHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
 
 		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
 		$this->assertContains( 'alpha', $active );
@@ -135,7 +135,7 @@ class TopologiesActivateTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
 		Config::reset();
 
-		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
+		CommandHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
 
 		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
 		$this->assertSame( [ 'alpha' ], \array_values( $active ) );
@@ -156,7 +156,7 @@ class TopologiesActivateTest extends TestCase {
 		$this->use_base_dir( $this->base_dir, [ 'topologies' => [ 'alpha', 'beta' ] ] );
 		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
 
-		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'gamma' );
+		CommandHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'gamma' );
 
 		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
 		$this->assertContains( 'alpha', $active );
@@ -169,7 +169,7 @@ class TopologiesActivateTest extends TestCase {
 		// interpret() packages the reply as TM_ERROR — not a plain error STRING
 		// that rides back as a SUCCESS (TM_RESPONSE) and lets the JS
 		// `await activate(bad)` resolve as if it worked. Capture the raw response
-		// Message so the TM_ERROR flag is observable (VerbHarness collapses both
+		// Message so the TM_ERROR flag is observable (CommandHarness collapses both
 		// shapes to the payload string and can't tell them apart).
 		$response = $this->fire_capturing_response( 'activate', [ 'does-not-exist' ] );
 
@@ -184,9 +184,9 @@ class TopologiesActivateTest extends TestCase {
 	}
 
 	/**
-	 * Fire a verb through the interpreter → base → router path, capturing the
+	 * Fire a command through the interpreter → base → router path, capturing the
 	 * raw response Message (TYPE intact) on a Capture_Sink_Node. Mirrors
-	 * VerbHarness::fire but keeps the wire-level TYPE for TM_ERROR assertions.
+	 * CommandHarness::fire but keeps the wire-level TYPE for TM_ERROR assertions.
 	 *
 	 * @return array<int,mixed> The captured response Message.
 	 */
@@ -219,7 +219,7 @@ class TopologiesActivateTest extends TestCase {
 
 	public function test_activate_rejects_a_write_conflicting_topology(): void {
 		// Active topology A and a topology B that WRITES the same partition log —
-		// activating B would put two fleets on one log and corrupt it. The verb
+		// activating B would put two fleets on one log and corrupt it. The command
 		// must reject (TM_ERROR) BEFORE writing the option or spawning, so the
 		// manager toggle cannot create the conflict.
 		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
@@ -261,7 +261,7 @@ class TopologiesActivateTest extends TestCase {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		$GLOBALS['_wp_test_current_user_can'] = [];
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'activate',
@@ -288,7 +288,7 @@ class TopologiesActivateTest extends TestCase {
 			\file_put_contents( "{$dir}/heartbeat", (string) \getmypid() );
 		}
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'deactivate',
@@ -317,7 +317,7 @@ class TopologiesActivateTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];
 		Config::reset();
 
-		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'deactivate', 'alpha' );
+		CommandHarness::fire( new Topologies_CI_Node(), 'topologies', 'deactivate', 'alpha' );
 
 		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
 		$this->assertNotContains( 'alpha', $active );
@@ -343,7 +343,7 @@ class TopologiesActivateTest extends TestCase {
 		Config::reset();
 		$GLOBALS['_wp_test_current_user_can'] = [];
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'deactivate',

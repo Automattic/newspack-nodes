@@ -3,7 +3,7 @@
  * PHP `Remote_Broker_Node::fold_source()` and `sources_of()`, held to them by
  * `tests/fixtures/broker-sources.json`, which both suites read.
  *
- * Two readers fold through it: the `add_source` and `remove_source` verbs a
+ * Two readers fold through it: the `add_source` and `remove_source` commands a
  * `RemoteLink`'s `:config` answers, and the console's TSL reader drawing a
  * broker's `pair` edges. Each refuses what a PHP broker refuses, in its words.
  */

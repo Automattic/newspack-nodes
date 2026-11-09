@@ -102,8 +102,8 @@ class Field {
 		 * Inclusive lower bound for an `int` field, and the trigger that
 		 * derives its clamp. Declared HERE because bounds belong to the
 		 * setting, not to one of its consumers: the settings page and the
-		 * `settings` service verb both read this one declaration, so an option
-		 * cannot mean 1..8 through the page and 1..2^30 through the verb.
+		 * `settings set` command both read this one declaration, so an option
+		 * cannot mean 1..8 through the page and 1..2^30 through the command.
 		 *
 		 * @api
 		 */
@@ -161,11 +161,11 @@ class Field {
 	 * The sanitizer `register_setting()` gets: a bounded `int` derives its own
 	 * clamp, and every other field uses the callable it declared.
 	 *
-	 * The derived clamp reads the SAME min/max the `settings` service verb
+	 * The derived clamp reads the SAME min/max the `settings set` command
 	 * bounds-checks against, so the two cannot disagree about what is valid.
 	 * They deliberately differ in what they do about an invalid value: the page
 	 * CLAMPS, because its input is a constrained widget and a browser round
-	 * trip has nowhere to report to; the verb REFUSES with `invalid value for
+	 * trip has nowhere to report to; the command REFUSES with `invalid value for
 	 * setting`, because a programmatic caller must be told rather than silently
 	 * handed a different number.
 	 *

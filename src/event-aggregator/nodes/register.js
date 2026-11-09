@@ -2,11 +2,11 @@
  * The Aggregator Status dashboard's two slice views, declared rather than
  * subclassed.
  *
- * Each owns one verb of the hub-side `aggregator` interpreter and publishes it
+ * Each owns one command of the hub-side `aggregator` interpreter and publishes it
  * on its own `view` state for a React widget: `summary` feeds the header strip,
  * `list_servers` feeds the server cards. Two views rather than one give each
  * slice its own reply path, so a card list that fails leaves the header counts
- * on screen. Each parse takes the verb's struct and refuses any other shape,
+ * on screen. Each parse takes the command's struct and refuses any other shape,
  * keeping the slice already on screen.
  */
 

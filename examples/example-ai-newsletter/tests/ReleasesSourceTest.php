@@ -61,7 +61,7 @@ final class ReleasesSourceTest extends TestCase {
 		$this->assertSame( [ 'verb' => 'TICK', 'data' => [ 'emitted' => 2 ] ], $reply[ Message::VALUE ], 'both canned items counted' );
 	}
 
-	public function test_an_undeclared_verb_emits_nothing_and_is_refused(): void {
+	public function test_an_undeclared_command_emits_nothing_and_is_refused(): void {
 		$sink   = new Capture_Sink_Node();
 		$source = new Releases_Source_Demo_Node();
 		$source->sink( $sink );

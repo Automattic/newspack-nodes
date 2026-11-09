@@ -72,7 +72,7 @@ import {
  */
 export async function answerBatch( messages, replyFor, options = {} ) {
 	const { requireSignature = true } = options;
-	// @longform Every command in the batch reaches the verb, and only then does
+	// @longform Every command in the batch reaches its handler, and only then does
 	// the POST answer. Awaiting each in turn instead means one slow command
 	// hides the rest: a test holding the first reply open would see the second
 	// as never sent, when the wire carried both in the same body.

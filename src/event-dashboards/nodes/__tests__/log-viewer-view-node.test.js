@@ -48,7 +48,7 @@ function controlMsg( payload ) {
 // Real records carry a `name` of their own: a flame node is named
 // (`{"name":"request",…}`), and a Consumer's checkpoint frame names the reader
 // (`{"segment":…,"name":"firehose:consumer"}`). Treating "the VALUE object has
-// a name key" as "this is a verb reply" silently discarded EVERY record from
+// a name key" as "this is a command reply" silently discarded EVERY record from
 // flames.p0 and from every Consumer offsetlog, in live and replay alike.
 test( 'a struct record whose VALUE has its own `name` still renders', () => {
 	const v = makeView( 'log-viewer:view' );

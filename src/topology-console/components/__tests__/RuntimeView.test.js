@@ -1,6 +1,6 @@
 /**
  * RuntimeView tests — the current-scope timers + handles grids shown inside the
- * Inspector's Runtime modal. It mounts one `Dmesg` poller per verb
+ * Inspector's Runtime modal. It mounts one `Dmesg` poller per command
  * (`list_timers -s` and `list_handles -s`, both targeting `_cwd`) and renders
  * each reply as a click-to-sort grid; a drain spinner (next_ms <= 0 with fires
  * climbing) is flagged.
@@ -32,7 +32,7 @@ beforeEach( () => {
 	} );
 } );
 
-// Feed each verb's `-s` rows into its own poller; let React settle.
+// Feed each command's `-s` rows into its own poller; let React settle.
 function publish( timers, handles ) {
 	const reply = ( rows ) => {
 		const m = newMessage();
@@ -69,7 +69,7 @@ const rowNames = ( table ) =>
 		tr.getAttribute( 'data-name' )
 	);
 
-test( 'mounts a poller per verb on the backbone, targeting the current scope (_cwd)', () => {
+test( 'mounts a poller per command on the backbone, targeting the current scope (_cwd)', () => {
 	render( <RuntimeView /> );
 	for ( const [ name, verb ] of [
 		[ TIMER_POLLER, 'list_timers' ],
@@ -84,7 +84,7 @@ test( 'mounts a poller per verb on the backbone, targeting the current scope (_c
 	}
 } );
 
-test( 'asks each verb once, in the Router tick the mount asks for', async () => {
+test( 'asks each command once, in the Router tick the mount asks for', async () => {
 	render( <RuntimeView /> );
 	expect( asked ).toHaveLength( 0 );
 	await act( async () => {} );

@@ -126,7 +126,7 @@ if ( \is_admin() ) {
  * `Bootstrap::mount_request_graph()` builds `_router` and `_command_interpreter` for a
  * dispatch, then fires `newspack_nodes/request_graph_ready`. Going through the base
  * interpreter's `make_node()` constructs, names and sinks the node in one step, and the
- * sink is the half that matters: a verb's reply is addressed TO=FROM (ADR-7) and walks
+ * sink is the half that matters: a command's reply is addressed TO=FROM (ADR-7) and walks
  * back through the base interpreter to `_router`, which hands it to `_output` — the HTTP
  * door that writes the response body. A CI built without a sink throws `fill requires a
  * wired sink` on its first command.

@@ -129,7 +129,7 @@ final class Wpdb_Arm extends Durable_Arm {
 
 	/**
 	 * See Durable_Arm::vacuum(). OPTIMIZE rebuilds both whole shared tables, so
-	 * it is an operator's verb for a quiet moment. The server reports some
+	 * it is an operator's command for a quiet moment. The server reports some
 	 * failures as a result row rather than an error, so every row is read.
 	 *
 	 * @throws \RuntimeException When the server refuses the rebuild.
@@ -138,13 +138,13 @@ final class Wpdb_Arm extends Durable_Arm {
 		try {
 			foreach ( $this->rows( $this->statement( 'OPTIMIZE TABLE %i, %i', self::members_table() ) ) as $row ) {
 				if ( 'error' === \strtolower( Core::as_string( $row['Msg_type'] ) ) ) {
-					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the command reporting it escapes at its view.
 					throw new \UnexpectedValueException( Driver_Error::shape( null, Core::as_string( $row['Msg_text'] ) ) );
 				}
 			}
 		} catch ( \UnexpectedValueException $e ) {
 			$this->failure = $e->getMessage();
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the command reporting it escapes at its view.
 			throw new \RuntimeException( "vacuum failed: {$this->failure}", 0, $e );
 		}
 	}
@@ -519,7 +519,7 @@ final class Wpdb_Arm extends Durable_Arm {
 		try {
 			self::install();
 		} catch ( \RuntimeException $e ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the command reporting it escapes at its view.
 			throw new \UnexpectedValueException( $e->getMessage(), 0, $e );
 		}
 		return true;

@@ -9,14 +9,14 @@ use Newspack_Nodes\Row_Schema;
 use Newspack_Nodes\Tee_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Wombat_Row_Schema;
 
 class CommandInterpreterNamespaceTest extends TestCase {
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		parent::tearDown();
 	}
 
@@ -150,7 +150,7 @@ class CommandInterpreterNamespaceTest extends TestCase {
 	public function test_classes_ci_list_includes_registered_substrate_nodes(): void {
 		// `dump` is gated by the Service_CI base; grant the cap to exercise it.
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertIsArray( $result );
 		$shell_names = \array_column( $result['classes'], 'shell_name' );

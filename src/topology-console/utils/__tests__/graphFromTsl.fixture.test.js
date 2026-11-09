@@ -39,9 +39,9 @@ describe( 'graphFromTsl — request-builder.tsl fixture', () => {
 		] );
 	} );
 
-	it( 'captures cd-block bare verbs + cmd as verbInvocations on the cwd node', () => {
+	it( 'captures cd-block bare commands + cmd as commandInvocations on the cwd node', () => {
 		const { map } = byName();
-		expect( map.fanout.verbInvocations ).toEqual( [
+		expect( map.fanout.commandInvocations ).toEqual( [
 			{ verb: 'set_multi_writer', args: [ 'true' ], viaConfig: true },
 			{
 				verb: 'set_completed_target',
@@ -63,16 +63,16 @@ describe( 'graphFromTsl — request-builder.tsl fixture', () => {
 
 	it( 'captures command / command_node alias verbs', () => {
 		const { map } = byName();
-		expect( map[ 'requests:partition' ].verbInvocations ).toEqual( [
+		expect( map[ 'requests:partition' ].commandInvocations ).toEqual( [
 			{ verb: 'with_index', args: [ 'request-index' ], viaConfig: true },
 			{ verb: 'void_warranty', args: [], viaConfig: true },
 		] );
 		// `command errors:partition void_warranty` — the BARE form, which is
-		// how an interpreter-class node takes a verb directly.
-		expect( map[ 'errors:partition' ].verbInvocations ).toEqual( [
+		// how an interpreter-class node takes a command directly.
+		expect( map[ 'errors:partition' ].commandInvocations ).toEqual( [
 			{ verb: 'void_warranty', args: [], viaConfig: false },
 		] );
-		expect( map[ 'completed:partition' ].verbInvocations ).toEqual( [
+		expect( map[ 'completed:partition' ].commandInvocations ).toEqual( [
 			{ verb: 'void_warranty', args: [], viaConfig: true },
 		] );
 	} );

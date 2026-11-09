@@ -6,7 +6,7 @@
  *
  * Request-scope only. Nothing here takes a lock or runs a loop, which is what
  * lets the cold-start cron pass, the peer scan inside every worker, and the
- * topology-activation verbs all share one coordinator.
+ * topology-activation commands all share one coordinator.
  *
  * Some members answer to the name only obliquely, and stay by measure. The
  * spawn/stop pair is one unit: `kill_readers()` is `spawn_fleet()`'s inverse,
@@ -959,7 +959,7 @@ class Spawn_Coordinator {
 	 * a refused wake raises with what the door wrote still standing.
 	 *
 	 * A spawn the endpoint refuses raises its refusal, so the door that asked —
-	 * a `/command` verb, an attached cli — answers it; a throttled one is
+	 * a `/command` request, an attached cli — answers it; a throttled one is
 	 * another process starting the worker, and raises nothing.
 	 *
 	 * @param string                                                                       $base_dir Runtime state root.

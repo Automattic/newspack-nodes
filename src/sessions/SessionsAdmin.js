@@ -6,7 +6,7 @@
  * a laptop — and, below them, the OAuth connections people approved, each of
  * which mints its own sessions. `useSessionsGraph` owns the data and the
  * transport, so every component here is presentation over the model that hook
- * returns and over the two verbs it exposes.
+ * returns and over the two commands it exposes.
  *
  * The key is disclosed exactly once, in the create answer. The verifier
  * recomputes an HMAC from it, so it is stored recoverable rather than hashed
@@ -31,7 +31,7 @@ const DEFAULT_SCOPE = 'tune';
 /**
  * The lifetime the form prefills, in seconds — `Command_Auth::SESSION_TTL_S`.
  *
- * The `list` verb serves the ceiling (`ttl_max`) and not the default, so this
+ * The `list` command serves the ceiling (`ttl_max`) and not the default, so this
  * copy is free to drift. Drift costs a prefilled number and never a bad
  * session: `Command_Auth::bounded_ttl()` clamps whatever it is sent.
  */
@@ -51,7 +51,7 @@ const REVOKE_TEXTS = {
 };
 
 /**
- * The words the create form shows for its own verb, as `answerStatus` reads
+ * The words the create form shows for its own command, as `answerStatus` reads
  * them.
  *
  * No `ok` text here either: success replaces the whole form with the key
@@ -276,7 +276,7 @@ function ListTable( { className, columns, empty, rows } ) {
 }
 
 /**
- * How the form hands a create over: the three fields the `create` verb takes,
+ * How the form hands a create over: the three fields the `create` command takes,
  * the label already trimmed and the lifetime already a number, so the caller
  * only has to spell them as arguments.
  *
@@ -300,7 +300,7 @@ function ListTable( { className, columns, empty, rows } ) {
  * @param {?Object}                props.answer   The answer for the submitted label, if any.
  * @param {boolean}                props.busy     Whether the create is outstanding.
  * @param {() => void}             props.onCancel Dismisses the modal.
- * @param {Object<string, string>} props.scopes   Each scope the `list` verb serves, with its label.
+ * @param {Object<string, string>} props.scopes   Each scope the `list` command serves, with its label.
  * @param {number}                 props.ttlMax   Server-side TTL ceiling, in seconds.
  * @return {import('react').ReactElement} The dialog.
  */
@@ -448,7 +448,7 @@ function CreateSessionModal( {
 /**
  * The one-time credential disclosure, rendered in place of the create dialog
  * once a session is issued. Closing is final: the listing never carries the
- * secret and the verbs never hand it back, so a lost credential is re-issued
+ * secret and the commands never hand it back, so a lost credential is re-issued
  * rather than recovered.
  *
  * Handle and secret are shown joined by a dot, so one copy carries both. The

@@ -4,7 +4,7 @@
  *
  * The fleet sweeps orphan log/offset dirs every config-check tick,
  * but only once a dir has been quiet for `Log_Cleaner::DELETE_GRACE_S`. An
- * operator tearing a topology down wants the dirs gone now, so this verb runs
+ * operator tearing a topology down wants the dirs gone now, so this command runs
  * the same sweep on demand and `--force` drops the grace to zero.
  *
  * @package Newspack_Nodes

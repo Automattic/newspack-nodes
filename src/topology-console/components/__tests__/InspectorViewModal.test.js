@@ -148,7 +148,7 @@ test( 'the Trace override tolerates one stale poll and clears on agreement', () 
 	expect( queryByText( 'trace' ) ).toBeNull();
 } );
 
-test( 'two disagreeing polls surrender the Trace override (verb failed)', () => {
+test( 'two disagreeing polls surrender the Trace override (command failed)', () => {
 	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
 	const { getByText } = render(
 		<InspectorViewModal

@@ -22,7 +22,7 @@ import { __ } from '@wordpress/i18n';
  *
  * `id` is the registry key, so the bundle's own `registerTab` shadows
  * the lazy placeholder rather than adding a second tab beside it. `host` keeps
- * the tab on the station and off the debug overlay: every `Sessions_CI` verb behind
+ * the tab on the station and off the debug overlay: every `Sessions_CI` command behind
  * this view requires the `manage` capability, so the directory is an operator
  * surface rather than a page-level debugging aid.
  */

@@ -371,7 +371,7 @@ describe( 'useLogStatusSegments', () => {
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
-		// Addressed to the CI that owns the verb, and about the dir it names.
+		// Addressed to the CI that owns the command, and about the dir it names.
 		const asked = wire.batches
 			.flat()
 			.find( ( m ) => 'dump_log' === m[ VALUE ]?.name );

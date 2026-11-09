@@ -158,11 +158,11 @@ class TopologyRegistryExpandTest extends TestCase {
 		);
 	}
 
-	public function test_expand_carries_config_verbs_on_the_node_record(): void {
-		// A borrowed node's config verbs (the checkboxes the inspector shows —
+	public function test_expand_carries_config_commands_on_the_node_record(): void {
+		// A borrowed node's config commands (the checkboxes the inspector shows —
 		// void_warranty here, plus a with_index that takes an arg) must ride on
 		// the node record so the console can show what's ticked. A set_*target
-		// stays an EDGE, never a verb.
+		// stays an EDGE, never a command.
 		$this->write_tsl(
 			'wombat-verbs',
 			"make_node Partition zebra:partition /var/wombat/zebra.log 4096 1 2 0\n"

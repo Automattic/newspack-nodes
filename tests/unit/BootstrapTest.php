@@ -448,7 +448,7 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
-	 * A wake the endpoint refuses raises its refusal for the verb to answer,
+	 * A wake the endpoint refuses raises its refusal for the command to answer,
 	 * but only once the input is mounted, so what the batch writes next still
 	 * lands for the worker to read when it does start.
 	 */

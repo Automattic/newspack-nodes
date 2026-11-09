@@ -36,7 +36,7 @@ function typeLine( shell, line ) {
 	shell.fill( m );
 }
 
-test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb handler', () => {
+test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the command handler', () => {
 	// eslint-disable-next-line global-require
 	const { ShellNode } = require( '../shell-node' );
 
@@ -53,7 +53,7 @@ test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb
 
 	const shell = new ShellNode();
 	shell.sink = interpreter;
-	// Bare-verb form: TO is the (empty) cwd, so this interpreter interprets it.
+	// Bare-command form: TO is the (empty) cwd, so this interpreter interprets it.
 	// The quoted `a b` is ONE token; `--flag` a bare flag; `c` a positional.
 	typeLine( shell, "verb 'a b' c --flag" );
 
@@ -101,7 +101,7 @@ test( 'TM_COMMAND with non-empty TO is forwarded to sink (in transit)', () => {
 	expect( got ).toHaveLength( 1 );
 } );
 
-test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
+test( 'TM_COMMAND with empty TO dispatches the named command', () => {
 	const sink = new Node();
 	const got = [];
 	sink.fill = ( m ) => got.push( [ ...m ] );
@@ -199,7 +199,7 @@ describe( 'makeNode with a class', () => {
 	} );
 } );
 
-// A node's :config binds a verb's declared args before its handler runs, as
+// A node's :config binds a command's declared args before its handler runs, as
 // PHP's dispatch() does (ADR-25), and is renamed with its patron.
 describe( 'a wired :config', () => {
 	class PerchSpyNode extends Node {
@@ -255,7 +255,7 @@ describe( 'a wired :config', () => {
 		expect( node.heard ).toEqual( { bird: 'heron-9', branch: null } );
 	} );
 
-	it( 'refuses a declared verb’s tokens the binder refuses', () => {
+	it( 'refuses a declared command’s tokens the binder refuses', () => {
 		const node = new CommandInterpreterNode().makeNode(
 			PerchSpyNode,
 			'osprey-perch-43'
@@ -266,7 +266,7 @@ describe( 'a wired :config', () => {
 		);
 	} );
 
-	it( 'hands a verb declaring no args its tokens', () => {
+	it( 'hands a command declaring no args its tokens', () => {
 		const node = new CommandInterpreterNode().makeNode(
 			PerchSpyNode,
 			'osprey-perch-44'
@@ -368,7 +368,7 @@ test( 'a string reply is newline-terminated, and not doubly so', () => {
 	} );
 } );
 
-test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
+test( 'command throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 	const sink = new Node();
 	const got = [];
 	sink.fill = ( m ) => got.push( [ ...m ] );
@@ -438,7 +438,7 @@ test( 'TM_COMMAND|TM_ERROR is forwarded, never interpreted', () => {
 	expect( got[ 0 ][ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
 } );
 
-test( 'command without LOCAL provenance is refused (unauthorized), verb not run', () => {
+test( 'command without LOCAL provenance is refused (unauthorized), command not run', () => {
 	const sink = new Node();
 	const got = [];
 	sink.fill = ( m ) => got.push( [ ...m ] );
@@ -540,7 +540,7 @@ test( 'TM_NOREPLY command suppresses the routed reply on success', () => {
 	m[ LOCAL ] = true;
 	interpreter.fill( m );
 
-	// The verb still ran; the reply was suppressed (no console at boot).
+	// The command still ran; the reply was suppressed (no console at boot).
 	expect( ran ).toBe( true );
 	expect( got ).toHaveLength( 0 );
 } );
@@ -623,7 +623,7 @@ test( 'a TM_NOREPLY command naming an unknown verb throws', () => {
 	expect( () => interpreter.fill( m ) ).toThrow( 'no such verb: nosuch7733' );
 } );
 
-test( 'empty verb payload suppresses the routed response', () => {
+test( 'empty command payload suppresses the routed response', () => {
 	const sink = new Node();
 	const got = [];
 	sink.fill = ( m ) => got.push( [ ...m ] );
@@ -668,7 +668,7 @@ test.each( [
 	[ 'an array name', [ 'make_node' ], 'no such verb: \n' ],
 	[ 'a true name', true, 'no such verb: 1\n' ],
 ] )(
-	'looks up %s as PHP does, an own verb by its string',
+	'looks up %s as PHP does, an own command by its string',
 	( label, name, payload ) => {
 		const sink = new Node();
 		const got = [];
@@ -691,7 +691,7 @@ test.each( [
 	}
 );
 
-test( 'hands the verb and the reply its arguments as PHP strings', () => {
+test( 'hands the command and the reply its arguments as PHP strings', () => {
 	const sink = new Node();
 	const got = [];
 	sink.fill = ( m ) => got.push( [ ...m ] );
@@ -822,16 +822,16 @@ test( 'TM_PING with non-empty TO is forwarded as in-transit (no bounce)', () => 
 	expect( got[ 0 ][ TO ] ).toBe( 'somewhere/else' ); // TO unchanged
 } );
 
-// Built-in verb table — 1:1 parity with PHP $C, dispatched + asserted directly.
+// Base command table — 1:1 parity with PHP $C, dispatched + asserted directly.
 
 import { TeeNode } from '../tee-node';
 import { MetadataNode } from '../metadata-node';
 import { RemoteIpcNode } from '../remote-ipc-node';
 import { DumperNode } from '../dumper-node';
 
-// Dispatch a built-in verb by name and return its raw result. Args are the
-// pre-split token array the interpreter hands verbs; a string convenience is
-// whitespace-tokenized here (verbs never re-split).
+// Dispatch a base command by name and return its raw result. Args are the
+// pre-split token array the interpreter hands commands; a string convenience is
+// whitespace-tokenized here (commands never re-split).
 const dispatch = ( interpreter, name, args = [], envelope = {} ) => {
 	let argv = args;
 	if ( ! Array.isArray( args ) ) {
@@ -841,14 +841,14 @@ const dispatch = ( interpreter, name, args = [], envelope = {} ) => {
 	return interpreter.commands()[ name ]( interpreter, argv, envelope );
 };
 
-describe( 'built-in verbs — defaults installed on every interpreter', () => {
+describe( 'base commands — defaults installed on every interpreter', () => {
 	const makeInterpreter = () => {
 		const interpreter = new CommandInterpreterNode();
 		interpreter.name = '_command_interpreter';
 		return interpreter;
 	};
 
-	it( 'a fresh interpreter ships the full PHP verb set (canonical + aliases)', () => {
+	it( 'a fresh interpreter ships the full PHP command set (canonical + aliases)', () => {
 		const interpreter = makeInterpreter();
 		const cmds = interpreter.commands();
 		for ( const verb of [
@@ -879,7 +879,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		}
 	} );
 
-	it( 'commands( table ) merges over the built-ins, not replaces', () => {
+	it( 'commands( table ) merges over the base commands, not replaces', () => {
 		const interpreter = makeInterpreter();
 		interpreter.commands( { custom: () => 'x' } );
 		expect( typeof interpreter.commands().custom ).toBe( 'function' );
@@ -1242,7 +1242,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	} );
 
 	describe( 'reply_to', () => {
-		it( 'runs the verb locally and routes its reply to the path', () => {
+		it( 'runs the command locally and routes its reply to the path', () => {
 			const interpreter = makeInterpreter();
 			const sink = new Node();
 			const got = [];
@@ -1358,7 +1358,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				dispatch( interpreter, 'dump_node', 'nope' )
 			).toThrow( 'can\'t find node "nope"' );
 		} );
-		it( 'masks the verb table; the authorize closure renders as any function', () => {
+		it( 'masks the command table; the authorize closure renders as any function', () => {
 			const interpreter = makeInterpreter();
 			interpreter.name = 'ci';
 			interpreter.authorize = () => true;
@@ -2080,7 +2080,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	} );
 } );
 
-describe( 'list_timers / list_handles introspection verbs', () => {
+describe( 'list_timers / list_handles introspection commands', () => {
 	test( 'list_timers lists active + inactive timers with an ACTIVE column', () => {
 		const timer = new TimerNode();
 		timer.name = 'tick0';

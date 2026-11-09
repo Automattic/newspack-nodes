@@ -32,14 +32,14 @@
   <div class="lane" style="top:0;height:120px">
     <div class="lbl" style="top:15px">Browser, sending<small>the page's graph</small></div>
     <div class="hop" style="left:160px;top:15px;width:150px;height:90px"><div><span class="num">1</span>A Timer ticks on the router's heartbeat.</div></div>
-    <div class="hop" style="left:337.5px;top:15px;width:150px;height:90px"><div><span class="num">2</span>A Tee fans the tick to one Fetcher per verb.</div></div>
-    <div class="hop" style="left:515px;top:15px;width:150px;height:90px"><div><span class="num">3</span>Each Fetcher sends its fixed verb, FROM = its receiver Tee.</div></div>
+    <div class="hop" style="left:337.5px;top:15px;width:150px;height:90px"><div><span class="num">2</span>A Tee fans the tick to one Fetcher per command.</div></div>
+    <div class="hop" style="left:515px;top:15px;width:150px;height:90px"><div><span class="num">3</span>Each Fetcher sends its fixed command, FROM = its receiver Tee.</div></div>
     <div class="hop" style="left:692.5px;top:15px;width:150px;height:90px"><div><span class="num">4</span><span class="mono">&lt;group&gt;:shell</span>, its group's Tap, forwards it unchanged; <span class="mono">connect</span> to it shows each one.</div></div>
     <div class="hop" style="left:870px;top:15px;width:150px;height:90px"><div><span class="num">5</span><span class="mono">_http</span> buffers while the router holds it locked, then one POST carries the whole tick.</div></div>
   </div>
   <div class="lane alt" style="top:120px;height:120px">
     <div class="lbl" style="top:15px">Command request<small>the outbound boundary</small></div>
-    <div class="hop" style="left:515px;top:15px;width:505px;height:90px"><div><span class="num">6</span><span class="mono">POST /newspack-nodes/v1/command</span>. A service node answers the verb inside the request, and the reply rides the POST body with TO set from the browser's FROM. A command bound for a worker is routed onward, and the POST answers a bare 202.</div></div>
+    <div class="hop" style="left:515px;top:15px;width:505px;height:90px"><div><span class="num">6</span><span class="mono">POST /newspack-nodes/v1/command</span>. A service node answers the command inside the request, and the reply rides the POST body with TO set from the browser's FROM. A command bound for a worker is routed onward, and the POST answers a bare 202.</div></div>
   </div>
   <div class="lane" style="top:240px;height:90px">
     <div class="lbl" style="top:15px">Worker<small>the second channel</small></div>
@@ -82,7 +82,7 @@
   </div>
   <div class="callout" style="width:340px">
     <h4>Why the model is split across nodes</h4>
-    <p>One node that fetches everything has counters that never move and edges a debugger cannot read, so the overlay has nothing to draw. One verb per Fetcher, one reply per view node, one node per widget.</p>
+    <p>One node that fetches everything has counters that never move and edges a debugger cannot read, so the overlay has nothing to draw. One command per Fetcher, one reply per view node, one node per widget.</p>
   </div>
 </div>
 </div>

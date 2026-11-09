@@ -443,7 +443,7 @@ final class RowTableNodeTest extends TestCase {
 			[ [ Message::TM_ERROR, '', "ADD: only ROWS takes a structure\n" ] ],
 			self::shape( $this->ask( $table, [ 'ADD' => [ 'sku-41' => [ 7 ] ] ] ) )
 		);
-		$this->assertArrayNotHasKey( 'GET', $table->stats(), 'a Row_Table counts the verbs it declares' );
+		$this->assertArrayNotHasKey( 'GET', $table->stats(), 'a Row_Table counts the requests it declares' );
 	}
 
 	public function test_rows_on_a_keyed_table_is_refused_as_any_structure_but_add_and_sadd(): void {

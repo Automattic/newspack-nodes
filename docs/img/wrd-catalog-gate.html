@@ -30,7 +30,7 @@
 </style>
 <div class="sheet">
 <h1>One catalog feeds the palette and the inspector, so a category is a two-surface decision</h1>
-<p class="sub"><span class="mono">Classes_CI</span> drops a class from the catalog on either of two conditions, and a dropped class loses its inspector verbs along with its tile. The palette filters the same array once more on its own, which is what keeps a mounted Service CI and a <span class="mono">Hidden</span> class off the canvas and their buttons on the panel.</p>
+<p class="sub"><span class="mono">Classes_CI</span> drops a class from the catalog on either of two conditions, and a dropped class loses its inspector commands along with its tile. The palette filters the same array once more on its own, which is what keeps a mounted Service CI and a <span class="mono">Hidden</span> class off the canvas and their buttons on the panel.</p>
 
 <div class="g" id="g">
 <svg class="wire" id="wire" width="1052" height="612"><defs>
@@ -42,7 +42,7 @@
 <div class="nd" id="cls" style="left:0;top:26px;width:200px"><span class="t">Insights_CI_Node</span><span class="k">its <span class="mono">node_schema()</span>, or <span class="mono">Node</span>'s default when it declares none</span></div>
 <div class="nd q" id="q2" style="left:280px;top:26px;width:200px"><span class="t">category === <span class="mono">''</span>?</span><span class="k">no <span class="mono">node_schema()</span> at all, as <span class="mono">SSE_Out_Node</span></span></div>
 <div class="nd q" id="q3" style="left:560px;top:26px;width:200px"><span class="t">'hidden' => true?</span><span class="k">a real category, opted out: <span class="mono">SSE_In_Node</span> under <span class="mono">I/O</span></span></div>
-<div class="nd drop" id="drop" style="left:280px;top:128px;width:480px"><span class="t">Out of the catalog entirely</span><span class="k">No tile. And in the Inspector <span class="mono">catalog.find( c =&gt; c.shell_name === node.class )</span> is <span class="mono">undefined</span>, so <span class="mono">commands</span> and <span class="mono">requests</span> fall to <span class="mono">[]</span> and the whole Verbs section returns null: no buttons for a mounted <span class="mono">insights-demo</span> either.</span></div>
+<div class="nd drop" id="drop" style="left:280px;top:128px;width:480px"><span class="t">Out of the catalog entirely</span><span class="k">No tile. And in the Inspector <span class="mono">catalog.find( c =&gt; c.shell_name === node.class )</span> is <span class="mono">undefined</span>, so <span class="mono">commands</span> and <span class="mono">requests</span> fall to <span class="mono">[]</span> and the whole Commands section returns null: no buttons for a mounted <span class="mono">insights-demo</span> either.</span></div>
 
 <div class="nd keep" id="entry" style="left:822px;top:26px;width:230px"><span class="t">In the catalog</span><span class="k"><span class="mono">shell_name</span>, <span class="mono">category</span>, <span class="mono">description</span>, <span class="mono">commands</span> stripped to <span class="mono">name / description / args</span> plus <span class="mono">hidden</span>, <span class="mono">multiple</span>, <span class="mono">action</span>; <span class="mono">requests</span>; <span class="mono">arguments</span>; <span class="mono">accepts_fill</span>; <span class="mono">has_target</span>; <span class="mono">registrations</span>; and two derived from the class, <span class="mono">is_interpreter</span> and <span class="mono">fans_out</span></span></div>
 
@@ -53,7 +53,7 @@
 <div class="nd keep" id="tile" style="left:612px;top:276px;width:190px"><span class="t">A tile</span><span class="k">Drop it and <span class="mono">NewNodeModal</span> builds one field per declared argument, defaults written out positionally.</span></div>
 
 <div class="nd" id="inspector" style="left:0;top:480px;width:250px"><span class="t">Inspector</span><span class="k">the selected node's class, looked up by <span class="mono">shell_name</span></span></div>
-<div class="nd keep" id="verbs" style="left:300px;top:480px;width:490px"><span class="t">Verb buttons</span><span class="k"><span class="mono">commands.filter( spec =&gt; ! spec.hidden )</span> as <span class="mono">kind="command"</span>, sent signed to <span class="mono">&lt;node&gt;:config</span> — or to the node itself when <span class="mono">is_interpreter</span>; <span class="mono">requests</span> as <span class="mono">kind="request"</span>, unsigned, LOCAL, to the node itself. Empty both and the section renders nothing.</span></div>
+<div class="nd keep" id="verbs" style="left:300px;top:480px;width:490px"><span class="t">Command buttons</span><span class="k"><span class="mono">commands.filter( spec =&gt; ! spec.hidden )</span> as <span class="mono">kind="command"</span>, sent signed to <span class="mono">&lt;node&gt;:config</span> — or to the node itself when <span class="mono">is_interpreter</span>; <span class="mono">requests</span> as <span class="mono">kind="request"</span>, unsigned, LOCAL, to the node itself. Empty both and the section renders nothing.</span></div>
 
 <div class="panel" style="left:830px;top:276px;width:222px">
   <header>The browser's second catalog</header>
@@ -67,15 +67,15 @@
 <div class="rowc">
   <div class="card">
     <h3>What to declare</h3>
-    <div class="chip"><b>A tile and inspector verbs</b> — a normal transform or source: <span class="mono">category: 'Transform'</span>, <span class="mono">'Source'</span>, …</div>
-    <div class="chip"><b>No tile, verbs kept</b> — a mounted Service CI: <span class="mono">category: 'Service'</span>; a node another builds, such as a broker's reader: <span class="mono">'Hidden'</span>. <span class="mono">'Remote'</span> sits beside them under the same rule; none of the classes declares it, so it records the principle rather than refusing anything.</div>
-    <div class="chip"><b>Gone from both</b> — plumbing with no user verbs: <span class="mono">'hidden' =&gt; true</span>, or omit the schema. When a CI shows no buttons, this is the first thing to check.</div>
+    <div class="chip"><b>A tile and inspector commands</b> — a normal transform or source: <span class="mono">category: 'Transform'</span>, <span class="mono">'Source'</span>, …</div>
+    <div class="chip"><b>No tile, commands kept</b> — a mounted Service CI: <span class="mono">category: 'Service'</span>; a node another builds, such as a broker's reader: <span class="mono">'Hidden'</span>. <span class="mono">'Remote'</span> sits beside them under the same rule; none of the classes declares it, so it records the principle rather than refusing anything.</div>
+    <div class="chip"><b>Gone from both</b> — plumbing with no user commands: <span class="mono">'hidden' =&gt; true</span>, or omit the schema. When a CI shows no buttons, this is the first thing to check.</div>
   </div>
   <div class="card">
-    <h3>The per-verb flags, one level down</h3>
-    <div class="chip"><b><span class="mono">hidden</span></b> — the verb keeps working; the Inspector renders no button and the topology editor no checkbox. The stronger flag: withheld from every surface.</div>
+    <h3>The per-command flags, one level down</h3>
+    <div class="chip"><b><span class="mono">hidden</span></b> — the command keeps working; the Inspector renders no button and the topology editor no checkbox. The stronger flag: withheld from every surface.</div>
     <div class="chip"><b><span class="mono">multiple</span></b> — the editor allows more than one invocation, one row each.</div>
-    <div class="chip"><b><span class="mono">action</span></b> — the editor omits it. Ticking a verb writes a <span class="mono">command_node</span> line into the <span class="mono">.tsl</span>, run on every worker boot forever; a persisted <span class="mono">purge</span> would discard every in-flight request on each restart. A malformed entry is skipped, never thrown, so one bad class cannot fatal the dump.</div>
+    <div class="chip"><b><span class="mono">action</span></b> — the editor omits it. Ticking a command writes a <span class="mono">command_node</span> line into the <span class="mono">.tsl</span>, run on every worker boot forever; a persisted <span class="mono">purge</span> would discard every in-flight request on each restart. A malformed entry is skipped, never thrown, so one bad class cannot fatal the dump.</div>
   </div>
 </div>
 </div>

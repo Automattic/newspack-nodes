@@ -6,8 +6,8 @@
  * A reply is addressed, not correlated: the minter stamps `FROM = <its own
  * name>`, the server replies `TO = FROM`, and the reply lands on that node for
  * its `fill()` to handle. Stamping an id so a reply can be matched — or
- * pressing KEY into service as a demux discriminator when several verbs batch
- * into one tick — re-implements routing that already happened. "N verbs need
+ * pressing KEY into service as a demux discriminator when several commands batch
+ * into one tick — re-implements routing that already happened. "N commands need
  * telling apart" means one node is doing N jobs; make it N nodes.
  *
  * A reply ECHOING the inbound ID/KEY (Command_Interpreter_Node's response,

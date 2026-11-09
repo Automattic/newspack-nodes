@@ -12,8 +12,8 @@ import { Node } from './node';
  * The required constructor argument keeps it off the text path. `makeNode`
  * instantiates with `new NodeClass()` (ADR-11) and the class is absent from
  * `includeNodes`, so a TSL line or a palette entry can never name it.
- * Callers construct it directly: TriageView mounts one per dead-letter verb as
- * the node that verb's reply is addressed back to (ADR-7).
+ * Callers construct it directly: TriageView mounts one per dead-letter command as
+ * the node that command's reply is addressed back to (ADR-7).
  */
 export class CallbackNode extends Node {
 	/**

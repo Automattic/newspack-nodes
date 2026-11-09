@@ -7,9 +7,9 @@
 
 import {
 	setArgumentsLine,
-	verbInvocationArgs,
-	verbUsesConfig,
-	isConfigurableVerb,
+	commandInvocationArgs,
+	commandUsesConfig,
+	isConfigurableCommand,
 } from '../editorLines';
 import { DraftInterpreterNode } from '../../../runtime/draft-interpreter-node';
 
@@ -139,19 +139,19 @@ describe( 'setArgumentsLine', () => {
 	} );
 } );
 
-describe( 'verbUsesConfig', () => {
+describe( 'commandUsesConfig', () => {
 	it( 'keeps the form the file used', () => {
 		expect(
-			verbUsesConfig( { verb: 'help', viaConfig: false }, undefined )
+			commandUsesConfig( { verb: 'help', viaConfig: false }, undefined )
 		).toBe( false );
 	} );
 
-	it( 'sends a new verb through :config unless the class is an interpreter', () => {
+	it( 'sends a new command through :config unless the class is an interpreter', () => {
 		expect(
-			verbUsesConfig( { verb: 'set_x' }, { is_interpreter: false } )
+			commandUsesConfig( { verb: 'set_x' }, { is_interpreter: false } )
 		).toBe( true );
 		expect(
-			verbUsesConfig( { verb: 'help' }, { is_interpreter: true } )
+			commandUsesConfig( { verb: 'help' }, { is_interpreter: true } )
 		).toBe( false );
 	} );
 } );
@@ -191,28 +191,30 @@ describe( 'setArgumentsLine — schema defaults', () => {
 	} );
 } );
 
-describe( 'verbInvocationArgs', () => {
+describe( 'commandInvocationArgs', () => {
 	const spec = [
 		{ name: 'window', type: 'int', default: 300 },
 		{ name: 'label', type: 'string' },
 	];
 
-	it( 'fills a slot the verb toggle seeded empty from its default', () => {
+	it( 'fills a slot the command toggle seeded empty from its default', () => {
 		// The Inspector's toggle seeds `args: cspec.args.map( () => \'\' )`.
 		// Written out bare those are SET as far as PHP is concerned, so the
 		// declared default is skipped and an int coerces to 0.
-		expect( verbInvocationArgs( [ '', '' ], spec ) ).toEqual( [ '300' ] );
+		expect( commandInvocationArgs( [ '', '' ], spec ) ).toEqual( [
+			'300',
+		] );
 	} );
 
 	it( 'keeps an author value after a defaulted slot', () => {
-		expect( verbInvocationArgs( [ '', 'x' ], spec ) ).toEqual( [
+		expect( commandInvocationArgs( [ '', 'x' ], spec ) ).toEqual( [
 			'300',
 			'x',
 		] );
 	} );
 
 	it( 'passes through when there is no schema', () => {
-		expect( verbInvocationArgs( [ 'a', 'b' ], null ) ).toEqual( [
+		expect( commandInvocationArgs( [ 'a', 'b' ], null ) ).toEqual( [
 			'a',
 			'b',
 		] );
@@ -220,27 +222,27 @@ describe( 'verbInvocationArgs', () => {
 } );
 
 /**
- * A verb that DOES something — purge a cache, delete an entry — is not
- * configuration. The topology editor renders each config verb as a checkbox
+ * A command that DOES something — purge a cache, delete an entry — is not
+ * configuration. The topology editor renders each config command as a checkbox
  * whose toggle serializes `cmd <node>:config <verb>` into the .tsl, so an
- * action offered there runs on EVERY worker boot. It stays a verb, invocable
+ * action offered there runs on EVERY worker boot. It stays a command, invocable
  * at runtime; it just must not be offered as a persisted setting.
  */
-describe( 'isConfigurableVerb', () => {
+describe( 'isConfigurableCommand', () => {
 	it( 'offers a plain setter', () => {
-		expect( isConfigurableVerb( { name: 'set_errors_target' } ) ).toBe(
+		expect( isConfigurableCommand( { name: 'set_errors_target' } ) ).toBe(
 			true
 		);
 	} );
 
-	it( 'withholds a verb marked as an action', () => {
-		expect( isConfigurableVerb( { name: 'purge', action: true } ) ).toBe(
+	it( 'withholds a command marked as an action', () => {
+		expect( isConfigurableCommand( { name: 'purge', action: true } ) ).toBe(
 			false
 		);
 	} );
 
-	it( 'still withholds schema-plumbing verbs marked hidden', () => {
-		expect( isConfigurableVerb( { name: 'x', hidden: true } ) ).toBe(
+	it( 'still withholds schema-plumbing commands marked hidden', () => {
+		expect( isConfigurableCommand( { name: 'x', hidden: true } ) ).toBe(
 			false
 		);
 	} );

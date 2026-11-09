@@ -65,7 +65,7 @@ it( 'never repeats the delete on a later tick', async () => {
 	expect( replyFor ).toHaveBeenCalledTimes( 1 );
 } );
 
-it( 'hands a verb refusal to onDone rather than a result', async () => {
+it( 'hands a command refusal to onDone rather than a result', async () => {
 	replyFor.mockImplementation( () => new Error( REASON ) );
 	const onDone = jest.fn();
 	const { result } = renderHook( () => useDeleteTopology( onDone ) );

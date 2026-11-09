@@ -1,5 +1,5 @@
 /**
- * The browser REPL's verb surface: the `CommandInterpreterNode` class, the
+ * The browser REPL's command surface: the `CommandInterpreterNode` class, the
  * help text `help` answers with, and the name-to-class table `make_node`
  * resolves against.
  *
@@ -94,8 +94,8 @@ import {
 /**
  * Each alias mapped to the canonical verb whose help text it shares.
  *
- * Kept in lockstep with the verb table and the Shell builtins: an alias
- * missing here makes `help <alias>` answer "no such topic" for a verb that
+ * Kept in lockstep with the command table and the Shell builtins: an alias
+ * missing here makes `help <alias>` answer "no such topic" for a command that
  * runs perfectly well.
  */
 const ALIAS_TO_CANONICAL = {
@@ -121,7 +121,7 @@ const ALIAS_TO_CANONICAL = {
 /**
  * Per-command help text, keyed by canonical verb, mirroring PHP's `$H`.
  *
- * Bare `help` tabulates these keys, so a verb absent here is invisible to a
+ * Bare `help` tabulates these keys, so a command absent here is invisible to a
  * reader even though it dispatches.
  */
 const HELP = {
@@ -184,20 +184,20 @@ const HELP = {
 };
 
 /**
- * Verb dispatch over TM_COMMAND messages with an empty TO, mirroring PHP's
+ * Command dispatch over TM_COMMAND messages with an empty TO, mirroring PHP's
  * `Command_Interpreter_Node`.
  *
- * A verb that returns answers TM_RESPONSE and a verb that throws answers
- * TM_ERROR, which is why verbs carry no try/catch of their own. A TM_PING or
+ * A command that returns answers TM_RESPONSE and a command that throws answers
+ * TM_ERROR, which is why commands carry no try/catch of their own. A TM_PING or
  * TM_EOF with an empty TO bounces back along FROM; everything else reaches
  * the sink untouched.
  *
- * `commands( table )` MERGES over the built-in table where PHP's REPLACES it.
+ * `commands( table )` MERGES over the base table where PHP's REPLACES it.
  * That divergence is real: don't assume one port's behaviour from the other.
  */
 export class CommandInterpreterNode extends Node {
 	/**
-	 * Start with the built-in verb table and no instance authorize override, so
+	 * Start with the base command table and no instance authorize override, so
 	 * the class default decides who may issue commands.
 	 */
 	constructor() {
@@ -209,7 +209,7 @@ export class CommandInterpreterNode extends Node {
 		 * @type {?( ( message: Array ) => boolean )}
 		 */
 		this.authorize = null;
-		/** This instance's verb table, which `commands()` merges over. */
+		/** This instance's command table, which `commands()` merges over. */
 		this._commands = CommandInterpreterNode._defaultCommands();
 	}
 
@@ -246,10 +246,10 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * Authorize, resolve and run the verb carried in VALUE, then respond.
+	 * Authorize, resolve and run the command carried in VALUE, then respond.
 	 *
-	 * A throw from a verb becomes a TM_ERROR reply: the central catch is the
-	 * contract, which is why verbs carry no try/catch of their own. A
+	 * A throw from a command becomes a TM_ERROR reply: the central catch is the
+	 * contract, which is why commands carry no try/catch of their own. A
 	 * TM_NOREPLY command's refusal throws instead; see `_respond()`.
 	 *
 	 * @param {Array} message TM_COMMAND whose VALUE is `{ name, arguments }`.
@@ -261,7 +261,7 @@ export class CommandInterpreterNode extends Node {
 			this.stderr( 'WARNING: invalid command struct' );
 			return;
 		}
-		// The verb's name as PHP reads it: `Core::as_string()`, own verbs only.
+		// The name as PHP reads it: `Core::as_string()`, own commands only.
 		const name = asString( cmd.name );
 
 		// Auth default: the LOCAL taint a Shell stamps; the wire has none.
@@ -274,17 +274,17 @@ export class CommandInterpreterNode extends Node {
 			return;
 		}
 
-		const verb = Object.hasOwn( this._commands, name )
+		const command = Object.hasOwn( this._commands, name )
 			? this._commands[ name ]
 			: undefined;
-		if ( typeof verb !== 'function' ) {
+		if ( typeof command !== 'function' ) {
 			this._respond( message, name, `no such verb: ${ name }`, TM_ERROR );
 			return;
 		}
 		// PHP's interpret(): array_values, each through Core::as_string().
 		const args = asList( cmd.arguments ).map( asString );
 		try {
-			const result = verb( this, args, message );
+			const result = command( this, args, message );
 			this._respond( message, name, result, TM_RESPONSE );
 		} catch ( e ) {
 			// Newline-terminated, as PHP sends it: the payload prints verbatim.
@@ -293,7 +293,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * Route a verb's result back to whoever asked, as TM_COMMAND|kind.
+	 * Route a command's result back to whoever asked, as TM_COMMAND|kind.
 	 *
 	 * An empty result sends nothing. A TM_NOREPLY request gets no message at
 	 * all, so a TM_ERROR cannot carry its failure: the refusal throws to
@@ -302,7 +302,7 @@ export class CommandInterpreterNode extends Node {
 	 *
 	 * @param {Array}  message The request being answered.
 	 * @param {string} name    Verb name, echoed in the response VALUE.
-	 * @param {*}      payload Verb result: a reply string or a struct.
+	 * @param {*}      payload Command result: a reply string or a struct.
 	 * @param {number} kind    TM_RESPONSE or TM_ERROR.
 	 * @throws {Error} The refusal of a TM_NOREPLY command.
 	 */
@@ -347,7 +347,7 @@ export class CommandInterpreterNode extends Node {
 	 * Every refusal — bad arity, unknown class, name collision — throws, which
 	 * the caller turns into TM_ERROR.
 	 *
-	 * @param {string[]} args Verb tokens: type, name, then constructor args.
+	 * @param {string[]} args Command tokens: type, name, then constructor args.
 	 * @return {string} 'ok'.
 	 */
 	_cmdMakeNode( args ) {
@@ -362,7 +362,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * Programmatic node construction — what the `make_node` verb delegates to.
+	 * Programmatic node construction — what the `make_node` command delegates to.
 	 * A node whose arguments throw is torn down before the throw escapes, so a
 	 * bad make_node leaves no half-built node behind.
 	 *
@@ -421,37 +421,37 @@ export class CommandInterpreterNode extends Node {
 
 	/**
 	 * Build `node`'s `:config`, the twin of PHP `auto_wire_interpreter()`: an
-	 * interpreter answering the verbs its schema declares with a handler and
+	 * interpreter answering the commands its schema declares with a handler and
 	 * no others, in the node's own table, patroned by it and sinking where it
-	 * sinks, so a reply goes back TO its asker. A verb declaring `args` has
+	 * sinks, so a reply goes back TO its asker. A command declaring `args` has
 	 * its tokens bound by `bindCommandArgs()` before its handler runs, as
 	 * PHP's `dispatch()` binds them (ADR-25); one declaring none gets its
-	 * tokens. A node without a declared verb gets no `:config`.
+	 * tokens. A node without a declared command gets no `:config`.
 	 *
 	 * @param {Node} node A named node.
 	 */
 	static wireConfig( node ) {
 		const ctor = /** @type {any} */ ( node.constructor );
-		const verbs = Object.fromEntries(
+		const commands = Object.fromEntries(
 			( ctor.nodeSchema?.().commands ?? [] )
-				.filter( ( verb ) => 'function' === typeof verb.handler )
-				.map( ( verb ) => [
-					verb.name,
-					verb.args
+				.filter( ( command ) => 'function' === typeof command.handler )
+				.map( ( command ) => [
+					command.name,
+					command.args
 						? ( config, args, envelope ) =>
-								verb.handler(
+								command.handler(
 									config,
-									bindCommandArgs( verb.args, args ),
+									bindCommandArgs( command.args, args ),
 									envelope
 								)
-						: verb.handler,
+						: command.handler,
 				] )
 		);
-		if ( 0 === Object.keys( verbs ).length ) {
+		if ( 0 === Object.keys( commands ).length ) {
 			return;
 		}
 		const config = new CommandInterpreterNode();
-		config._commands = verbs;
+		config._commands = commands;
 		if ( node.registry !== Core.registry ) {
 			config.registry = node.registry;
 		}
@@ -462,7 +462,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * The name table this interpreter's verbs operate on, and that the nodes it
+	 * The name table this interpreter's commands operate on, and that the nodes it
 	 * makes register in. Defaults to its OWN registry, so a live interpreter is
 	 * unchanged.
 	 *
@@ -478,17 +478,17 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * Point this interpreter's verbs at a name table other than its own.
+	 * Point this interpreter's commands at a name table other than its own.
 	 *
-	 * @param {Object} registry The registry the verbs operate on.
+	 * @param {Object} registry The registry the commands operate on.
 	 */
 	set childRegistry( registry ) {
 		this._childRegistry = registry;
 	}
 
 	/**
-	 * State snapshot for `dump_node`, with the verb table masked: it is a table
-	 * of every built-in closure, machinery rather than state worth printing.
+	 * State snapshot for `dump_node`, with the command table masked: it is a table
+	 * of every base closure, machinery rather than state worth printing.
 	 *
 	 * @param {Object} [options] Passed through to `Node.dumpNode()`.
 	 * @return {Object} The snapshot.
@@ -500,11 +500,11 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * Getter/setter for the verb table; passing a table merges (extends) it over
-	 * the built-in defaults.
+	 * Getter/setter for the command table; passing a table merges (extends) it over
+	 * the base defaults.
 	 *
-	 * @param {Object<string,Function>|null} table Verb table to merge, or null to read.
-	 * @return {Object<string,Function>} The current verb table.
+	 * @param {Object<string,Function>|null} table Command table to merge, or null to read.
+	 * @return {Object<string,Function>} The current command table.
 	 */
 	commands( table = null ) {
 		if ( table !== null ) {
@@ -514,28 +514,28 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * Dispatch a verb by name (inline call path, mirrors PHP dispatch()).
+	 * Dispatch a command by name (inline call path, mirrors PHP dispatch()).
 	 *
 	 * @param {string}   name     Verb name.
 	 * @param {string[]} args     Pre-split argument tokens.
 	 * @param {Array}    envelope Inbound message, or [] for inline calls.
-	 * @return {*} Verb result.
+	 * @return {*} Command result.
 	 */
 	dispatch( name, args = [], envelope = [] ) {
-		const verb = this._commands[ name ];
-		if ( typeof verb !== 'function' ) {
+		const command = this._commands[ name ];
+		if ( typeof command !== 'function' ) {
 			throw new Error( `unknown command: ${ name }` );
 		}
-		return verb( this, args, envelope );
+		return command( this, args, envelope );
 	}
 
 	/**
-	 * A fresh copy of the built-in verb table, aliases included.
+	 * A fresh copy of the base command table, aliases included.
 	 *
-	 * Each handler takes `( self, args, envelope )`, so a static verb reads the
+	 * Each handler takes `( self, args, envelope )`, so a static command reads the
 	 * interpreter it was called on rather than a captured instance.
 	 *
-	 * This is PHP's `$C` less the two verbs that govern a server process:
+	 * This is PHP's `$C` less the two commands that govern a server process:
 	 * `secure` and `insecure` ratchet a command surface a browser tab does not
 	 * have.
 	 *
@@ -642,7 +642,7 @@ export class CommandInterpreterNode extends Node {
 	 * the inverse of command_node. The synthetic command carries FROM=<path>,
 	 * and TO=FROM replies do the rest.
 	 *
-	 * @param {string[]} args Verb tokens: reply path, verb, then the verb's args.
+	 * @param {string[]} args Command tokens: reply path, verb, then the verb's args.
 	 * @return {string} '' when it ran, or the nesting-refusal line.
 	 */
 	_cmdReplyTo( args ) {
@@ -667,7 +667,7 @@ export class CommandInterpreterNode extends Node {
 	/**
 	 * `pwd` — the current path and the path a reply would travel back along.
 	 *
-	 * @param {string[]} args     Verb tokens; the first replaces the '/' default.
+	 * @param {string[]} args     Command tokens; the first replaces the '/' default.
 	 * @param {Array}    envelope The inbound message, read for its FROM.
 	 * @return {string} ` <cwd> -> <from>`.
 	 */
@@ -681,7 +681,7 @@ export class CommandInterpreterNode extends Node {
 	/**
 	 * `set_sink <node> <target>` — wire a node's physical next hop.
 	 *
-	 * @param {string[]} args     Verb tokens: source name, then sink name.
+	 * @param {string[]} args     Command tokens: source name, then sink name.
 	 * @param {Object}   registry Name table both nodes must live in.
 	 * @return {string} 'ok'; every refusal throws.
 	 */
@@ -704,7 +704,7 @@ export class CommandInterpreterNode extends Node {
 	/**
 	 * `connect_node <node> [<target>]` — set the logical TO path a node stamps.
 	 *
-	 * @param {string[]}     args       Verb tokens: node name, then target path.
+	 * @param {string[]}     args       Command tokens: node name, then target path.
 	 * @param {Object}       registry   Name table the node lives in.
 	 * @param {Array|Object} [envelope] Inbound message; its FROM is the default target.
 	 * @return {string} 'ok'; every refusal throws.
@@ -738,7 +738,7 @@ export class CommandInterpreterNode extends Node {
 	 * Omitting the target clears a single-target node, or removes the issuing
 	 * FROM from a fan-out node's list.
 	 *
-	 * @param {string[]}     args       Verb tokens: node name, then target path.
+	 * @param {string[]}     args       Command tokens: node name, then target path.
 	 * @param {Object}       registry   Name table the node lives in.
 	 * @param {Array|Object} [envelope] Inbound message; its FROM is the default target.
 	 * @return {string} 'ok'; every refusal throws.
@@ -775,13 +775,13 @@ export class CommandInterpreterNode extends Node {
 
 	/**
 	 * `register <source> <target> <event>` — subscribe a node to another node's
-	 * event. The verb's argument order is source-first; Node.register() takes
+	 * event. The command's argument order is source-first; Node.register() takes
 	 * the event first, so the two are not the same order.
 	 *
 	 * The target is validated in the registry notify() resolves against, not
 	 * this one, or the listener would drop silently at delivery time.
 	 *
-	 * @param {string[]} args     Verb tokens: source, target, then event name.
+	 * @param {string[]} args     Command tokens: source, target, then event name.
 	 * @param {Object}   registry Name table the source lives in.
 	 * @return {string} 'ok'; every refusal throws.
 	 */
@@ -817,7 +817,7 @@ export class CommandInterpreterNode extends Node {
 	 * The target is not checked for existence: dropping the registration of a
 	 * node that is already gone is exactly the case worth supporting.
 	 *
-	 * @param {string[]} args     Verb tokens: source, target, then event name.
+	 * @param {string[]} args     Command tokens: source, target, then event name.
 	 * @param {Object}   registry Name table the source lives in.
 	 * @return {string} 'ok'; every refusal throws.
 	 */
@@ -847,7 +847,7 @@ export class CommandInterpreterNode extends Node {
 	 * `move_node <old> <new>` — rename a node in place. Node's name setter
 	 * re-keys the registry and rejects a collision, so this only resolves.
 	 *
-	 * @param {string[]} args Verb tokens: current name, then new name.
+	 * @param {string[]} args Command tokens: current name, then new name.
 	 * @return {string} 'ok'; every refusal throws.
 	 */
 	_cmdMove( args ) {
@@ -939,7 +939,7 @@ export class CommandInterpreterNode extends Node {
 	 * A KEY of 'completion' forces bare names over the whole table and ignores
 	 * the column flags, which is what `cd <tab>` needs to see `_`-nodes.
 	 *
-	 * @param {string[]}     args  Verb tokens: `-aclst` flags and name globs.
+	 * @param {string[]}     args  Command tokens: `-aclst` flags and name globs.
 	 * @param {Array|Object} [env] Inbound message; its KEY selects completion mode.
 	 * @return {string} Bare names, or the aligned table once a flag adds a column.
 	 */
@@ -1098,7 +1098,7 @@ export class CommandInterpreterNode extends Node {
 	 * and returns a field the class omits from the whole dump. An unknown node
 	 * and an unknown key each throw.
 	 *
-	 * @param {string[]} args     Verb tokens: node name, then the keys to keep.
+	 * @param {string[]} args     Command tokens: node name, then the keys to keep.
 	 * @param {Object}   registry Name table the node lives in.
 	 * @return {string} The dump, or 'no node specified' when the name is
 	 *                  missing.
@@ -1205,7 +1205,7 @@ export class CommandInterpreterNode extends Node {
 	/**
 	 * `stats [-a] [<regex>]` — per-node counters as an aligned table.
 	 *
-	 * @param {string[]} args Verb tokens: `-a` and a regex for every match, else a sink name.
+	 * @param {string[]} args Command tokens: `-a` and a regex for every match, else a sink name.
 	 * @return {string} The rendered table.
 	 */
 	_cmdStats( args ) {
@@ -1261,7 +1261,7 @@ export class CommandInterpreterNode extends Node {
 	 * Without an argument it toggles this interpreter; a bare number sets it;
 	 * `*` applies one level to every node in the table.
 	 *
-	 * @param {string[]} args Verb tokens: node name, `*`, or a level.
+	 * @param {string[]} args Command tokens: node name, `*`, or a level.
 	 * @return {string} The resulting state line.
 	 */
 	_cmdTrace( args ) {
@@ -1318,7 +1318,7 @@ export class CommandInterpreterNode extends Node {
 	 * A KEY of 'completion' returns bare verb names from the dispatch table
 	 * rather than the help topics, so aliases are offered too.
 	 *
-	 * @param {string[]}     args  Verb tokens: the topic to look up.
+	 * @param {string[]}     args  Command tokens: the topic to look up.
 	 * @param {Array|Object} [env] Inbound message; its KEY selects completion mode.
 	 * @return {string} The help text, or the no-such-topic line.
 	 */
@@ -1326,7 +1326,7 @@ export class CommandInterpreterNode extends Node {
 		// Completion: bare sorted verb names, newline-separated, no help text.
 		const isCompletion = env && env[ KEY ] === 'completion'; // contract-ok: a request mode, not a reply demux
 		if ( isCompletion ) {
-			// From verb dispatch table (not help-topic) so aliases are listed.
+			// From the command table (not help-topic) so aliases are listed.
 			return Object.keys( CommandInterpreterNode._defaultCommands() )
 				.sort()
 				.join( '\n' );
@@ -1778,7 +1778,7 @@ export class CommandInterpreterNode extends Node {
 	 * Bare `profile` toggles (Tachikoma's `debug_state`-precedent); explicit
 	 * `on`/`off` is an idempotent set the form scripts + UI use, so a caller
 	 * that knows its desired state never races a stale toggle. A deliberate
-	 * single-verb divergence from Tachikoma's enable/disable pair.
+	 * single-command divergence from Tachikoma's enable/disable pair.
 	 *
 	 * @param {string} arg        '' (toggle), 'on', or 'off'.
 	 * @param {Object} [registry] Graph to check for a router; Core's default.

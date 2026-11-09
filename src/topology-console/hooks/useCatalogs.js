@@ -3,7 +3,7 @@
  * saved topologies and the vault pickers' entries — plus the on-demand
  * reader for one topology's body.
  *
- * Each catalog is the same slice on the batched poll: one catalog verb per tick,
+ * Each catalog is the same slice on the batched poll: one catalog command per tick,
  * published as state. The tick IS the retry, so a session that turns over
  * recovers on its own and a save owes the OPEN dialog no reload; a bad tick
  * keeps whatever is already on screen, since an empty palette is the worse

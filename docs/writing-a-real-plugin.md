@@ -30,7 +30,7 @@ It ships as five `.tsl` files, not one. [`topologies/newspack-intelligence.tsl.p
 Three connector **sources** fan into the `ingest` partition (fan-in, exactly as Ben's community source fanned into the summarizer in the toy — the target is a partition now, not the summarizer). What's genuinely new from the toy's perspective is concentrated at the two ends, plus the ingest partition between them:
 
 - **The source end.** The toy's `items()` returns a literal array. The real sources `fetch()` over HTTP and normalize wildly different payloads (GitHub REST, Linear GraphQL, RSS/Atom XML) into one item shape; their shared base then drops anything it has emitted before.
-- **The credentials.** Two of the three sources take a token: Linear's `fetch()` returns `[]` without one, and GitHub sends its `Authorization` header only when one is set. The secret lives in the substrate's **Vault** (the station's *Vault* tab), and the topology carries only a *pointer* to it — a `set_vault_id <id>` verb on the node's `.tsl` line, resolved to the raw secret at `config()`. The rest of a source's config is topology verbs too (`add_repo`, `add_url`, `set_model`, …). None of that config lives in a Settings page or an options row.
+- **The credentials.** Two of the three sources take a token: Linear's `fetch()` returns `[]` without one, and GitHub sends its `Authorization` header only when one is set. The secret lives in the substrate's **Vault** (the station's *Vault* tab), and the topology carries only a *pointer* to it — a `set_vault_id <id>` command on the node's `.tsl` line, resolved to the raw secret at `config()`. The rest of a source's config is topology commands too (`add_repo`, `add_url`, `set_model`, …). None of that config lives in a Settings page or an options row.
 - **The ingest partition.** A source TICK appends raw items to a durable log and stops there; `ingest:consumer` paces them through the summarizer and scorer (§5).
 
 The middle — summarizer, scorer, the two partitions, consumers, digest — is its own story (the LLM seam, the durable `scored` log, the snapshot co-commit), and so is the gate observer hanging off `ingest`. This guide stays at the source end, the ingest buffer, and the credentials, because that's the part the toy guide explicitly deferred. We'll write it in the order you'd discover it: the contract first, then the base that implements it, then the three connectors, then the credentials that feed them, then wiring and ship.
@@ -119,7 +119,7 @@ abstract class Source_Node extends Node implements Source {
 		$this->auto_wire_interpreter();
 	}
 
-	/** The first seam: per-connector config (Vault + verb reads) passed to fetch(). */
+	/** The first seam: per-connector config (Vault + command reads) passed to fetch(). */
 	abstract protected function config(): array;
 
 	/** TICK is a runtime trigger: a TM_REQUEST handled here in fill(). */
@@ -131,7 +131,7 @@ abstract class Source_Node extends Node implements Source {
 	}
 ```
 
-That constructor is what makes §4's `cmd github:config set_vault_id …` lines work. [`Schema_Reflection::auto_wire_interpreter()`](../includes/trait-schema-reflection.php) reads `node_schema()['commands']` and mounts a sibling `Command_Interpreter_Node` named `{node}:config`, so every connector gets its config verbs without wiring one by hand ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)).
+That constructor is what makes §4's `cmd github:config set_vault_id …` lines work. [`Schema_Reflection::auto_wire_interpreter()`](../includes/trait-schema-reflection.php) reads `node_schema()['commands']` and mounts a sibling `Command_Interpreter_Node` named `{node}:config`, so every connector gets its config commands without wiring one by hand ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)).
 
 ![Source_Node's handling of one TICK in three steps. A TM_REQUEST reaches fill(), tested with Core::num_int( TYPE ) & TM_REQUEST, and the node never replies. Inside try, fetch( $this->config() ) returns normalized items and each passes a loop: an item whose id is not a non-empty string is skipped, an id already in $seen is skipped, and otherwise remember( $id ) records it (past MAX_SEEN = 2000 the oldest are sliced off) and a TM_STRUCT goes out stamped TO ingest:partition. In finally, one TM_INFO "DONE\n" from the node's own name follows every item, even when fetch() threw. Side cards give the item contract { source, id: "$source:$id", title, url, body, timestamp }, the in-memory $seen that dies with the worker, and what the base declares: the {node}:config interpreter, the shared source_schema() with accepts_fill false, and an abstract class make_node Source cannot build.](img/wrp-source-tick.png)
 
@@ -214,7 +214,7 @@ This is the uniform-`fill()` contract ([ADR-1](architecture-decisions.md#adr-1-u
 
 ## 3. The three real connectors
 
-Three APIs, three payload shapes, two auth schemes and one connector that needs none. Each subclass is small because the base does the heavy lifting — each adds only `config()`, `fetch()`, its verb handlers, the `dump_config()` lines those verbs round-trip through, and a `source_schema()`-based `node_schema()`.
+Three APIs, three payload shapes, two auth schemes and one connector that needs none. Each subclass is small because the base does the heavy lifting — each adds only `config()`, `fetch()`, its command handlers, the `dump_config()` lines those commands round-trip through, and a `source_schema()`-based `node_schema()`.
 
 ### GitHub — three endpoints, per-endpoint isolation
 
@@ -350,9 +350,9 @@ All three connectors hand the base the same `{ source, id, title, url, body, tim
 
 ## 4. Credentials in the Vault, config in the topology
 
-Real sources need tokens, repo lists and feed URLs. **None of it goes on a WordPress Settings page** — the substrate already owns the credential surface (the **Vault**), and the topology already owns node config (the `:config` verbs).
+Real sources need tokens, repo lists and feed URLs. **None of it goes on a WordPress Settings page** — the substrate already owns the credential surface (the **Vault**), and the topology already owns node config (the `:config` commands).
 
-![A credential's path in five hops. The operator adds an entry in the Vault tab through Vault_CI_Node: an id of 1 to 64 characters from [a-zA-Z0-9_-], an HTTPS url, and a username and password each capped silently at 256 bytes, the password sealed as $enc$ under a key derived from wp_salt( 'auth' ). It lands in the one non-autoloaded option, newspack_nodes_vault. The .tsl names only the id, with set_vault_id github. The node resolves it at config() time through the Vault_Secret trait, and gets '' when the id is blank or unknown. The token rides GitHub's Bearer header, Linear's raw Authorization header, or nothing for Feed. Side cards: list and get return only { id, url, auth_username, has_credentials }; an empty token throws nowhere; get_all() reads the option once per process until Config::RESET_ACTION or Vault::fresh() drops the memo; every non-secret value is a verb too.](img/wrp-vault-pointer.png)
+![A credential's path in five hops. The operator adds an entry in the Vault tab through Vault_CI_Node: an id of 1 to 64 characters from [a-zA-Z0-9_-], an HTTPS url, and a username and password each capped silently at 256 bytes, the password sealed as $enc$ under a key derived from wp_salt( 'auth' ). It lands in the one non-autoloaded option, newspack_nodes_vault. The .tsl names only the id, with set_vault_id github. The node resolves it at config() time through the Vault_Secret trait, and gets '' when the id is blank or unknown. The token rides GitHub's Bearer header, Linear's raw Authorization header, or nothing for Feed. Side cards: list and get return only { id, url, auth_username, has_credentials }; an empty token throws nowhere; get_all() reads the option once per process until Config::RESET_ACTION or Vault::fresh() drops the memo; every non-secret value is a command too.](img/wrp-vault-pointer.png)
 
 ### The Vault — where the operator enters the token
 
@@ -360,10 +360,10 @@ The Vault is the station's Vault tab (`admin.php?page=newspack-nodes-station&tab
 
 ### The topology references the entry; the node resolves it at `config()`
 
-The seam on the node side is one verb, `set_vault_id`, that stashes the id, and a shared `Vault_Secret` trait that resolves it. From `Github_Source_Node`:
+The seam on the node side is one command, `set_vault_id`, that stashes the id, and a shared `Vault_Secret` trait that resolves it. From `Github_Source_Node`:
 
 ```php
-/** `set_vault_id` verb handler — last-write-wins. */
+/** `set_vault_id` command handler — last-write-wins. */
 public function set_vault_id( string $args ): string {
 	$this->vault_id = \trim( $args );
 	return 'ok';
@@ -391,7 +391,7 @@ protected function resolve_vault_secret( string $vault_id ): string {
 }
 ```
 
-The verb's schema arg is typed `vault_id`, which the topology console renders as a **Vault-entry dropdown** rather than a free-text box, or as a text input while the vault holds no entry:
+The command's schema arg is typed `vault_id`, which the topology console renders as a **Vault-entry dropdown** rather than a free-text box, or as a text input while the vault holds no entry:
 
 ```php
 [
@@ -404,23 +404,23 @@ The verb's schema arg is typed `vault_id`, which the topology console renders as
 ],
 ```
 
-A schema `handler` is a dispatch closure — it receives the pre-split **token array** `array $args` (`list<string>` argv), not a string. The static `cmd_set_vault_id` resolves the patron node and delegates the first token to the string instance method: `$patron->set_vault_id( Core::as_string( $args[0] ?? '' ) )`. The instance verb method `set_vault_id` takes a single `string` because it expects one scalar token — the array-to-scalar seam lives in the dispatch closure.
+A schema `handler` is a dispatch closure — it receives the pre-split **token array** `array $args` (`list<string>` argv), not a string. The static `cmd_set_vault_id` resolves the patron node and delegates the first token to the string instance method: `$patron->set_vault_id( Core::as_string( $args[0] ?? '' ) )`. The instance command method `set_vault_id` takes a single `string` because it expects one scalar token — the array-to-scalar seam lives in the dispatch closure.
 
-**`node_name` is the arg type that also draws.** `CtorField` renders it as a text input suggesting the graph's nodes, which also takes a path to a node in another process — §5's `add_snapshot_node digest` is the substrate's one use — but the name an operator gives is a *destination*, and `augmentWithVirtualEdges()` folds it onto the draft canvas as a dimmed **virtual edge**. That fold is what keeps the layout honest: a node wired only through a verb has no `connect_node` line, so without the virtual edge `autoLayout` reads it as an unwired source, seated by what it feeds, instead of placing it downstream of its producer. The console draws the same kind of edge for any verb whose name matches `set_*target`, folded in as a **config-role** edge. Neither kind is clickable off the canvas, and the Inspector shows it as a chip with no clear control, pointing at the Verbs section instead. Removing an edge issues `disconnect_node`, which would leave the verb line that named the target standing. Retarget one by calling the verb again — with an empty argument to vacate it.
+**`node_name` is the arg type that also draws.** `CtorField` renders it as a text input suggesting the graph's nodes, which also takes a path to a node in another process — §5's `add_snapshot_node digest` is the substrate's one use — but the name an operator gives is a *destination*, and `augmentWithVirtualEdges()` folds it onto the draft canvas as a dimmed **virtual edge**. That fold is what keeps the layout honest: a node wired only through a command has no `connect_node` line, so without the virtual edge `autoLayout` reads it as an unwired source, seated by what it feeds, instead of placing it downstream of its producer. The console draws the same kind of edge for any command whose name matches `set_*target`, folded in as a **config-role** edge. Neither kind is clickable off the canvas, and the Inspector shows it as a chip with no clear control, pointing at the Commands section instead. Removing an edge issues `disconnect_node`, which would leave the command line that named the target standing. Retarget one by calling the command again — with an empty argument to vacate it.
 
-> **A one-property verb can skip the trio.** `Schema_Reflection` reads a `'toggle' => 'some_flag'`, then a `'setter' => 'vault_id'`, then a `'list'` or `'unlist'` (next section) before it looks for `handler`. Each names a property. `declared_setter()` synthesizes the handler — it coerces the first token and calls the patron's own `set_vault_id()`, or, for a property that is also a declared positional, replays `arguments()` with that one token replaced — and `dump_setters()` / `dump_toggles()` emit the round-trip line for every such verb in one call. A verb that assigns one value therefore needs no closure, no static `cmd_*`, and no per-verb branch in `dump_config()`. The connectors here spell all three out for `set_vault_id`; [`Consumer_Node`](../includes/class-consumer-node.php)'s `set_multi_writer` is the substrate's example of the short route: one `'toggle' => 'multi_writer'` declaration, and a `dump_config()` that calls `dump_toggles()` without naming the verb. A declared verb can also opt *out* of the automatic line with `'dump' => false`, which `dump_declared()` honors for every key — the escape hatch for a setting whose `dump_config()` fragment some other path already writes. `Consumer_Node`'s `set_line_mode` (§5) is the substrate's one case: `dump_time_travel_config()` owns that line because pause parks the reader. Without the flag the value would land in the dump twice and be re-applied twice on replay.
+> **A one-property command can skip the trio.** `Schema_Reflection` reads a `'toggle' => 'some_flag'`, then a `'setter' => 'vault_id'`, then a `'list'` or `'unlist'` (next section) before it looks for `handler`. Each names a property. `declared_setter()` synthesizes the handler — it coerces the first token and calls the patron's own `set_vault_id()`, or, for a property that is also a declared positional, replays `arguments()` with that one token replaced — and `dump_setters()` / `dump_toggles()` emit the round-trip line for every such command in one call. A command that assigns one value therefore needs no closure, no static `cmd_*`, and no per-command branch in `dump_config()`. The connectors here spell all three out for `set_vault_id`; [`Consumer_Node`](../includes/class-consumer-node.php)'s `set_multi_writer` is the substrate's example of the short route: one `'toggle' => 'multi_writer'` declaration, and a `dump_config()` that calls `dump_toggles()` without naming the verb. A declared command can also opt *out* of the automatic line with `'dump' => false`, which `dump_declared()` honors for every key — the escape hatch for a setting whose `dump_config()` fragment some other path already writes. `Consumer_Node`'s `set_line_mode` (§5) is the substrate's one case: `dump_time_travel_config()` owns that line because pause parks the reader. Without the flag the value would land in the dump twice and be re-applied twice on replay.
 
-### Repos and feeds are ordered verbs, not options
+### Repos and feeds are ordered commands, not options
 
-Each non-secret value is a `:config` verb, stored on the node and dumped back out round-trippably. GitHub's repo list is `add_repo`, read straight off the node in `config()`, and the node does not write a handler for it: one `Schema_Reflection::list_verbs()` call in `node_schema()['commands']` declares the pair.
+Each non-secret value is a `:config` command, stored on the node and dumped back out round-trippably. GitHub's repo list is `add_repo`, read straight off the node in `config()`, and the node does not write a handler for it: one `Schema_Reflection::list_commands()` call in `node_schema()['commands']` declares the pair.
 
 ```php
-...self::list_verbs( 'repo', 'repos', [ 'name' => 'repo', 'type' => 'string', 'required' => true ], 'Register a repo to fetch on TICK: <owner/name>.' ),
+...self::list_commands( 'repo', 'repos', [ 'name' => 'repo', 'type' => 'string', 'required' => true ], 'Register a repo to fetch on TICK: <owner/name>.' ),
 ```
 
 That one line is `add_repo`, which appends its trimmed argument to `$repos`, takes an identical repeat as a no-op and refuses a blank, and `remove_repo`, which takes the same argument, drops that entry and refuses one that does not match any entry. `dump_lists()`, called from the node's `dump_config()`, writes one `add_repo` line per entry left, so a replay rebuilds the list as the adds and removes left it. `add_url` and the LLM nodes' `add_profile`, whose variadic `text` tokens join into one entry, are declared the same way.
 
-You set these in the topology console, or as `cmd <node>:config …` lines in the `.tsl` (shown in §5). Because every verb also round-trips through `dump_config()`, the console can serialize a live graph back to a topology that re-applies each verb in order. `config_line()` writes the canonical spelling, `command_node`; `cmd` and `command` are its aliases, and the shipped `.tsl` files use `cmd`.
+You set these in the topology console, or as `cmd <node>:config …` lines in the `.tsl` (shown in §5). Because every command also round-trips through `dump_config()`, the console can serialize a live graph back to a topology that re-applies each command in order. `config_line()` writes the canonical spelling, `command_node`; `cmd` and `command` are its aliases, and the shipped `.tsl` files use `cmd`.
 
 > **The React dashboard is separate.** The Vault tab is *credentials in*. The **Publisher Insights** dashboard `v0.9.12` ships (the React mount on its own admin menu, served by `Insights_CI`) is *insights out* — and it's a whole other build story (the `@newspack-nodes/shared` alias, esbuild, jest). That's [writing-a-real-dashboard.md](writing-a-real-dashboard.md), not this guide. This guide stops at a headless, Vault-fed pipeline.
 
@@ -428,7 +428,7 @@ You set these in the topology console, or as `cmd <node>:config …` lines in th
 
 ## 5. Wiring real sources into the topology
 
-The production topology is the toy one with real source nodes swapped in, the durable **ingest** buffer added at the front, and the scored/durable middle behind it. The sources fan into the `ingest` partition (not the summarizer); a consumer paces `ingest` through the enrich; each source also carries its `:config` verbs inline. Below, three stage files are flattened into one block and trimmed to the shape: `newspack-intelligence-ingest.tsl` down to the ingest partition, `-summary.tsl` through the scored partition, then `-digest.tsl`. In the repo each stage carries its own `connect_node` lines and closes with `secure`. The `-gate.tsl` observer is left out; §0 sketches it.
+The production topology is the toy one with real source nodes swapped in, the durable **ingest** buffer added at the front, and the scored/durable middle behind it. The sources fan into the `ingest` partition (not the summarizer); a consumer paces `ingest` through the enrich; each source also carries its `:config` commands inline. Below, three stage files are flattened into one block and trimmed to the shape: `newspack-intelligence-ingest.tsl` down to the ingest partition, `-summary.tsl` through the scored partition, then `-digest.tsl`. In the repo each stage carries its own `connect_node` lines and closes with `secure`. The `-gate.tsl` observer is left out; §0 sketches it.
 
 ```
 make_node Github_Source  github
@@ -484,7 +484,7 @@ The same token syntax works in a `node_schema()` argument **default** — every 
 
 Three sources, one partition, one wire each — fan-in needs no special node, just like Ben's community source, except the shared target is now a durable log. **Why the partition sits between the sources and the summarizer:** a source TICK is a fetch-and-append whose cost scales with the number of ENDPOINTS — three calls per GitHub repo, one per feed, one for Linear — where an inline enrich would cost one blocking LLM call per ITEM fetched. The `ingest:consumer` feeds the summarizer and scorer one item at a time instead, spreading that enrich across drain cycles. `set_line_mode true` is what buys that pacing, as the diagram below draws. `void_warranty` lifts the partition's 4 KB PIPE_BUF write cap ([ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes)) because a raw item can exceed it.
 
-**An unconfigured source yields no items**, only its closing `DONE`, so activation is safe before the credentials land: the shipped `.tsl` already carries the repo and feed verbs, and the Vault entries are the one thing a fresh install lacks.
+**An unconfigured source yields no items**, only its closing `DONE`, so activation is safe before the credentials land: the shipped `.tsl` already carries the repo and feed commands, and the Vault entries are the one thing a fresh install lacks.
 
 ### There is no manual FLUSH — the digest auto-composes on `DONE`
 
@@ -608,7 +608,7 @@ Lint to the same bar as the substrate. `npm run lint:php` runs phpcs (VIP Go) an
 
 The toy guide's punchline was *Ana and Ben never met* — capability added by wiring a node, not editing a system. Going real didn't change that bet; it cashed it in.
 
-You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Feed_Source_Node` — and each one supplies only `config()`, `fetch()`, its `:config` verb handlers, the `dump_config()` lines those verbs round-trip through, and a `node_schema()` built from the shared `source_schema()`, because the **`Source_Node`** base absorbs every connector concern the toy copies per source: the TICK trigger, the bounded dedup set, the fire-and-forget emit, and the shared `normalize_item()` that flattens three unrelated payloads into one item shape. You added a `Source` interface to name the seam, a closure-HTTP seam per connector so the network-touching code runs under coverage, and a `set_vault_id` pointer into the substrate's Vault so the two token-bearing connectors have credentials to fetch with.
+You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Feed_Source_Node` — and each one supplies only `config()`, `fetch()`, its `:config` command handlers, the `dump_config()` lines those commands round-trip through, and a `node_schema()` built from the shared `source_schema()`, because the **`Source_Node`** base absorbs every connector concern the toy copies per source: the TICK trigger, the bounded dedup set, the fire-and-forget emit, and the shared `normalize_item()` that flattens three unrelated payloads into one item shape. You added a `Source` interface to name the seam, a closure-HTTP seam per connector so the network-touching code runs under coverage, and a `set_vault_id` pointer into the substrate's Vault so the two token-bearing connectors have credentials to fetch with.
 
 And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body, timestamp }` exactly as before. The router, the worker lifecycle, fleet revival, the topology console, the Vault credential store, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
 

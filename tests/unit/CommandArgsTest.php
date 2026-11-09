@@ -7,14 +7,14 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Command_Args over token arrays: bind() reads a verb's tokens against its
+ * Command_Args over token arrays: bind() reads a command's tokens against its
  * declared args, and format() emits tokens. Token boundaries are native to the
  * array, so a value with spaces needs no quoting.
  */
 #[CoversClass( Command_Args::class )]
 class CommandArgsTest extends TestCase {
 
-	/** A verb's declared args, in the shape node_schema()['commands'][]['args'] carries. */
+	/** A command's declared args, in the shape node_schema()['commands'][]['args'] carries. */
 	private const CREATE = [
 		[ 'name' => 'label', 'type' => 'string' ],
 		[ 'name' => 'scope', 'type' => 'string', 'default' => 'manage' ],
@@ -72,7 +72,7 @@ class CommandArgsTest extends TestCase {
 
 	public function test_bind_refuses_an_unknown_option_naming_the_ones_it_takes(): void {
 		$this->assertSame(
-			'unknown option --scopes; this verb takes --label, --scope, --ttl',
+			'unknown option --scopes; this command takes --label, --scope, --ttl',
 			$this->refusal( self::CREATE, [ 'x', '--scopes=tune' ] )
 		);
 	}

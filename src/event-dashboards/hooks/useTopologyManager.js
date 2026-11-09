@@ -22,11 +22,11 @@
  *    `worker-status:in` and the view rather than inside the view;
  *  - the topology slice fires `topologies dump` straight into its view.
  *
- * `dump_graph` stays ONE verb rather than splitting into per-section slices.
+ * `dump_graph` stays ONE command rather than splitting into per-section slices.
  * `reconstructWorkers` joins its four sections — workers, consumers, logs and
  * graph — and that join is sound only over a single atomic snapshot, which
  * independently-timed slices cannot give it. `topologies dump` shares nothing
- * with that snapshot, so it earns a slice of its own. Both verbs already exist;
+ * with that snapshot, so it earns a slice of its own. Both commands already exist;
  * neither needs a server change.
  *
  * The three mutations are `useCommandOnce` sends rather than a hook callback
@@ -34,7 +34,7 @@
  * outbox and pokes the Router, so the command leaves inside the same lock/flush
  * bracket as the poll and the debug overlay's `connect topologies:shell` sees
  * it flow. A
- * refusal returns a tick later as the verb's error text, addressed to the node
+ * refusal returns a tick later as the command's error text, addressed to the node
  * that asked (TO=FROM, ADR-7); `onError` reports it, and there is no promise to
  * reject. Every answer re-polls the board, so a toggle or a restart shows as
  * soon as the server has done it rather than on the next 5-second poll.
@@ -244,8 +244,8 @@ function deriveConnected( {
  * A mutation the server refused, as `onError` receives it.
  *
  * @typedef {Object} TopologyRefusal
- * @property {string} name    The topology the refused verb named.
- * @property {string} message The verb's error text.
+ * @property {string} name    The topology the refused command named.
+ * @property {string} message The command's error text.
  */
 
 /**
@@ -288,7 +288,7 @@ function deriveConnected( {
  *   the summary cards draw; the lines the probe-log read skipped as
  *   unparseable, undefined before the first poll; each active topology that
  *   will not read and each log producer the catalog left out, name =>
- *   message, undefined before the first poll; the three mutation verbs;
+ *   message, undefined before the first poll; the three mutation commands;
  *   and whether the board is connected.
  */
 export function useTopologyManager( opts = {} ) {
@@ -320,7 +320,7 @@ export function useTopologyManager( opts = {} ) {
 	 * interpreter echoes the command's arguments into its reply, so
 	 * `args[ 0 ]` is the topology the answer is about.
 	 *
-	 * @param {{error: ?string, result: ?Object, args: string[]}} reply One verb's answer.
+	 * @param {{error: ?string, result: ?Object, args: string[]}} reply One command's answer.
 	 */
 	const onMutationDone = useCallback(
 		( { error, result, args } ) => {

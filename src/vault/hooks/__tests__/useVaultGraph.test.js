@@ -6,14 +6,14 @@
  *                                                       polled as a slice
  *   vault:{add,update,delete,test}:in → :result       — one one-shot per verb
  *
- * What every test here leans on: nothing correlates. Each verb is minted FROM
+ * What every test here leans on: nothing correlates. Each command is minted FROM
  * the node that wants its answer, the reply comes back TO = FROM, and it lands
- * there — so the table refresh and four verbs are told apart by WHICH NODE
+ * there — so the table refresh and four commands are told apart by WHICH NODE
  * they arrive on. `message[ID]` and `message[KEY]` stay empty throughout,
  * which the mint assertions pin. Nothing is injected: the seam is `fetch`, so
  * HttpOut, pack/unpack, the router and the interpreter all run for real.
  *
- * Every verb rides the router tick, so a dispatch is a WAIT, not a flush.
+ * Every command rides the router tick, so a dispatch is a WAIT, not a flush.
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -34,12 +34,12 @@ const ADD = 'vault:add:in';
 const UPDATE = 'vault:update:in';
 const DELETE = 'vault:delete:in';
 const TEST = 'vault:test:in';
-const VERB_RECEIVERS = [ ADD, UPDATE, DELETE, TEST ];
-const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, ...VERB_RECEIVERS ];
+const COMMAND_RECEIVERS = [ ADD, UPDATE, DELETE, TEST ];
+const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, ...COMMAND_RECEIVERS ];
 
 // A verb's command is on the wire within a tick of the click.
-const waitForVerb = ( wire, verb ) =>
-	waitFor( () => expect( findVerb( wire.batches, verb ) ).toBeTruthy(), {
+const waitForCommand = ( wire, verb ) =>
+	waitFor( () => expect( findCommand( wire.batches, verb ) ).toBeTruthy(), {
 		timeout: 6000,
 	} );
 
@@ -82,7 +82,7 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		expect( Core.node( LIST_RECV ).sink ).toBe( interpreter );
 		expect( Core.node( LIST_VIEW ).sink ).toBe( interpreter );
-		for ( const name of [ ...VERB_RECEIVERS, LIST_RECV ] ) {
+		for ( const name of [ ...COMMAND_RECEIVERS, LIST_RECV ] ) {
 			expect( Core.node( name ).sink ).toBe( interpreter );
 			const fetcher = name.replace( /:in$/, ':fetch' );
 			expect( Core.node( fetcher ).target ).toBe(
@@ -138,8 +138,8 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		const wire = installWire();
 		renderHook( () => useVaultGraph() );
 		await act( async () => {} );
-		await waitForVerb( wire, 'list' );
-		const msg = findVerb( wire.batches, 'list' );
+		await waitForCommand( wire, 'list' );
+		const msg = findCommand( wire.batches, 'list' );
 		expect( msg[ TO ] ).toBe( 'vault' );
 		expect( msg[ FROM ] ).toBe( LIST_RECV );
 	} );
@@ -270,8 +270,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			} )
 		);
 
-		await waitForVerb( wire, 'add' );
-		const add = findVerb( wire.batches, 'add' );
+		await waitForCommand( wire, 'add' );
+		const add = findCommand( wire.batches, 'add' );
 		expect( add[ VALUE ].arguments ).toEqual( [
 			'spoke-04',
 			'--url=https://d.example.test',
@@ -301,8 +301,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			} )
 		);
 
-		await waitForVerb( wire, 'add' );
-		const add = findVerb( wire.batches, 'add' );
+		await waitForCommand( wire, 'add' );
+		const add = findCommand( wire.batches, 'add' );
 		expect( add[ VALUE ].arguments ).toContain( '--group=tw-edge' );
 	}, 30000 );
 
@@ -323,8 +323,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			} )
 		);
 
-		await waitForVerb( wire, 'update' );
-		const update = findVerb( wire.batches, 'update' );
+		await waitForCommand( wire, 'update' );
+		const update = findCommand( wire.batches, 'update' );
 		expect( update[ VALUE ].arguments ).toEqual( [
 			'spoke-was-4471',
 			'--new_id=spoke-now-6612',
@@ -358,8 +358,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			} )
 		);
 
-		await waitForVerb( wire, 'update' );
-		const update = findVerb( wire.batches, 'update' );
+		await waitForCommand( wire, 'update' );
+		const update = findCommand( wire.batches, 'update' );
 		expect( update[ VALUE ].arguments ).toEqual( [
 			'spoke-was-4471',
 			'--url=https://after.example.test',
@@ -387,8 +387,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			} )
 		);
 
-		await waitForVerb( wire, 'add' );
-		const add = findVerb( wire.batches, 'add' );
+		await waitForCommand( wire, 'add' );
+		const add = findCommand( wire.batches, 'add' );
 		expect( add[ VALUE ].arguments ).toEqual( [
 			'unthread-31',
 			'--url=https://api.unthread-31.example',
@@ -418,8 +418,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			} )
 		);
 
-		await waitForVerb( wire, 'update' );
-		const update = findVerb( wire.batches, 'update' );
+		await waitForCommand( wire, 'update' );
+		const update = findCommand( wire.batches, 'update' );
 		expect( update[ VALUE ].arguments ).toEqual( [
 			'linear-44',
 			'--url=https://api.linear-44.example',
@@ -449,8 +449,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			} )
 		);
 
-		await waitForVerb( wire, 'update' );
-		const update = findVerb( wire.batches, 'update' );
+		await waitForCommand( wire, 'update' );
+		const update = findCommand( wire.batches, 'update' );
 		expect( update[ VALUE ].arguments ).toContain( '--group=' );
 	}, 30000 );
 } );
@@ -531,7 +531,7 @@ describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
 } );
 
 // Helpers — iterate the recorded batches for a verb-bearing message.
-function findVerb( batches, verb ) {
+function findCommand( batches, verb ) {
 	for ( const batch of batches ) {
 		for ( const m of batch ) {
 			if ( m[ VALUE ]?.name === verb ) {

@@ -14,7 +14,7 @@ import sourceCommands from '../../../tests/fixtures/broker-sources.json';
 
 /**
  * The sources a run of `add_source` and `remove_source` commands leaves,
- * each bound as its verb binds it and folded at partition 0, as PHP
+ * each bound as its command binds it and folded at partition 0, as PHP
  * `Remote_Broker_Node::sources_of()` folds them.
  *
  * @param {Array<[string,Array<string>]>} commands Each verb and its tokens.

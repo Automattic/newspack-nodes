@@ -115,7 +115,7 @@ export class TeeNode extends Node {
 	/**
 	 * Console-palette entry: a routing primitive with no positional arguments —
 	 * targets arrive through `connectNode`, so an operator types none of them,
-	 * and Tee declares no verbs. The two port flags are what the canvas draws.
+	 * and Tee declares no commands. The two port flags are what the canvas draws.
 	 *
 	 * @return {Object} The node schema.
 	 */

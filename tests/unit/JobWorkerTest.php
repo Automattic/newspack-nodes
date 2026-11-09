@@ -688,7 +688,7 @@ class JobWorkerTest extends TestCase {
 		$this->assertContains( 'ctor_remote', \array_keys( (array) $this->read_private( $jw, 'remote_handlers' ) ) );
 	}
 
-	public function test_job_worker_node_schema_no_verbs(): void {
+	public function test_job_worker_node_schema_no_commands(): void {
 		$schema = Job_Worker_Node::node_schema();
 		$this->assertSame( 'Control', $schema['category'] );
 		$this->assertSame( [], $schema['commands'] );
@@ -804,7 +804,7 @@ class JobWorkerTest extends TestCase {
 		$this->assertArrayNotHasKey( 'memory_pressure', $payload );
 	}
 
-	public function test_handle_request_unknown_verb_is_refused_on_the_error_plane(): void {
+	public function test_handle_request_unknown_command_is_refused_on_the_error_plane(): void {
 		$jw = new Job_Worker_Node();
 		$sink = new Capture_Sink_Node();
 		$jw->sink( $sink );

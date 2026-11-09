@@ -1,12 +1,12 @@
 <?php
 /**
- * VerbHarness: test fixture for service-CommandInterpreter (interpreter) verbs.
+ * CommandHarness: test fixture for the commands a service CI answers.
  *
  * Every service-interpreter test uses this to fire a TM_COMMAND envelope through the
  * substrate's normal dispatch path (interpreter → base interpreter → Router → HTTP_In) and
- * pull the verb's return value back out as a decoded PHP value. Tests
+ * pull the command's return value back out as a decoded PHP value. Tests
  * therefore exercise the same plumbing the live REST controller does —
- * no special "for tests" shortcut — but assert on the verb's logical
+ * no special "for tests" shortcut — but assert on the command's logical
  * result rather than parsing the on-wire Message themselves.
  *
  * Lifecycle: each fire() call builds a fresh request-scope graph
@@ -29,23 +29,23 @@ use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
 
-class VerbHarness {
+class CommandHarness {
 	/**
 	 * The user a REST request carries: `HTTP_In_Node` admits only a caller who
-	 * is logged in, so a verb reached through it always has one current, and
-	 * `Capabilities::require_verb()` asks that user's capabilities (ADR-26).
+	 * is logged in, so a command reached through it always has one current, and
+	 * `Capabilities::require_command()` asks that user's capabilities (ADR-26).
 	 */
 	public const REQUEST_USER = 4127;
 
 	/**
-	 * Build a request-scope graph and fire a verb against the supplied interpreter.
-	 * Returns the verb's payload from the captured TM_RESPONSE.
+	 * Build a request-scope graph and fire a command against the supplied interpreter.
+	 * Returns the command's payload from the captured TM_RESPONSE.
 	 *
 	 * Per the command protocol, the response Message's VALUE is a live PHP
 	 * array `['name'=>'<verb>','payload'=><result>]` — it rides through
 	 * packed()/unpacked() as a nested object, so there is nothing to
-	 * json_decode. The verb's `payload` is returned directly: a structure
-	 * for verbs that return arrays/scalars, or the error-message string for
+	 * json_decode. The command's `payload` is returned directly: a structure
+	 * for commands that return arrays/scalars, or the error-message string for
 	 * a TM_COMMAND|TM_ERROR response (since `interpret()` puts the thrown
 	 * message into `payload`).
 	 *
@@ -53,12 +53,12 @@ class VerbHarness {
 	 *                                     harness names it and wires it into the
 	 *                                     request-scope graph).
 	 * @param string             $name Name to register the interpreter under (e.g. 'classes').
-	 * @param string             $verb Verb to invoke (e.g. 'list').
+	 * @param string             $verb Name of the command to invoke (e.g. 'list').
 	 * @param string             $args Literal-string argument tail (the `arguments` field);
-	 *                                     verbs parse it via Command_Args. Empty for nullary verbs.
+	 *                                     commands parse it via Command_Args. Empty for nullary commands.
 	 * @param string             $key  Optional KEY field for the inbound message
 	 *                                     (correlation metadata; rarely needed).
-	 * @return mixed The verb's payload (structure for success verbs; error-message string for TM_ERROR).
+	 * @return mixed The command's payload (structure for successful commands; error-message string for TM_ERROR).
 	 */
 	/**
 	 * @param list<string>|string $args Argument tokens, or a convenience string
@@ -76,7 +76,7 @@ class VerbHarness {
 		$interpreter->name( $name );
 		$interpreter->sink( $base );
 
-		// status_header seam is unused — tests assert on the verb's return
+		// status_header seam is unused — tests assert on the command's return
 		// value, not which HTTP status code HTTP_In emitted. The closure
 		// is a no-op so HTTP_In's fill() path runs without trying to call
 		// the real \status_header() (which isn't defined in tests).
@@ -95,7 +95,7 @@ class VerbHarness {
 			'name'      => $verb,
 			'arguments' => $args,
 		];
-		// This harness exercises verb LOGIC, not authorization (covered by
+		// This harness exercises command LOGIC, not authorization (covered by
 		// CommandAuthTest / CommandInterpreterTest). Mark the command as
 		// in-process so the client-tier authorize gate passes.
 		$message[ Message::LOCAL ] = true;
@@ -105,14 +105,14 @@ class VerbHarness {
 
 	/**
 	 * Fill a TM_COMMAND into an interpreter wired to an `_http` sink and
-	 * return the reply's payload. `interpret()` replies with whatever the verb
+	 * return the reply's payload. `interpret()` replies with whatever the command
 	 * threw, so a PHPUnit exception — the per-test time limit, an assertion
-	 * failing in a seam the verb calls — is re-raised here rather than read
+	 * failing in a seam the command calls — is re-raised here rather than read
 	 * back as a refusal. Shared by every plugin's harness.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The interpreter, named and sunk.
 	 * @param array<int,mixed>         $message     The TM_COMMAND to fill.
-	 * @return mixed The verb's payload (structure for success verbs; error-message string for TM_ERROR).
+	 * @return mixed The command's payload (structure for successful commands; error-message string for TM_ERROR).
 	 */
 	public static function payload( Command_Interpreter_Node $interpreter, array $message ): mixed {
 		$escaped = null;
@@ -138,11 +138,11 @@ class VerbHarness {
 
 		if ( '' === $body ) {
 			$verb = Core::as_string( Core::arr( $message[ Message::VALUE ] )['name'] ?? '' );
-			throw new \RuntimeException( "verb '{$verb}' on interpreter '{$interpreter->name()}' produced no response" );
+			throw new \RuntimeException( "command '{$verb}' on interpreter '{$interpreter->name()}' produced no response" );
 		}
 		// HTTP_In packs the whole response Message; unpacked() restores VALUE
-		// as the live `['name'=>,'payload'=>]` array. The verb's payload is
-		// returned directly — a structure for success verbs, or the
+		// as the live `['name'=>,'payload'=>]` array. The command's payload is
+		// returned directly — a structure for successful commands, or the
 		// error-message string for a TM_COMMAND|TM_ERROR response.
 		$reply   = Message::unpacked( $body );
 		$command = $reply[ Message::VALUE ];

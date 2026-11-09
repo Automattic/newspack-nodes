@@ -23,7 +23,7 @@
 </style>
 <div class="sheet">
   <h1>Four lines of TSL build a worker, and one record walks the graph they leave behind</h1>
-  <p class="sub">A topology is a script of the same verbs the console accepts. At boot a shell, the node that turns each line of text into a command, feeds the file into the worker's command interpreter. The graph those commands leave behind is the worker.</p>
+  <p class="sub">A topology is a script of the same commands the console accepts. At boot a shell, the node that turns each line of text into a command, feeds the file into the worker's command interpreter. The graph those commands leave behind is the worker.</p>
 
   <div class="panel">
     <header><span class="mono">topologies/topic-probe.tsl</span> <span style="font-weight:400;opacity:.85">&middot; the smallest shipped topology, the whole file</span></header>
@@ -71,8 +71,8 @@
     <div class="panel" style="flex:1.45 1 0">
       <header><span class="mono">_command_interpreter</span></header>
       <div class="body">
-        <p style="color:#50575E;margin:0 0 8px;line-height:1.5">A node holding a table of verbs, mounted under this reserved name in every worker, the long-lived PHP process running one graph of nodes.</p>
-        <div class="chip off"><span class="tag off">other branch</span><br>TM_COMMAND with TO empty: the command is for this process. It runs the verb and mints a reply with TO set to the request's FROM.</div>
+        <p style="color:#50575E;margin:0 0 8px;line-height:1.5">A node holding a table of commands, mounted under this reserved name in every worker, the long-lived PHP process running one graph of nodes.</p>
+        <div class="chip off"><span class="tag off">other branch</span><br>TM_COMMAND with TO empty: the command is for this process. It runs the command and mints a reply with TO set to the request's FROM.</div>
         <div class="chip on" style="margin-bottom:0"><span class="tag">taken</span><br>TO carries a path: the message is in transit. It forwards it to its own sink, the router.</div>
       </div>
     </div>

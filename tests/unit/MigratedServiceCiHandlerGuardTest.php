@@ -2,17 +2,17 @@
 /**
  * MigratedServiceCiHandlerGuardTest: cross-interpreter guards for three substrate
  * service interpreters whose commands are schema-driven (handlers live in
- * node_schema()['commands'][]), not set up in a bespoke `__construct`/`verb_table`.
+ * node_schema()['commands'][]), not set up in a bespoke `__construct`/`command_table`.
  *
  * Two contracts, asserted for Raw_Logs_CI, Layouts_CI, and Workers_CI:
  *
- *   1. Every node_schema verb carries a callable `handler` — the schema is the
- *      single source of truth, so a verb without one would be invisible to
+ *   1. Every node_schema command carries a callable `handler` — the schema is the
+ *      single source of truth, so a command without one would be invisible to
  *      Service_CI_Node::commands_from_schema() and dispatch to nothing.
  *
  *   2. Constructing the interpreter emits NO "no callable handler" warning — proves
- *      every verb has a handler (commands_from_schema warns + skips any named
- *      verb that lacks a callable handler).
+ *      every command has a handler (commands_from_schema warns + skips any named
+ *      command that lacks a callable handler).
  *
  * @package Newspack_Nodes
  */
@@ -26,14 +26,14 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Rest\Layouts_CI_Node;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Rest\Workers_CI_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversNothing]
 class MigratedServiceCiHandlerGuardTest extends TestCase {
 
 	protected function tearDown(): void {
-		VerbHarness::reset();
+		CommandHarness::reset();
 		parent::tearDown();
 	}
 
@@ -52,29 +52,29 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 		return $interpreter;
 	}
 
-	public function test_raw_logs_schema_verbs_all_carry_callable_handlers(): void {
-		foreach ( Raw_Logs_CI_Node::node_schema()['commands'] as $verb ) {
+	public function test_raw_logs_schema_commands_all_carry_callable_handlers(): void {
+		foreach ( Raw_Logs_CI_Node::node_schema()['commands'] as $command ) {
 			$this->assertTrue(
-				isset( $verb['handler'] ) && \is_callable( $verb['handler'] ),
-				"Raw_Logs verb '{$verb['name']}' must carry a callable handler in node_schema()"
+				isset( $command['handler'] ) && \is_callable( $command['handler'] ),
+				"Raw_Logs command '{$command['name']}' must carry a callable handler in node_schema()"
 			);
 		}
 	}
 
-	public function test_layouts_schema_verbs_all_carry_callable_handlers(): void {
-		foreach ( Layouts_CI_Node::node_schema()['commands'] as $verb ) {
+	public function test_layouts_schema_commands_all_carry_callable_handlers(): void {
+		foreach ( Layouts_CI_Node::node_schema()['commands'] as $command ) {
 			$this->assertTrue(
-				isset( $verb['handler'] ) && \is_callable( $verb['handler'] ),
-				"Layouts verb '{$verb['name']}' must carry a callable handler in node_schema()"
+				isset( $command['handler'] ) && \is_callable( $command['handler'] ),
+				"Layouts command '{$command['name']}' must carry a callable handler in node_schema()"
 			);
 		}
 	}
 
-	public function test_workers_schema_verbs_all_carry_callable_handlers(): void {
-		foreach ( Workers_CI_Node::node_schema()['commands'] as $verb ) {
+	public function test_workers_schema_commands_all_carry_callable_handlers(): void {
+		foreach ( Workers_CI_Node::node_schema()['commands'] as $command ) {
 			$this->assertTrue(
-				isset( $verb['handler'] ) && \is_callable( $verb['handler'] ),
-				"Workers verb '{$verb['name']}' must carry a callable handler in node_schema()"
+				isset( $command['handler'] ) && \is_callable( $command['handler'] ),
+				"Workers command '{$command['name']}' must carry a callable handler in node_schema()"
 			);
 		}
 	}
@@ -106,7 +106,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 		$this->assertStringNotContainsString( 'no callable handler', $buf );
 	}
 
-	public function test_all_three_cis_install_every_schema_verb_as_a_command(): void {
+	public function test_all_three_cis_install_every_schema_command(): void {
 		Core::set_stderr_handler( static function () { /* swallow */ } );
 
 		$cases = [
@@ -117,11 +117,11 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 
 		foreach ( $cases as $label => [ $interpreter, $schema ] ) {
 			$commands = $interpreter->commands();
-			foreach ( $schema['commands'] as $verb ) {
+			foreach ( $schema['commands'] as $declared ) {
 				$this->assertArrayHasKey(
-					$verb['name'],
+					$declared['name'],
 					$commands,
-					"{$label}: schema verb '{$verb['name']}' must install as a dispatchable command"
+					"{$label}: schema command '{$declared['name']}' must install as a dispatchable command"
 				);
 			}
 		}

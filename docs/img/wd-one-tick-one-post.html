@@ -30,7 +30,7 @@
 
 <div class="lane card" data-lane="0"><h3><span class="mono">_router</span></h3><p>Fires just after each <span class="mono">ROUTER_TICK_MS</span> boundary of the 1,000 ms grid, on its own slot.</p></div>
 <div class="lane card" data-lane="1"><h3>Timer → Tee</h3><p><span class="mono">insights:timer</span> rides the Router's TIMER channel; <span class="mono">insights:tee</span> fans its tick.</p></div>
-<div class="lane card" data-lane="2"><h3>Three Fetchers</h3><p>Each holds one configured verb and an outbox of asks in flight.</p></div>
+<div class="lane card" data-lane="2"><h3>Three Fetchers</h3><p>Each holds one configured command and an outbox of asks in flight.</p></div>
 <div class="lane card" data-lane="3"><h3><span class="mono">insights:shell</span> → <span class="mono">_http</span></h3><p>The group's observe-only Tap, then the <span class="mono">HttpOut</span> egress that buffers while locked.</p></div>
 <div class="lane card" data-lane="4"><h3>Server</h3><p><span class="mono">/newspack-nodes/v1/command</span> routes each command to <span class="mono">insights-demo</span>.</p></div>
 
@@ -53,7 +53,7 @@
 
 <div class="hop" data-arrow="3,4" data-cap="finally: flush() — one postBatch" data-span="2,4"><span class="n">6</span>The bracket closes in a <span class="mono">finally</span>, even when a subscriber throws. <span class="mono">flush()</span> packs the buffer once and POSTs it as one batch; a tick that buffered nothing costs no request.</div>
 
-<div class="hop" data-arrow="4,3" data-cap="three replies, one response" data-span="1,4"><span class="n">7</span>Each verb replies <span class="mono">TO = FROM</span>. The response hands every reply to <span class="mono">_command_interpreter</span>, the Router delivers it to that Fetcher's receiver Tee, the Tee fans it to the view, and last to the Fetcher, which takes the ask off its outbox.</div>
+<div class="hop" data-arrow="4,3" data-cap="three replies, one response" data-span="1,4"><span class="n">7</span>Each command replies <span class="mono">TO = FROM</span>. The response hands every reply to <span class="mono">_command_interpreter</span>, the Router delivers it to that Fetcher's receiver Tee, the Tee fans it to the view, and last to the Fetcher, which takes the ask off its outbox.</div>
 </div>
 
 <div class="cols">

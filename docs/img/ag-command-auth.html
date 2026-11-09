@@ -25,7 +25,7 @@
 </style>
 <div class="sheet">
 <h1>Every command passes two gates: the signature says who minted it, the capability map says whether they may</h1>
-<p class="sub">One Command_Interpreter_Node class runs in two trust roles, so the first gate is a per-instance authorize closure checked in interpret() for every command. The second is dispatch()'s refusal of a caller below each verb's declared role. Authenticity and authority are two questions.</p>
+<p class="sub">One Command_Interpreter_Node class runs in two trust roles, so the first gate is a per-instance authorize closure checked in interpret() for every command. The second is dispatch()'s refusal of a caller below each command's declared role. Authenticity and authority are two questions.</p>
 
 <div class="tiers">
   <div class="panel">
@@ -54,12 +54,12 @@
 </div>
 
 <div class="panel gate2">
-  <header>Gate 2 — <span class="mono">Capabilities::require_verb( $role )</span>, which <span class="mono">dispatch()</span> puts before every verb</header>
+  <header>Gate 2 — <span class="mono">Capabilities::require_command( $role )</span>, which <span class="mono">dispatch()</span> puts before every command</header>
   <div class="body">
     <div class="roles">
       <div class="role"><b>read</b>dashboards, the SSE streams, read-only introspection. Its live surface is the RAW log firehose and worker IPC output, not shaped dashboards alone.</div>
       <div class="role"><b>tune</b>declared configuration and application data: settings, the ELN ruleset.</div>
-      <div class="role m"><b>manage</b>fleet control, the credential vault, issuing sessions. A verb naming NO role in <span class="mono">node_schema()</span> gets this one — the strictest, never the loosest.</div>
+      <div class="role m"><b>manage</b>fleet control, the credential vault, issuing sessions. A command naming NO role in <span class="mono">node_schema()</span> gets this one — the strictest, never the loosest.</div>
     </div>
     <div class="verdict">
       <div style="background:#F0F4FB;border:1px solid #C3D3EC"><b>Resolution</b>each role → a WordPress capability through the <span class="mono">newspack_nodes/capability_map</span> filter, all three <span class="mono">manage_options</span> until <span class="mono">wp nodes caps install</span> migrates them onto <span class="mono">newspack_nodes_{read,tune,manage}</span>. The autoloaded <span class="mono">newspack_nodes_granular_caps</span> option is the switch.</div>

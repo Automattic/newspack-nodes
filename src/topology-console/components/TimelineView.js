@@ -2,7 +2,7 @@
  * The DEBUG-trace timeline: the REPL transcript parsed into a filterable
  * node/event/payload table.
  *
- * A node whose `debug_state` is above zero (what the `trace` verb sets) emits
+ * A node whose `debug_state` is above zero (what the `trace` command sets) emits
  * a `<node>: DEBUG: <event> <payload>` line on its stderr chain as it
  * publishes state — `Node::set_state()` in a worker, its `setState` mirror in
  * the browser — and those lines land in the `_output` transcript the REPL

@@ -1048,7 +1048,7 @@ class CliWorkerCommandTest extends TestCase {
 	}
 
 	public function test_run_prints_the_skip_reason(): void {
-		// `wp nodes run` is the debugging verb — dropping the reason hides the
+		// `wp nodes run` is the debugging command — dropping the reason hides the
 		// root-ownership footgun a third time. The success line must carry it.
 		$stock_dir = "{$this->tmp}/stock";
 		\mkdir( $stock_dir, 0755, true );

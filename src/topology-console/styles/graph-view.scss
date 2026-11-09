@@ -1021,7 +1021,7 @@
 		filter: drop-shadow(0 0 4px var(--oxide));
 	}
 
-	// Virtual edges — derived from a verb arg with type=node_name
+	// Virtual edges — derived from a command arg with type=node_name
 	// (e.g. RequestBuilder's set_errors_target). Painted dimmer + a
 	// finer dash pattern so the operator can tell them apart from
 	// physical connect_node wires; not click-deletable.
@@ -1034,7 +1034,7 @@
 	}
 
 	// Registration edges — node-name event wiring (register()/notify()),
-	// distinct from physical connect_node wires and virtual verb-arg edges:
+	// distinct from physical connect_node wires and virtual command-arg edges:
 	// fine dotted in sage, dimmed, no flow animation. Informational only.
 	&.is-registration {
 		stroke: var(--sage-dark);
@@ -1535,11 +1535,11 @@
 			.topology-edit-row__reset,
 			.topology-hull-panel__open,
 			.topology-hull-panel__remove,
-			.topology-edit-verb__remove,
+			.topology-edit-command__remove,
 			.topology-field-row__nav,
 			.topology-edit-chip__clear,
 			.topology-edit-delete,
-			.topology-edit-verb__add,
+			.topology-edit-command__add,
 			.topology-insp__listener-x,
 			.topology-tt__transport-btn
 		) {
@@ -1552,7 +1552,7 @@
 	.button:where(
 			.topology-canvas__layout-chip,
 			.topology-edit-row__reset,
-			.topology-edit-verb__remove,
+			.topology-edit-command__remove,
 			.topology-edit-chip__clear,
 			.topology-insp__listener-x
 		) {
@@ -1564,7 +1564,7 @@
 			.topology-hull-panel__remove,
 			.topology-field-row__nav,
 			.topology-edit-delete,
-			.topology-edit-verb__add,
+			.topology-edit-command__add,
 			.topology-tt__transport-btn
 		) {
 		line-height: 1.45;
@@ -1574,7 +1574,7 @@
 		width: 22px;
 	}
 
-	.button:where(.topology-edit-verb__remove) {
+	.button:where(.topology-edit-command__remove) {
 		width: 20px;
 		height: 20px;
 	}
@@ -1602,7 +1602,7 @@
 		padding: 6px 12px;
 	}
 
-	.button:where(.topology-edit-verb__add) {
+	.button:where(.topology-edit-command__add) {
 		padding: 8px;
 	}
 
@@ -1610,7 +1610,7 @@
 		padding: 3px 0;
 	}
 
-	.button:where(.topology-edit-row__reset, .topology-edit-verb__remove) {
+	.button:where(.topology-edit-row__reset, .topology-edit-command__remove) {
 		padding: 0;
 	}
 }
@@ -1726,16 +1726,16 @@
 	text-transform: lowercase;
 }
 
-// A `multiple` verb's per-invocation header: verb name on the left, a small
+// A `multiple` command's per-invocation header: verb name on the left, a small
 // inline remove (×) on the right — not a stacked full-width bar.
-.topology-edit-verb__head {
+.topology-edit-command__head {
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
 }
 
-.topology-app .topology-edit-verb__remove {
+.topology-app .topology-edit-command__remove {
 	flex: 0 0 auto;
 	width: 20px;
 	height: 20px;
@@ -1745,14 +1745,14 @@
 }
 
 // "+ <verb>" — a modest text button, not a full-width input-styled bar.
-.topology-app .topology-edit-verb__add {
+.topology-app .topology-edit-command__add {
 	margin-top: 4px;
 	padding: 8px 8px;
 	font-size: 11px;
 }
 
-// Space consecutive invocations of a multiple verb apart.
-.topology-edit-verb-group .topology-edit-verb + .topology-edit-verb {
+// Space consecutive invocations of a multiple command apart.
+.topology-edit-command-group .topology-edit-command + .topology-edit-command {
 	margin-top: 6px;
 }
 
@@ -1833,12 +1833,12 @@
 	padding: 0 4px;
 }
 
-.topology-edit-verb {
+.topology-edit-command {
 	border-bottom: 1px dotted var(--paper-shadow);
 	padding: 2px 0;
 }
 
-.topology-edit-verb__args {
+.topology-edit-command__args {
 	padding-left: 22px;
 	margin-top: 2px;
 }
@@ -1849,7 +1849,7 @@
 }
 
 // IncludeTree (task 13): top-level rows are this file's declared includes
-// (remove/add reuse the .topology-edit-verb__remove/__add classes above);
+// (remove/add reuse the .topology-edit-command__remove/__add classes above);
 // deeper rows are read-only and nest via the child list's own indent.
 .topology-include-tree {
 	margin-top: 18px;

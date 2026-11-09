@@ -89,7 +89,7 @@ const errorText = ( e ) =>
 	sprintf( __( 'Error: %s', 'newspack-nodes' ), e );
 
 /**
- * What each verb says about its own outcome, in that verb's own words.
+ * What each command says about its own outcome, in that command's own words.
  *
  * `answerStatus` reads `busy`, `failed` and `ok`, and says nothing for a key
  * that is absent — which is why only `test` names its success. Add, update and
@@ -264,7 +264,7 @@ function validate( id, url, group ) {
  *
  * The seed says which act this is: a server with no id yet is one being added.
  * The answer arrives named after the id that was SENT — the row's existing one
- * on an edit — like every other verb here, so the form reads it the way a row
+ * on an edit — like every other command here, so the form reads it the way a row
  * does.
  *
  * @param {Object}                          props         Component props.

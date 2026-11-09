@@ -177,8 +177,8 @@ describe( 'useCommandOnce', () => {
 		expect( Core.node( 'wombat:shell' ) ).toBeNull();
 	} );
 
-	// `dump_metadata` is an interpreter builtin: there is no CI after the egress.
-	it( 'targets the bare egress for a builtin verb', async () => {
+	// `dump_metadata` is an interpreter command: there is no CI after the egress.
+	it( 'targets the bare egress for an interpreter command', async () => {
 		mount( { command: 'dump_metadata' } );
 		await act( async () => {} );
 		expect( Core.node( 'dump_metadata:fetch' ).target ).toBe(
@@ -323,7 +323,7 @@ describe( 'useCommandOnce', () => {
 		expect( onDone ).toHaveBeenCalledTimes( 1 );
 	} );
 
-	it( 'fires onDone with the refusal when the verb refuses', async () => {
+	it( 'fires onDone with the refusal when the command refuses', async () => {
 		replyFor.mockImplementation( () => new Error( 'unparseable-6612' ) );
 		const onDone = jest.fn();
 		const { result } = mount( {
@@ -376,7 +376,7 @@ describe( 'useCommandOnce', () => {
 	} );
 
 	// A transport refusal is NOT the server's answer: a 401 on an evicted
-	// session, a 5xx, a network drop. The batch never reached the verb, so a
+	// session, a 5xx, a network drop. The batch never reached the command, so a
 	// read that gave up there is the overnight tab loaded halfway — which is
 	// the failure this retry exists for.
 	it( 'keeps asking when the request never reached the server', async () => {
@@ -489,7 +489,7 @@ describe( 'useCommandOnce', () => {
 		await later();
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 		// It is still outstanding, and says so: a send leaves the outbox only
-		// when a reply names it, so a verb answering nothing stays pending.
+		// when a reply names it, so a command answering nothing stays pending.
 		expect( result.current.pending ).toBe( true );
 	} );
 
@@ -638,7 +638,7 @@ describe( 'useCommandOnce', () => {
 		expect( seen[ 0 ] ).toBe( 'laptop mcp' );
 	} );
 
-	// @longform A BODY is not a subject. Left to the default, a verb whose
+	// @longform A BODY is not a subject. Left to the default, a command whose
 	// first token is a JSON document or a pasted URL would address its reply
 	// with the whole thing — past the substrate's FROM cap, and the reply is
 	// dropped. It sends WITHOUT a subject instead: a save the operator clicked
@@ -1014,7 +1014,7 @@ describe( 'useCommandOnce', () => {
 	} );
 
 	// A read whose answer takes longer than the tick must not be re-sent every
-	// second: the verb behind one can be a log scan, and each duplicate reply
+	// second: the command behind one can be a log scan, and each duplicate reply
 	// is another `onDone`.
 	it( 'does not re-ask a slow read on every tick', async () => {
 		let answer;

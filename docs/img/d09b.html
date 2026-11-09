@@ -135,11 +135,11 @@
 <span class="n">11</span>    ] );
 <span class="n">12</span>}</pre>
   <div>
-    <div class="chip"><b>L2</b> Merges over the base schema, so the verbs every node answers stay declared.</div>
+    <div class="chip"><b>L2</b> Merges over the base schema, so the commands every node answers stay declared.</div>
     <div class="chip"><b>L3</b> <span class="mono">category</span> groups the node in the console palette.</div>
     <div class="chip"><b>L5</b> <span class="mono">arguments</span> are positional: the words after the name on a <span class="mono">make_node</span> line.</div>
     <div class="chip"><b>L6</b> A <span class="mono">request</span> is a runtime trigger. <span class="mono">fill()</span> handles it on the <span class="mono">TM_REQUEST</span> flag; <span class="mono">request_node</span> fires it; <span class="mono">reply_shape</span> documents the answer.</div>
-    <div class="chip"><b>commands</b> A configuration verb, run when the graph is built. A node declaring one gets a sibling interpreter named <span class="mono">&lt;node&gt;:config</span>, reached with <span class="mono">command_node</span>.</div>
+    <div class="chip"><b>commands</b> A configuration step, run when the graph is built. A node declaring one gets a sibling interpreter named <span class="mono">&lt;node&gt;:config</span>, reached with <span class="mono">command_node</span>.</div>
   </div>
 </div>
 

@@ -3,7 +3,7 @@
  * ClassesCITest: unit tests for Classes_CI, the node-class catalog service
  * interpreter. Like the Layouts_CI and Topologies_CI tests, each test
  * instantiates the interpreter (no ctor args — substrate state is global),
- * fire a verb through VerbHarness, assert on the decoded payload.
+ * fire a command through CommandHarness, assert on the decoded payload.
  *
  * @package Newspack_Nodes
  */
@@ -16,7 +16,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Composer\Autoload\ClassLoader;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Fixtures\Malformed_Schema_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Classes_CI_Node::class )]
@@ -35,13 +35,13 @@ class ClassesCITest extends TestCase {
 	protected function tearDown(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$this->restore_classmap();
-		VerbHarness::reset();
+		CommandHarness::reset();
 		parent::tearDown();
 	}
 
 	public function test_dump_is_denied_without_the_read_capability(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$this->assertSame( "permission denied: read capability required\n", $result );
 	}
 
@@ -77,7 +77,7 @@ class ClassesCITest extends TestCase {
 		$this->classmap_snapshot = null;
 	}
 
-	public function test_node_schema_declares_its_verbs(): void {
+	public function test_node_schema_declares_its_commands(): void {
 		$schema = Classes_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
@@ -85,8 +85,8 @@ class ClassesCITest extends TestCase {
 		$this->assertNotEmpty( $schema['description'] );
 	}
 
-	public function test_dump_verb_returns_classes_and_formatters(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+	public function test_dump_command_returns_classes_and_formatters(): void {
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertIsArray( $result );
 		$this->assertArrayHasKey( 'classes', $result );
@@ -97,21 +97,21 @@ class ClassesCITest extends TestCase {
 
 	/** The verb is `dump`; nothing answers to `list`, per docs/stability.md. */
 	public function test_list_is_refused_as_an_unknown_command(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'unknown command: list', $result );
 	}
 
-	public function test_dump_verb_names_the_stock_classes(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+	public function test_dump_command_names_the_stock_classes(): void {
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertIsArray( $result );
 	}
 
 	/** A Hidden-category class is off the palette but in the catalog, which the Inspector reads. */
 	public function test_dump_lists_a_hidden_category_class_and_refuses_the_hidden_flag(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$by     = \array_column( $result['classes'], null, 'shell_name' );
 
 		$this->assertSame( 'Hidden', $by['Remote_Consumer']['category'] ?? null );
@@ -125,7 +125,7 @@ class ClassesCITest extends TestCase {
 	}
 
 	public function test_list_returns_sorted_by_category_then_name(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$pairs = \array_map(
 			static fn ( $c ) => [ $c['category'], $c['shell_name'] ],
@@ -136,11 +136,11 @@ class ClassesCITest extends TestCase {
 		$this->assertSame( $sorted, $pairs );
 	}
 
-	public function test_list_strips_verb_handlers_to_plain_serializable_fields(): void {
+	public function test_list_strips_command_handlers_to_plain_serializable_fields(): void {
 		// Topologies_CI carries `handler` closures inside its node_schema
-		// verbs[]; the catalog must inline only {name,description,args} so the
+		// commands[]; the catalog must inline only {name,description,args} so the
 		// payload stays a plain, serializable structure.
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		// Guard: a stale/empty composer classmap (no `composer dump-autoload -o`)
 		// would yield zero classes and pass this strip test vacuously. Assert
@@ -164,18 +164,18 @@ class ClassesCITest extends TestCase {
 		$this->assertNotNull( $topologies, 'Topologies must appear in the class catalog' );
 		$this->assertNotEmpty( $topologies['commands'] );
 
-		foreach ( $topologies['commands'] as $verb ) {
+		foreach ( $topologies['commands'] as $command ) {
 			$this->assertSame(
 				[ 'name', 'description', 'args' ],
-				\array_keys( $verb ),
-				"verb '{$verb['name']}' must expose only name/description/args — no handler leak"
+				\array_keys( $command ),
+				"command '{$command['name']}' must expose only name/description/args — no handler leak"
 			);
-			$this->assertArrayNotHasKey( 'handler', $verb );
+			$this->assertArrayNotHasKey( 'handler', $command );
 		}
 	}
 
 	/**
-	 * HTTP_Out's `allow_replies_to` is the second multi verb, and the one an
+	 * HTTP_Out's `allow_replies_to` is the second multi command, and the one an
 	 * operator meets most: a hub egress needs `settings-sync` AND, under
 	 * `hub-control`, `discovery-collector`. Without the flag reaching the
 	 * catalog the console offers one checkbox and one field, so the second
@@ -183,7 +183,7 @@ class ClassesCITest extends TestCase {
 	 * cannot be declared is silently dropped.
 	 */
 	public function test_list_preserves_the_multiple_flag_on_allow_replies_to(): void {
-		$result   = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result   = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$http_out = null;
 		foreach ( $result['classes'] as $entry ) {
 			if ( 'HTTP_Out' === $entry['shell_name'] ) {
@@ -193,53 +193,53 @@ class ClassesCITest extends TestCase {
 		}
 		$this->assertNotNull( $http_out, 'HTTP_Out must appear in the catalog' );
 
-		$verb = null;
+		$allow_replies_to = null;
 		foreach ( $http_out['commands'] as $command ) {
 			if ( 'allow_replies_to' === $command['name'] ) {
-				$verb = $command;
+				$allow_replies_to = $command;
 				break;
 			}
 		}
-		$this->assertNotNull( $verb, 'allow_replies_to must be in the catalog' );
+		$this->assertNotNull( $allow_replies_to, 'allow_replies_to must be in the catalog' );
 		$this->assertTrue(
-			$verb['multiple'] ?? false,
+			$allow_replies_to['multiple'] ?? false,
 			'allow_replies_to must carry multiple:true, or the console caps it at one declaration'
 		);
 	}
 
 	/**
-	 * An `add_*` verb declares one entry of many, so the editor renders a row
+	 * An `add_*` command declares one entry of many, so the editor renders a row
 	 * per call; its `remove_*` undoes one on a live node, so the editor never
 	 * offers it as configuration and the live panel and the REPL do.
 	 */
-	public function test_every_add_verb_is_multiple_and_every_remove_verb_an_action(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+	public function test_every_add_command_is_multiple_and_every_remove_command_an_action(): void {
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$wrong  = [];
 		$seen   = [];
 		foreach ( $result['classes'] as $entry ) {
-			foreach ( $entry['commands'] as $verb ) {
-				$name                                     = "{$entry['shell_name']}::{$verb['name']}";
-				$seen[ \strtok( $verb['name'], '_' ) ][] = $name;
-				if ( \str_starts_with( $verb['name'], 'add_' ) && true !== ( $verb['multiple'] ?? false ) ) {
+			foreach ( $entry['commands'] as $command ) {
+				$name                                       = "{$entry['shell_name']}::{$command['name']}";
+				$seen[ \strtok( $command['name'], '_' ) ][] = $name;
+				if ( \str_starts_with( $command['name'], 'add_' ) && true !== ( $command['multiple'] ?? false ) ) {
 					$wrong[] = "{$name} is not multiple";
 				}
-				if ( \str_starts_with( $verb['name'], 'remove_' ) && ( true !== ( $verb['action'] ?? false ) || isset( $verb['multiple'] ) ) ) {
+				if ( \str_starts_with( $command['name'], 'remove_' ) && ( true !== ( $command['action'] ?? false ) || isset( $command['multiple'] ) ) ) {
 					$wrong[] = "{$name} is not a single action";
 				}
 			}
 		}
-		$this->assertContains( 'Settings_Sync::add_setting', $seen['add'] ?? [], 'class discovery found the add verbs' );
-		$this->assertContains( 'Settings_Sync::remove_setting', $seen['remove'] ?? [], 'class discovery found the remove verbs' );
+		$this->assertContains( 'Settings_Sync::add_setting', $seen['add'] ?? [], 'class discovery found the add commands' );
+		$this->assertContains( 'Settings_Sync::remove_setting', $seen['remove'] ?? [], 'class discovery found the remove commands' );
 		$this->assertSame( [], $wrong );
 	}
 
-	public function test_list_carries_the_action_flag_on_an_action_verb(): void {
-		// An `action: true` verb RUNS something on a live node — `Table`'s
+	public function test_list_carries_the_action_flag_on_an_action_command(): void {
+		// An `action: true` command RUNS something on a live node — `Table`'s
 		// `flush` deletes every row — so it is not configuration and the editor must not
-		// offer it. The console decides that with `isConfigurableVerb`, which
-		// reads this flag; dropping it in the strip made every action verb look
+		// offer it. The console decides that with `isConfigurableCommand`, which
+		// reads this flag; dropping it in the strip made every action command look
 		// like a setting, one an edit could write into the .tsl.
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$table  = null;
 		foreach ( $result['classes'] as $entry ) {
 			if ( 'Table' === $entry['shell_name'] ) {
@@ -250,22 +250,22 @@ class ClassesCITest extends TestCase {
 		$this->assertNotNull( $table, 'Table absent from catalog — class discovery broken (run composer dump-autoload -o)' );
 
 		$by_name = [];
-		foreach ( $table['commands'] as $verb ) {
-			$by_name[ $verb['name'] ] = $verb;
+		foreach ( $table['commands'] as $command ) {
+			$by_name[ $command['name'] ] = $command;
 		}
-		$this->assertArrayHasKey( 'flush', $by_name, 'flush verb must be in the catalog' );
+		$this->assertArrayHasKey( 'flush', $by_name, 'flush command must be in the catalog' );
 		$this->assertTrue(
 			$by_name['flush']['action'] ?? false,
 			'flush must carry action:true through the catalog strip'
 		);
 	}
 
-	public function test_list_carries_the_hidden_flag_on_a_hidden_verb(): void {
-		// A `hidden: true` verb (Consumer's time-travel `pause`, driven by the
+	public function test_list_carries_the_hidden_flag_on_a_hidden_command(): void {
+		// A `hidden: true` command (Consumer's time-travel `pause`, driven by the
 		// Inspector's transport bar) must carry that flag through the catalog strip
-		// so the inspector can omit its generic verb button. A non-hidden verb
+		// so the inspector can omit its generic command button. A non-hidden command
 		// (add_snapshot_node) must NOT carry it (default-omit keeps payloads lean).
-		$result  = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result  = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$consumer = null;
 		foreach ( $result['classes'] as $entry ) {
 			if ( 'Consumer' === $entry['shell_name'] ) {
@@ -276,27 +276,27 @@ class ClassesCITest extends TestCase {
 		$this->assertNotNull( $consumer, 'Consumer absent from catalog — class discovery broken (run composer dump-autoload -o)' );
 
 		$by_name = [];
-		foreach ( $consumer['commands'] as $verb ) {
-			$by_name[ $verb['name'] ] = $verb;
+		foreach ( $consumer['commands'] as $command ) {
+			$by_name[ $command['name'] ] = $command;
 		}
 
-		$this->assertArrayHasKey( 'pause', $by_name, 'pause verb must be in the catalog' );
+		$this->assertArrayHasKey( 'pause', $by_name, 'pause command must be in the catalog' );
 		$this->assertTrue(
 			$by_name['pause']['hidden'] ?? false,
 			'`pause` must carry hidden:true through the catalog strip'
 		);
 
-		$this->assertArrayHasKey( 'add_snapshot_node', $by_name, 'add_snapshot_node verb must be in the catalog' );
+		$this->assertArrayHasKey( 'add_snapshot_node', $by_name, 'add_snapshot_node command must be in the catalog' );
 		$this->assertArrayNotHasKey(
 			'hidden',
 			$by_name['add_snapshot_node'],
-			'a non-hidden verb must not carry the hidden key (default-omit keeps the payload lean)'
+			'a non-hidden command must not carry the hidden key (default-omit keeps the payload lean)'
 		);
 	}
 
-	public function test_list_tolerates_a_malformed_verb_entry(): void {
-		// A registered class whose node_schema's verbs[] mixes a non-array entry
-		// (a bare string) with a well-formed verb must NOT fatal the whole `dump`
+	public function test_list_tolerates_a_malformed_command_entry(): void {
+		// A registered class whose node_schema's commands[] mixes a non-array entry
+		// (a bare string) with a well-formed command must NOT fatal the whole `dump`
 		// (which scans every registered class). The malformed entry is skipped;
 		// the well-formed one is stripped to {name,description,args}.
 		$this->register_fixture_class(
@@ -304,7 +304,7 @@ class ClassesCITest extends TestCase {
 			\dirname( __DIR__ ) . '/Helpers/fixtures/class-malformed-schema-node.php'
 		);
 
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$fixture = null;
 		foreach ( $result['classes'] as $entry ) {
@@ -315,19 +315,19 @@ class ClassesCITest extends TestCase {
 		}
 		$this->assertNotNull( $fixture, 'the fixture class must be discovered by the catalog scan' );
 
-		// Exactly the well-formed verb survives, stripped to {name,description,args};
+		// Exactly the well-formed command survives, stripped to {name,description,args};
 		// the bare-string entry is omitted (no TypeError, no malformed leftover).
-		$this->assertCount( 1, $fixture['commands'], 'only the well-formed verb may survive the strip' );
+		$this->assertCount( 1, $fixture['commands'], 'only the well-formed command may survive the strip' );
 		$this->assertSame( 'good', $fixture['commands'][0]['name'] );
 		$this->assertSame(
 			[ 'name', 'description', 'args' ],
 			\array_keys( $fixture['commands'][0] ),
-			'surviving verb must expose only name/description/args'
+			'surviving command must expose only name/description/args'
 		);
 		// List shape: a sequential (JSON-array) list, no string leftover.
 		$this->assertSame( \array_values( $fixture['commands'] ), $fixture['commands'] );
-		foreach ( $fixture['commands'] as $verb ) {
-			$this->assertIsArray( $verb, 'no non-array (string) verb may leak through the strip' );
+		foreach ( $fixture['commands'] as $command ) {
+			$this->assertIsArray( $command, 'no non-array (string) command may leak through the strip' );
 		}
 	}
 
@@ -355,11 +355,11 @@ class ClassesCITest extends TestCase {
 	}
 
 	public function test_raw_catalog_payload_has_no_live_closures(): void {
-		// Dispatch the verb DIRECTLY (not through VerbHarness, whose JSON wire
+		// Dispatch the command DIRECTLY (not through CommandHarness, whose JSON wire
 		// would already have flattened any leaked Closure to `{}` → `[]`). On the
 		// raw in-memory payload a leaked handler is still a live Closure; assert
 		// the catalog is therefore JSON-lossless (a Closure silently encodes as an
-		// empty object, corrupting the verb the GUI consumes — json_encode never
+		// empty object, corrupting the command the GUI consumes — json_encode never
 		// returns false for it).
 		$raw = ( new Classes_CI_Node() )->dispatch( 'dump' );
 
@@ -415,7 +415,7 @@ class ClassesCITest extends TestCase {
 		// button) iff a node keeps a target LIST. That signal must come from the
 		// catalog — not the runtime target shape — so it holds in edit mode where
 		// the draft node's target is a string.
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$by_name = [];
 		foreach ( $result['classes'] as $entry ) {
@@ -469,7 +469,7 @@ class ClassesCITest extends TestCase {
 
 	/** What a class builds for itself is for the analyzer to read, never the catalog. */
 	public function test_dump_ships_no_owns(): void {
-		$result  = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result  = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$by_name = \array_column( $result['classes'], null, 'shell_name' );
 
 		$this->assertArrayHasKey( 'Crawler', $by_name );
@@ -479,7 +479,7 @@ class ClassesCITest extends TestCase {
 	public function test_list_carries_registration_events(): void {
 		// The register/unregister UI reads a node's valid registration events from
 		// the catalog. Timer declares FIRE in node_schema()['registrations'].
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$by_name = [];
 		foreach ( $result['classes'] as $entry ) {
@@ -494,11 +494,11 @@ class ClassesCITest extends TestCase {
 	}
 
 	public function test_list_flags_interpreter_classes_with_is_interpreter(): void {
-		// The console routes a node's command verbs to the bare node iff the node
-		// IS a Command_Interpreter_Node (it handles verbs directly); otherwise to
+		// The console routes a node's commands to the bare node iff the node
+		// IS a Command_Interpreter_Node (it handles commands directly); otherwise to
 		// `<name>:config` (a sibling interpreter). The catalog is the single source of
 		// truth for that distinction, exposed per class as `is_interpreter`.
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$by_name = [];
 		foreach ( $result['classes'] as $entry ) {

@@ -298,7 +298,7 @@ class TTY_In_Node extends Stdin_Node {
 	 * from the graph the prompt is pointing at, and FROM the reply path this
 	 * session's Dumper filters on. KEY is the one field minted here: the Shell
 	 * copies it onto the command it parses out, and `KEY='completion'` makes the
-	 * interpreter's `help` and `list_nodes` verbs answer with a bare
+	 * interpreter's `help` and `list_nodes` commands answer with a bare
 	 * newline-separated candidate list, no headers and no column flags.
 	 *
 	 * @param string $verb Either 'help' (command candidates) or 'ls' (node candidates).

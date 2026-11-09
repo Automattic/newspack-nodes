@@ -1,7 +1,7 @@
 /**
  * TriageView — the dead-letter queue of the selected consumer-family node, shown
  * inside the Inspector's wide Triage modal. It dispatches the hidden `dl_list` /
- * `dl_show` / `dl_requeue` / `dl_remove` / `dl_purge` verbs at that node's
+ * `dl_show` / `dl_requeue` / `dl_remove` / `dl_purge` commands at that node's
  * `:config` interpreter through `onAction`, and renders the `dl_list` page as a
  * table of dead-letter records carrying per-row View, Requeue and Remove
  * buttons. A row whose requeue returned lists its STATUS as `requeued`.
@@ -70,7 +70,7 @@ function recordBody( record, reason ) {
  * still quarantined, not the rows in this page, which is what makes it the
  * badge number.
  *
- * @param {*} payload The reply payload, the page object when the verb succeeded.
+ * @param {*} payload The reply payload, the page object when the command succeeded.
  * @return {{rows:Array<Object>,total:number,unindexed:number,malformed:boolean}} The page, empty when the reply could not be read.
  */
 function readList( payload ) {
@@ -90,20 +90,20 @@ function readList( payload ) {
  * two-click Purge.
  *
  * The table is fetched on mount, whenever the inspected node changes, and after
- * each mutating verb — never on a timer. A dead-letter queue changes when a
+ * each mutating command — never on a timer. A dead-letter queue changes when a
  * message dies or an operator acts, and a background refetch would close the
  * record panel and disarm the purge confirmation under the hands of whoever
  * opened them.
  *
  * @param {Object}   props
- * @param {Object}   props.node     The selected node; only `id` is read, as the verb destination.
+ * @param {Object}   props.node     The selected node; only `id` is read, as the command destination.
  * @param {Function} props.onAction Console action dispatcher — `( action, nodeId, payload )`.
  * @return {import('react').ReactElement} The triage modal body.
  */
 export default function TriageView( { node, onAction } ) {
 	// null = loading; else the parsed dl_list page.
 	const [ data, setData ] = useState( null );
-	// The last ok/error line from a verb reply, { text, isError } or null.
+	// The last ok/error line from a command reply, { text, isError } or null.
 	const [ status, setStatus ] = useState( null );
 	// Whether Purge is armed, waiting on its confirming second click.
 	const [ confirmPurge, setConfirmPurge ] = useState( false );
@@ -172,17 +172,17 @@ export default function TriageView( { node, onAction } ) {
 	);
 
 	/**
-	 * Dispatch one dead-letter verb at the node's `:config` interpreter.
+	 * Dispatch one dead-letter command at the node's `:config` interpreter.
 	 *
 	 * Reading `onAction` through its ref is what pins this callback's identity.
-	 * The console hands down a fresh dispatcher on every poll, and a `runVerb`
+	 * The console hands down a fresh dispatcher on every poll, and a `runCommand`
 	 * that changed with it would refetch the list on each one.
 	 *
 	 * @param {string}                                   verb    Verb name, `dl_list`, `dl_show`, `dl_requeue`, `dl_remove` or `dl_purge`.
 	 * @param {string[]}                                 args    The verb's argument tokens; empty when it takes none.
 	 * @param {(payload: any, isError: boolean) => void} onReply Runs on the reply, unless the modal has closed.
 	 */
-	const runVerb = useCallback(
+	const runCommand = useCallback(
 		( verb, args, onReply ) => {
 			const replyTo = replyNodeFor( verb );
 			receiversRef.current[ verb ].onReply = onReply;
@@ -207,7 +207,7 @@ export default function TriageView( { node, onAction } ) {
 	const refresh = useCallback( () => {
 		setConfirmPurge( false );
 		setShown( null );
-		runVerb( 'dl_list', [], ( payload, isError ) => {
+		runCommand( 'dl_list', [], ( payload, isError ) => {
 			setSettlePending( false );
 			if ( isError ) {
 				setStatus( { text: String( payload ?? '' ), isError: true } );
@@ -215,7 +215,7 @@ export default function TriageView( { node, onAction } ) {
 			}
 			setData( readList( payload ) );
 		} );
-	}, [ runVerb ] );
+	}, [ runCommand ] );
 
 	// A ref, so a re-created dispatcher cannot retrigger this fetch.
 	const refreshRef = useRef( refresh );
@@ -237,7 +237,7 @@ export default function TriageView( { node, onAction } ) {
 	const view = ( locator, reason ) => {
 		setConfirmPurge( false );
 		setViewPending( true );
-		runVerb(
+		runCommand(
 			'dl_show',
 			[ `--locator=${ locator }` ],
 			( payload, isError ) => {
@@ -283,10 +283,14 @@ export default function TriageView( { node, onAction } ) {
 	const settle = ( verb, locator ) => {
 		setConfirmPurge( false );
 		setSettlePending( true );
-		runVerb( verb, [ `--locator=${ locator }` ], ( payload, isError ) => {
-			setStatus( { text: String( payload ?? '' ), isError } );
-			refresh();
-		} );
+		runCommand(
+			verb,
+			[ `--locator=${ locator }` ],
+			( payload, isError ) => {
+				setStatus( { text: String( payload ?? '' ), isError } );
+				refresh();
+			}
+		);
 	};
 
 	/**
@@ -301,7 +305,7 @@ export default function TriageView( { node, onAction } ) {
 			return;
 		}
 		setConfirmPurge( false );
-		runVerb( 'dl_purge', [], ( payload, isError ) => {
+		runCommand( 'dl_purge', [], ( payload, isError ) => {
 			setStatus( { text: String( payload ?? '' ), isError } );
 			refresh();
 		} );

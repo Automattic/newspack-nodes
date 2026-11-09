@@ -86,7 +86,7 @@ describe( 'dumpDocument — statement order', () => {
 	} );
 } );
 
-describe( 'dumpDocument — nodes and verbs', () => {
+describe( 'dumpDocument — nodes and commands', () => {
 	it( 'emits make_node with its positional args', () => {
 		expect(
 			draft( 'make_node Partition p /tmp/log 4096' ).dumpDocument()
@@ -116,7 +116,7 @@ describe( 'dumpDocument — nodes and verbs', () => {
 		expect( draft( tsl ).dumpDocument() ).toBe( tsl );
 	} );
 
-	it( 'writes a non-interpreter verb through the config sidecar', () => {
+	it( 'writes a non-interpreter command through the config sidecar', () => {
 		const tsl =
 			'make_node Partition p /tmp/log\n' +
 			'command_node p:config allow_large_writes\n';
@@ -124,7 +124,7 @@ describe( 'dumpDocument — nodes and verbs', () => {
 		expect( draft( tsl ).dumpDocument() ).toBe( tsl );
 	} );
 
-	it( 'writes an interpreter-class verb to a bare target', () => {
+	it( 'writes an interpreter-class command to a bare target', () => {
 		const tsl =
 			'make_node Command_Interpreter ci\n' + 'command_node ci help\n';
 

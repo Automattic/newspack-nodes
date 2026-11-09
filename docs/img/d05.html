@@ -19,7 +19,7 @@
 </style>
 <div class="sheet">
 <h1>A command's round trip through the door</h1>
-<p class="sub">Nine hops carry one command from its minter to a verb handler, and its reply back into the same HTTP response. The door authenticates the request and signs nothing; two gates inside the interpreter decide the command.</p>
+<p class="sub">Nine hops carry one command from its minter to a command handler, and its reply back into the same HTTP response. The door authenticates the request and signs nothing; two gates inside the interpreter decide the command.</p>
 
 <div class="seq" id="seq">
 <svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
@@ -28,7 +28,7 @@
 <div class="lane card" data-lane="1"><h3>The door</h3><p><span class="mono">POST /newspack-nodes/v1/command</span>. The controller is also the node <span class="mono">_output</span>.</p></div>
 <div class="lane card" data-lane="2"><h3>Router</h3><p>Splits TO on <span class="mono">/</span>, peels the head, and forwards to the node it names.</p></div>
 <div class="lane card" data-lane="3"><h3>Interpreter</h3><p>The process's own <span class="mono">_command_interpreter</span>, or a <span class="mono">Service_CI_Node</span> such as the topology catalog.</p></div>
-<div class="lane card" data-lane="4"><h3>Handler</h3><p>One entry in the interpreter's verb table: a callable and a declared role.</p></div>
+<div class="lane card" data-lane="4"><h3>Handler</h3><p>One entry in the interpreter's command table: a callable and a declared role.</p></div>
 
 <div class="hop" data-span="0,2"><span class="n">1</span>TYPE carries <span class="mono">TM_COMMAND</span>; VALUE is <span class="mono">{ name, arguments }</span>, a verb and a flat list of strings. The minter signs before the command leaves its process: <span class="mono">wp nodes cli</span> under the site's secret, a browser or a hub under a session key.</div>
 
@@ -49,8 +49,8 @@
 <div class="panel" data-span="2,4">
   <header><span class="n">5</span>Gate 2: the capability map says yes</header>
   <div class="body">
-    <div class="chip">The verb's schema declares <span class="blue">read</span>, <span class="blue">tune</span> or <span class="blue">manage</span>. Silence means manage.</div>
-    <div class="chip">The base interpreter's graph verbs, <span class="mono">make_node</span> among them, declare nothing, so the door pins them at manage; an exception list of read-only builtins such as <span class="mono">list_nodes</span>, which every dashboard drives, answers read.</div>
+    <div class="chip">The command's schema declares <span class="blue">read</span>, <span class="blue">tune</span> or <span class="blue">manage</span>. Silence means manage.</div>
+    <div class="chip">The base interpreter's graph commands, <span class="mono">make_node</span> among them, declare nothing, so the door pins them at manage; an exception list of read-only commands such as <span class="mono">list_nodes</span>, which every dashboard drives, answers read.</div>
     <div class="chip">The ceiling only subtracts. The user's capability must still be there.</div>
     <div class="chip danger">Refusal replies <span class="mono">permission denied: &lt;role&gt; capability required</span>. The batch still answers 200: the signature passed.</div>
   </div>

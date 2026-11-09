@@ -12,17 +12,17 @@
  * The children are published siblings — rename, sink and teardown cascade, and
  * `dump_config` replays only the group — but NOT patroned, so each draws on
  * the canvas like a hand-written node; it keeps its own `:config` interpreter,
- * as every node declaring verbs does. The sibling map is the one list of
+ * as every node declaring commands does. The sibling map is the one list of
  * them; `members()` reads it.
  *
- * The group's `:config` answers the CHILD class's verbs: a command reaches
+ * The group's `:config` answers the CHILD class's commands: a command reaches
  * every child's interpreter and the reply maps each child's name to its answer,
  * while a refusal from any child throws, naming each one that refused. A
  * command every child accepted and that changed some child's `dump_config()`
  * — configuration, not a read — is recorded in order, replayed to each later
  * child and dumped on the group; so is one sent while the group has no
- * children. A child `toggle` or `setter` verb keeps one record, its latest.
- * A verb sent straight to one child's own `:config` is live-only.
+ * children. A child `toggle` or `setter` command keeps one record, its latest.
+ * A command sent straight to one child's own `:config` is live-only.
  * `connect_node` and `debug_state` on the group reach every child; a message
  * filled into the group is dropped, since only a fan-out source reaches them.
  * `expand()` spells a child's arguments once, for this node and for
@@ -60,14 +60,14 @@ final class Vault_Group_Node extends Node {
 	/** @var list<string> Child argument templates, after the Vault id. */
 	private array $child_args = [];
 
-	/** @var list<array{0:string,1:list<string>}> Recorded configuration verbs, in order. */
+	/** @var list<array{0:string,1:list<string>}> Recorded configuration commands, in order. */
 	private array $commands = [];
 
 	/**
 	 * Parse the child type and group, wire the forwarding interpreter, build the
 	 * members and subscribe to RELOAD. A replay with other arguments retracts
 	 * every child and the interpreter first: the child type, and with it the
-	 * verbs, may have changed. The tokens are checked and the child type
+	 * commands, may have changed. The tokens are checked and the child type
 	 * resolved before anything is assigned, so a refusal leaves the group as
 	 * it was. Past that, every step runs, and a child that would not retract or
 	 * build is raised after the last.
@@ -95,7 +95,7 @@ final class Vault_Group_Node extends Node {
 			[
 				...( [] !== $previous && $previous !== $args ? $this->retract_all() : [] ),
 				...Worker_Should_Stop::attempt(
-					fn () => $this->wire_interpreter( $this->forwarding_verbs() ),
+					fn () => $this->wire_interpreter( $this->forwarding_commands() ),
 					$this->update_graph( ... ),
 					fn () => $this->subscribe( Node_Names::FLEET, 'RELOAD', $this->update_graph( ... ) )
 				),
@@ -119,7 +119,7 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * Tear down every child and the forwarding interpreter, dropping the verbs
+	 * Tear down every child and the forwarding interpreter, dropping the commands
 	 * they were configured with. Every slot is attempted; a child whose
 	 * teardown refused keeps its slot, and so its id, until a later retraction
 	 * succeeds.
@@ -137,21 +137,21 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * The child class's own verbs, each forwarded to every child. An envelope
-	 * never rides along, so a live child takes each verb exactly as a later one
-	 * replays it. A verb the child declares a `toggle` or `setter` holds one
+	 * The child class's own commands, each forwarded to every child. An envelope
+	 * never rides along, so a live child takes each command exactly as a later one
+	 * replays it. A command the child declares a `toggle` or `setter` holds one
 	 * value, so its record replaces rather than adds.
 	 *
 	 * @return array<string,callable>
 	 */
-	private function forwarding_verbs(): array {
-		$declared = Command_Interpreter_Node::declared_verbs( $this->child_class );
-		$verbs    = [];
-		foreach ( \array_keys( self::verbs_with_handlers( $this->child_class ) ) as $verb ) {
-			$by_verb        = '' !== Core::as_string( $declared[ $verb ]['toggle'] ?? '' ) || '' !== Core::as_string( $declared[ $verb ]['setter'] ?? '' );
-			$verbs[ $verb ] = fn ( Command_Interpreter_Node $ci, array $args ): array => $this->forward( $verb, $args, $by_verb );
+	private function forwarding_commands(): array {
+		$declared = Command_Interpreter_Node::declared_commands( $this->child_class );
+		$commands = [];
+		foreach ( \array_keys( self::commands_with_handlers( $this->child_class ) ) as $verb ) {
+			$by_verb           = '' !== Core::as_string( $declared[ $verb ]['toggle'] ?? '' ) || '' !== Core::as_string( $declared[ $verb ]['setter'] ?? '' );
+			$commands[ $verb ] = fn ( Command_Interpreter_Node $ci, array $args ): array => $this->forward( $verb, $args, $by_verb );
 		}
-		return $verbs;
+		return $commands;
 	}
 
 	/**
@@ -211,7 +211,7 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * Dispatch one verb to every child and answer with each child's reply. Every
+	 * Dispatch one command to every child and answer with each child's reply. Every
 	 * child is attempted, a stop included (ADR-14). A refusal is re-raised
 	 * naming the child that refused, and after the loop every stop and refusal
 	 * is raised together, combined by `Worker_Should_Stop::raise()`. Record the
@@ -226,7 +226,7 @@ final class Vault_Group_Node extends Node {
 	 *
 	 * @param string                 $verb The child verb.
 	 * @param array<array-key,mixed> $args    Its argument tokens.
-	 * @param bool                   $by_verb Whether the verb holds one value.
+	 * @param bool                   $by_verb Whether the command holds one value.
 	 * @return array<string,mixed> Child name => that child's answer.
 	 * @throws \Throwable Every child's stop and refusal, combined, raised after the loop.
 	 */
@@ -382,7 +382,7 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * The group's line, its target, then every recorded verb in order.
+	 * The group's line, its target, then every recorded command in order.
 	 *
 	 * @return string Newline-terminated TSL lines.
 	 */
@@ -409,7 +409,7 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * The group's own declared targets, then what its recorded verbs leave
+	 * The group's own declared targets, then what its recorded commands leave
 	 * for the child class (`Node::command_targets()`), so a group draws the
 	 * edges its members do whether or not it has any.
 	 *
@@ -422,7 +422,7 @@ final class Vault_Group_Node extends Node {
 	/**
 	 * Palette entry and configuration form: the child type, the group and the
 	 * child argument templates, a variadic the node reads itself; the child
-	 * class declares the verbs, so none are declared here.
+	 * class declares the commands, so none are declared here.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
@@ -430,7 +430,7 @@ final class Vault_Group_Node extends Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'I/O',
-			'description' => 'One child per Vault server in a group; forwards config verbs and edges to each, and follows the Vault on reload.',
+			'description' => 'One child per Vault server in a group; forwards config commands and edges to each, and follows the Vault on reload.',
 			'arguments'   => [
 				[ 'name' => 'child_type', 'type' => 'string', 'required' => true, 'description' => 'Node type built once per server, e.g. HTTP_Out or Remote_Source; each child is named <name>:<vault id>.' ],
 				[ 'name' => 'group', 'type' => 'vault_group', 'required' => true, 'description' => 'Vault group whose servers become children.' ],

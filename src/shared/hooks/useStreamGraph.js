@@ -365,7 +365,7 @@ export function useStreamGraph( {
  * no row; its cursor still advances the target when the read consumed a line
  * that would not unpack.
  *
- * The reply is addressed by its SUBJECT (ADR-7), which for these verbs is the
+ * The reply is addressed by its SUBJECT (ADR-7), which for these commands is the
  * subscription being stepped, the first token of `<sub> <position>`.
  *
  * A record answered after Play is dropped rather than admitted: the live stream
@@ -374,7 +374,7 @@ export function useStreamGraph( {
  * @param {Object} o         Options.
  * @param {Object} o.graph   The `useStreamGraph` handle to step, whose group
  *                           the read passes.
- * @param {string} o.ci      The service CI the read verb lives on.
+ * @param {string} o.ci      The service CI the read command lives on.
  * @param {string} o.command The read verb.
  * @param {string} [o.scope] Names this read's own nodes; `<prefix>-step`
  *                           by default.
@@ -440,8 +440,8 @@ export function useSteppedRead( { graph, ci, command, scope } ) {
  * @param {Object}        o.graph   The `useStreamGraph` handle choosing from
  *                                  it: its prefix names the slice's nodes,
  *                                  `<prefix>-catalog:*`, and its group's Tap
- *                                  the verb passes.
- * @param {string}        o.ci      The service CI the verb lives on.
+ *                                  the command passes.
+ * @param {string}        o.ci      The service CI the command lives on.
  * @param {string}        o.command The catalog verb.
  * @param {CatalogFilter} [o.keep]  Keep only the rows this dashboard
  *                                  offers. Declare it once: it is a memo

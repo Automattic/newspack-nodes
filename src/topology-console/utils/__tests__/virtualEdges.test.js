@@ -1,6 +1,6 @@
 import { augmentWithVirtualEdges } from '../virtualEdges';
 
-// Re-derives edges from 'node_name' verb args a document doesn't emit.
+// Re-derives edges from 'node_name' command args a document doesn't emit.
 const CLASSES = [
 	{
 		shell_name: 'Request_Builder',
@@ -12,13 +12,13 @@ const CLASSES = [
 ];
 
 describe( 'augmentWithVirtualEdges', () => {
-	it( 'derives a virtual edge from a node_name verb arg', () => {
+	it( 'derives a virtual edge from a node_name command arg', () => {
 		const graph = {
 			nodes: [
 				{
 					id: 'request-builder',
 					class: 'Request_Builder',
-					verbInvocations: [
+					commandInvocations: [
 						{
 							verb: 'set_errors_target',
 							args: [ 'errors:partition' ],
@@ -44,7 +44,7 @@ describe( 'augmentWithVirtualEdges', () => {
 				{
 					id: 'request-builder',
 					class: 'Request_Builder',
-					verbInvocations: [
+					commandInvocations: [
 						{
 							verb: 'set_errors_target',
 							args: [ '<wombat:disabled_errors_sink>' ],
@@ -65,7 +65,7 @@ describe( 'augmentWithVirtualEdges', () => {
 				{
 					id: 'request-builder',
 					class: 'Request_Builder',
-					verbInvocations: [
+					commandInvocations: [
 						{
 							verb: 'set_errors_target',
 							args: [ 'errors:partition' ],
@@ -85,13 +85,13 @@ describe( 'augmentWithVirtualEdges', () => {
 		expect( out.edges ).toHaveLength( 2 );
 	} );
 
-	it( 'ignores verb args that are not node_name (no edge for an int arg)', () => {
+	it( 'ignores command args that are not node_name (no edge for an int arg)', () => {
 		const graph = {
 			nodes: [
 				{
 					id: 'request-builder',
 					class: 'Request_Builder',
-					verbInvocations: [
+					commandInvocations: [
 						{ verb: 'set_inflight_interval', args: [ '1000' ] },
 					],
 				},
@@ -106,7 +106,7 @@ describe( 'augmentWithVirtualEdges', () => {
 
 	it( 'returns the same graph reference when there are no virtual edges to add', () => {
 		const graph = {
-			nodes: [ { id: 'plain', class: 'Echo', verbInvocations: [] } ],
+			nodes: [ { id: 'plain', class: 'Echo', commandInvocations: [] } ],
 			edges: [],
 		};
 
@@ -119,11 +119,11 @@ describe( 'augmentWithVirtualEdges', () => {
 				{
 					id: 'rb',
 					class: 'Request_Builder',
-					verbInvocations: [
+					commandInvocations: [
 						{ verb: 'set_errors_target', args: [ 'errors' ] },
 					],
 				},
-				{ id: 'errors', class: 'Partition', verbInvocations: [] },
+				{ id: 'errors', class: 'Partition', commandInvocations: [] },
 			],
 			edges: [],
 			pwd: '_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',

@@ -1,5 +1,5 @@
 /**
- * UptimeNode — the console header's uptime readout. The `uptime` verb returns
+ * UptimeNode — the console header's uptime readout. The `uptime` command returns
  * an interpreter's wall clock and its elapsed run as one line of text, and
  * this node keeps the elapsed half. See PollerNode for the ask-on-the-tick,
  * publish-the-reply mechanism it shares with DmesgNode.

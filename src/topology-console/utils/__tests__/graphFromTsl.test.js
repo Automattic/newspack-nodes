@@ -95,7 +95,7 @@ describe( 'graphFromTsl', () => {
 			name: 'echo',
 			class: 'Echo',
 			ctorArgs: [],
-			verbInvocations: [],
+			commandInvocations: [],
 		} );
 		expect( g.edges ).toEqual( [] );
 	} );
@@ -113,7 +113,7 @@ describe( 'graphFromTsl', () => {
 		] );
 	} );
 
-	it( 'attaches cmd lines as verb invocations on the named node', () => {
+	it( 'attaches cmd lines as command invocations on the named node', () => {
 		const g = graphFromTsl(
 			'make_node Partition p\n' +
 				'cmd p:config allow_large_writes\n' +
@@ -121,7 +121,7 @@ describe( 'graphFromTsl', () => {
 			null,
 			brokerSchemas
 		);
-		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+		expect( g.nodes[ 0 ].commandInvocations ).toEqual( [
 			{ verb: 'allow_large_writes', args: [], viaConfig: true },
 			{
 				verb: 'with_index',
@@ -208,7 +208,7 @@ describe( 'graphFromTsl', () => {
 			null,
 			brokerSchemas
 		);
-		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+		expect( g.nodes[ 0 ].commandInvocations ).toEqual( [
 			{
 				viaConfig: true,
 				verb: 'add_profile',
@@ -228,7 +228,7 @@ describe( 'graphFromTsl', () => {
 			null,
 			brokerSchemas
 		);
-		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+		expect( g.nodes[ 0 ].commandInvocations ).toEqual( [
 			{
 				verb: 'set_label',
 				args: [ "'it\\'s \\\\quoted'" ],
@@ -237,7 +237,7 @@ describe( 'graphFromTsl', () => {
 		] );
 	} );
 
-	it( 'keeps a quoted multi-word arg intact through a cd-scoped bare verb', () => {
+	it( 'keeps a quoted multi-word arg intact through a cd-scoped bare command', () => {
 		const g = graphFromTsl(
 			'make_node Echo scorer\n' +
 				'cd scorer:config\n' +
@@ -246,7 +246,7 @@ describe( 'graphFromTsl', () => {
 			null,
 			brokerSchemas
 		);
-		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+		expect( g.nodes[ 0 ].commandInvocations ).toEqual( [
 			{
 				verb: 'add_profile',
 				args: [ '"Do not reward flame wars"' ],
@@ -262,7 +262,7 @@ describe( 'graphFromTsl', () => {
 			null,
 			brokerSchemas
 		);
-		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
+		expect( g.nodes[ 0 ].commandInvocations ).toEqual( [
 			{
 				verb: 'add_profile',
 				args: [ '"Deprioritize sports scores"' ],
@@ -414,7 +414,7 @@ describe( 'graphFromTsl — verb aliases', () => {
 
 /**
  * `secure` / `insecure` declares the process policy for the topology being
- * loaded. It is a statement rather than frontmatter so it stays the same verb
+ * loaded. It is a statement rather than frontmatter so it stays the same command
  * an operator would type — greppable, which is half its value — and the Shell
  * runs it in file order, so the serializer must emit it LAST: `secure 1`
  * disables make_node, and a declaration mid-file would refuse the rest of the

@@ -6,7 +6,7 @@
  * code defaults, the `register_setting()` and `add_settings_field()` loops, the
  * reset set and the worker-restart classification are all read back off that
  * declaration. Keeping any of them as a list of its own is what lets two views
- * of one setting disagree — the settings page and the `settings` verb enforcing
+ * of one setting disagree — the settings page and the `settings set` command enforcing
  * different bounds, or a key the overlay loads that the reset control never
  * clears.
  *
@@ -371,7 +371,7 @@ class Schema {
 	/**
 	 * Register every rendered setting via the WP Settings API, each with the
 	 * sanitizer its Field resolves to — a bounded int derives its clamp from
-	 * the same min/max the `settings` verb enforces, so one save path cannot
+	 * the same min/max the `settings set` command enforces, so one save path cannot
 	 * accept what the other refuses.
 	 *
 	 * A Field that does not resolve to a sanitizer is skipped, and an

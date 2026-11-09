@@ -3,7 +3,7 @@
  * dashboard's view node extends (Log Viewer here; ELN's Request Log
  * and Error Log downstream). Owns the O(1) ring, the paused belt + step
  * budget, the decaying lps readout, seek tracking, reply settling, and the
- * shared control verbs. Subclasses supply `shapeRow()` + extra controls.
+ * shared controls. Subclasses supply `shapeRow()` + extra controls.
  */
 
 import { LogStreamViewNode } from '../log-stream-view-node';
@@ -275,7 +275,7 @@ describe( 'ingest filter', () => {
 	} );
 } );
 
-// `select` is a base verb: every subscription switch resets the same way, and
+// `select` is a base control: every subscription switch resets the same way, and
 // arming breadcrumbs on the chosen dir is what the ELN log views each hand-rolled.
 describe( 'select', () => {
 	it( 'tracks breadcrumbs by default and after a dir-less select', () => {

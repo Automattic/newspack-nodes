@@ -244,7 +244,7 @@ class LogTest extends TestCase {
 		$this->assertSame( [ 'file', 'segment_size', 'min_segments', 'num_segments', 'max_segments', 'min_lifetime', 'lifetime' ], $names );
 	}
 
-	public function test_node_schema_inherits_large_write_verbs_and_is_terminal(): void {
+	public function test_node_schema_inherits_large_write_commands_and_is_terminal(): void {
 		$schema     = Log_Node::node_schema();
 		$verb_names = \array_column( $schema['commands'] ?? [], 'name' );
 		$this->assertContains( 'allow_large_writes', $verb_names ); // inherited from Partition

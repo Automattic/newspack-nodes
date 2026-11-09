@@ -179,7 +179,7 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Dispatch one jobs.log entry, or answer a TM_REQUEST verb.
+	 * Dispatch one jobs.log entry, or answer a TM_REQUEST.
 	 *
 	 * A message that is not a TM_STRUCT entry, or one naming a handler this node
 	 * does not own, is dropped without a word. An oversized entry and an invalid

@@ -529,7 +529,7 @@ class LogSourcesTest extends TestCase {
 
 	/**
 	 * The Replay control seeks with the magic 'start' token, and Step then reads
-	 * at the SAME position — so the read verb must speak the same position
+	 * at the SAME position — so the read command must speak the same position
 	 * vocabulary as the seek transport. Rejecting the token as malformed would
 	 * make pause → Replay → Step do nothing.
 	 */

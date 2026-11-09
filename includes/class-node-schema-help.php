@@ -1,7 +1,7 @@
 <?php
 /**
  * The `help <NodeType>` block for the REPL. `Command_Interpreter_Node`'s `help`
- * verb falls through to here when a topic does not name a command but resolves
+ * command falls through to here when a topic does not name a command but resolves
  * to a node class, so an operator gets that class's `node_schema()` as text
  * rather than `no such topic`.
  *
@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
  * Errors-as-docs presentation over a `node_schema()`. Ownership of the schema
  * stays with `Schema_Reflection`, whose `parse_schema_args()` assigns the same
  * `arguments` this renders and whose `auto_wire_interpreter()` builds the
- * sibling `{name}:config` verb table from the same `commands`, so one
+ * sibling `{name}:config` command table from the same `commands`, so one
  * declaration feeds the runtime and the help text alike. Tables render through
  * `Command_Interpreter_Node::tabulate()`, the ONE text-table renderer, which is
  * what keeps a help block column-aligned with the `ls` and `stats` listings.

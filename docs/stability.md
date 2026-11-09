@@ -97,7 +97,7 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
 3. **TSL.** The statement grammar ([`Shell_Node::parse_statements()`](../includes/class-shell-node.php) semantics),
    the shell builtins (`var`, `include`, `print`, `clear`, `status`,
    `debug_level`, `show_parse`, and `cd` with its alias `chdir`), the graph
-   verbs (`make_node`, `set_sink`, `connect_node`, `disconnect_node`,
+   commands (`make_node`, `set_sink`, `connect_node`, `disconnect_node`,
    `move_node`, `remove_node`, `register`, `unregister`, and `command_node` with
    its aliases `command` and `cmd`), the one-way `secure` ratchet every stock
    topology closes with, the `insecure` declaration refused once that level has
@@ -114,18 +114,18 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
    every node the palette lists. `node_schema()` is the authority and
    `help <NodeType>` renders it. A schema declaring the category `Hidden`, no
    category at all, or a `hidden` flag sits outside the palette and outside this
-   contract. The verb contract a schema declares through is frozen too: a verb whose
+   contract. The command contract a schema declares through is frozen too: a command whose
    `commands` entry carries `args` is bound by `Command_Args::bind()` before its
    handler runs ([ADR-25](architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)),
    and the handler receives
    `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`
    with `$args` an `array<string,mixed>` keyed by declared arg name — the typed
    value, the declared `default`, null for an absent optional, or a list of the
-   typed members for a `variadic` arg. A verb with no `args` key receives its
+   typed members for a `variadic` arg. A command with no `args` key receives its
    raw token list.
-5. **CLI.** The `wp nodes` verbs and their documented arguments and output
+5. **CLI.** The `wp nodes` commands and their documented arguments and output
    contracts, `--format=json` shapes included. [cli.md](cli.md) is the
-   reference; an application plugin's own verbs in the same namespace —
+   reference; an application plugin's own commands in the same namespace —
    event-logger-nodes adds `reqgrep` and `ruleset-bench` — belong to that
    plugin's contract, not this one.
 6. **REST.** The routes under `newspack-nodes/v1` and their envelope shapes
@@ -323,7 +323,7 @@ commit as its CHANGELOG entry. What the list buys is a reference: a consumer
 builds against prose instead of against the substrate's source.
 
 It buys neither stillness nor an alias. The tree carries no
-`@deprecated`: a hook, a CLI verb or a TSL node type is renamed or removed
+`@deprecated`: a hook, a CLI command or a TSL node type is renamed or removed
 with no alias and no shim, and its upgrading.md entry says so outright. The
 three fail differently. A removed CLI target is refused by name and a renamed
 TSL node type fails to resolve a class at load; the hook is the quiet one — a
@@ -332,7 +332,7 @@ subscriber still on the old name is never called, and nothing says so.
 A constructor argument or a route's required capability moves the same way, in
 a minor: read upgrading.md before every minor upgrade, not only before a major.
 
-Additive change — new verbs, new nodes, new hooks, new optional arguments — is
+Additive change — new commands, new nodes, new hooks, new optional arguments — is
 free, and earns a CHANGELOG line rather than an upgrading.md entry.
 
 ## Versioning

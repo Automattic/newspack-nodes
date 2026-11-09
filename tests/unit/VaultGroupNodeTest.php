@@ -53,8 +53,8 @@ final class Refusing_Build_Node extends Node {
 	}
 }
 
-/** A child declaring `peek`, a read verb that leaves its `dump_config()` as it was. */
-final class Read_Verb_Spy_Node extends Node {
+/** A child declaring `peek`, a read command that leaves its `dump_config()` as it was. */
+final class Read_Command_Spy_Node extends Node {
 	use Schema_Reflection;
 
 	public function __construct() {
@@ -76,7 +76,7 @@ final class Read_Verb_Spy_Node extends Node {
 	}
 }
 
-/** A child whose `poke` verb records each receipt; the tw0 child raises a stop. */
+/** A child whose `poke` command records each receipt; the tw0 child raises a stop. */
 final class Stop_Spy_Node extends Node {
 	use Schema_Reflection;
 
@@ -112,7 +112,7 @@ final class Stop_Spy_Node extends Node {
 	}
 }
 
-/** A child with one setter verb and one verb every child refuses. */
+/** A child with one setter command and one command every child refuses. */
 final class Knob_Spy_Node extends Node {
 	use Schema_Reflection;
 
@@ -164,7 +164,7 @@ final class Perch_List_Node extends Node {
 
 	public static function node_schema(): array {
 		return [
-			'commands' => self::list_verbs( 'perch', 'perches', [ 'name' => 'perch', 'type' => 'string', 'required' => true ], 'Add a perch.' ),
+			'commands' => self::list_commands( 'perch', 'perches', [ 'name' => 'perch', 'type' => 'string', 'required' => true ], 'Add a perch.' ),
 		] + parent::node_schema();
 	}
 }
@@ -243,22 +243,22 @@ final class VaultGroupNodeTest extends TestCase {
 		);
 	}
 
-	public function test_the_console_fixture_mirrors_the_source_verbs(): void {
-		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-schemas.json' ), true );
-		$shape   = static fn ( array $args ): array => \array_map(
+	public function test_the_console_fixture_mirrors_the_source_commands(): void {
+		$fixture  = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-schemas.json' ), true );
+		$shape    = static fn ( array $args ): array => \array_map(
 			static fn ( array $a ): array => [ $a['name'], $a['type'], ! empty( $a['required'] ) ],
 			$args
 		);
-		$verb    = static fn ( array $c ): array => [ $shape( $c['args'] ), $c['multiple'] ?? false, $c['action'] ?? false ];
-		$entry   = \array_column( $fixture, null, 'shell_name' )['Remote_Source'];
-		$verbs   = Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class );
+		$summary  = static fn ( array $c ): array => [ $shape( $c['args'] ), $c['multiple'] ?? false, $c['action'] ?? false ];
+		$entry    = \array_column( $fixture, null, 'shell_name' )['Remote_Source'];
+		$declared = Command_Interpreter_Node::declared_commands( Remote_Source_Node::class );
 
 		$this->assertSame(
 			[
-				'add_source'    => $verb( $verbs['add_source'] ),
-				'remove_source' => $verb( $verbs['remove_source'] ),
+				'add_source'    => $summary( $declared['add_source'] ),
+				'remove_source' => $summary( $declared['remove_source'] ),
 			],
-			\array_column( \array_map( static fn ( array $c ): array => [ $c['name'], $verb( $c ) ], $entry['commands'] ), 1, 0 )
+			\array_column( \array_map( static fn ( array $c ): array => [ $c['name'], $summary( $c ) ], $entry['commands'] ), 1, 0 )
 		);
 	}
 
@@ -403,7 +403,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertSame( [], Vault_Group_Node::declared_targets( [ 'No_Such_Type', 'tw-edge', 'offsets.{id}', 'dead.{id}', 'firehose.p0=rewrite-31' ] ) );
 	}
 
-	public function test_config_verb_reaches_every_child_and_later_ones_and_replays(): void {
+	public function test_config_command_reaches_every_child_and_later_ones_and_replays(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
 		$this->assertSame(
@@ -446,7 +446,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringContainsString( 'egress:tw9: missing required argument: path', $reply[ Message::VALUE ]['payload'] );
 	}
 
-	public function test_a_toggled_verb_records_its_last_write(): void {
+	public function test_a_toggled_command_records_its_last_write(): void {
 		$offsets = Config::get_offsets_directory();
 		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
@@ -461,7 +461,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringContainsString( 'set_multi_writer true', Core::node( 'pull:tw5' )->dump_config() );
 	}
 
-	public function test_a_broker_verb_reaches_every_child_and_is_recorded(): void {
+	public function test_a_broker_command_reaches_every_child_and_is_recorded(): void {
 		$offsets = Config::get_offsets_directory();
 		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
@@ -473,9 +473,9 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringContainsString( "command_node pull:config set_multi_writer true\n", $group->dump_config() );
 	}
 
-	public function test_a_read_verb_reaches_every_child_and_is_never_recorded(): void {
+	public function test_a_read_command_reaches_every_child_and_is_never_recorded(): void {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
-		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'edge', 'Read_Verb_Spy', 'tw-edge' );
+		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'edge', 'Read_Command_Spy', 'tw-edge' );
 
 		$answers = $group->interpreter()->dispatch( 'peek', [] );
 
@@ -515,7 +515,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringNotContainsString( 'kite-2290', $group->dump_config() );
 	}
 
-	public function test_a_verb_sent_to_an_empty_group_is_recorded_once(): void {
+	public function test_a_command_sent_to_an_empty_group_is_recorded_once(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'arrives-later' );
 		$this->assertSame( [], $group->interpreter()->dispatch( 'allow_replies_to', [ 'settings-sync' ] ) );
@@ -560,7 +560,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringNotContainsString( 'egress:tw9', $dump );
 	}
 
-	public function test_verb_the_child_does_not_declare_is_refused_and_not_recorded(): void {
+	public function test_command_the_child_does_not_declare_is_refused_and_not_recorded(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
 		$this->expectExceptionMessage( 'unknown command: set_multi_writer' );
@@ -712,7 +712,7 @@ final class VaultGroupNodeTest extends TestCase {
 		}
 
 		$this->assertSame( $stuck, $group->members() );
-		$this->assertNotNull( $group->interpreter(), 'the new child type\'s verbs are wired all the same' );
+		$this->assertNotNull( $group->interpreter(), 'the new child type\'s commands are wired all the same' );
 	}
 
 	public function test_a_refused_build_raises_with_its_refused_cleanup_and_the_rest_attempted(): void {
@@ -834,7 +834,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertNotContains( 'edge', $this->reload_subscribers( $fleet ) );
 	}
 
-	public function test_replay_with_another_child_type_rewires_the_verbs(): void {
+	public function test_replay_with_another_child_type_rewires_the_commands(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'edge', 'HTTP_Out', 'tw-edge' );
 		$group->interpreter()->dispatch( 'allow_replies_to', [ 'settings-sync' ] );
@@ -996,7 +996,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringEndsWith( "command_node dial:config set_knob 7\n", $group->dump_config() );
 	}
 
-	public function test_a_handler_verb_keeps_one_entry_per_distinct_argument(): void {
+	public function test_a_handler_command_keeps_one_entry_per_distinct_argument(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
 		foreach ( [ 'settings-sync', 'aggregator-3' ] as $path ) {
@@ -1005,7 +1005,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertSame( 2, \substr_count( $group->dump_config(), 'allow_replies_to' ) );
 	}
 
-	public function test_a_handler_verb_with_an_empty_toggle_records_by_verb_and_args(): void {
+	public function test_a_handler_command_with_an_empty_toggle_records_by_verb_and_args(): void {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
 		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'dial', 'Knob_Spy', 'arrives-later' );
 		foreach ( [ 'north-4', 'south-9' ] as $way ) {

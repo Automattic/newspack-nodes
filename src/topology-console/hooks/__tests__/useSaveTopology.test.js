@@ -51,7 +51,7 @@ it( 'sends save on the tick, once, with no ID and no KEY', async () => {
 	expect( Core.node( '_shell' ).counter ).toBe( 0 );
 } );
 
-it( 'hands a verb refusal to onDone rather than a result', async () => {
+it( 'hands a command refusal to onDone rather than a result', async () => {
 	replyFor.mockImplementation( () => new Error( REASON ) );
 	const onDone = jest.fn();
 	const { result } = renderHook( () => useSaveTopology( onDone ) );

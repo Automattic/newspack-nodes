@@ -1,5 +1,5 @@
 /**
- * SessionsAdmin — the issued-session table and its two verbs.
+ * SessionsAdmin — the issued-session table and its two commands.
  *
  * ONE node serves revoke across every row, because the SUBJECT rides in the
  * reply's ADDRESS: the graph hands each answer over already naming the handle
@@ -205,7 +205,7 @@ const scopeOptions = () =>
 		( o ) => o.value
 	);
 
-it( 'offers exactly the scopes the list verb answered, tune selected', () => {
+it( 'offers exactly the scopes the list command answered, tune selected', () => {
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );
 
@@ -439,7 +439,7 @@ it( 'cancels a revoke without sending it', () => {
 } );
 
 // A connection is listed by the name its approver gave it, idle or not, and
-// revoked by its grant: the verb ends the grant and every session it minted.
+// revoked by its grant: the command ends the grant and every session it minted.
 it( 'lists each connection with its name, client, scope and times', () => {
 	const { container } = render( <SessionsAdmin /> );
 	const headers = [

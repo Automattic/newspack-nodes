@@ -1,5 +1,5 @@
 /**
- * useSessionsGraph — the issued-session table and the verbs that change it.
+ * useSessionsGraph — the issued-session table and the commands that change it.
  *
  * The table is the `sessions list` catalog, polled as a slice like every other
  * catalog in the substrate. `useCatalogSlice` owns the poll, so a refused tick
@@ -21,7 +21,7 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { views } from '../nodes/register';
 
-/** The server CI mount all three verbs address (`Sessions_CI_Node`). */
+/** The server CI mount all three commands address (`Sessions_CI_Node`). */
 const SESSIONS_CI = 'sessions';
 
 /** The group every command the Sessions screen sends belongs to. */
@@ -45,7 +45,7 @@ const LIST_INTERVAL_MS = 5000;
  *                                         argument token, so a create answers
  *                                         to its label and a revoke to its
  *                                         handle or grant id.
- * @property {?Object}           result    What the verb returned, or null when
+ * @property {?Object}           result    What the command returned, or null when
  *                                         it refused. A create's response is
  *                                         the only place the session key is
  *                                         ever disclosed.
@@ -60,7 +60,7 @@ const LIST_INTERVAL_MS = 5000;
  *                                                       naming the row it was
  *                                                       about.
  * @return {{createSession: (fields: {label: string, scope: string, ttl: number}) => void, revoke: (id: string) => void, pendingVerb: (subject: ?string) => ?string, sessions: ?Object[], connections: ?Object[], scopes: Object<string, string>, ttlMax: number, loading: boolean, error: ?string, refresh: () => void}}
- *   The tables' model and the two verbs; each answer reaches the caller
+ *   The tables' model and the two commands; each answer reaches the caller
  *   through `onAnswer`.
  */
 export function useSessionsGraph( { onAnswer } = {} ) {

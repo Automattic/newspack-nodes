@@ -23,7 +23,7 @@ import { LAYOUTS_CI } from './useCatalogs';
 /** @typedef {import('@newspack-nodes/shared/hooks/useCommandOnce').OnDone} OnDone */
 
 /**
- * Mounts the `layouts get` and `layouts save` verbs on the console's batched
+ * Mounts the `layouts get` and `layouts save` commands on the console's batched
  * tick and hands back the sender for each.
  *
  * @param {Object} [o]           Reply handlers, each run once per reply.

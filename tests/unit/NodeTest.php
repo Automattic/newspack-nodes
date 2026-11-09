@@ -8,7 +8,7 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
-/** Fixture: a node that auto-wires a :config sibling (handler-bearing verb + Schema_Reflection). */
+/** Fixture: a node that auto-wires a :config sibling (handler-bearing command + Schema_Reflection). */
 final class Config_Sibling_Node extends Node {
 	use \Newspack_Nodes\Schema_Reflection;
 	public function __construct() {
@@ -690,7 +690,7 @@ class NodeTest extends TestCase {
 		$patron->sink( $downstream );
 
 		// Rule #2: the sibling `:config` CI inherits the patron's sink so it
-		// isn't a dead end — its verb responses (sent via `$this->sink?->fill()`)
+		// isn't a dead end — its command responses (sent via `$this->sink?->fill()`)
 		// route back through the same hop. Mirrors how name() keeps it synced.
 		$this->assertSame( $downstream, $patron->sink() );
 		$this->assertSame( $downstream, $sibling->sink() );
@@ -1399,14 +1399,14 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_node_without_schema_handlers_has_no_config_interpreter(): void {
-		// Base node_schema declares no verbs → no sibling interpreter.
+		// Base node_schema declares no commands → no sibling interpreter.
 		$n = new Node();
 		$ref = new \ReflectionClass( $n );
 		$this->assertNull( $ref->getProperty( 'interpreter' )->getValue( $n ) );
 	}
 
-	public function test_schema_verb_without_handler_does_not_wire_an_interpreter(): void {
-		// A catalog-only verb (no handler) must not spawn a sibling interpreter,
+	public function test_schema_command_without_handler_does_not_wire_an_interpreter(): void {
+		// A catalog-only command (no handler) must not spawn a sibling interpreter,
 		// even when the node opts into auto-wiring.
 		$node = new class() extends Node {
 			use \Newspack_Nodes\Schema_Reflection;
@@ -1423,7 +1423,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_command_interpreter_does_not_get_a_sibling_interpreter(): void {
-		// An interpreter dispatches its own verbs; it must never attach a sibling :config interpreter.
+		// An interpreter dispatches its own commands; it must never attach a sibling :config interpreter.
 		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ref = new \ReflectionClass( $interpreter );
 		$this->assertNull( $ref->getProperty( 'interpreter' )->getValue( $interpreter ) );

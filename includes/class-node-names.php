@@ -26,7 +26,7 @@ final class Node_Names {
 	/** The realm a cli process heads its reply address with, `_output/_cli:<pid>`; no node is registered under it. */
 	public const CLI                 = '_cli';
 
-	/** Verb dispatch. Every node sinks here, and this sinks into `_router`. */
+	/** Command dispatch. Every node sinks here, and this sinks into `_router`. */
 	public const COMMAND_INTERPRETER = '_command_interpreter';
 
 	/** The Tap between the anonymous Shell and the interpreter, so a session can watch what the Shell sends. */
@@ -62,7 +62,7 @@ final class Node_Names {
 	/** The worker's output IPC Partition, and the FROM its input Consumer stamps, so the TO=FROM reply routes back through it to the attached cli. */
 	public const REPL                = '_repl';
 
-	/** The worker's IPC-input Consumer, named so the dead-letter verbs reach its quarantine through `_repl:input:config`. */
+	/** The worker's IPC-input Consumer, named so the dead-letter commands reach its quarantine through `_repl:input:config`. */
 	public const REPL_INPUT          = '_repl:input';
 
 	/** Path dispatch: peel the head of TO and fill the node registered under it. */
@@ -97,7 +97,7 @@ final class Node_Names {
 	 * would build it twice on replay. A remove refuses them because destroying
 	 * one breaks the session issuing the command: without `_router` an
 	 * addressed message is undeliverable, and without `_command_interpreter` a
-	 * further verb never runs.
+	 * further command never runs.
 	 *
 	 * @var array<int,string>
 	 */

@@ -8,10 +8,10 @@
  * the command sessions this site issues to callers coming IN.
  *
  * The `newspack_nodes_vault` option is the one source: the Vault tab and the
- * `vault` CI verbs write it, and nothing else feeds the view.
+ * `vault` CI commands write it, and nothing else feeds the view.
  *
  * It is also the one place a credential enters the system. The password is the
- * only argument any verb declares secret, so the logged command line of
+ * only argument any command declares secret, so the logged command line of
  * `vault add` and `vault update` keeps only the id and the option names, and
  * a URL carrying userinfo is refused rather than stored in the clear beside
  * it.
@@ -225,7 +225,7 @@ class Vault {
 	 * keys, merges with current config, then validates the result.
 	 *
 	 * The id is a field like any other on an edit form, so a rename rides the
-	 * same call rather than a verb of its own: both halves land in ONE option
+	 * same call rather than a command of its own: both halves land in ONE option
 	 * write, and a refused move applies nothing. The partial merges over the
 	 * entry's managed keys, so the operator editing a spoke never retypes a
 	 * credential, and the entry is rewritten from those keys alone, dropping
@@ -436,7 +436,7 @@ class Vault {
 	 * The ONE rule: `validate_config()` refuses such a URL and the `vault` CI
 	 * names the refusal. A credential belongs in the sealed password field; in
 	 * the URL it would be stored in the clear and printed wherever the URL
-	 * goes — the dashboard, a verb span, a log line. Sanitizing is what can
+	 * goes — the dashboard, a command span, a log line. Sanitizing is what can
 	 * turn ` https://u:p@h` or `https:\t//u:p@h` into userinfo, so the raw
 	 * string proves nothing. PHP's `parse_url()`, because this runs where
 	 * WordPress is not loaded.

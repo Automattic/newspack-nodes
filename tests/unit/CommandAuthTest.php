@@ -219,7 +219,7 @@ class CommandAuthTest extends TestCase {
 	 * That is safe because re-typing cannot change WHAT RUNS: name and arguments
 	 * are signed. A tamperer can only make the message stop being a command (it
 	 * is then never interpreted), make it fail the request-command predicate (it
-	 * is then refused), or toggle TM_NOREPLY. None of those reach a verb.
+	 * is then refused), or toggle TM_NOREPLY. None of those reach a command.
 	 */
 	public function test_retyping_a_signed_command_does_not_change_what_runs(): void {
 		$m                       = $this->command();
@@ -290,7 +290,7 @@ class CommandAuthTest extends TestCase {
 	/**
 	 * A refusal's reason reaches the error log and nothing a caller reads:
 	 * not the stderr sink, which is a `/command` body, an SSE stream or a
-	 * worker's IPC output, and not the `dmesg` ring a READ verb prints.
+	 * worker's IPC output, and not the `dmesg` ring a READ command prints.
 	 *
 	 * @param string                       $reason  What the log line names.
 	 * @param \Closure():array<int,mixed> $command Builds the refused command.

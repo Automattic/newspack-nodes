@@ -5,7 +5,7 @@
  * The example lives at newspack-nodes/examples/example-ai-newsletter/, so the substrate
  * bootstrap is three dirs up (tests -> ai-newsletter -> examples -> newspack-nodes).
  * It loads Node, Message, Core, Command_Interpreter_Node, and the test helpers
- * (Tests\TestCase, Capture_Sink_Node, VerbHarness).
+ * (Tests\TestCase, Capture_Sink_Node, CommandHarness).
  *
  * @package Example_AI_Newsletter
  */

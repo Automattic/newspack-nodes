@@ -37,8 +37,8 @@
 <div class="band" style="left:0;top:0">a polled slice · addSliceFetcher on a useBatchedPoll backbone</div>
 <div class="nd" id="timer" style="left:0;top:24px;width:130px"><span class="t"><i>&lt;subject&gt;</i>:timer</span><span class="k">Timer · the tick</span></div>
 <div class="nd" id="tee" style="left:150px;top:24px;width:120px"><span class="t"><i>&lt;subject&gt;</i>:tee</span><span class="k">Tee · the fan-out</span></div>
-<div class="nd" id="fetch" style="left:290px;top:24px;width:200px"><span class="t"><i>&lt;subject&gt;</i>:fetch</span><span class="k">Fetcher · sends the verb, <span class="mono">FROM = &lt;subject&gt;:in</span>, <span class="mono">TO = &lt;group&gt;:shell/_http/&lt;ci&gt;</span></span></div>
-<div class="nd server" id="ci" style="left:530px;top:24px;width:130px"><span class="t">&lt;ci&gt; · the verb</span><span class="k">server side; replies <span class="mono">TO = FROM</span></span></div>
+<div class="nd" id="fetch" style="left:290px;top:24px;width:200px"><span class="t"><i>&lt;subject&gt;</i>:fetch</span><span class="k">Fetcher · sends the command, <span class="mono">FROM = &lt;subject&gt;:in</span>, <span class="mono">TO = &lt;group&gt;:shell/_http/&lt;ci&gt;</span></span></div>
+<div class="nd server" id="ci" style="left:530px;top:24px;width:130px"><span class="t">&lt;ci&gt; · the command</span><span class="k">server side; replies <span class="mono">TO = FROM</span></span></div>
 <div class="nd" id="in" style="left:0;top:150px;width:150px"><span class="t"><i>&lt;subject&gt;</i>:in</span><span class="k">Tee · the receiver; fans to its gate, then to the Fetcher</span></div>
 <div class="nd" id="gate" style="left:180px;top:150px;width:150px"><span class="t"><i>&lt;subject&gt;</i>:in:current</span><span class="k">Current · the gate; passes only the answer to a standing ask</span></div>
 <div class="nd" id="tr" style="left:360px;top:150px;width:160px"><span class="t"><i>&lt;subject&gt;</i>:transform</span><span class="k">optional · a merge or a dedup on the gate → view edge</span></div>
@@ -63,8 +63,8 @@
   <div class="card">
     <h3>Three routing facts</h3>
     <div class="step"><div class="n">1</div><div class="t"><b>A view is a terminal</b>: no <span class="mono">target</span>, and it never fills the sink <span class="mono">make_node</span> gave it, the interpreter. Forwarding out of a view makes it a Tee or a transform; a per-slice merge belongs on the gate → view edge, which is what <span class="mono">addSliceFetcher</span>'s <span class="mono">transform</span> slot drops it onto. <span class="mono">WorkerStatusTransform</span> is the shipped example.</div></div>
-    <div class="step"><div class="n">2</div><div class="t"><b>A view never fetches its own data.</b> Upstream sends the verb with <span class="mono">FROM = your receiver</span>; the server replies <span class="mono">TO = FROM</span>; the receiver Tee fans it through the slice's gate to you. A stream view sends nothing either.</div></div>
-    <div class="step" style="margin-bottom:0"><div class="n">3</div><div class="t"><b>One slice per view; replies never cross.</b> A verb somebody awaits is minted from its own node and answered there (ADR-7), so a view never has to tell its arrivals apart. A view sitting at counter 0 in the console while its widget renders data is not the node receiving it: look upstream for the god node that is.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b>A view never fetches its own data.</b> Upstream sends the command with <span class="mono">FROM = your receiver</span>; the server replies <span class="mono">TO = FROM</span>; the receiver Tee fans it through the slice's gate to you. A stream view sends nothing either.</div></div>
+    <div class="step" style="margin-bottom:0"><div class="n">3</div><div class="t"><b>One slice per view; replies never cross.</b> A command somebody awaits is minted from its own node and answered there (ADR-7), so a view never has to tell its arrivals apart. A view sitting at counter 0 in the console while its widget renders data is not the node receiving it: look upstream for the god node that is.</div></div>
   </div>
   <div class="card">
     <h3>A node playing none of the roles is a second slice</h3>

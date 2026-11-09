@@ -13,10 +13,10 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * The endpoint door and the base interpreter's roles.
  *
- * The door demands READ, the least any verb needs, so a read- or tune-scoped
- * caller reaches the verbs its role covers. The base interpreter's vocabulary
+ * The door demands READ, the least any command needs, so a read- or tune-scoped
+ * caller reaches the commands its role covers. The base interpreter's vocabulary
  * builds and rewires the graph and declares no role, so `dispatch()` holds
- * every verb of it at MANAGE but the read-only builtins (ADR-26).
+ * every command of it at MANAGE but the read-only ones (ADR-26).
  */
 #[CoversClass( HTTP_In_Node::class )]
 #[CoversClass( Command_Interpreter_Node::class )]
@@ -102,7 +102,7 @@ class CommandEndpointScopeTest extends TestCase {
 	}
 
 	/**
-	 * The role is per-verb, not a whole-table pin: every dashboard on the site
+	 * The role is per command, not a whole-table pin: every dashboard on the site
 	 * drives a read-only builtin through this same interpreter, so a blanket
 	 * MANAGE would make the lowered door buy the read surface nothing.
 	 */

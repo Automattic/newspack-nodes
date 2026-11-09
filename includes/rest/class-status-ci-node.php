@@ -5,7 +5,7 @@
  * Mounted as `status` on the request-scope interpreter by
  * `newspack_nodes_mount_substrate_cis()`.
  *
- * Verbs:
+ * Commands:
  *   get — one snapshot: the runtime version, the partition count the fleet
  *         runs, the active topology set, whether a shared cache is reachable,
  *         and the server's clock. A caller asking "is this install alive, and
@@ -34,12 +34,12 @@ use Newspack_Nodes\Service_CI_Node;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The `status` service interpreter: one read-only `get` verb.
+ * The `status` service interpreter: one read-only `get` command.
  */
 class Status_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `get` verb handler — the health and version snapshot, read in one pass.
+	 * `get` command handler — the health and version snapshot, read in one pass.
 	 *
 	 * `status` is the constant `ok` because reaching this handler IS the health
 	 * signal: a refusal leaves as a TM_COMMAND|TM_ERROR reply carrying the
@@ -75,18 +75,18 @@ class Status_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Palette entry and verb declaration: `get` declared ONCE, carrying its
+	 * Palette entry and command declaration: `get` declared ONCE, carrying its
 	 * handler and the role it demands.
 	 *
 	 * The inherited `Service_CI_Node` constructor builds the dispatch table
 	 * from this array, and `dispatch()` refuses a caller below the declared
-	 * role (ADR-26), so this class needs no constructor and no hand-built verb
+	 * role (ADR-26), so this class needs no constructor and no hand-built command
 	 * table that could drift from what `help` and the console palette show. The role is READ, not MANAGE, because the snapshot reads state and
 	 * changes none — a dashboard polls it.
 	 *
 	 * `category` replaces the `Hidden` inherited from the interpreter, which
 	 * files this class under `Service` beside the other service CIs; the
-	 * palette leaves both categories out, and the Inspector reads its verbs.
+	 * palette leaves both categories out, and the Inspector reads its commands.
 	 *
 	 * `arguments` is empty: `make_node` hands this node nothing, and `get`
 	 * takes no arguments of its own.

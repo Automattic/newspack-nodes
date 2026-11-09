@@ -24,7 +24,7 @@ namespace Newspack_Nodes;
  * what makes the pattern possible at all: `Timer_Node::fire_cb()` returns early
  * on a node with no sink, and the Router has none.
  *
- * Dispatch profiling stays off until the `profile on` verb sets `$profiles`,
+ * Dispatch profiling stays off until the `profile on` command sets `$profiles`,
  * and while it is null `fill()` takes a branch that costs nothing.
  */
 class Router_Node extends Timer_Node {

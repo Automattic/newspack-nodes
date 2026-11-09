@@ -61,19 +61,19 @@ class CapabilitiesTest extends TestCase {
 		Capabilities::cap_for( Capabilities::READ );
 	}
 
-	public function test_require_verb_passes_a_logged_in_user_holding_the_role(): void {
+	public function test_require_command_passes_a_logged_in_user_holding_the_role(): void {
 		$GLOBALS['_wp_test_current_user_id']  = 7731;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		Capabilities::require_verb( Capabilities::MANAGE );
+		Capabilities::require_command( Capabilities::MANAGE );
 		$this->assertTrue( Capabilities::can( Capabilities::MANAGE ) );
 	}
 
-	public function test_require_verb_refuses_a_logged_in_user_lacking_the_role(): void {
+	public function test_require_command_refuses_a_logged_in_user_lacking_the_role(): void {
 		$GLOBALS['_wp_test_current_user_id']  = 7731;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'permission denied: manage capability required' );
-		Capabilities::require_verb( Capabilities::MANAGE );
+		Capabilities::require_command( Capabilities::MANAGE );
 	}
 
 	public function test_can_honors_the_relaxed_read_cap(): void {
@@ -128,7 +128,7 @@ class CapabilitiesTest extends TestCase {
 	/**
 	 * The finding: an administrator the operator deliberately kept out of
 	 * `allowed_users` still held every role, so every REST permission callback
-	 * and every gated verb admitted them.
+	 * and every gated command admitted them.
 	 */
 	public function test_can_refuses_a_capable_user_the_allowlist_excludes(): void {
 		$this->seed_allowlist( [ 'quill', 'mercator' ], 'redshank' );

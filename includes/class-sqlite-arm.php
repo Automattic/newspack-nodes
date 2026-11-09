@@ -294,12 +294,12 @@ final class Sqlite_Arm extends Durable_Arm {
 			$row = $this->single_row( 'PRAGMA wal_checkpoint(TRUNCATE)' );
 		} catch ( \PDOException $e ) {
 			$this->failure = Driver_Error::of( $e );
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the command reporting it escapes at its view.
 			throw new \RuntimeException( $this->last_failure(), 0, $e );
 		}
 		if ( ! \is_array( $row ) || 0 !== Core::as_int( $row[0] ) ) {
 			$this->failure = 'database is locked: a reader holds the WAL';
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the command reporting it escapes at its view.
 			throw new \RuntimeException( $this->last_failure() );
 		}
 	}

@@ -60,7 +60,7 @@ class Struct_To_JSON_Node extends Node {
 	}
 
 	/**
-	 * Topology console manifest: a Transform with no arguments and no verbs.
+	 * Topology console manifest: a Transform with no arguments and no commands.
 	 *
 	 * @return array<string,mixed>
 	 */

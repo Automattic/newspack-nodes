@@ -310,7 +310,7 @@ describe( 'useDebugRepl', () => {
 		const shell = makeShell();
 		const spy = jest.spyOn( interpreter, 'fill' );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		// `help` is a bare verb; Shell.parse returns a TM_COMMAND Message.
+		// `help` is a bare command; Shell.parse returns a TM_COMMAND Message.
 		act( () => result.current.sendLine( 'help' ) );
 		expect( spy ).toHaveBeenCalled();
 		teardown();

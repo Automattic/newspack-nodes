@@ -188,7 +188,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$source->arguments( [ $this->source_dir ] );
 		$source->sink( $this->sink );
 		$source->patron( $this );
-		// A read view: a verb never reaches the writer's cap or its lock.
+		// A read view: a command never reaches the writer's cap or its lock.
 		$source->without_config();
 		$this->retract_sibling( 'source' );
 		$this->source = $source;
@@ -1147,7 +1147,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
-	 * Re-emit the Consumer's persistent config verbs — the time-travel ones plus
+	 * Re-emit the Consumer's persistent config commands — the time-travel ones plus
 	 * every schema-declared toggle currently on (`multi_writer`,
 	 * `assume_clean_shutdown`) — after the base `make_node` and `connect_node`
 	 * lines, so a console dump_config and replay round-trips them. Without the
@@ -1210,7 +1210,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 
 	/**
 	 * Topology console manifest: the palette entry, the three positional arguments
-	 * `parse_schema_args()` assigns, and the verb set — dead-letter triage, time
+	 * `parse_schema_args()` assigns, and the command set — dead-letter triage, time
 	 * travel, the pump toggles and `set_multi_writer`.
 	 *
 	 * @return array<string,mixed>
@@ -1225,9 +1225,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'partition' => 'bound', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue, so a message that throws or will not unpack raises instead and the reader replays it.' ],
 			],
 			'commands'      => \array_merge(
-				self::deadletter_verbs(),
-				self::time_travel_verbs(),
-				self::pump_verbs(),
+				self::deadletter_commands(),
+				self::time_travel_commands(),
+				self::pump_commands(),
 				[
 					[
 						'name'        => 'set_multi_writer',

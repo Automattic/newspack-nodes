@@ -30,7 +30,7 @@
  * coincides near zero. The live `cursor` ({segment,offset}) is DISPLAYED as the source
  * read position, nothing more.
  *
- * The transport bar drives the consumer's `:config` verbs through the inspector's
+ * The transport bar drives the consumer's `:config` commands through the inspector's
  * invoke path via onTransport( verb, args ): pause / play / step send the
  * bare verb; rewind / fast-forward send seek_frame --segment=<id> for the snapped
  * keyframe (a paused keyframe scrub among the retained frames — there is no
@@ -196,7 +196,7 @@ function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
  *                                                                       Consumer-reported keyframe id the cursor is at-or-just-past; null when
  *                                                                       there are no retained frames.
  * @param {boolean}                                [props.onFrameSignal] Consumer-reported flag: the cursor sits exactly on that keyframe rather than past it.
- * @param {(verb: string, args: string[]) => void} [props.onTransport]   Drives the consumer's `:config` verbs through the inspector's invoke path.
+ * @param {(verb: string, args: string[]) => void} [props.onTransport]   Drives the consumer's `:config` commands through the inspector's invoke path.
  * @return {import('react').ReactElement} The Time Travel panel.
  */
 export default function TimeTravelPanel( {

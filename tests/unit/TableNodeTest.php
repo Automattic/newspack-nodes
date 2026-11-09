@@ -252,9 +252,9 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
-	public function test_make_node_wires_the_config_sibling_that_serves_the_verbs(): void {
+	public function test_make_node_wires_the_config_sibling_that_serves_the_commands(): void {
 		// The hand-built interpreter above proves the handlers work; this proves
-		// anything can REACH them. Without auto_wire_interpreter() the verbs are
+		// anything can REACH them. Without auto_wire_interpreter() the commands are
 		// declared in the schema and dispatchable from nowhere.
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
@@ -279,7 +279,7 @@ class TableNodeTest extends TestCase {
 		$table->fill( $this->keyed( 'inv-77', 'kea' ) );
 
 		$config = Core::node( 'crawl-3307:seen:config' );
-		$this->assertNotNull( $config, 'an owned Table answers its verbs at its own address' );
+		$this->assertNotNull( $config, 'an owned Table answers its commands at its own address' );
 		$this->assertSame( $owner, $table->patron(), 'the owner still hides it from the canvas' );
 		$this->assertSame( $table, $config->patron() );
 		$this->assertSame( 1, $config->dispatch( 'stats' )['INSERT']['answered'] );
@@ -289,13 +289,13 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( $config, Core::node( 'crawl-5150:seen:config' ), 'a rename moves the sibling' );
 	}
 
-	public function test_verbs_refuse_a_foreign_patron(): void {
+	public function test_commands_refuse_a_foreign_patron(): void {
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( 'stray:config' );
-		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
+		$handlers = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
 		foreach ( [ 'stats', 'flush', 'vacuum' ] as $verb ) {
 			$e = $this->caught(
-				fn () => $verbs[ $verb ]( $ci, [] ),
+				fn () => $handlers[ $verb ]( $ci, [] ),
 				"{$verb} answered a foreign patron"
 			);
 			$this->assertSame( 'no table patron', $e->getMessage() );
@@ -522,7 +522,7 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
-	public function test_a_request_naming_an_unknown_verb_is_refused_to_its_asker(): void {
+	public function test_a_request_naming_an_unknown_command_is_refused_to_its_asker(): void {
 		// A silent drop would read as an empty table; a refusal says why.
 		[ $table, $sink ] = $this->table();
 		$logged           = [];
@@ -542,8 +542,8 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
-	/** The seven verbs are catalogued for `help` and the Inspector, and answered by fill(). */
-	public function test_the_verbs_are_declared_without_a_handler_and_help_lists_them(): void {
+	/** The seven requests are catalogued for `help` and the Inspector, and answered by fill(). */
+	public function test_the_requests_are_declared_without_a_handler_and_help_lists_them(): void {
 		$requests = Table_Node::node_schema()['requests'];
 
 		$this->assertSame( [ 'GET', 'SCARD', 'SMOVE', 'SREM', 'RM', 'ADD', 'SADD' ], \array_column( $requests, 'name' ) );
@@ -557,8 +557,8 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
-	public function test_the_config_verbs_are_the_ones_no_request_answers(): void {
-		$this->assertSame( [ 'stats', 'reset_stats', 'flush', 'vacuum' ], \array_column( Table_Node::node_schema()['commands'], 'name' ), 'GET and RM are requests, never :config verbs' );
+	public function test_the_config_commands_are_the_ones_no_request_answers(): void {
+		$this->assertSame( [ 'stats', 'reset_stats', 'flush', 'vacuum' ], \array_column( Table_Node::node_schema()['commands'], 'name' ), 'GET and RM are requests, never :config commands' );
 	}
 
 	public function test_each_structured_request_declares_its_one_json_map(): void {
@@ -1133,7 +1133,7 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( 'auto', $args['backend']['default'] );
 	}
 
-	// ── The purge on the Router tick, and the vacuum verb ─────────────────
+	// ── The purge on the Router tick, and the vacuum command ──────────────
 
 	/** A sqlite Table of `$ttl` built as a worker's make_node builds one, and its file's row count. */
 	private function durable( int $ttl ): array {
@@ -1372,8 +1372,8 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( 1, $rows(), 'a request graph never becomes the file\'s second writer' );
 	}
 
-	public function test_a_mounted_tables_config_write_verbs_refuse(): void {
-		$this->base_dir( 'table-mount-verbs-' );
+	public function test_a_mounted_tables_config_write_commands_refuse(): void {
+		$this->base_dir( 'table-mount-commands-' );
 		[ $table, $rows ] = $this->durable( 37 );
 		$table->store( 'sku-41', 1 );
 		$table->remove_node();
@@ -1413,7 +1413,7 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( 1, $rows(), 'a removed Table is no longer its file\'s writer' );
 	}
 
-	public function test_vacuum_is_a_verb_a_durable_table_answers(): void {
+	public function test_vacuum_is_a_command_a_durable_table_answers(): void {
 		$this->base_dir( 'table-vacuum-' );
 		[ $table ] = $this->durable( 37 );
 		$this->assertSame( "ok\n", $table->interpreter()->dispatch( 'vacuum', [] ) );

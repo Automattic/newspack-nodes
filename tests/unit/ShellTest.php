@@ -693,7 +693,7 @@ class ShellTest extends TestCase {
 		$this->assertStringStartsWith( '_output/_cli:', $message[ Message::FROM ] );
 	}
 
-	public function test_parse_default_verb_yields_TM_COMMAND(): void {
+	public function test_parse_default_command_yields_TM_COMMAND(): void {
 		$shell = new Shell_Node();
 		$message = $shell->parse( 'ls');
 
@@ -723,7 +723,7 @@ class ShellTest extends TestCase {
 		$this->assertSame( 0, $message[ Message::TYPE ] & Message::TM_NOREPLY );
 	}
 
-	public function test_parse_default_verb_with_args(): void {
+	public function test_parse_default_command_with_args(): void {
 		$shell = new Shell_Node();
 		$message = $shell->parse( 'make_node Capture_Sink alice');
 
@@ -816,7 +816,7 @@ class ShellTest extends TestCase {
 			'bare'          => [ 'make_node Consumer egret /logs/egret.p<partition>' ],
 			'double-quoted' => [ 'make_node Consumer egret "/logs/egret.p<partition>"' ],
 			'single-quoted' => [ "make_node Topic egret /logs/egret.p'<partition>'" ],
-			'any verb'      => [ 'tell egret <partition>' ],
+			'any command'   => [ 'tell egret <partition>' ],
 		];
 	}
 
@@ -980,7 +980,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_debug_level_reports_a_missing_output_dumper(): void {
 		// A Shell driving a TSL in worker or request scope has no `_output`
-		// Dumper to dial. Silence reads as success for a verb the user typed.
+		// Dumper to dial. Silence reads as success for a command the user typed.
 		$capture = new Capture_Stdout_Node();
 		$capture->name( Node_Names::STDOUT );
 
@@ -1115,7 +1115,7 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'ls', $sink->captured[0][ Message::VALUE ]['name'] );
 	}
 
-	public function test_fill_send_verb_emits_bytestream_payload_without_reparsing(): void {
+	public function test_fill_send_command_emits_bytestream_payload_without_reparsing(): void {
 		// `send <node> <data>` parses to a TM_BYTESTREAM whose VALUE
 		// is the payload. That bytestream must reach the SINK as-is — it must NOT
 		// be re-filled into the Shell (which would re-parse the payload as a fresh
@@ -1139,7 +1139,7 @@ class ShellTest extends TestCase {
 	public function test_an_escaped_trailing_backslash_is_a_complete_statement(): void {
 		// One grammar rule, ONE definition: a line continues only on an ODD run
 		// of trailing backslashes. `tell n1 back\\` ends in an escaped literal,
-		// so the loader parses it whole and the topology `save` verb must not
+		// so the loader parses it whole and the topology `save` command must not
 		// reject it as unterminated. parse_statements() is that one definition.
 		$line  = 'tell n1 back\\\\';
 		$shell = new Shell_Node();
@@ -1426,10 +1426,10 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'firehose-workers.p0/firehose:tee', $shell->prefix( 'firehose:tee' ) );
 	}
 
-	// ── default-verb routing uses cwd ──────────────────────────────────────
+	// ── default-command routing uses cwd ───────────────────────────────────
 
-	public function test_default_verb_uses_cwd_as_TO(): void {
-		// After `cd firehose-workers.p0`, an unbuiltin verb like `ls` should
+	public function test_default_command_uses_cwd_as_TO(): void {
+		// After `cd firehose-workers.p0`, an unbuiltin command like `ls` should
 		// emit TM_COMMAND with TO=firehose-workers.p0 so the worker's interpreter
 		// (not the local one) handles it.
 		$shell       = new Shell_Node();
@@ -1441,7 +1441,7 @@ class ShellTest extends TestCase {
 		$this->assertSame( [ '-al' ], $decoded['arguments'] );
 	}
 
-	// ── new verbs: tell_node / send_node / command_node / request_node ────
+	// ── new commands: tell_node / send_node / command_node / request_node ──
 
 	public function test_tell_node_canonical_emits_TM_INFO_at_prefix(): void {
 		$shell       = new Shell_Node();
@@ -1616,7 +1616,7 @@ class ShellTest extends TestCase {
 
 	public function test_split_statements_does_not_split_semicolons_inside_comments(): void {
 		// A `;` in a `# comment` line is not a statement separator, which
-		// would break the second half off as a verb.
+		// would break the second half off as a command.
 		$shell = new Shell_Node();
 		$this->assertSame(
 			[ '# warning; jobs can be slow', 'var foo = 1' ],
@@ -1646,25 +1646,25 @@ class ShellTest extends TestCase {
 	}
 
 	/**
-	 * The JS twin refuses each path-taking verb with a `usage:` line when the
+	 * The JS twin refuses each path-taking command with a `usage:` line when the
 	 * path argument is missing (Tachikoma's CommandInterpreter dies "no path
 	 * specified"). PHP minted the message anyway: with no cwd that is TO='',
 	 * which Router drops as "message not addressed" — a command that vanishes.
 	 *
-	 * @dataProvider path_taking_verbs
+	 * @dataProvider path_taking_commands
 	 */
-	public function test_a_path_taking_verb_without_a_path_prints_usage( string $verb, string $usage ): void {
+	public function test_a_path_taking_command_without_a_path_prints_usage( string $line, string $usage ): void {
 		$capture = $this->register_output_capture();
 		$shell   = new Shell_Node();
 		$shell->sink( new Capture_Sink_Node() );
 
-		$this->assertNull( $shell->parse( $verb ), "$verb should mint nothing" );
+		$this->assertNull( $shell->parse( $line ), "$line should mint nothing" );
 		$printed = \implode( '', \array_column( $capture->captured, Message::VALUE ) );
 		$this->assertStringContainsString( $usage, $printed );
 	}
 
 	/** @return array<string,array{0:string,1:string}> */
-	public static function path_taking_verbs(): array {
+	public static function path_taking_commands(): array {
 		return [
 			'send'        => [ 'send', 'usage: send <path> <bytes>' ],
 			'send_node'   => [ 'send_node', 'usage: send <path> <bytes>' ],

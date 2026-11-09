@@ -2,7 +2,7 @@
  * ProfilerView — the Inspector's Profiler modal: the Router's per-node
  * self-time table, which is `list_profiles` and nothing else.
  *
- * It renders exactly the verb's columns (AVERAGE / TIME / COUNT / WINDOW /
+ * It renders exactly the command's columns (AVERAGE / TIME / COUNT / WINDOW /
  * RATE / AGE / WHAT), taken as rows via `-s` rather than parsed back out of the
  * fixed-width text — same derivation, so the grid and the REPL can never
  * disagree. `--total--` rides in as the last row and is pinned to the footer.
@@ -31,11 +31,11 @@ import './inspector-views.scss';
  */
 const POLLER = 'profiler:fetch';
 
-/** The verb answers rows rather than a text table. */
+/** The command answers rows rather than a text table. */
 const SORTABLE = [ '-s' ];
 
 /**
- * Format one numeric cell to a fixed number of decimals, as the verb's own text
+ * Format one numeric cell to a fixed number of decimals, as the command's own text
  * table prints it.
  *
  * @param {number} places Decimals to keep.
@@ -59,7 +59,7 @@ const COLS = [
 ];
 
 /**
- * Send a modal button's verb to the viewed scope, `_cwd`, apart from the REPL:
+ * Send a modal button's command to the viewed scope, `_cwd`, apart from the REPL:
  * FROM is bare `_ui`, so its reply reaches the transcript, and its echo is
  * written there, only while `debug_ui` is on. `minter` mints and signs it;
  * FROM and TO are written afterwards, since the signature covers the
@@ -88,7 +88,7 @@ export function sendFromUi( minter, verb, args ) {
 }
 
 /**
- * One `list_profiles -s` row: the stats the verb derives from a raw profile
+ * One `list_profiles -s` row: the stats the command derives from a raw profile
  * record, plus the node name — or `--total--` — in `what`.
  *
  * @typedef {import('../../runtime/command-interpreter-node').ProfileStats & {what:string}} ProfileRow

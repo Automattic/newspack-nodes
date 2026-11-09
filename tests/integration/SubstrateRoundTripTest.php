@@ -18,7 +18,7 @@ class SubstrateRoundTripTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( $router );
 
-		// Build app graph via shell verbs.
+		// Build app graph via shell commands.
 		$this->assertSame( "ok\n", $interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] ) );
 		$this->assertSame( "ok\n", $interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'bob' ] ) );
 		$this->assertSame( "ok\n", $interpreter->dispatch( 'connect_node', [ 'alice', 'bob' ] ) );

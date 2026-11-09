@@ -2,15 +2,15 @@
 /**
  * Schema_Reflection: a node's `node_schema()` IS its configuration surface.
  *
- * A node opting in declares its positional arguments and its runtime verbs once,
+ * A node opting in declares its positional arguments and its runtime commands once,
  * and this trait reads that one declaration four ways. `parse_schema_args()`
  * assigns the positional tokens onto the declared properties (ADR-11).
  * `auto_wire_interpreter()` builds the sibling `{name}:config` interpreter from
  * the declared commands, and `answer_request()` answers a TM_REQUEST from the
  * declared requests. `dump_declared()` with `declared_setter()` turns a
- * `toggle` or `setter` key into both the verb's handler and its `dump_config()`
+ * `toggle` or `setter` key into both the command's handler and its `dump_config()`
  * fragment, and with `declared_list()` turns the `list` / `unlist` pair
- * `list_verbs()` declares into an add, its remove and one dump line per entry,
+ * `list_commands()` declares into an add, its remove and one dump line per entry,
  * so a setting is a declaration rather than the hand-rolled trio — handler,
  * dump fragment, argument parse — each class would otherwise carry.
  *
@@ -152,7 +152,7 @@ trait Schema_Reflection {
 
 	/**
 	 * Coerce a raw token to the declared schema type through
-	 * `Command_Args::typed()`, the one type rule verbs are bound by too; an
+	 * `Command_Args::typed()`, the one type rule commands are bound by too; an
 	 * unknown type passes through as a string.
 	 *
 	 * The numeric types REFUSE rather than cast, because 0 is a live value for
@@ -249,7 +249,7 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * The two verb declarations a list of one value stands for, for a
+	 * The two command declarations a list of one value stands for, for a
 	 * `node_schema()['commands']`: `add_{$noun}` appends its one arg, trimmed,
 	 * to `$property`, an identical repeat a no-op, and `remove_{$noun}`,
 	 * taking the same arg and carrying the `noun` its refusal names, drops
@@ -263,11 +263,11 @@ trait Schema_Reflection {
 	 *
 	 * @param string                 $noun        The verbs' shared suffix.
 	 * @param string                 $property    The list property, a `list<string>`.
-	 * @param array<array-key,mixed> $arg         The one arg both verbs take.
-	 * @param string                 $description The add verb's description.
+	 * @param array<array-key,mixed> $arg         The one arg both commands take.
+	 * @param string                 $description The add command's description.
 	 * @return list<array<string,mixed>>
 	 */
-	public static function list_verbs( string $noun, string $property, array $arg, string $description ): array {
+	public static function list_commands( string $noun, string $property, array $arg, string $description ): array {
 		$add = "add_{$noun}";
 		$val = Core::as_string( $arg['name'] ?? '' );
 		return [
@@ -354,7 +354,7 @@ trait Schema_Reflection {
 
 	/**
 	 * One round-trippable `command_node {name}:config add_<noun> <entry>` line
-	 * per entry of every list a `list_verbs()` declaration names, in order, so
+	 * per entry of every list a `list_commands()` declaration names, in order, so
 	 * a replay rebuilds each list as the adds and removes left it.
 	 *
 	 * @return string Zero or more newline-terminated TSL lines.
@@ -364,23 +364,23 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * The one walk every declarative dump makes: every verb declaring
+	 * The one walk every declarative dump makes: every command declaring
 	 * $schema_key names a property, and $render turns that property's value
 	 * into the arguments to emit, one line each — none meaning nothing to say.
-	 * A verb declaring `dump => false` is skipped outright, for a setting
+	 * A command declaring `dump => false` is skipped outright, for a setting
 	 * another dump path owns.
 	 *
-	 * @param string                       $schema_key Verb declaration key naming the property.
+	 * @param string                       $schema_key Command declaration key naming the property.
 	 * @param callable(mixed):list<string> $render     Property value to the arguments of its lines.
 	 * @return string Zero or more newline-terminated TSL lines.
 	 */
 	private function dump_declared( string $schema_key, callable $render ): string {
 		$out = '';
-		foreach ( Command_Interpreter_Node::declared_verbs( static::class ) as $name => $verb ) {
-			if ( ! ( $verb['dump'] ?? true ) ) {
+		foreach ( Command_Interpreter_Node::declared_commands( static::class ) as $name => $command ) {
+			if ( ! ( $command['dump'] ?? true ) ) {
 				continue;
 			}
-			$prop = Core::as_string( $verb[ $schema_key ] ?? '' );
+			$prop = Core::as_string( $command[ $schema_key ] ?? '' );
 			if ( '' === $prop ) {
 				continue;
 			}
@@ -404,45 +404,45 @@ trait Schema_Reflection {
 		if ( $this instanceof Command_Interpreter_Node ) {
 			return;
 		}
-		$this->wire_interpreter( self::verbs_with_handlers( static::class ) );
+		$this->wire_interpreter( self::commands_with_handlers( static::class ) );
 	}
 
 	/**
-	 * Build the `{node}:config` dispatch table from $class's declared verbs.
-	 * A verb takes its handler from the first declaration it carries: a
+	 * Build the `{node}:config` dispatch table from $class's declared commands.
+	 * A command takes its handler from the first declaration it carries: a
 	 * `toggle` or a `setter`, each naming a property `declared_setter()`
 	 * synthesizes a handler for, a `list` or an `unlist`, each naming a list
 	 * `declared_list()` synthesizes one for, then an explicit callable
 	 * `handler`.
 	 *
-	 * A verb carrying none is catalog-only and is skipped silently, not
+	 * A command carrying none is catalog-only and is skipped silently, not
 	 * flagged, because a plain node legitimately declares description-only
-	 * verbs for the palette. (Service_CI_Node, where every verb MUST dispatch,
+	 * commands for the palette. (Service_CI_Node, where every command MUST dispatch,
 	 * keeps its own warn-on-missing-handler builder.)
 	 *
-	 * @param class-string<Node> $class Class whose schema declares the verbs.
+	 * @param class-string<Node> $class Class whose schema declares the commands.
 	 * @return array<string,callable> Verb name => handler.
 	 */
-	private static function verbs_with_handlers( string $class ): array {
+	private static function commands_with_handlers( string $class ): array {
 		$table = [];
-		foreach ( Command_Interpreter_Node::declared_verbs( $class ) as $name => $verb ) {
-			$prop = Core::as_string( $verb['toggle'] ?? '' );
+		foreach ( Command_Interpreter_Node::declared_commands( $class ) as $name => $command ) {
+			$prop = Core::as_string( $command['toggle'] ?? '' );
 			if ( '' !== $prop ) {
-				$table[ $name ] = self::declared_setter( $class, $verb, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
+				$table[ $name ] = self::declared_setter( $class, $command, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
 				continue;
 			}
-			$prop = Core::as_string( $verb['setter'] ?? '' );
+			$prop = Core::as_string( $command['setter'] ?? '' );
 			if ( '' !== $prop ) {
 				// The string twin: trim and assign. An empty arg clears it.
-				$table[ $name ] = self::declared_setter( $class, $verb, $prop, \trim( ... ) );
+				$table[ $name ] = self::declared_setter( $class, $command, $prop, \trim( ... ) );
 				continue;
 			}
-			$prop = Core::as_string( $verb['list'] ?? $verb['unlist'] ?? '' );
+			$prop = Core::as_string( $command['list'] ?? $command['unlist'] ?? '' );
 			if ( '' !== $prop ) {
-				$table[ $name ] = self::declared_list( $class, $name, $verb, $prop );
+				$table[ $name ] = self::declared_list( $class, $name, $command, $prop );
 				continue;
 			}
-			$handler = $verb['handler'] ?? null;
+			$handler = $command['handler'] ?? null;
 			if ( \is_callable( $handler ) ) {
 				$table[ $name ] = $handler;
 			}
@@ -452,24 +452,24 @@ trait Schema_Reflection {
 
 	/**
 	 * Synthesize the handler a `list` or `unlist` declaration stands for: join
-	 * the verb's one arg, bound by name, into one trimmed entry, then append it
+	 * the command's one arg, bound by name, into one trimmed entry, then append it
 	 * to the patron's `$prop` list unless an entry equals it, or drop the
 	 * entry equal to it. A blank entry is refused, and so is a removal that
 	 * does not match any entry, naming the `noun` its declaration carries.
 	 *
-	 * @param class-string<Node>     $class Class whose schema declares the verb.
-	 * @param string                 $name  The verb.
-	 * @param array<array-key,mixed> $verb  The verb's schema entry.
-	 * @param string                 $prop  The list property.
-	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
+	 * @param class-string<Node>     $class   Class whose schema declares the command.
+	 * @param string                 $name    The verb.
+	 * @param array<array-key,mixed> $command The command's schema entry.
+	 * @param string                 $prop    The list property.
+	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The command's handler.
 	 * @throws \LogicException When an `unlist` declaration's `noun` is missing or empty.
 	 */
-	private static function declared_list( string $class, string $name, array $verb, string $prop ): callable {
-		$arg  = self::carrying_arg( $verb, $name );
-		$adds = isset( $verb['list'] );
-		$noun = Core::as_string( $verb['noun'] ?? '' );
+	private static function declared_list( string $class, string $name, array $command, string $prop ): callable {
+		$arg  = self::carrying_arg( $command, $name );
+		$adds = isset( $command['list'] );
+		$noun = Core::as_string( $command['noun'] ?? '' );
 		if ( ! $adds && '' === $noun ) {
-			throw new \LogicException( \esc_html( "{$name}: an unlist verb declares no noun" ) );
+			throw new \LogicException( \esc_html( "{$name}: an unlist command declares no noun" ) );
 		}
 		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $name, $prop, $arg, $adds, $noun ): string {
 			$patron = self::patron_of( $interpreter, $class, $name );
@@ -495,7 +495,7 @@ trait Schema_Reflection {
 
 	/**
 	 * Synthesize the handler a `toggle` or `setter` declaration stands for:
-	 * read the verb's one declared arg, bound by name, coerce it, then hand it
+	 * read the command's one declared arg, bound by name, coerce it, then hand it
 	 * to the patron's `set_{$prop}()` — the class's own typed entry point, so
 	 * the coerced value lands under the property's declared type rather than
 	 * beside it. A `$prop` naming one of $class's positionals replays the
@@ -503,15 +503,15 @@ trait Schema_Reflection {
 	 * own parse validates the value and `dump_config()`'s `make_node` line
 	 * carries it.
 	 *
-	 * @param class-string<Node>      $class  Class whose schema declares the verb.
-	 * @param array<array-key,mixed>  $verb   The verb's schema entry.
-	 * @param string                  $prop   Property the verb writes, minus the `set_` prefix.
-	 * @param callable(string):mixed  $coerce The bound value, as a string, to the setter's type.
-	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
+	 * @param class-string<Node>      $class   Class whose schema declares the command.
+	 * @param array<array-key,mixed>  $command The command's schema entry.
+	 * @param string                  $prop    Property the command writes, minus the `set_` prefix.
+	 * @param callable(string):mixed  $coerce  The bound value, as a string, to the setter's type.
+	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The command's handler.
 	 */
-	private static function declared_setter( string $class, array $verb, string $prop, callable $coerce ): callable {
+	private static function declared_setter( string $class, array $command, string $prop, callable $coerce ): callable {
 		$what       = "set_{$prop}";
-		$arg        = self::carrying_arg( $verb, $what );
+		$arg        = self::carrying_arg( $command, $what );
 		$positional = \in_array( $prop, \array_column( \array_filter( self::declared_arguments( $class ), \is_array( ... ) ), 'name' ), true );
 		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $prop, $arg, $coerce, $positional, $what ): string {
 			$patron = self::patron_of( $interpreter, $class, $what );
@@ -581,9 +581,9 @@ trait Schema_Reflection {
 	 * `set_` method that class never declared, and the fatal would name the
 	 * member rather than the mis-wiring.
 	 *
-	 * @param Command_Interpreter_Node $interpreter The verb's interpreter.
-	 * @param class-string<Node>       $class       Class whose schema declares the verb.
-	 * @param string                   $what        What the verb writes, for the refusal.
+	 * @param Command_Interpreter_Node $interpreter The command's interpreter.
+	 * @param class-string<Node>       $class       Class whose schema declares the command.
+	 * @param string                   $what        What the command writes, for the refusal.
 	 * @return Node
 	 * @throws \RuntimeException When the patron is not a $class.
 	 */
@@ -596,38 +596,38 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * The name of the one arg a declarative verb reads.
+	 * The name of the one arg a declarative command reads.
 	 *
-	 * @param array<array-key,mixed> $verb The verb's schema entry.
-	 * @param string                 $what The verb, for the refusal.
+	 * @param array<array-key,mixed> $command The command's schema entry.
+	 * @param string                 $what    The verb, for the refusal.
 	 * @return string
-	 * @throws \LogicException When the verb declares no arg.
+	 * @throws \LogicException When the command declares no arg.
 	 */
-	private static function carrying_arg( array $verb, string $what ): string {
-		$arg = Core::as_string( Core::arr( Core::arr( $verb['args'] ?? [] )[0] ?? [] )['name'] ?? '' );
+	private static function carrying_arg( array $command, string $what ): string {
+		$arg = Core::as_string( Core::arr( Core::arr( $command['args'] ?? [] )[0] ?? [] )['name'] ?? '' );
 		if ( '' === $arg ) {
-			throw new \LogicException( \esc_html( "{$what}: the verb declares no arg to carry its value" ) );
+			throw new \LogicException( \esc_html( "{$what}: the command declares no arg to carry its value" ) );
 		}
 		return $arg;
 	}
 
 	/**
-	 * Build a `{name}:config` interpreter from an already-resolved verb table,
+	 * Build a `{name}:config` interpreter from an already-resolved command table,
 	 * patron it and publish it — the half `auto_wire_interpreter()` shares with a
-	 * builder that assembles its own verb table rather than reading it straight
+	 * builder that assembles its own command table rather than reading it straight
 	 * off `node_schema()`. No-op for a node that already attached its own
-	 * interpreter (so a second call is idempotent), for an empty verb table,
+	 * interpreter (so a second call is idempotent), for an empty command table,
 	 * and for a node its builder opted out with `without_config()`.
 	 *
-	 * @param array<string,callable> $verbs Verb name => handler.
+	 * @param array<string,callable> $commands Verb name => handler.
 	 */
-	protected function wire_interpreter( array $verbs ): void {
-		if ( null !== $this->interpreter || [] === $verbs || ! $this->wants_config() ) {
+	protected function wire_interpreter( array $commands ): void {
+		if ( null !== $this->interpreter || [] === $commands || ! $this->wants_config() ) {
 			return;
 		}
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( $this );
-		$interpreter->commands( $verbs );
+		$interpreter->commands( $commands );
 		$this->interpreter = $interpreter;
 		$this->publish_sibling( self::CONFIG_KIND, $interpreter );
 	}
@@ -640,7 +640,7 @@ trait Schema_Reflection {
 	 * The verb is VALUE's first space-separated word, upper-cased. The entry of
 	 * that name carrying a callable `handler` — `callable( static $node ): array`
 	 * — supplies the reply's `data`, and the reply is TM_STRUCT|TM_RESPONSE,
-	 * VALUE `{ verb, data }`. Any other verb, a catalog-only entry included, is
+	 * VALUE `{ verb, data }`. Any other request, a catalog-only entry included, is
 	 * refused on the error plane, as Tachikoma's Partition refuses a request
 	 * and as the interpreter refuses a command: TM_ERROR, VALUE
 	 * `unknown request verb: <VERB>` with one terminating newline.
@@ -662,7 +662,7 @@ trait Schema_Reflection {
 		$reply = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_ERROR;
 		$reply[ Message::VALUE ] = "unknown request verb: {$verb}\n";
-		$handler = Command_Interpreter_Node::declared_verbs( static::class, 'requests' )[ $verb ]['handler'] ?? null;
+		$handler = Command_Interpreter_Node::declared_commands( static::class, 'requests' )[ $verb ]['handler'] ?? null;
 		if ( \is_callable( $handler ) ) {
 			$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
 			$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $handler( $this ) ];

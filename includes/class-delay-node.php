@@ -547,7 +547,7 @@ final class Delay_Node extends Timer_Node {
 			'commands'    => [
 				[
 					'name'        => 'set_read_capability',
-					'description' => 'Name the WordPress capability a raw read of the queue needs. The queue writes it to a .read-capability marker at once when its dir exists, else before its first flush; the sweep\'s cursor and dead letters copy it, and a raw-logs verb, the catalog and the SSE stream refuse them to a caller without it (ADR-39).',
+					'description' => 'Name the WordPress capability a raw read of the queue needs. The queue writes it to a .read-capability marker at once when its dir exists, else before its first flush; the sweep\'s cursor and dead letters copy it, and a raw-logs command, the catalog and the SSE stream refuse them to a caller without it (ADR-39).',
 					'args'        => [
 						[ 'name' => 'capability', 'type' => 'string', 'required' => true, 'description' => 'Lowercase letters, digits and underscores.' ],
 					],

@@ -312,8 +312,8 @@ class TopicTest extends TestCase {
 		$this->assertSame( $t, $partitions[ $idx ]->patron() );
 	}
 
-	/** An owned Topic partition keeps its `:config`, and its verbs reach it there. */
-	public function test_a_materialized_partitions_verbs_reach_its_config(): void {
+	/** An owned Topic partition keeps its `:config`, and its commands reach it there. */
+	public function test_a_materialized_partitions_commands_reach_its_config(): void {
 		$t = new Topic_Node();
 		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 		$t->name( 'quarry-7720' );
@@ -797,21 +797,21 @@ class TopicTest extends TestCase {
 	}
 
 	/**
-	 * A Topic is a fan of Partitions, so it must take the Partition verbs — and
+	 * A Topic is a fan of Partitions, so it must take the Partition commands — and
 	 * propagate them to partitions it materializes LATER (they're created lazily,
 	 * on first write to that key). `allow_large_writes` and `void_warranty`
 	 * already existed as PHP methods but were unreachable: `commands` was empty,
 	 * so `cmd topic:config void_warranty` silently did nothing.
 	 */
-	public function test_void_warranty_verb_reaches_partitions_made_later(): void {
+	public function test_void_warranty_command_reaches_partitions_made_later(): void {
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
-		$this->assertSame( "ok\n", $this->verb( $t, 'void_warranty' ) );
+		$this->assertSame( "ok\n", $this->run_command( $t, 'void_warranty' ) );
 
 		// A >4KB write only lands if the cap was lifted on the partition the key
-		// routes to — which does not exist yet at the time of the verb.
+		// routes to — which does not exist yet at the time of the command.
 		$big = \str_repeat( 'x', 8000 );
 		$this->produce_into( $t, $big, '/late' );
 
@@ -827,40 +827,40 @@ class TopicTest extends TestCase {
 		$this->assertTrue( $found, 'the >4KB write must land — the cap was lifted' );
 	}
 
-	public function test_allow_large_writes_verb_is_dispatchable(): void {
+	public function test_allow_large_writes_command_is_dispatchable(): void {
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
-		$this->assertSame( "ok\n", $this->verb( $t, 'allow_large_writes' ) );
+		$this->assertSame( "ok\n", $this->run_command( $t, 'allow_large_writes' ) );
 	}
 
 	/** with_index names a line-formatter for each partition's companion index. */
-	public function test_with_index_verb_names_a_formatter(): void {
+	public function test_with_index_command_names_a_formatter(): void {
 		\Newspack_Nodes\Formatters::register( 'zebra-index', static fn ( $m ): string => 'z' );
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
 		$e = $this->caught(
-			fn () => $this->verb( $t, 'with_index', 'no-such-formatter' ),
+			fn () => $this->run_command( $t, 'with_index', 'no-such-formatter' ),
 			'an unknown formatter must raise, not answer with a line'
 		);
 		$this->assertSame( 'unknown formatter: no-such-formatter', $e->getMessage() );
 		$this->assertSame(
 			"ok\n",
-			$this->verb( $t, 'with_index', 'zebra-index' )
+			$this->run_command( $t, 'with_index', 'zebra-index' )
 		);
 	}
 
-	/** The verbs round-trip: dump_config re-emits them, like Partition's does. */
-	public function test_dump_config_round_trips_the_verbs(): void {
+	/** The commands round-trip: dump_config re-emits them, like Partition's does. */
+	public function test_dump_config_round_trips_the_commands(): void {
 		\Newspack_Nodes\Formatters::register( 'zebra-index', static fn ( $m ): string => 'z' );
 		$t = new Topic_Node();
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
-		$this->verb( $t, 'void_warranty' );
-		$this->verb( $t, 'with_index', 'zebra-index' );
+		$this->run_command( $t, 'void_warranty' );
+		$this->run_command( $t, 'with_index', 'zebra-index' );
 
 		$dump = $t->dump_config();
 
@@ -868,8 +868,8 @@ class TopicTest extends TestCase {
 		$this->assertStringContainsString( 'command_node zebra:topic:config with_index zebra-index', $dump );
 	}
 
-	/** Dispatch a verb through the node's own `{name}:config` interpreter. */
-	private function verb( Topic_Node $t, string $name, string $args = '' ): mixed {
+	/** Dispatch a command through the node's own `{name}:config` interpreter. */
+	private function run_command( Topic_Node $t, string $name, string $args = '' ): mixed {
 		$interpreter = $this->read_private( $t, 'interpreter' );
 		return $interpreter->dispatch( $name, '' === $args ? [] : [ $args ] );
 	}

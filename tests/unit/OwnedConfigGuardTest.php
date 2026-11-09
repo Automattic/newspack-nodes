@@ -1,8 +1,8 @@
 <?php
 /**
- * Every patroned node whose class declares verbs keeps its `:config`, so a
- * sidecar's verbs reach it as a canvas node's do. The guard walks graphs the
- * substrate builds; a class built as a patroned sibling with verbs and
+ * Every patroned node whose class declares commands keeps its `:config`, so a
+ * sidecar's commands reach it as a canvas node's do. The guard walks graphs the
+ * substrate builds; a class built as a patroned sibling with commands and
  * no interpreter fails it.
  *
  * @package Newspack_Nodes
@@ -23,7 +23,7 @@ use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 
-/** Declares a verb and never wires the interpreter that would take it. */
+/** Declares a command and never wires the interpreter that would take it. */
 final class Owned_Config_Unwired_Fixture_Node extends Node {
 	public static function node_schema(): array {
 		return [
@@ -41,7 +41,7 @@ final class OwnedConfigGuardTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_the_guard_fails_a_patroned_node_with_verbs_and_no_config(): void {
+	public function test_the_guard_fails_a_patroned_node_with_commands_and_no_config(): void {
 		$owner    = new Node();
 		$unwired  = new Owned_Config_Unwired_Fixture_Node();
 		$unwired->patron( $owner );

@@ -372,7 +372,7 @@ describe( 'Shell node — local builtins', () => {
 	} );
 
 	// Without a Dumper — the normal case for a Shell driving a TSL in worker
-	// scope — the verb must not do nothing AND say nothing. PHP names the
+	// scope — the command must not do nothing AND say nothing. PHP names the
 	// missing node.
 	it( 'debug_level reports the missing output node instead of going quiet', () => {
 		const { shell } = makeShell();
@@ -566,7 +566,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		);
 	} );
 
-	it( 'a bare verb defaults to TM_COMMAND at the cwd (path)', () => {
+	it( 'a bare command defaults to TM_COMMAND at the cwd (path)', () => {
 		const { m } = drive( 'make_node Echo my_node' );
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( '_http/demo.p0' );
@@ -591,7 +591,7 @@ describe( 'Shell node — settable path (cwd) + prefix', () => {
 		expect( filled[ 0 ][ TO ] ).toBe( 'n' );
 	} );
 
-	it( 'path-only (no node) routes a bare verb to the cwd', () => {
+	it( 'path-only (no node) routes a bare command to the cwd', () => {
 		const { shell, filled } = makeShell( { path: '_http/demo.p0' } );
 		send( shell, 'ls' );
 		expect( filled[ 0 ][ TO ] ).toBe( '_http/demo.p0' );
@@ -878,7 +878,7 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 		expect( shell.vars.x ).toBe( 'a b c' );
 	} );
 
-	it( 'bare verb args are tokens; a quoted arg survives as ONE token', () => {
+	it( 'bare command args are tokens; a quoted arg survives as ONE token', () => {
 		const { shell } = makeShell( { path: '' } );
 		const m = shell.parse( 'foo a   "b c"' );
 		expect( m[ VALUE ] ).toMatchObject( {
@@ -1053,7 +1053,7 @@ describe( 'Shell node — fatal_errors (topology mode)', () => {
 			'make_node Consumer egret "/logs/egret.p<partition>"',
 		],
 		[ 'single-quoted', "make_node Topic egret /logs/egret.p'<partition>'" ],
-		[ 'any verb', 'tell egret <partition>' ],
+		[ 'any command', 'tell egret <partition>' ],
 	] )( 'refuses a %s <partition> and mints nothing', ( _kind, line ) => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.fatalErrors( true );
@@ -1184,7 +1184,7 @@ describe( 'Shell node — message.from / message.key / message.id vars', () => {
 		expect( shell.parse( 'send node bytes' )[ KEY ] ).toBe( 'trace-77' );
 	} );
 
-	it( 'stamps KEY on every verb that mints, not just send', () => {
+	it( 'stamps KEY on every command that mints, not just send', () => {
 		const { shell } = makeShell();
 		shell.parse( 'var message.key = trace-77' );
 		expect( shell.parse( 'tell node info' )[ KEY ] ).toBe( 'trace-77' );
@@ -1612,7 +1612,7 @@ describe( 'parseStatements — static statements replay to runtime messages', ()
 		return filled.map( meaning );
 	};
 
-	it( 'replays every minting verb, at a cwd and at the root', () => {
+	it( 'replays every minting command, at a cwd and at the root', () => {
 		const statements = parseStatements( SCRIPT.join( '\n' ) );
 		expect( runLines( statements.map( ( s ) => s.raw ) ) ).toEqual(
 			runLines( SCRIPT )
@@ -1621,8 +1621,8 @@ describe( 'parseStatements — static statements replay to runtime messages', ()
 
 	// Only the browser REPL has the skin builtins. A statement list reads a
 	// TOPOLOGY, which the PHP loader runs, so it must read them as PHP will —
-	// modelling this parse()'s extra verbs would misreport a real `.tsl`.
-	it( 'reads the browser-only skin verbs as the cwd commands PHP sends', () => {
+	// modelling this parse()'s extra builtins would misreport a real `.tsl`.
+	it( 'reads the browser-only skin builtins as the cwd commands PHP sends', () => {
 		const statements = parseStatements(
 			'cd depot\nset_skin midnight\nlist_skins'
 		);

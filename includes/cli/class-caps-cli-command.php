@@ -25,7 +25,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The two operator verbs over `Roles`.
+ * The two operator subcommands over `Roles`.
  */
 class Caps_CLI_Command {
 

@@ -8,7 +8,7 @@
  * publishes its connection state to the shared cache, and each reader its
  * cursor to the probe log. This interpreter is the read side of both. It mounts as `aggregator` on
  * `newspack_nodes/request_graph_ready` beside the rest of the substrate
- * service CIs, and answers the three verbs `node_schema()` declares:
+ * service CIs, and answers the three commands `node_schema()` declares:
  *
  *   summary        — the polled header slice, `{connected, idle, total,
  *                    server_now, unreadable}` counted from `build_snapshot()`,
@@ -19,7 +19,7 @@
  *                    over, each row carrying its broker's `readers` off the
  *                    probe log. Only this slice reads that log.
  *   probe          — the button-triggered deep probe of ONE spoke, and the
- *                    only verb here that reaches the network.
+ *                    only command here that reaches the network.
  *
  * Each slice's handler returns its struct, the slice a browser SliceViewNode
  * publishes, and both read the one `build_snapshot()` builder — so the
@@ -30,7 +30,7 @@
  * The dashboard batches the pair into a single POST, so they also answer from
  * one request.
  *
- * Each verb declares its `Capabilities` role in `node_schema()`, and
+ * Each command declares its `Capabilities` role in `node_schema()`, and
  * `dispatch()` refuses a caller below it (ADR-26), resolved through the
  * filterable `newspack_nodes/capability_map` rather than a hardcoded
  * capability.
@@ -59,7 +59,7 @@ use Newspack_Nodes\Vault;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Hub-side dashboard verbs: two polled snapshot slices and one spoke probe.
+ * Hub-side dashboard commands: two polled snapshot slices and one spoke probe.
  */
 class Aggregator_CI_Node extends Service_CI_Node {
 
@@ -67,7 +67,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	private const PROBED_ROWS_KEY = 'aggregator:probed_rows';
 
 	/**
-	 * `probe` verb: POST one spoke's `workers/dump_graph` through
+	 * `probe` command: POST one spoke's `workers/dump_graph` through
 	 * `HTTP_Out_Node::probe_command()` (and its `$http_call` seam) and answer
 	 * with the roll-up `fleet_rollup()` whitelists. The polled slices carry
 	 * the hub's own view — each broker's connection health and each of its
@@ -79,7 +79,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * URL and credentials live in the Vault, and `build_snapshot()` carries a
 	 * `vault_id` on every row so a card can hand it straight back.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id.
+	 * @param array<array-key,mixed> $args Bound command arguments: id.
 	 * @return array<string,mixed> Compact per-spoke roll-up.
 	 * @throws \RuntimeException When `<id>` does not name a Vault entry, or the
 	 *                           spoke call fails.
@@ -292,7 +292,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Palette entry and verb table: the two polled slices and the probe, each
+	 * Palette entry and command table: the two polled slices and the probe, each
 	 * with the role below which `dispatch()` refuses it (ADR-26).
 	 *
 	 * @api Used by the substrate to provide UI etc.

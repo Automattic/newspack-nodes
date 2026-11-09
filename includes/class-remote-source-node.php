@@ -494,7 +494,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * Palette entry: the broker's form and verbs, in the I/O category.
+	 * Palette entry: the broker's form and commands, in the I/O category.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>

@@ -151,7 +151,7 @@ class AdminTest extends TestCase {
 	}
 
 	/**
-	 * The save path must enforce the SAME bounds the `settings` verb does, so
+	 * The save path must enforce the SAME bounds the `settings` command does, so
 	 * 4177 partitions is refused on both.
 	 */
 	public function test_register_settings_clamps_an_int_option_to_its_declared_bounds(): void {
@@ -417,7 +417,7 @@ class AdminTest extends TestCase {
 
 	public function test_handle_reset_settings_preserves_topologies(): void {
 		// Reset clears the UI-exposed settings, but `topologies` is overlay-only
-		// (managed by the Topology Manager / activate verbs), so it is NOT in the
+		// (managed by the Topology Manager / activate commands), so it is NOT in the
 		// reset set: a settings reset must leave the active set intact.
 		$_POST = [ Admin::RESET_NONCE => $this->valid_nonce() ];
 		\update_option( 'newspack_nodes_topologies', [ 'combined' ] );
@@ -1296,7 +1296,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	public function test_topologies_is_outside_the_reset_gate(): void {
 		// Overlay-only: topologies has no `pre_update_option_*` reset-gate filter,
 		// so neither a blank save nor a per-field reset mark can delete the active
-		// set — only the Topology Manager / activate verbs write it.
+		// set — only the Topology Manager / activate commands write it.
 		$admin = new Admin();
 		$admin->register_settings();
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
@@ -1361,7 +1361,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	public function test_register_settings_does_not_register_topologies_as_a_settings_option(): void {
 		// The active-topologies set is managed by the Topology Manager / activate
-		// verbs, NOT the Nodes Runtime settings form. Registering it as a settings-group
+		// commands, NOT the Nodes Runtime settings form. Registering it as a settings-group
 		// option made Save (which never renders it) wipe the active set: options.php
 		// sanitizes every registered option from $_POST, and an absent one sanitized
 		// to []. Keep it overlay-only so Save can't touch it.

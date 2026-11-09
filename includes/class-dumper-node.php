@@ -212,7 +212,7 @@ class Dumper_Node extends Node {
 	/**
 	 * Render a TM-flag bitmask for display, joining the matched names with ` | `.
 	 * A bitmask that does not match any name — 0 among them — reads
-	 * `TM_UNKNOWN(0x<hex>)`. Public because the dead-letter `dl_show` verb
+	 * `TM_UNKNOWN(0x<hex>)`. Public because the dead-letter `dl_show` command
 	 * renders through it too. The names come from `Message::type_labels()`, the
 	 * one flags-to-names map.
 	 *
@@ -339,7 +339,7 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Topology console manifest: a Transform with no arguments and no verbs,
+	 * Topology console manifest: a Transform with no arguments and no commands,
 	 * declaring a target, since every rendered line leaves through it.
 	 *
 	 * @return array<string,mixed>

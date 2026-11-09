@@ -15,7 +15,7 @@ use Newspack_Nodes\Tests\TestCase;
 class SettingsSyncNodeTest extends TestCase {
 
 	/**
-	 * A spoke `set` verb's declared args, as a push must bind against them.
+	 * A spoke `set` command's declared args, as a push must bind against them.
 	 * `value` is optional: a blank required arg reads as missing, and a push
 	 * may carry an option whose value is blank.
 	 */
@@ -92,7 +92,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertContains( 'interval_seconds', $arg_names, 'editor CONSTRUCTOR panel must surface the interval arg' );
 	}
 
-	public function test_config_verb_dispatches_to_add_setting(): void {
+	public function test_config_command_dispatches_to_add_setting(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
@@ -760,7 +760,7 @@ class SettingsSyncNodeTest extends TestCase {
 	}
 
 	/**
-	 * A spoke `set` verb binds `<option> <value>` by position, so what the push
+	 * A spoke `set` command binds `<option> <value>` by position, so what the push
 	 * formats MUST bind back to both — a csv value and a spaced one included.
 	 */
 	public function test_command_args_round_trips_positional_value(): void {

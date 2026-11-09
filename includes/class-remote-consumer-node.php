@@ -1227,7 +1227,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/**
 	 * Off the palette, since a broker builds it, with the Consumer reader's
-	 * verbs on its own `:config`; the console opens it from its broker.
+	 * commands on its own `:config`; the console opens it from its broker.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
@@ -1241,7 +1241,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Directory for the durable read-cursor offsetlog.' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Directory where poison records are quarantined.' ],
 			],
-			'commands'     => \array_merge( self::deadletter_verbs(), self::time_travel_verbs(), self::pump_verbs() ),
+			'commands'     => \array_merge( self::deadletter_commands(), self::time_travel_commands(), self::pump_commands() ),
 			'requests'     => [],
 			'accepts_fill' => true,
 		];

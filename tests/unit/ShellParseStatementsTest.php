@@ -44,7 +44,7 @@ class ShellParseStatementsTest extends TestCase {
 		);
 	}
 
-	/** A bare make_node inside a cwd is a command to that node, like any verb. */
+	/** A bare make_node inside a cwd is a command to that node, like any other command. */
 	public function test_make_node_inside_a_cwd_is_a_command_to_that_node(): void {
 		$statements = Shell_Node::parse_statements( "cd deep\nmake_node Topic leaf" );
 
@@ -81,8 +81,8 @@ class ShellParseStatementsTest extends TestCase {
 		);
 	}
 
-	/** A bare verb inside a cd'd path becomes `command_node <path> <verb> <args>`. */
-	public function test_cwd_wraps_a_bare_verb_into_a_command_node(): void {
+	/** A bare command inside a cd'd path becomes `command_node <path> <verb> <args>`. */
+	public function test_cwd_wraps_a_bare_command_into_a_command_node(): void {
 		$statements = $this->summarize(
 			Shell_Node::parse_statements( "cd requests:partition\nvoid_warranty keep\ncd /\nset_multi_writer true" )
 		);

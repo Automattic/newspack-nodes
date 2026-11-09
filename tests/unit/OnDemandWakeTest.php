@@ -739,7 +739,7 @@ class OnDemandWakeTest extends TestCase {
 	/**
 	 * A wake the endpoint refuses answers the command that asked for it with a
 	 * TM_ERROR carrying the endpoint's message, through the same route every
-	 * verb failure takes; the command behind it still lands for the worker.
+	 * command failure takes; the command behind it still lands for the worker.
 	 */
 	public function test_a_refused_wake_from_command_answers_its_sender(): void {
 		$this->activate( 'marmot-ondemand', 23 );

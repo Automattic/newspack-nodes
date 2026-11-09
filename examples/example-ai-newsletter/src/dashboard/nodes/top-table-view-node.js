@@ -3,11 +3,11 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
 /**
  * The `top-table:view` node, owner of the score-ranked top-items slice and
  * nothing else. `usePublisherInsightsGraph` gives it its own Fetcher and
- * receiver Tee for the `insights-demo` CI's `top` verb, so that reply lands
+ * receiver Tee for the `insights-demo` CI's `top` command, so that reply lands
  * here and never touches the counts or accumulated slices, and `<TopTable/>`
  * reads the published model through `useNodeField( 'top-table:view', 'view' )`.
  *
- * The verb answers the struct `{ top: [ { source, title, score } ] }` — at most
+ * The command answers the struct `{ top: [ { source, title, score } ] }` — at most
  * ten items, highest score first — and that IS the slice, so the base class's
  * parse needs no override and this class declares only its empty model.
  *

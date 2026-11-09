@@ -394,10 +394,10 @@ class WorkerScaffoldingTest extends TestCase {
 
 	/**
 	 * The IPC input's quarantine counts toward the dead-letters alert, so it
-	 * must be operable: the reader carries a reserved name, and the dl_ verbs
+	 * must be operable: the reader carries a reserved name, and the dl_ commands
 	 * reach it through its `:config` interpreter like any other reader's.
 	 */
-	public function test_the_ipc_input_quarantine_answers_the_dead_letter_verbs(): void {
+	public function test_the_ipc_input_quarantine_answers_the_dead_letter_commands(): void {
 		$w  = new Worker_Base( $this->tmp, 'kestrel', 4 );
 		$w->build_scaffolding();
 		$in = Core::node( \Newspack_Nodes\Node_Names::REPL_INPUT );

@@ -12,14 +12,14 @@ use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * ADR-26: `Command_Interpreter_Node::dispatch()` refuses every verb against
+ * ADR-26: `Command_Interpreter_Node::dispatch()` refuses every command against
  * the role its schema declares, MANAGE when undeclared. In a worker no user
  * is current, so the verified session's scope is the whole gate, and a
  * command signed by the site's own secret carries no ceiling.
  */
 #[CoversClass( Command_Interpreter_Node::class )]
 #[CoversClass( Capabilities::class )]
-final class VerbRoleGateTest extends TestCase {
+final class CommandRoleGateTest extends TestCase {
 	private string $dir = '';
 	private Table_Node $table;
 	private Capture_Sink_Node $sink;
@@ -27,7 +27,7 @@ final class VerbRoleGateTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		$this->use_wpdb();
-		$this->dir = $this->make_temp_dir( 'verb-role-gate-' );
+		$this->dir = $this->make_temp_dir( 'command-role-gate-' );
 		$this->use_base_dir( $this->dir );
 		// A worker: no user is current, and every command must verify.
 		$GLOBALS['_wp_test_current_user_id']        = 0;
@@ -135,33 +135,33 @@ final class VerbRoleGateTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_id'] = 4481;
 		Capabilities::$session_scope         = null;
 
-		$e = $this->caught( fn () => Capabilities::require_verb( Capabilities::TUNE ), 'a user without the capability passed' );
+		$e = $this->caught( fn () => Capabilities::require_command( Capabilities::TUNE ), 'a user without the capability passed' );
 		$this->assertSame( 'permission denied: tune capability required', $e->getMessage(), 'a user without the capability is refused though no ceiling stands' );
 
 		$GLOBALS['_wp_test_current_user_can'] = [ Capabilities::cap_for( Capabilities::TUNE ) => true ];
-		Capabilities::require_verb( Capabilities::TUNE );
+		Capabilities::require_command( Capabilities::TUNE );
 		$this->addToAssertionCount( 1 );
 	}
 
 	public function test_where_no_user_is_current_the_ceiling_alone_decides(): void {
 		Capabilities::$session_scope = null;
-		Capabilities::require_verb( Capabilities::MANAGE );
+		Capabilities::require_command( Capabilities::MANAGE );
 
 		Capabilities::$session_scope = Capabilities::TUNE;
-		Capabilities::require_verb( Capabilities::TUNE );
-		$e = $this->caught( fn () => Capabilities::require_verb( Capabilities::MANAGE ), 'a TUNE ceiling reached MANAGE' );
+		Capabilities::require_command( Capabilities::TUNE );
+		$e = $this->caught( fn () => Capabilities::require_command( Capabilities::MANAGE ), 'a TUNE ceiling reached MANAGE' );
 		$this->assertSame( 'permission denied: manage capability required', $e->getMessage() );
 
 		Capabilities::$session_scope = Capabilities::NONE;
-		$e = $this->caught( fn () => Capabilities::require_verb( Capabilities::READ ), 'a NONE ceiling reached READ' );
+		$e = $this->caught( fn () => Capabilities::require_command( Capabilities::READ ), 'a NONE ceiling reached READ' );
 		$this->assertSame( 'permission denied: read capability required', $e->getMessage() );
 	}
 
-	public function test_the_config_verbs_that_only_report_declare_read_and_the_rest_declare_nothing(): void {
+	public function test_the_config_commands_that_only_report_declare_read_and_the_rest_declare_nothing(): void {
 		$declared = static function ( string $class ): array {
 			$roles = [];
-			foreach ( $class::node_schema()['commands'] as $verb ) {
-				$roles[ $verb['name'] ] = $verb['capability'] ?? null;
+			foreach ( $class::node_schema()['commands'] as $command ) {
+				$roles[ $command['name'] ] = $command['capability'] ?? null;
 			}
 			return $roles;
 		};

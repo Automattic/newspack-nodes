@@ -1,7 +1,7 @@
 /**
  * An owned node's Inspector, shown in its owner's place from the row the
  * console's sidecar poller asks `dump_metadata -o <name>` for, the name riding
- * on FROM: it renders the row's Time Travel, Triage and verbs, names its owner as
+ * on FROM: it renders the row's Time Travel, Triage and commands, names its owner as
  * a link back. Its own sidecars open from the "…" on its grid card, so its
  * title offers none.
  */
@@ -32,7 +32,7 @@ const broker = {
 	sidecars: [ { name: 'remote-tulsa:http-out', class: 'HTTP_Out' } ],
 };
 
-/** The class catalog the sidecars' Constructor, Triage and Verbs read. */
+/** The class catalog the sidecars' Constructor, Triage and Class Commands read. */
 const catalog = [
 	{
 		shell_name: 'Remote_Consumer',
@@ -193,7 +193,7 @@ describe( 'Inspector sidecars', () => {
 		expect( container.textContent ).toMatch( /17(\.0)?\s*\/s/ );
 	} );
 
-	it( 'sends its verbs to the sidecar, not to its owner', () => {
+	it( 'sends its commands to the sidecar, not to its owner', () => {
 		const onAction = jest.fn();
 		renderWithCatalog( inspector( { sidecar: READER, onAction } ), {
 			classes: catalog,
@@ -318,7 +318,7 @@ describe( 'Inspector sidecars', () => {
 		expect( title( container ) ).toBe( other );
 	} );
 
-	it( 'offers no verbs for a sidecar built without a :config', () => {
+	it( 'offers no commands for a sidecar built without a :config', () => {
 		const source = 'reader-7720:source';
 		const classes = [
 			...catalog,
@@ -346,6 +346,6 @@ describe( 'Inspector sidecars', () => {
 		);
 		expect( title( container ) ).toBe( source );
 		expect( screen.queryByText( 'allow_large_writes' ) ).toBeNull();
-		expect( screen.queryByText( 'Verbs' ) ).toBeNull();
+		expect( screen.queryByText( 'Class Commands' ) ).toBeNull();
 	} );
 } );

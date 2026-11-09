@@ -19,7 +19,7 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Time-travel transport on Remote_Consumer_Node: the same surface the Consumer
  * carries (frames + cursor in dump_metadata, `pause`/`play`/`seek_frame`/`step`
- * verbs), mapped onto one stream of a broker's SSE pull — a paused reader
+ * commands), mapped onto one stream of a broker's SSE pull — a paused reader
  * leaves the stream, and the broker's next connect states where it stands.
  */
 #[CoversClass( Remote_Consumer_Node::class )]
@@ -89,14 +89,14 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 	}
 
 	// =========================================================================
-	// Schema: the shared time-travel verbs are registered on the reader too.
+	// Schema: the shared time-travel commands are registered on the reader too.
 	// =========================================================================
 
-	public function test_node_schema_registers_the_time_travel_verbs(): void {
+	public function test_node_schema_registers_the_time_travel_commands(): void {
 		$schema = Remote_Consumer_Node::node_schema();
 		$verbs  = \array_column( $schema['commands'], 'name' );
 		foreach ( [ 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step' ] as $verb ) {
-			$this->assertContains( $verb, $verbs, "Remote_Consumer must register the {$verb} verb" );
+			$this->assertContains( $verb, $verbs, "Remote_Consumer must register the {$verb} command" );
 		}
 	}
 
@@ -408,10 +408,10 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 	}
 
 	// =========================================================================
-	// Verb dispatch through the auto-wired {name}:config interpreter.
+	// Command dispatch through the auto-wired {name}:config interpreter.
 	// =========================================================================
 
-	public function test_time_travel_verbs_dispatch_through_config_interpreter(): void {
+	public function test_time_travel_commands_dispatch_through_config_interpreter(): void {
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-aspen' );
@@ -419,7 +419,7 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node->fire_cb();
 
 		$interpreter = $this->read_private( $node, 'interpreter' );
-		$this->assertNotNull( $interpreter, 'the reader auto-wires a {name}:config interpreter for its verbs' );
+		$this->assertNotNull( $interpreter, 'the reader auto-wires a {name}:config interpreter for its commands' );
 		$cap = new Capture_Sink_Node();
 		$interpreter->sink( $cap );
 

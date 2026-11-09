@@ -80,7 +80,7 @@ final class SqliteArmTest extends TestCase {
 		$this->assertLessThan( $before, $this->footprint() );
 	}
 
-	public function test_every_other_write_verb_fails_while_another_writer_holds_the_lock(): void {
+	public function test_every_other_write_command_fails_while_another_writer_holds_the_lock(): void {
 		$arm = new Sqlite_Arm( $this->path(), 'kea:p3', 1 );
 		$arm->set( 'sku-41', 5, 0 );
 		$other = new \PDO( 'sqlite:' . $this->path() );

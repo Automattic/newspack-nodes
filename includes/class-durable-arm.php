@@ -228,7 +228,7 @@ abstract class Durable_Arm extends Cache_Backend {
 
 	/**
 	 * Delete up to `$limit` rows expired at `$now`, keyed rows first and set
-	 * members with what the limit leaves. A volatile arm has no such verb: its
+	 * members with what the limit leaves. A volatile arm has no such operation: its
 	 * store expires rows on its own.
 	 *
 	 * @param int $now   Epoch second.
@@ -676,7 +676,7 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * Tagged bytes this arm has encoded for a write or decoded for a read
 	 * since it was built, counted where each is computed, never re-serialized.
 	 *
-	 * @api Table_Node's per-verb counters read the change across one verb.
+	 * @api Table_Node's per-verb counters read the change across one call.
 	 * @return int Bytes.
 	 */
 	public function bytes(): int {
@@ -684,10 +684,10 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Reclaim the store's free pages. An operator verb, never automatic.
+	 * Reclaim the store's free pages. An operator command, never automatic.
 	 *
 	 * @throws \RuntimeException When the store refuses, in plain text the
-	 *                           verb reporting it escapes.
+	 *                           command reporting it escapes.
 	 */
 	abstract public function vacuum(): void;
 

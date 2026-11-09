@@ -3,8 +3,8 @@
  *
  * Edit mode and live mode send the same commands to different interpreters,
  * and the difference is a cwd. This is the edit-mode
- * one: it owns its own name table, answers the graph verbs against stubs for
- * classes the browser cannot build, and answers the DOCUMENT verbs — `var`,
+ * one: it owns its own name table, answers the graph commands against stubs for
+ * classes the browser cannot build, and answers the DOCUMENT commands — `var`,
  * `include`, `remove_include`, `secure` — which touch no node table at all.
  *
  * `dumpDocument()` writes the document. It is not `dump_config`: a topology
@@ -50,7 +50,7 @@ describe( 'the interpreter keeps its own name across a load', () => {
 	} );
 } );
 
-describe( 'graph verbs', () => {
+describe( 'graph commands', () => {
 	it( 'stubs a class the browser cannot build, and keeps its name', () => {
 		const d = draft();
 
@@ -100,7 +100,7 @@ describe( 'a typed line the parser refuses', () => {
 	} );
 } );
 
-describe( 'document verbs touch no node table', () => {
+describe( 'document commands touch no node table', () => {
 	it( 'var, include, remove_include and secure', () => {
 		const d = draft();
 
@@ -129,8 +129,8 @@ describe( 'document verbs touch no node table', () => {
 } );
 
 describe( 'command_node — one statement, two readings', () => {
-	it( 'records a verb the tokenizer canonicalised from `cmd`', () => {
-		// `cmd` and `command` are not separate verbs: parseStatements rewrites
+	it( 'records a command the tokenizer canonicalised from `cmd`', () => {
+		// `cmd` and `command` are not separate commands: parseStatements rewrites
 		// both to `command_node`, so there is one handler and one grammar.
 		const d = draft();
 		d.run( 'make_node Partition firehose firehose.p0' );
@@ -143,7 +143,7 @@ describe( 'command_node — one statement, two readings', () => {
 	} );
 
 	it( 'routes a :config target to the sidecar, and remembers which', () => {
-		// A normal node takes verbs through `<name>:config`; a bare target is
+		// A normal node takes commands through `<name>:config`; a bare target is
 		// how an INTERPRETER-class node takes them directly. dumpDocument has
 		// to emit back whichever the topology wrote.
 		const d = draft();
@@ -206,7 +206,7 @@ describe( 'command_node — one statement, two readings', () => {
 	} );
 } );
 
-describe( 'the two verbs an editor needs and TSL only appends', () => {
+describe( 'the two commands an editor needs and TSL only appends', () => {
 	it( "set_arguments replaces a node's constructor args", () => {
 		// Tachikoma has it, aliased `set`, and an editor rewriting ctor args
 		// needs it.
@@ -232,7 +232,7 @@ describe( 'the two verbs an editor needs and TSL only appends', () => {
 	it( 'replaceInvocations swaps the whole declared list', () => {
 		// `command_node` only ever appends, and a topology file cannot say
 		// "forget the previous cmd lines" — so replacement is an EDITOR
-		// operation with no TSL spelling, and it is a method, not a verb.
+		// operation with no TSL spelling, and it is a method, not a command.
 		const d = draft();
 		d.run( 'make_node Partition firehose firehose.p0' );
 		d.run( 'cmd firehose void_warranty' );

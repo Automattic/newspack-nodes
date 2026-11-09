@@ -36,14 +36,14 @@ export const views = registerSliceViews( {
 | Key | What it declares |
 |---|---|
 | `empty` | The shaped-but-empty model, copied per node so one view's mutation never surfaces in the next. |
-| `parse` | The map from reply to model. It receives the verb's struct as the wire decoded it, and returning `null` keeps the model already on screen. Omit `parse` when the reply *is* the slice: an object payload then publishes whole, and anything else keeps the model on screen. |
+| `parse` | The map from reply to model. It receives the command's struct as the wire decoded it, and returning `null` keeps the model already on screen. Omit `parse` when the reply *is* the slice: an object payload then publishes whole, and anything else keeps the model on screen. |
 | `description` | The `help <Name>` description, the only part of the schema a declaration can restate. It never reaches a palette tile, because `sliceView()` overrides the description and never the inherited `Hidden` category. |
 
 Omitting `parse` moves the shape guard to the widget. The view then publishes
-whatever the verb answered, over the status fields the empty model declares, so
+whatever the command answered, over the status fields the empty model declares, so
 a field of your own shape is never guaranteed. The example's `SourceCountsViewNode`
 declares neither `loading` nor `error`, which leaves its published model the
-verb's struct wholesale; `<SourceCounts/>` carries the only guard on that path,
+command's struct wholesale; `<SourceCounts/>` carries the only guard on that path,
 reading `slice.sources ?? {}` on top of the `{ sources: {} }` default that covers
 the render before the node exists. A widget must default every slice field it
 reaches into — `Object.entries( undefined )` throws inside render and unmounts
@@ -99,7 +99,7 @@ alone. A folded row unmounts and takes its departures with it.
 
 ## 3 routing facts
 
-![A slice drawn three ways, every node named <subject>:<role>. A polled slice runs <subject>:timer, :tee and :fetch, which sends the verb to the server CI with FROM = <subject>:in; the reply comes back TO = FROM to the :in receiver Tee, through its :in:current gate and an optional :transform, to the :view, which publishes its view field with setField( 'view', … ) for the React widget's useNodeField. A one-shot, useCommandOnce under the default scope <ci>:<command>, runs vault:add:fetch, vault:add:in and vault:add:result, a CommandResultNode. A stream, useStreamGraph under a prefix, runs <prefix>:stream and <prefix>:view, a LogStreamViewNode, fed by _stream, the page's one RemoteLink, beside the <prefix>-catalog:* and <prefix>-step:* slices. Beneath: the subject is the noun and never the verb, the three routing facts, and the rule that a node playing none of the fixed roles is a second slice with a subject of its own.](img/wvn-slice-path.png)
+![A slice drawn three ways, every node named <subject>:<role>. A polled slice runs <subject>:timer, :tee and :fetch, which sends the command to the server CI with FROM = <subject>:in; the reply comes back TO = FROM to the :in receiver Tee, through its :in:current gate and an optional :transform, to the :view, which publishes its view field with setField( 'view', … ) for the React widget's useNodeField. A one-shot, useCommandOnce under the default scope <ci>:<command>, runs vault:add:fetch, vault:add:in and vault:add:result, a CommandResultNode. A stream, useStreamGraph under a prefix, runs <prefix>:stream and <prefix>:view, a LogStreamViewNode, fed by _stream, the page's one RemoteLink, beside the <prefix>-catalog:* and <prefix>-step:* slices. Beneath: the subject is the noun and never the verb, the three routing facts, and the rule that a node playing none of the fixed roles is a second slice with a subject of its own.](img/wvn-slice-path.png)
 
 1. **A view is a terminal — no `target`, no `sink`** (`has_target: false`). A
    per-slice merge or dedup rides the gate → view edge, in
@@ -109,9 +109,9 @@ alone. A folded row unmounts and takes its departures with it.
 2. **The `TO = FROM` reply delivers your data.** `fill()` handles it and never
    sends the request; a stream view sends nothing either.
 
-3. **One slice per view — replies never cross.** Each slice verb has its own path from a Fetcher
+3. **One slice per view — replies never cross.** Each slice command has its own path from a Fetcher
 through a receiver to a view, so a `counts` reply lands only on
-   `source-counts:view`. A verb somebody awaits is minted from its own node and
+   `source-counts:view`. A command somebody awaits is minted from its own node and
    answered there
    ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)),
    so nothing reaching a view needs telling apart. There is no god node holding
@@ -124,14 +124,14 @@ through a receiver to a view, so a `counts` reply lands only on
 Every node a dashboard builds in the browser is named **`<subject>:<role>`**,
 and the sheet above carries the rule: the subject names what the slice shows,
 never the verb it sends; the roles are a fixed set; a node playing none of them
-is a second slice with a subject of its own; and a one-shot verb is the one
+is a second slice with a subject of its own; and a one-shot command is the one
 exception. `hook-catalog`, `error-log` and `log-viewer` are subjects under the
 same rule. The shared hooks derive every name from the subject you hand them:
 `scope` in `useCatalogSlice` and `useCommandOnce`, `prefix` in `useStreamGraph`.
 
 ## The `view` field
 
-![The base SliceViewNode.fill() as a decision chain. Every message first bumps this.counter. A message whose FROM is controlFrom goes to _control(), where loading raises the spinner and clears the error, clear resets to emptySlice(), error stops the spinner with value.error or 'Operation failed', and an unknown verb changes nothing. Otherwise a TM_ERROR becomes { ...view, error, loading: false }, keeping the slice on screen. Otherwise an object VALUE goes to _parse( value.payload ), which takes an object payload as the slice or runs a declared parse; a slice becomes view = { ...settled, ...slice }, rebuilt rather than merged, while null or a non-object VALUE returns and keeps the prior slice. Every publishing branch hands a new object to setField( 'view', … ); the field is the current model, so a widget that mounts late reads it off the node. Beneath: preserve origin-then-TYPE order in an override, garbage keeps the prior slice, recovery needs no reload, and CommandResultNode, the one-shot mirror, notifies every reply on result with the same seven fields.](img/wvn-fill-branches.png)
+![The base SliceViewNode.fill() as a decision chain. Every message first bumps this.counter. A message whose FROM is controlFrom goes to _control(), where loading raises the spinner and clears the error, clear resets to emptySlice(), error stops the spinner with value.error or 'Operation failed', and an unknown control changes nothing. Otherwise a TM_ERROR becomes { ...view, error, loading: false }, keeping the slice on screen. Otherwise an object VALUE goes to _parse( value.payload ), which takes an object payload as the slice or runs a declared parse; a slice becomes view = { ...settled, ...slice }, rebuilt rather than merged, while null or a non-object VALUE returns and keeps the prior slice. Every publishing branch hands a new object to setField( 'view', … ); the field is the current model, so a widget that mounts late reads it off the node. Beneath: preserve origin-then-TYPE order in an override, garbage keeps the prior slice, recovery needs no reload, and CommandResultNode, the one-shot mirror, notifies every reply on result with the same seven fields.](img/wvn-fill-branches.png)
 
 The model lives in the node's **`view`** field, the field
 `useNodeField( '<subject>:view', 'view' )` reads. A node publishes a field
@@ -192,10 +192,10 @@ transform rather than the view. A node that declares none takes no controls, and
 `controlMsg()` throws rather than stamp an empty origin, so a forgotten
 assignment fails loud instead of leaving a dead button.
 
-`SliceViewNode` handles the three verbs the sheet's `_control()` box lists, and
+`SliceViewNode` handles the three controls the sheet's `_control()` box lists, and
 a subclass handles its own first, deferring the rest with
 `super._control( value )`. `LogStreamViewNode` recognises a control the same way and answers eight
-verbs of its own, so a stream view's Pause button rides this channel too.
+controls of its own, so a stream view's Pause button rides this channel too.
 
 ## No throw from `fill()`
 
@@ -206,7 +206,7 @@ total, branch by branch as the sheet under the `view` field traces; preserve its
 if you override: origin, then TYPE, then shape. A `TM_ERROR` VALUE is a bare
 string, which `errorMessage()` coerces to readable text, and the example's three
 cards test `slice.error` first and render the notice alone. `_parse` receives
-the reply VALUE's `payload` field, the verb's struct, and answers null for
+the reply VALUE's `payload` field, the command's struct, and answers null for
 anything that is not an object; a parse of your own guards its shape the same
 way.
 

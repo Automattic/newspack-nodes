@@ -1,11 +1,11 @@
 <?php
 /**
- * Command_Args: the one argument grammar every verb is bound through.
+ * Command_Args: the one argument grammar every command is bound through.
  *
  * A command's `arguments` are a flat token array end to end — tokenized once
  * by the Shell or a REST producer, carried through the envelope, the
  * interpreter and `make_node` with the token boundaries intact, and re-joined
- * into a line only by `Node::serialize_args()` for `dump_config`. A verb whose
+ * into a line only by `Node::serialize_args()` for `dump_config`. A command whose
  * schema declares `args` has those tokens bound against the declaration by
  * `bind()`, which `Command_Interpreter_Node::dispatch()` runs before the
  * handler, so a handler reads its arguments by name and never parses. The
@@ -22,7 +22,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Stateless and static: `bind()` reads a verb's tokens against its declared
+ * Stateless and static: `bind()` reads a command's tokens against its declared
  * args, `format()` builds tokens, and `option_int()` is the refusing integer
  * read of a WP-CLI flag.
  */
@@ -48,7 +48,7 @@ class Command_Args {
 	];
 
 	/**
-	 * Bind a verb's argument tokens against its declared `args`, answering one
+	 * Bind a command's argument tokens against its declared `args`, answering one
 	 * value per declared name.
 	 *
 	 * Each arg arrives by position, in declared order, or as `--name=value`, and
@@ -69,8 +69,8 @@ class Command_Args {
 	 * required arg, a bare flag where a value belongs, and a token of the wrong
 	 * type (echoed, unless the arg is secret). None echoes a secret's value.
 	 *
-	 * @param array<array-key,mixed> $specs  The verb's declared `args`.
-	 * @param list<string>           $tokens The verb's argument tokens.
+	 * @param array<array-key,mixed> $specs  The command's declared `args`.
+	 * @param list<string>           $tokens The command's argument tokens.
 	 * @return array<string,mixed> Arg name => bound value, in declared order.
 	 * @throws \InvalidArgumentException When the tokens do not fit the declaration.
 	 */
@@ -223,7 +223,7 @@ class Command_Args {
 	 * The spec a positional in slot $slot binds to: the slot's own, or the
 	 * variadic arg's once the walk has reached it; null past the last.
 	 *
-	 * @param list<array<array-key,mixed>> $specs The verb's declared `args`.
+	 * @param list<array<array-key,mixed>> $specs The command's declared `args`.
 	 * @param int                          $slot  Zero-based positional index.
 	 * @return array<array-key,mixed>|null
 	 */
@@ -237,10 +237,10 @@ class Command_Args {
 	}
 
 	/**
-	 * The spec declaring $name, refusing an option the verb does not declare
+	 * The spec declaring $name, refusing an option the command does not declare
 	 * and naming the ones it does.
 	 *
-	 * @param list<array<array-key,mixed>> $specs The verb's declared `args`.
+	 * @param list<array<array-key,mixed>> $specs The command's declared `args`.
 	 * @param string                       $name  Option name, without `--`.
 	 * @return array<array-key,mixed>
 	 * @throws \InvalidArgumentException When the specs do not declare $name.
@@ -252,11 +252,11 @@ class Command_Args {
 			}
 		}
 		$takes = \array_map( static fn ( array $spec ): string => Core::as_string( $spec['name'] ?? '' ), $specs );
-		self::refuse( "unknown option --{$name}; this verb takes --" . \implode( ', --', $takes ) );
+		self::refuse( "unknown option --{$name}; this command takes --" . \implode( ', --', $takes ) );
 	}
 
 	/**
-	 * Raise a binding refusal; the interpreter answers it as the verb's TM_ERROR.
+	 * Raise a binding refusal; the interpreter answers it as the command's TM_ERROR.
 	 *
 	 * @param string $detail What was wrong.
 	 * @throws \InvalidArgumentException Always.
@@ -274,7 +274,7 @@ class Command_Args {
 	 * a number instead, so `--partition=abc` picks p0 and `--timeout=2m` picks
 	 * 2 seconds, and the command reports success on the wrong target. Reporting
 	 * belongs to the caller, in its own voice: `CLI::require_flag_int` errors
-	 * out of WP-CLI. A verb never needs it: `bind()` types a declared `int`.
+	 * out of WP-CLI. A command never needs it: `bind()` types a declared `int`.
 	 *
 	 * The map is WP-CLI's `$assoc_args`. A bare `--key` arrives as `true` and
 	 * refuses too: casting a flag answers 1, which names partition 1.
@@ -302,7 +302,7 @@ class Command_Args {
 	 * splits the value back apart, so a list rides as a `variadic` arg's
 	 * repeated tokens instead. `false` carries its value explicitly because the
 	 * bare form already means true, and omitting the option would leave the
-	 * verb's own default standing.
+	 * command's own default standing.
 	 *
 	 * Nothing is quoted here. A value carrying spaces stays whole inside its
 	 * own array element, and quoting belongs to `Node::serialize_args()`, the
@@ -335,14 +335,14 @@ class Command_Args {
 
 	/**
 	 * The refusal of a removal that names a value its add never gave, in the
-	 * one wording every remove verb refuses with:
+	 * one wording every remove command refuses with:
 	 * `<verb> '<arg>'… names a <noun> this <holder> does not declare`, each argument
 	 * quoted as given. The browser's `foldSource()` spells its removal the
 	 * same.
 	 *
 	 * @param string       $verb   The removal verb.
 	 * @param list<string> $args   Its arguments, as given.
-	 * @param string       $noun   What the add verb gives, e.g. `source`.
+	 * @param string       $noun   What the add command gives, e.g. `source`.
 	 * @param string       $holder What declares it, e.g. `node`.
 	 * @return \InvalidArgumentException For the caller to throw.
 	 */

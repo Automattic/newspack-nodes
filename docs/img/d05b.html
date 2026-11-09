@@ -21,7 +21,7 @@
 </style>
 <div class="sheet">
 <h1>Three roles, and a ceiling that only subtracts</h1>
-<p class="sub">Authority splits by blast radius. Each role resolves to a WordPress capability through one filterable map, and a verb declares the role it needs in its schema. A verb that declares nothing gets manage.</p>
+<p class="sub">Authority splits by blast radius. Each role resolves to a WordPress capability through one filterable map, and a command declares the role it needs in its schema. A command that declares nothing gets manage.</p>
 
 <div class="stair">
   <div class="step">
@@ -32,8 +32,8 @@
       <p class="grey">The floor at the command door: every batch needs it.</p>
     </div>
     <div class="card reach">
-      <div class="chip">The dashboards, both event streams, and the read-only builtins every dashboard drives, such as <span class="mono">list_nodes</span>.</div>
-      <div class="chip">Every service verb whose schema declares read.</div>
+      <div class="chip">The dashboards, both event streams, and the read-only commands every dashboard drives, such as <span class="mono">list_nodes</span>.</div>
+      <div class="chip">Every service command whose schema declares read.</div>
       <div class="chip danger">The raw firehose, live on the stream and record by record through <span class="mono">raw-logs read_message</span>: request URLs, hooks and payloads. Know what you grant.</div>
     </div>
   </div>
@@ -57,13 +57,13 @@
       <h3><span class="blue">manage</span></h3>
       <p>Stock: <span class="mono">manage_options</span></p>
       <p>Installed: <span class="mono">newspack_nodes_manage</span></p>
-      <p class="grey">The default for any verb that declares no role.</p>
+      <p class="grey">The default for any command that declares no role.</p>
     </div>
     <div class="card reach">
       <div class="chip">Fleet control: starting, stopping and restarting workers.</div>
       <div class="chip">The credential vault.</div>
       <div class="chip">Minting sessions and revoking them.</div>
-      <div class="chip">The base interpreter's graph verbs, <span class="mono">make_node</span> among them, which build and rewire the graph.</div>
+      <div class="chip">The base interpreter's graph commands, <span class="mono">make_node</span> among them, which build and rewire the graph.</div>
     </div>
   </div>
 </div>

@@ -385,7 +385,7 @@ test( 'requestTick coalesces many asks in one commit into ONE tick', async () =>
 } );
 
 // A timer that asks for a tick from INSIDE one — a rail refresh sending its
-// verb — must ride the bracket it is already in. A fresh tick would open a
+// command — must ride the bracket it is already in. A fresh tick would open a
 // second lock/flush and put that one command in a POST of its own.
 describe( 'a tick asked for during a tick', () => {
 	afterEach( () => jest.restoreAllMocks() );

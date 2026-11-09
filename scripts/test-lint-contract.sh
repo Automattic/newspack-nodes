@@ -54,7 +54,7 @@ assert_clean() {
 
 bare='$ok = Capabilities::require( '"'"'tune'"'"' );'
 scope='$ok = scope_covers( Capabilities::$session_scope, 3 );'
-verb='$ok = Capabilities::require_verb( '"'"'tune'"'"' );'
+verb='$ok = Capabilities::require_command( '"'"'tune'"'"' );'
 gate_line='$ok = Capabilities::require( '"'"'tune'"'"' );'
 
 d=$( fixture require includes/class-widget.php "$bare" )
@@ -64,13 +64,13 @@ d=$( fixture qualified includes/class-widget.php '$ok = \Newspack_Nodes\Capabili
 assert_flags "a qualified Capabilities::require( is flagged" "$d" "[scope-check-in-handler]"
 
 d=$( fixture verb includes/class-widget.php "$verb" )
-assert_clean "Capabilities::require_verb( is not flagged" "$d"
+assert_clean "Capabilities::require_command( is not flagged" "$d"
 
 d=$( fixture owner includes/class-capabilities.php "$gate_line" )
 assert_clean "class-capabilities.php may call require(" "$d"
 
 d=$( fixture scope includes/class-widget.php "$scope" )
-assert_flags "a verb checking the session scope is still flagged" "$d" "[scope-check-in-handler]"
+assert_flags "a command checking the session scope is still flagged" "$d" "[scope-check-in-handler]"
 
 d=$( fixture release examples/demo/release/class-widget.php "$scope" )
 assert_clean "a release/ tree is not walked" "$d"

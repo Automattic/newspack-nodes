@@ -43,7 +43,7 @@
     <div class="hop server">
       <span class="n">2</span>
       <h3>It lands in one option <span class="where"><span class="mono">newspack_nodes_vault</span>, not autoloaded</span></h3>
-      <p>The one source: the Vault tab and the <span class="mono">vault</span> CI verbs write it, the config file declares no entry, nothing pins one. A stored value without the <span class="mono">$enc$</span> prefix was planted by database write and reads as a missing password.</p>
+      <p>The one source: the Vault tab and the <span class="mono">vault</span> CI commands write it, the config file declares no entry, nothing pins one. A stored value without the <span class="mono">$enc$</span> prefix was planted by database write and reads as a missing password.</p>
     </div>
     <div class="hop">
       <span class="n">3</span>
@@ -51,7 +51,7 @@
       <div class="code">make_node Github_Source github
 cmd github:config <span class="k">set_vault_id</span> <span class="v">github</span>
 cmd github:config add_repo Automattic/newspack-plugin</div>
-      <p>The verb stashes the id on the node, last write wins, and <span class="mono">dump_config()</span> writes it back out, so the console can serialize a live graph to a <span class="mono">.tsl</span> that re-applies it. Its schema arg is typed <span class="mono">vault_id</span>, which the console renders as a dropdown of existing entries, or a text input while there are none.</p>
+      <p>The command stashes the id on the node, last write wins, and <span class="mono">dump_config()</span> writes it back out, so the console can serialize a live graph to a <span class="mono">.tsl</span> that re-applies it. Its schema arg is typed <span class="mono">vault_id</span>, which the console renders as a dropdown of existing entries, or a text input while there are none.</p>
     </div>
     <div class="hop">
       <span class="n">4</span>
@@ -70,7 +70,7 @@ Vault::get_instance()-&gt;get( $vault_id )['auth_password']</div>
   <div class="side">
     <div class="ok">
       <h4>What a reader ever gets back</h4>
-      <p>The <span class="mono">list</span> and <span class="mono">get</span> verbs return <span class="mono" style="white-space:nowrap">Vault_CI_Node::public_shape()</span> alone: <span class="mono">{ id, url, auth_username, has_credentials }</span>. The password is computed away into that flag. The username does leave, because it is half an address rather than a secret and the Edit form cannot offer to change what it cannot show. That holds only while every Vault verb gates at <span class="mono">manage</span>; declaring one <span class="mono">read</span> would put the username in front of a role that cannot otherwise open the store.</p>
+      <p>The <span class="mono">list</span> and <span class="mono">get</span> commands return <span class="mono" style="white-space:nowrap">Vault_CI_Node::public_shape()</span> alone: <span class="mono">{ id, url, auth_username, has_credentials }</span>. The password is computed away into that flag. The username does leave, because it is half an address rather than a secret and the Edit form cannot offer to change what it cannot show. That holds only while every Vault command gates at <span class="mono">manage</span>; declaring one <span class="mono">read</span> would put the username in front of a role that cannot otherwise open the store.</p>
     </div>
     <div class="card">
       <h3>The soft failure is what makes an unconfigured source harmless</h3>
@@ -81,7 +81,7 @@ Vault::get_instance()-&gt;get( $vault_id )['auth_password']</div>
       <p><span class="mono">get_all()</span> memoizes the decrypted registry for the life of the process, so a resident worker reads the option once. <span class="mono">Config::RESET_ACTION</span>, the config-reload signal <span class="mono">Vault::reset()</span> is wired to at boot, is how a rotated credential reaches a worker that would otherwise serve the old one until it recycles. <span class="mono">Vault::fresh()</span> is the same singleton with its memo dropped, for a request-scope reader that writes an entry and reads it back inside one request; code that does both in one pass must call it or it reads its own stale answer.</p>
     </div>
     <div class="card">
-      <h3>Everything non-secret is a verb too</h3>
+      <h3>Everything non-secret is a command too</h3>
       <p><span class="mono">add_repo</span> (<span class="mono">multiple: true</span>), <span class="mono">add_url</span>, <span class="mono">set_api_url</span>, <span class="mono">set_model</span>, <span class="mono">set_feature</span>, <span class="mono">add_profile</span>: ordered, round-trippable, no options table. There is no <span class="mono">github_repos</span> or <span class="mono">linear_token</span> option anywhere. The one Settings submenu the plugin registers, <span class="mono">Clients_Settings</span>, takes a CSV upload of the publisher master: application data an administrator uploads, not runtime configuration.</p>
     </div>
   </div>

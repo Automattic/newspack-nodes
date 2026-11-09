@@ -62,7 +62,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/**
 	 * A class's `graph_facts()` joins its row, judged from its arguments and
-	 * the verbs sent to its `:config` in evaluation order and either
+	 * the commands sent to its `:config` in evaluation order and either
 	 * spelling, a `set_*target` line drawn as an edge instead; a class
 	 * declaring none adds nothing.
 	 */
@@ -452,7 +452,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	 * the active set reads the topology as unreadable rather than drawing it.
 	 *
 	 * @param string $line    The refused command.
-	 * @param string $refusal What the verb refuses it with.
+	 * @param string $refusal What the command refuses it with.
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_source_lines' )]
 	public function test_a_source_the_runtime_refuses_refuses_the_graph( string $line, string $refusal ): void {
@@ -508,7 +508,7 @@ class TopologyRegistryGraphTest extends TestCase {
 			$expanded[ "{$edge['from']}>{$edge['to']}" ] = $edge;
 		}
 		$this->assertSame( [ 'pair' ], $expanded['pull:okapi>ledger-sink-5']['roles'] );
-		$this->assertArrayNotHasKey( 'config_slots', $expanded['pull:okapi>ledger-sink-5'], 'no setter verb made a pair edge' );
+		$this->assertArrayNotHasKey( 'config_slots', $expanded['pull:okapi>ledger-sink-5'], 'no setter command made a pair edge' );
 		$this->assertSame( [ 'vicuna-cut' ], $expanded['pull:okapi>errors-sink-6']['origin'] );
 	}
 
@@ -582,7 +582,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		);
 	}
 
-	/** A verb another class declares draws nothing, whatever its name. */
+	/** A command another class declares draws nothing, whatever its name. */
 	public function test_an_add_source_on_a_node_that_takes_none_draws_no_edge(): void {
 		$this->write_tsl( 'vicuna-echo', "make_node Echo okapi-echo\ncommand_node okapi-echo:config add_source ledger.p0 ledger-sink-5\n" );
 

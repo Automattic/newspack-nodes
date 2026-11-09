@@ -31,7 +31,7 @@ namespace Newspack_Nodes;
  * shared base (`checkpoint_frame_extra`), and how the debugger moves the cursor
  * (`next_offset`, `time_travel_resume`); `after_step` and `time_travel_on_pause`
  * are optional. In return it gets the durable cursor, the drain loop, the poison
- * lifecycle, the debugger verbs, and ownership: a reader whose worker does not
+ * lifecycle, the debugger commands, and ownership: a reader whose worker does not
  * own its source as written idles (ADR-33).
  *
  * `Dead_Letter_Queue` and `Sidecar` ride in with it. The cursor decides WHEN a record
@@ -608,12 +608,12 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * The shared time-travel verb table, merged into a node's node_schema()['commands']
-	 * so Consumer and Remote_Consumer register identical verbs.
+	 * The shared time-travel command table, merged into a node's node_schema()['commands']
+	 * so Consumer and Remote_Consumer register identical commands.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
-	public static function time_travel_verbs(): array {
+	public static function time_travel_commands(): array {
 		return [
 			[
 				'name'        => 'add_snapshot_node',
@@ -646,7 +646,7 @@ trait Durable_Reader {
 			[
 				'name'        => 'seek_frame',
 				'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
-				// Driven by the Inspector transport bar; hide the verb button.
+				// The Inspector's transport bar drives it; hide its button.
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'segment', 'type' => 'int', 'required' => true ],
@@ -679,7 +679,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `step` verb handler — single-step the patron reader.
+	 * `step` command handler — single-step the patron reader.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
 	 * @return array<string,mixed> The resulting {segment, offset, at_eof} cursor.
@@ -691,7 +691,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `play` verb handler — resume the patron reader.
+	 * `play` command handler — resume the patron reader.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
 	 * @return string `"ok\n"`.
@@ -704,7 +704,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `pause` verb handler — pause the patron reader.
+	 * `pause` command handler — pause the patron reader.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
 	 * @return string `"ok\n"`.
@@ -717,10 +717,10 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `seek_frame` verb handler — seek the patron reader to a frame.
+	 * `seek_frame` command handler — seek the patron reader to a frame.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: segment, the offsetlog segment id.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: segment, the offsetlog segment id.
 	 * @return string seek_frame()'s `"ok\n"`; a refusal throws.
 	 */
 	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, array $args ): string {
@@ -730,10 +730,10 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `remove_snapshot_node` verb handler — stop co-committing a snapshot node.
+	 * `remove_snapshot_node` command handler — stop co-committing a snapshot node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: node.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: node.
 	 * @return string `"ok\n"`.
 	 * @throws \InvalidArgumentException What `remove_snapshot_node()` refused.
 	 */
@@ -745,10 +745,10 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `add_snapshot_node` verb handler — append a snapshot-target node.
+	 * `add_snapshot_node` command handler — append a snapshot-target node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: node.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: node.
 	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_add_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
@@ -758,7 +758,7 @@ trait Durable_Reader {
 		return "ok\n";
 	}
 
-	/** Verb-backed toggle for assume_clean_shutdown (durable-before-stop chains commit past). */
+	/** Command-backed toggle for assume_clean_shutdown (durable-before-stop chains commit past). */
 	public function set_assume_clean_shutdown( bool $flag ): void {
 		$this->assume_clean_shutdown = $flag;
 	}
@@ -773,7 +773,7 @@ trait Durable_Reader {
 	 * with a cursor or a quarantine is refused: the first would commit past a
 	 * line that is never replayed, and the second is where that line belongs.
 	 *
-	 * @api Programmatic only, not a verb: a topology's readers are durable.
+	 * @api Programmatic only, not a command: a topology's readers are durable.
 	 * @param bool $flag True skips and counts; false raises, the default.
 	 * @throws \LogicException When enabling on a reader with an offsetlog or a quarantine.
 	 */
@@ -801,11 +801,11 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * Config-verb fragment; the using node splices this into its node_schema commands.
+	 * Config-command fragment; the using node splices this into its node_schema commands.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
-	public static function pump_verbs(): array {
+	public static function pump_commands(): array {
 		return [
 			[
 				'name'        => 'assume_clean_shutdown',
@@ -846,7 +846,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * Verb-backed toggle for line_mode (one line per tick instead of the whole buffer).
+	 * Command-backed toggle for line_mode (one line per tick instead of the whole buffer).
 	 *
 	 * @param bool $flag True drains one line per tick; false drains the whole buffer.
 	 */
@@ -1497,7 +1497,7 @@ trait Durable_Reader {
 	 * downstream stateful node's save_state() stops co-committing). Only the durable
 	 * settings round-trip: `snapshot_nodes` and `line_mode` (the production value —
 	 * `saved_line_mode` holds it while a transient `step` session forces line_mode on).
-	 * The imperative verbs (seek_frame/pause/play/step) are runtime, not config.
+	 * The imperative commands (seek_frame/pause/play/step) are runtime, not config.
 	 *
 	 * @return string Zero or more trailing-newline-terminated `command_node` lines.
 	 */

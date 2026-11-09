@@ -8,7 +8,7 @@
  * inert, and save refuses one. Save under a new name and `include` the stock
  * one; this interpreter writes and deletes only inside the user dir.
  *
- * Verbs:
+ * Commands:
  *   dump   — no args. Returns `{topologies: [{name, source, active,
  *            num_partitions, frontmatter, includes}], user_dir}`. `source` is
  *            'user'|'stock'; `active` is the catalog narrowed by the
@@ -59,12 +59,12 @@
  *                and answers nothing, so a request addressed TO one later in
  *                the same POST batch resolves. Refuses an inactive topology.
  *
- * Each verb names its role in `node_schema()` — READ for `dump`, `get` and
+ * Each command names its role in `node_schema()` — READ for `dump`, `get` and
  * `expand`, the MANAGE default for the rest — and `dispatch()` refuses a
  * caller below it (ADR-26); the name and body helpers come from
  * `Service_CI_Node`. A refusal throws RuntimeException, which
  * `Command_Interpreter_Node::interpret()` returns as TM_COMMAND|TM_ERROR, and an
- * array a verb returns rides as the reply's VALUE untouched, never separately
+ * array a command returns rides as the reply's VALUE untouched, never separately
  * JSON-encoded.
  *
  * @package Newspack_Nodes
@@ -138,18 +138,18 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `get` verb handler — one topology's TSL and the metadata the console opens
+	 * `get` command handler — one topology's TSL and the metadata the console opens
 	 * it with.
 	 *
 	 * The two composed views answer different questions, so neither can serve as
 	 * the other. `expanded` composes the body's INCLUDES alone, which is what
 	 * lets the editor render a borrowed node as borrowed; expanding the topology
 	 * itself would fold the body's own nodes in and make them uneditable.
-	 * `resolved_config_edges` expands the whole topology, because a config verb
+	 * `resolved_config_edges` expands the whole topology, because a config command
 	 * pointed at a `<ns:key>` token names an edge only the server can resolve,
 	 * and the canvas draws that edge from the body's own nodes too.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: name.
+	 * @param array<array-key,mixed> $args Bound command arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, source, tsl, includes, expanded, resolved_config_edges}`.
 	 * @throws \RuntimeException When the name is not file-name safe, does not
@@ -210,7 +210,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `save` verb handler — validate a topology body, then write it to the user
+	 * `save` command handler — validate a topology body, then write it to the user
 	 * dir.
 	 *
 	 * Validation is a dry run of the loader's own front-end, so a refusal names
@@ -218,7 +218,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * include set resolves: a body that parses can still kill the worker at its
 	 * next spawn.
 	 *
-	 * @param array<array-key,mixed>  $args     Bound verb arguments: name, and the whole TSL body as tsl.
+	 * @param array<array-key,mixed>  $args     Bound command arguments: name, and the whole TSL body as tsl.
 	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, whose packed size the 1 MiB cap measures.
 	 *
 	 * @return array<int|string,mixed> `{name, path, restarted_fleets}`.
@@ -328,14 +328,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `delete` verb handler — remove a user topology by name.
+	 * `delete` command handler — remove a user topology by name.
 	 *
 	 * Only the user copy is unlinked, so a stock topology of the same name
 	 * survives and the name keeps resolving. With no stock copy behind it the
 	 * name resolves to nothing, and leaving it in the active set would make
 	 * every spawn chase a file that is gone — hence the prune.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: name.
+	 * @param array<array-key,mixed> $args Bound command arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, deleted, pruned_active, restarted_fleets}`.
 	 * @throws \RuntimeException When the name is not file-name safe, the user
@@ -388,7 +388,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * The writable `<user_dir>/<name>.tsl` path save and delete both operate on.
 	 *
 	 * One resolution and one refusal, so a missing user dir reads as the same
-	 * fault whichever verb hits it.
+	 * fault whichever command hits it.
 	 *
 	 * @param string $name Validated topology name.
 	 *
@@ -511,13 +511,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `expand` verb handler — compose an include set for the console.
+	 * `expand` command handler — compose an include set for the console.
 	 *
 	 * Every name is validated although nothing is written: the analyzer opens
 	 * each file, so the file-name-safe pattern is what keeps a path out of the
 	 * argument.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: names, one topology name each, and group_children.
+	 * @param array<array-key,mixed> $args Bound command arguments: names, one topology name each, and group_children.
 	 *
 	 * @return array<int|string,mixed> `{nodes, edges, tree, hulls}`, from Topology_Analyzer::expand().
 	 * @throws \RuntimeException On a name that is not file-name safe, an unknown include, a cycle, or a conflicting make_node.
@@ -528,9 +528,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `activate` verb handler — activate a topology by name.
+	 * `activate` command handler — activate a topology by name.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: name.
+	 * @param array<array-key,mixed> $args Bound command arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, active:true, spawned:<int>, warning}`, `spawned` counting spawn POSTs requested.
 	 * @throws \RuntimeException When the name is not file-name safe or unknown, or activating it would put two fleets on one log.
@@ -541,9 +541,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `deactivate` verb handler — deactivate a topology by name.
+	 * `deactivate` command handler — deactivate a topology by name.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: name.
+	 * @param array<array-key,mixed> $args Bound command arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, active:false}`.
 	 * @throws \RuntimeException When the name is not file-name safe.
@@ -553,7 +553,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `connect_worker_input` verb handler — mount one worker's input Partition
+	 * `connect_worker_input` command handler — mount one worker's input Partition
 	 * into this request's graph.
 	 *
 	 * The console's attached channel sends this ahead of every command in the
@@ -563,9 +563,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * `{topology}.p{N}`, no lock dir and no wakeable sleeper, no ipc input dir —
 	 * is not reported here; the command behind it bounces NOT_AVAILABLE. A
 	 * sleeper whose wake the spawn endpoint refuses is mounted, and the
-	 * refusal raises, so this verb answers it as its TM_ERROR.
+	 * refusal raises, so this command answers it as its TM_ERROR.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: the reader, a worker id (`{topology}.p{N}`).
+	 * @param array<array-key,mixed> $args Bound command arguments: the reader, a worker id (`{topology}.p{N}`).
 	 *
 	 * @return string Always empty, so the mount adds no reply to the batch.
 	 * @throws \Throwable The endpoint's refusal of a sleeping worker's wake.
@@ -576,12 +576,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `mount_tables` verb handler — mount every Table an active topology
+	 * `mount_tables` command handler — mount every Table an active topology
 	 * declares into this request's graph, so a request addressed TO one later
 	 * in the same POST batch resolves. MANAGE, as `connect_worker_input` is:
 	 * the mount is the gate (ADR-23).
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: topology.
+	 * @param array<array-key,mixed> $args Bound command arguments: topology.
 	 *
 	 * @return string Always empty, so the mount adds no reply to the batch.
 	 * @throws \RuntimeException On an inactive topology, or a backend that cannot open.
@@ -596,10 +596,10 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The console manifest and the verb table in one declaration.
+	 * The console manifest and the command table in one declaration.
 	 * `Service_CI_Node` builds the dispatch table from `commands[]` here, so a
-	 * verb is named once and the `capability` beside it is the role below which
-	 * `dispatch()` refuses it (ADR-26). A verb declaring none takes MANAGE, the
+	 * command is named once and the `capability` beside it is the role below which
+	 * `dispatch()` refuses it (ADR-26). A command declaring none takes MANAGE, the
 	 * strictest.
 	 *
 	 * @return array<string,mixed>

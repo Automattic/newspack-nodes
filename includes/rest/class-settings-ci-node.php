@@ -7,16 +7,16 @@
  *
  * The settings page is one door onto substrate config and this interpreter is
  * the other, so both read `Settings_Schema`. The key set, the per-key bounds
- * and the worker-restart class are declared once, and a verb cannot clamp to
+ * and the worker-restart class are declared once, and a command cannot clamp to
  * limits the page does not.
  *
- * Verbs:
+ * Commands:
  *   get — return the seven storage settings as one snapshot: num_partitions,
  *         segment_size, min_segments, num_segments, min_lifetime, lifetime,
  *         max_segments. They are EFFECTIVE values, so a key never saved
  *         reports its schema default rather than an empty option.
  *   set — write one integer setting, then answer with the post-write
- *         snapshot. `Settings_Sync_Node` mints this verb to push a hub's
+ *         snapshot. `Settings_Sync_Node` mints this command to push a hub's
  *         settings out to its spokes, and reads the reply to confirm
  *         convergence. A value already in place still answers with the
  *         snapshot, writing nothing and signalling no restart.
@@ -55,7 +55,7 @@ use Newspack_Nodes\Settings_Schema;
 class Settings_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `get` verb handler — the current substrate-settings snapshot.
+	 * `get` command handler — the current substrate-settings snapshot.
 	 *
 	 * @return array<string,mixed> The seven storage settings.
 	 */
@@ -64,7 +64,7 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `set` verb handler — write one substrate integer setting, then return the
+	 * `set` command handler — write one substrate integer setting, then return the
 	 * post-write snapshot.
 	 *
 	 * Takes `<option> <value>`. The option name is accepted with or without
@@ -78,7 +78,7 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * other live worker to re-read its config, which is what keeps a field
 	 * classified `[]` from waiting out a whole worker lifetime.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: option, and the int value.
+	 * @param array<array-key,mixed> $args Bound command arguments: option, and the int value.
 	 *
 	 * @return array<string,mixed> The seven storage settings, read after the write.
 	 * @throws \RuntimeException When the name is not a bounded `int` Field, or the value falls outside its bounds.
@@ -165,7 +165,7 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Palette entry and verb declaration: each verb is declared ONCE in
+	 * Palette entry and command declaration: each command is declared ONCE in
 	 * `commands[]`, carrying its handler and the capability role it demands.
 	 * The inherited `Service_CI_Node` constructor builds the dispatch table
 	 * from this, and `dispatch()` refuses a caller below the declared role

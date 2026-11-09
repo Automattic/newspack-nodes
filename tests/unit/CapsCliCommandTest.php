@@ -2,7 +2,7 @@
 /**
  * Tests for `wp nodes caps <status|install|uninstall>` and `wp nodes hub-user`.
  *
- * These two verbs are the operator half of `Roles`: one swaps the capability
+ * These two commands are the operator half of `Roles`: one swaps the capability
  * map off `manage_options` onto three real capabilities, the other creates the
  * least-privilege user the log aggregator authenticates as. Both hand out or
  * take away authority, so what they refuse matters as much as what they do —
@@ -89,7 +89,7 @@ class CapsCliCommandTest extends TestCase {
 		$this->assertStringContainsString( 'granular: no', $this->printed_lines() );
 	}
 
-	/** No argument means status: the reporting verb is the safe default. */
+	/** No argument means status: the reporting command is the safe default. */
 	public function test_no_action_is_status_and_changes_nothing(): void {
 		$this->command->caps( [], [] );
 		$this->assertFalse( Roles::granular() );
@@ -133,7 +133,7 @@ class CapsCliCommandTest extends TestCase {
 
 	/**
 	 * Before `caps install` the hub role resolves to `manage_options`, so the
-	 * credential this verb issues would hold everything. Refusing is the whole
+	 * credential this command issues would hold everything. Refusing is the whole
 	 * safety property.
 	 */
 	public function test_hub_user_refuses_before_the_capabilities_are_installed(): void {
@@ -268,7 +268,7 @@ class CapsCliCommandTest extends TestCase {
 	/**
 	 * `allowed_users` narrows every role from inside `Capabilities::can()`, so a
 	 * hub user absent from a populated list is refused at `can( READ )` on its
-	 * first `/command` POST and the operator reads an opaque 401. The verb warns
+	 * first `/command` POST and the operator reads an opaque 401. The command warns
 	 * rather than refuses: the operator may be adding the login next.
 	 */
 	public function test_hub_user_warns_when_the_allowlist_omits_the_new_login(): void {
@@ -348,7 +348,7 @@ class CapsCliCommandTest extends TestCase {
 	}
 
 	/**
-	 * Created but unreadable is the one state where the verb cannot continue:
+	 * Created but unreadable is the one state where the command cannot continue:
 	 * it has no user object to hang a password on, and inventing one would
 	 * issue a credential nobody can trace.
 	 */

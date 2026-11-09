@@ -53,7 +53,7 @@ class SSE_Slot_Pool {
 	/**
 	 * Refresh the exact lease TTL. Fail-CLOSED when ownership is unverifiable.
 	 *
-	 * The pool's only refresh, reached from the `workers heartbeat` verb, so a
+	 * The pool's only refresh, reached from the `workers heartbeat` command, so a
 	 * stream lives exactly as long as its client keeps saying so. The pointer is
 	 * confirmed before the refresh and again after it; a rival that took the
 	 * slot in between leaves this owner's revived liveness key behind, which the

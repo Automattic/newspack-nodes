@@ -61,13 +61,13 @@ class Node {
 	protected int $counter = 0;
 
 	/**
-	 * Per-node trace dial, written by the REPL's `trace` verb: 0 is quiet, and
+	 * Per-node trace dial, written by the REPL's `trace` command: 0 is quiet, and
 	 * anything higher makes `set_state()` also emit a flat `DEBUG: <event>
 	 * <payload>` stderr line, which the console's timeline reads.
 	 */
 	protected int $debug_state = 0;
 
-	/** Sibling CommandInterpreter (`:config`) for nodes with runtime config verbs; else null. */
+	/** Sibling CommandInterpreter (`:config`) for nodes with runtime config commands; else null. */
 	protected ?Command_Interpreter_Node $interpreter = null;
 
 	/** Largest single message this node has moved, in bytes; a stats column only. */
@@ -313,7 +313,7 @@ class Node {
 	 * from a schema-arg replay, so a re-keyed suffix cannot leave a sibling
 	 * answering to a superseded name. One live exception: `Raw_Logs_CI_Node`
 	 * spells `{name}:status` inline for a probe it builds, reads and tears down
-	 * inside a single verb call, which a rename can never reach. A no-op while
+	 * inside a single command call, which a rename can never reach. A no-op while
 	 * the patron is unnamed, which is what lets a builder publish from a
 	 * constructor.
 	 */
@@ -534,7 +534,7 @@ class Node {
 	 * the whole VALUE put all three on stderr, and on the REST command path
 	 * into the response body, where the `SECRET_NAME_PATTERNS` entries do not
 	 * match to mask them. The command's own `payload` goes with them: Tachikoma
-	 * prints neither, and a credential reaches a verb through it as readily as
+	 * prints neither, and a credential reaches a command through it as readily as
 	 * through an argument.
 	 *
 	 * The caller redacts the WHOLE VALUE first, so a secret keyed by name at
@@ -691,7 +691,7 @@ class Node {
 	}
 
 	/**
-	 * Snapshot of this node's state for the REPL `dump_node` verb. Credentials
+	 * Snapshot of this node's state for the REPL `dump_node` command. Credentials
 	 * are masked by the same one rule the drop audit uses — redact_secrets(),
 	 * which reaches a secret nested inside an ordinary property (an
 	 * `--password=…` token in $arguments) as well as a secret-named one.
@@ -769,7 +769,7 @@ class Node {
 	/**
 	 * The owned siblings the console opens from this node, sorted by name:
 	 * every published sibling with a patron but the `:config` interpreter,
-	 * whose verbs the node's own Inspector already sends, and any whose schema
+	 * whose commands the node's own Inspector already sends, and any whose schema
 	 * is `hidden`. A published sibling with no patron, such as a Vault_Group's
 	 * child, draws on the canvas instead.
 	 *
@@ -792,7 +792,7 @@ class Node {
 	/**
 	 * Patron getter/setter. A patron marks this node owned — off the canvas,
 	 * listed in its owner's `sidecars()` — and changes nothing else: the node
-	 * keeps its `{name}:config` interpreter, so its verbs reach it whoever
+	 * keeps its `{name}:config` interpreter, so its commands reach it whoever
 	 * owns it, and the patron may be set before or after `name()`.
 	 *
 	 * @param Node|null $node The patron to adopt (null = pure getter).
@@ -807,7 +807,7 @@ class Node {
 
 	/**
 	 * Build this node with no `{name}:config` interpreter, so none of its
-	 * verbs is reachable by command. A builder calls it before `name()`, for a
+	 * commands is reachable. A builder calls it before `name()`, for a
 	 * node that is not configurable by any caller: a reader's view of a log it
 	 * does not write, or a node a request builds and drops. Refused once named,
 	 * because the interpreter is registered by then and an address may already
@@ -1069,15 +1069,15 @@ class Node {
 
 	/**
 	 * The destinations a node of this class writes without routing through
-	 * `target`, as the verbs sent to its `:config` leave them once each has
-	 * applied in order: the verb-side twin of `declared_targets()`, so a verb
+	 * `target`, as the commands sent to its `:config` leave them once each has
+	 * applied in order: the command-side twin of `declared_targets()`, so a command
 	 * that undoes another takes its destination back. None by default.
 	 *
 	 * A Vault_Group declares these for the commands it recorded.
 	 * `Topology_Analyzer` asks again after each `command_node` line and draws
 	 * a `pair` edge to each destination the line adds, and takes back each
 	 * one it drops that the node's arguments do not name, so the runtime and
-	 * the drawing judge a verb by one rule.
+	 * the drawing judge a command by one rule.
 	 *
 	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
 	 * @return list<string>
@@ -1088,7 +1088,7 @@ class Node {
 
 	/**
 	 * What `Topology_Analyzer::graph_for()` adds to a node of this class's
-	 * row, judged from its `make_node` arguments and the verbs sent to its
+	 * row, judged from its `make_node` arguments and the commands sent to its
 	 * `:config` in evaluation order, `set_*target` lines aside, which are
 	 * edges. Nothing by default; a key the row already carries is kept. A
 	 * throw makes the topology unreadable, as a refused `make_node` line does.
@@ -1176,7 +1176,7 @@ class Node {
 		return $this->publisher;
 	}
 
-	/** This node's `:config` interpreter, or null when it declares no verbs. */
+	/** This node's `:config` interpreter, or null when it declares no commands. */
 	public function interpreter(): ?Command_Interpreter_Node {
 		return $this->interpreter;
 	}
@@ -1336,7 +1336,7 @@ class Node {
 
 	/**
 	 * Topology console manifest: the palette entry and the node's configuration
-	 * form. A subclass overrides it to declare its positional arguments, verbs,
+	 * form. A subclass overrides it to declare its positional arguments, commands,
 	 * registrations, category and description. Under `owns` it names the
 	 * siblings the topology analyzer must know it builds, suffix to class; only
 	 * a class `in_palette()` may declare them. The empty category the base

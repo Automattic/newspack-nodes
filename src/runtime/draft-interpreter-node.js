@@ -7,7 +7,7 @@
  *
  *   1. **`make_node` stubs.** A server topology names `Partition`, `Topic`,
  *      `Consumer`, `Job_Worker` — no JS implementation. A stub carries the
- *      declared class and arguments so every structural verb still applies.
+ *      declared class and arguments so every structural command still applies.
  *   2. **`move_node` rewrites references.** Live it is `$node->name($new)` and
  *      nothing else, stranding every target that named the old node — faithful
  *      to Tachikoma, and indefensible in an editor.
@@ -15,14 +15,14 @@
  *      the whole map. `command_node` only appends and has no removal
  *      spelling, and `secure` cannot undeclare — `insecure` declares a THIRD
  *      state, not the absence of a line — so `replaceInvocations` and
- *      `clearSecureLevel` are methods, not verbs: a spelling for either would
+ *      `clearSecureLevel` are methods, not commands: a spelling for either would
  *      put words in the grammar that a topology cannot contain.
  *      `replaceFrontmatter` is the weaker case, and says so: `var <name> =`
  *      DOES delete, so replacing a whole map is expressible as a diff. It
  *      stays because the settings panel already holds the map, not because
  *      the grammar is missing anything. `load` replaces a whole document,
- *      which is why loading is not a verb either.
- *   4. **Document verbs.** `var`, `include`, `remove_include` and `secure`
+ *      which is why loading is not a command either.
+ *   4. **Document commands.** `var`, `include`, `remove_include` and `secure`
  *      belong to a FILE, not a graph, and touch no node table. `secure` is a
  *      one-way ratchet live, because that irreversibility is the security
  *      property; here it edits a line, both directions. `var` implements the
@@ -70,7 +70,7 @@ import names from './reserved-node-names.json';
  * Spans back to values, through the one tokenizer.
  *
  * `run()` carries SPANS so a node argument keeps its quote type, which is
- * interpolation semantics. The document verbs name things instead — `include
+ * interpolation semantics. The document commands name things instead — `include
  * "shared"` includes `shared` — so they read the value.
  *
  * @param {string[]} args Raw spans.
@@ -89,17 +89,17 @@ const CONFIG_SUFFIX = ':config';
 /**
  * The console's edit buffer: a CommandInterpreterNode over a draft document.
  *
- * It answers the same verbs the live interpreter does, over its own node
+ * It answers the same commands the live interpreter does, over its own node
  * registry, and adds what a FILE has and a graph does not — frontmatter,
  * includes, a `secure` level, and the invocations a save writes back. See the
  * file header for the four deliberate divergences from the live interpreter.
  */
 export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
-	 * Start an empty document with the draft-only verbs registered.
+	 * Start an empty document with the draft-only commands registered.
 	 *
 	 * The document state — frontmatter, includes, secure level, invocations,
-	 * seeded expansion — is what `load()` resets; the verb table is not.
+	 * seeded expansion — is what `load()` resets; the command table is not.
 	 */
 	constructor() {
 		super();
@@ -163,7 +163,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Replace the whole document. Loading is not a verb — see DraftContext.
+	 * Replace the whole document. Loading is not a command — see DraftContext.
 	 *
 	 * The expansion is seeded FIRST, because that is when an `include` happens:
 	 * its nodes exist by the time the file's own `connect_node` names one. The
@@ -289,7 +289,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		const claimed = seeded && true === seeded.borrowed ? seeded : null;
 		// COPY, and keep them: an identical redeclaration is legal TSL.
 		const inherited = claimed ? targetsOf( claimed ) : [];
-		const seededVerbs = this._seeded.get( name );
+		const seededCommands = this._seeded.get( name );
 		claimed?.removeNode();
 		this._seeded.delete( name );
 
@@ -300,12 +300,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 				: this._makeStub( type, name, args.slice( 2 ) );
 		} catch ( e ) {
 			// Put it back; losing BOTH would save the node out missing.
-			this._restoreClaimed( claimed, name, seededVerbs, inherited );
+			this._restoreClaimed( claimed, name, seededCommands, inherited );
 			throw e;
 		}
 		const built = this.childRegistry.node( name );
 		if ( ! built ) {
-			this._restoreClaimed( claimed, name, seededVerbs, inherited );
+			this._restoreClaimed( claimed, name, seededCommands, inherited );
 			return result;
 		}
 		if ( claimed ) {
@@ -337,12 +337,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * Undo a claim whose replacement never arrived.
 	 *
-	 * @param {?Object}       claimed The borrowed node that was torn down.
-	 * @param {string}        name    Its name.
-	 * @param {?Invocation[]} verbs   Its seeded invocations.
-	 * @param {string[]}      targets The edges the include wired.
+	 * @param {?Object}       claimed     The borrowed node that was torn down.
+	 * @param {string}        name        Its name.
+	 * @param {?Invocation[]} invocations Its seeded invocations.
+	 * @param {string[]}      targets     The edges the include wired.
 	 */
-	_restoreClaimed( claimed, name, verbs, targets ) {
+	_restoreClaimed( claimed, name, invocations, targets ) {
 		if ( ! claimed ) {
 			return;
 		}
@@ -351,8 +351,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		for ( const target of targets ) {
 			claimed.connectNode( target );
 		}
-		if ( verbs ) {
-			this._seeded.set( name, verbs );
+		if ( invocations ) {
+			this._seeded.set( name, invocations );
 		}
 	}
 
@@ -397,7 +397,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * Rename a node and every reference to it. See divergence 2.
 	 *
 	 * Live, `move_node` renames and nothing else, stranding every target,
-	 * `node_name` verb argument and seeded edge that named the old node. Here
+	 * `node_name` command argument and seeded edge that named the old node. Here
 	 * they all follow the rename, so the saved file still connects.
 	 *
 	 * @param {string[]} args `<old name> <new name>`.
@@ -442,7 +442,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Point every `node_name`-typed verb argument at the new name.
+	 * Point every `node_name`-typed command argument at the new name.
 	 *
 	 * @param {string} from Old node name.
 	 * @param {string} to   New node name.
@@ -585,7 +585,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 				lines.push( `set_sink ${ name } ${ sinkName }` );
 			}
 			for ( const inv of this.declaredInvocationsFor( name ) ) {
-				lines.push( DraftInterpreterNode._verbLine( name, inv ) );
+				lines.push( DraftInterpreterNode._commandLine( name, inv ) );
 			}
 			for ( const t of targetsOf( node ) ) {
 				edges.push( `connect_node ${ name } ${ t }` );
@@ -597,7 +597,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 				continue;
 			}
 			for ( const inv of list ) {
-				lines.push( DraftInterpreterNode._verbLine( orphan, inv ) );
+				lines.push( DraftInterpreterNode._commandLine( orphan, inv ) );
 			}
 		}
 		const have = new Set( edges );
@@ -646,7 +646,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	_wireConfig() {}
 
 	/**
-	 * Every verb invocation a node carries, in declaration order.
+	 * Every command invocation a node carries, in declaration order.
 	 *
 	 * The expansion's first, then the file's — reading order, and the order
 	 * they would run in. `dumpDocument` writes only the file's half back.
@@ -683,9 +683,9 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * One statement form, two readings.
 	 *
-	 * `command_node <node>:config <verb> [args]` is the normal case — the verb
+	 * `command_node <node>:config <verb> [args]` is the normal case — the command
 	 * goes to the node's `:config` interpreter. A bare `<node>` target is how an
-	 * INTERPRETER-class node takes verbs directly. The tokenizer canonicalises
+	 * INTERPRETER-class node takes commands directly. The tokenizer canonicalises
 	 * `cmd` and `command` to `command_node`, so there is nothing else to catch.
 	 *
 	 * @param {string[]} args `<node>[:config] <verb> [<args>...]`, as spans.
@@ -712,7 +712,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * `set_arguments <node> [args…]` — rewrite a node's constructor args.
 	 *
-	 * Tachikoma's verb, aliased `set`. The tokens are stored as SPANS, the way
+	 * Tachikoma's command, aliased `set`. The tokens are stored as SPANS, the way
 	 * `make_node` stores them, so `_makeNodeLine` writes them back without
 	 * re-quoting a value whose quote type carries its interpolation semantics.
 	 *
@@ -756,11 +756,11 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * One `command_node` statement.
 	 *
-	 * @param {string}     name Node the verb is aimed at.
+	 * @param {string}     name Node the command is aimed at.
 	 * @param {Invocation} inv  The invocation to write.
 	 * @return {string} The statement.
 	 */
-	static _verbLine( name, inv ) {
+	static _commandLine( name, inv ) {
 		const target = inv.viaConfig ? `${ name }${ CONFIG_SUFFIX }` : name;
 		return [
 			'command_node',
@@ -868,7 +868,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 *
 	 * Freely reversible here, both directions: this edits a line. Live it is a
 	 * one-way ratchet, because that irreversibility is the security property.
-	 * `insecure` reaches this verb with the literal level `insecure`.
+	 * `insecure` reaches this command with the literal level `insecure`.
 	 *
 	 * @param {string[]} args Token array after the verb, unquoted.
 	 * @return {string} The reply line.
@@ -886,7 +886,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Undeclare `secure` entirely. See divergence 3: every spelling of the verb
+	 * Undeclare `secure` entirely. See divergence 3: every spelling of the command
 	 * DECLARES something, so "no line at all" has no TSL spelling.
 	 */
 	clearSecureLevel() {

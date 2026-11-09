@@ -12,11 +12,11 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Time-travel transport verbs on Consumer_Node: `seek_frame`, `pause`, `step`, `play`.
+ * Time-travel transport commands on Consumer_Node: `seek_frame`, `pause`, `step`, `play`.
  * These back a debugger UI that pauses a consumer, seeks it to an offsetlog
  * checkpoint (restoring the co-committed snapshot), and single-steps it
  * message-by-message. The READ surface (frame list + cursor) moved off bespoke
- * verbs into Consumer_Node::dump_metadata().
+ * commands into Consumer_Node::dump_metadata().
  */
 #[CoversClass( Consumer_Node::class )]
 class ConsumerTimeTravelTest extends TestCase {
@@ -768,10 +768,10 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Command-verb dispatch through the {name}:config interpreter (production path).
+	// Command dispatch through the {name}:config interpreter (production path).
 	// ============================================================================
 
-	public function test_command_verbs_dispatch_through_config_interpreter(): void {
+	public function test_pause_seek_and_play_dispatch_through_config_interpreter(): void {
 		Core::$now = 6000.0;
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
@@ -794,7 +794,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertTrue( $this->timer_armed( $c ) );
 	}
 
-	/** Fire a TM_COMMAND verb through the Consumer's {name}:config interpreter; return the reply payload. */
+	/** Fire a TM_COMMAND through the Consumer's {name}:config interpreter; return the reply payload. */
 	private function dispatch_command( Consumer_Node $c, string $verb, string $args = '' ): mixed {
 		$interpreter = $this->read_private( $c, 'interpreter' );
 		$cap         = new Capture_Sink_Node();
@@ -820,7 +820,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	 * absent from the schema rather than empty, so nothing renders a request
 	 * section for a Consumer.
 	 */
-	public function test_the_consumer_declares_no_request_verbs(): void {
+	public function test_the_consumer_declares_no_requests(): void {
 		$schema = Consumer_Node::node_schema();
 		$this->assertArrayNotHasKey( 'requests', $schema );
 

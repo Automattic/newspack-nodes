@@ -797,15 +797,15 @@ class HttpOutTest extends TestCase {
 	 */
 	public function test_allow_replies_to_is_declared_repeatable(): void {
 		$commands = HTTP_Out_Node::node_schema()['commands'];
-		$verb     = null;
+		$declared = null;
 		foreach ( $commands as $command ) {
 			if ( 'allow_replies_to' === ( $command['name'] ?? '' ) ) {
-				$verb = $command;
+				$declared = $command;
 			}
 		}
 
-		$this->assertNotNull( $verb, 'the verb is declared at all' );
-		$this->assertTrue( $verb['multiple'] ?? false, 'declared repeatable, as Settings_Sync::add_setting is' );
+		$this->assertNotNull( $declared, 'the command is declared at all' );
+		$this->assertTrue( $declared['multiple'] ?? false, 'declared repeatable, as Settings_Sync::add_setting is' );
 	}
 
 	/** Every declaration round-trips, so a dump replays the whole allowlist. */
@@ -941,7 +941,7 @@ class HttpOutTest extends TestCase {
 	}
 
 	/**
-	 * The interpreter answers a failed verb with TM_COMMAND|TM_ERROR and a
+	 * The interpreter answers a failed command with TM_COMMAND|TM_ERROR and a
 	 * successful one with TM_COMMAND|TM_RESPONSE. Both are the same round
 	 * trip's reply leg, so the error must reach the sink too — the clause used
 	 * to pass the success and drop the error with a spurious warning.

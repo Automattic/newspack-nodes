@@ -12,7 +12,7 @@
  * `DraftContext` documents for this case: TSL sets one entry per line, an
  * editor holds them all, so the panel dispatches the whole map. The secure
  * level is a STATEMENT rather than frontmatter, so it rides the interpreter's
- * own `secure` / `insecure` verbs and `clearSecure` instead.
+ * own `secure` / `insecure` commands and `clearSecure` instead.
  */
 
 import { useRef, useState, createPortal } from '@wordpress/element';
@@ -37,9 +37,9 @@ export const RECOGNIZED_KEYS = [
 /**
  * The name shape a saved file reads back as frontmatter.
  * `Topology_Analyzer::frontmatter()` skips a `var` line whose name is anything
- * else, and the Shell's `var` verb refuses a `:` outright — that character is
+ * else, and the Shell's `var` builtin refuses a `:` outright — that character is
  * reserved for token namespaces like `<config:logs_dir>`. `replaceFrontmatter`
- * writes the map without passing through the `var` verb, so this is the only
+ * writes the map without passing through the `var` builtin, so this is the only
  * check a name added here gets.
  */
 const NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -199,7 +199,7 @@ export default function TopologySettingsPanel( {
 	 *
 	 * "Undeclared" has no TSL spelling — a bare `secure` climbs one level and
 	 * `insecure` declares a third state — so clearing goes through the draft's
-	 * `clearSecure` instead of running the verb with an empty level.
+	 * `clearSecure` instead of running the command with an empty level.
 	 *
 	 * @param {string} level '', `insecure`, `secure`, or a numeric level.
 	 */

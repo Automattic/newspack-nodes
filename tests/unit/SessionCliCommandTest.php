@@ -2,7 +2,7 @@
 /**
  * Tests for `wp nodes session issue|list|revoke`.
  *
- * The verb prints a Bearer credential for `$( … )` capture, so stdout holds
+ * The command prints a Bearer credential for `$( … )` capture, so stdout holds
  * the credential and nothing else; every refusal goes to stderr through
  * `WP_CLI::error()` before a session is minted.
  *

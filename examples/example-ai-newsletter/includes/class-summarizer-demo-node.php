@@ -30,7 +30,7 @@ class Summarizer_Demo_Node extends Node {
 	/**
 	 * Summarize the incoming item and emit it as a fresh TM_STRUCT message stamped
 	 * FROM this node. A message that is not TM_STRUCT, or whose VALUE is not an
-	 * array, is ignored: a pure transform carries no verbs and no requests.
+	 * array, is ignored: a pure transform carries no commands and no requests.
 	 *
 	 * The fresh message leaves with an empty TO, which `parent::fill()` stamps from
 	 * `target` when one is wired — `connect_node summarizer scorer` in the example
@@ -78,7 +78,7 @@ class Summarizer_Demo_Node extends Node {
 
 	/**
 	 * Topology-console manifest: the palette tile and the node's configuration
-	 * form. The node declares no positional arguments and no verbs, so wiring is
+	 * form. The node declares no positional arguments and no commands, so wiring is
 	 * its whole configuration.
 	 *
 	 * @return array<string,mixed>

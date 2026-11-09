@@ -1337,7 +1337,7 @@ describe( 'canonical appearance ownership', () => {
 			).toEqual( inlineGeometry );
 		}
 
-		// Every Triage verb — a row's or the footer's — reads inline.
+		// Every Triage command — a row's or the footer's — reads inline.
 		expect(
 			declarationsForSelector(
 				triageViewStylesheet,
@@ -1728,11 +1728,11 @@ describe( 'canonical appearance ownership', () => {
 			[ 'topology-canvas__layout-chip', 'auto' ],
 			[ 'topology-edit-row__reset', 'auto' ],
 			[ 'topology-hull-panel__open', 'auto' ],
-			[ 'topology-edit-verb__remove', '20px' ],
+			[ 'topology-edit-command__remove', '20px' ],
 			[ 'topology-field-row__nav', 'auto' ],
 			[ 'topology-edit-chip__clear', 'auto' ],
 			[ 'topology-edit-delete', 'auto' ],
-			[ 'topology-edit-verb__add', 'auto' ],
+			[ 'topology-edit-command__add', 'auto' ],
 			[ 'topology-insp__listener-x', 'auto' ],
 			[ 'topology-tt__transport-btn', 'auto' ],
 		];
@@ -2138,7 +2138,7 @@ describe( 'canonical appearance ownership', () => {
 			'topology-settings-panel__close',
 		];
 		const DESTROYS = [
-			'topology-edit-verb__remove',
+			'topology-edit-command__remove',
 			'topology-insp__listener-x',
 		];
 		const seen = new Set();

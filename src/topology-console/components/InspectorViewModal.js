@@ -58,8 +58,8 @@ const VIEW_TITLES = {
  * `_metadata` needs a poll or two to report the new level, so the button holds
  * an optimistic override in the meantime. An agreeing poll clears it. The
  * first disagreeing poll is tolerated, because a reply already in flight when
- * the verb landed still carries the old level. The second surrenders, which is
- * how a refused verb stops the button claiming a state the fleet is not in.
+ * the command landed still carries the old level. The second surrenders, which is
+ * how a refused command stops the button claiming a state the fleet is not in.
  * The effect keys on `metadata` alone so that each poll costs one tolerance;
  * adding `optimistic` to the deps would spend it on the render that set it.
  *
@@ -161,7 +161,7 @@ function ViewBody( { view, node, onAction } ) {
  * @param {string|null} props.view       Which view to open: `runtime`, `stats`, `timeline` or `triage`; null or an unknown key means closed.
  * @param {Object}      [props.node]     The selected node, whose dead-letter queue Triage reads.
  * @param {() => void}  props.onDismiss  Runs on ESC, backdrop click and the close button.
- * @param {Function}    [props.onAction] Console action dispatcher for Triage's dead-letter verbs.
+ * @param {Function}    [props.onAction] Console action dispatcher for Triage's dead-letter commands.
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */
 export default function InspectorViewModal( {

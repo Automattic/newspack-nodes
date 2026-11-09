@@ -167,7 +167,7 @@ class Topology_Analyzer {
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
 	 * @param array<string,array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}> $nodes Node map, by reference.
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}>      $edges Edge-state map, by reference.
-	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The verbs sent to each node's `:config`, by reference (`declare_node()`).
+	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The commands sent to each node's `:config`, by reference (`declare_node()`).
 	 */
 	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges, array &$sent ): void {
 		$verb   = $statement['verb'];
@@ -209,7 +209,7 @@ class Topology_Analyzer {
 			$has_config = \str_ends_with( $target, ':config' );
 			$node_name  = $has_config ? \substr( $target, 0, -\strlen( ':config' ) ) : $target;
 			$inner_verb = $values[2] ?? '';
-			// `:config set_*target` is a routing EDGE, not a config verb.
+			// `:config set_*target` is a routing EDGE, not a config command.
 			if ( $has_config && \preg_match( '/^set_\w*target$/D', $inner_verb ) ) {
 				// One token: the runtime handler reads $args[0].
 				$edge_target = Core::resolve_config_tokens( $values[3] ?? '' );
@@ -219,7 +219,7 @@ class Topology_Analyzer {
 			if ( $has_config ) {
 				self::draw_command( $edges, $sent, $node_name, [ $inner_verb, \array_slice( $values, 3 ) ], $origins );
 			}
-			// Every other verb rides on the node so the console can show it.
+			// Every other command rides on the node so the console can show it.
 			if ( isset( $nodes[ $node_name ] ) ) {
 				$nodes[ $node_name ]['verbs'][] = [
 					'verb' => $inner_verb,
@@ -300,10 +300,10 @@ class Topology_Analyzer {
 	 * `vault_id` and the `sources` its `add_source` and `remove_source` lines
 	 * leave, so another plugin names them rather than counting positionals —
 	 * whatever its class's `Node::graph_facts()` answers from its arguments
-	 * and the verbs sent to its `:config`), and edges from `connect_node`, `command_node
+	 * and the commands sent to its `:config`), and edges from `connect_node`, `command_node
 	 * <node>:config set_*target <target>` and each `pair` a class declares
 	 * (`declared_targets()`, `command_targets()`), with `disconnect_node`
-	 * and each verb that undoes another applied in evaluation order. A broken
+	 * and each command that undoes another applied in evaluation order. A broken
 	 * include throws — the walk's memoized failure, re-raised to every caller
 	 * — rather than answering an empty graph that reads as "declares
 	 * nothing".
@@ -408,15 +408,15 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Apply one verb sent to a node's `:config` as its class judges every
-	 * verb sent so far (`Node::command_targets()`): draw a `pair` edge to
-	 * each destination the verb adds, and take the role back from each it
+	 * Apply one command sent to a node's `:config` as its class judges every
+	 * command sent so far (`Node::command_targets()`): draw a `pair` edge to
+	 * each destination the command adds, and take the role back from each it
 	 * drops that the node's arguments do not name, the edge with it when
 	 * the edge has no other holder.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
-	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The verbs sent to each node's `:config`, by reference.
-	 * @param string                         $node    The node whose `:config` takes the verb.
+	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The commands sent to each node's `:config`, by reference.
+	 * @param string                         $node    The node whose `:config` takes the command.
 	 * @param array{0:string,1:list<string>} $command The verb and its argument tokens.
 	 * @param list<string>                   $origins Top-level includes providing the line.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
@@ -569,11 +569,11 @@ class Topology_Analyzer {
 	/**
 	 * Record a `make_node` line's node: the class its `:config` answers for,
 	 * and the destinations its arguments name (`Node::declared_targets()`),
-	 * drawn as `pair` edges. A node declared again keeps the verbs already
+	 * drawn as `pair` edges. A node declared again keeps the commands already
 	 * sent to it.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
-	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The verbs sent to each node's `:config`, by reference.
+	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The commands sent to each node's `:config`, by reference.
 	 * @param list<string> $values  The `make_node` statement's values.
 	 * @param list<string> $origins Top-level includes providing the line.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
@@ -583,7 +583,7 @@ class Topology_Analyzer {
 		$name          = $values[2] ?? '';
 		$targets       = self::node_class( $values[1] ?? '' )::declared_targets( \array_slice( $values, 3 ) );
 		$sent[ $name ] = [
-			'class'    => self::verb_class( $values ),
+			'class'    => self::command_class( $values ),
 			'targets'  => $targets,
 			'commands' => $sent[ $name ]['commands'] ?? [],
 		];
@@ -593,7 +593,7 @@ class Topology_Analyzer {
 	/**
 	 * Draw one `pair` edge from a node to each destination its class declares,
 	 * for every class: what its `make_node` arguments name
-	 * (`Node::declared_targets()`) or the verbs sent to its `:config` leave
+	 * (`Node::declared_targets()`) or the commands sent to its `:config` leave
 	 * (`Node::command_targets()`), a broker's sources, and nothing
 	 * for a class declaring none. The class gets its tokens as written and
 	 * judges them as a load would.
@@ -675,13 +675,13 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * The class whose verbs a node's `:config` answers: its own, or for a
-	 * Vault_Group the child class it forwards each verb to.
+	 * The class whose commands a node's `:config` answers: its own, or for a
+	 * Vault_Group the child class it forwards each command to.
 	 *
 	 * @param list<string> $values A `make_node` statement's values.
 	 * @return class-string<Node>
 	 */
-	private static function verb_class( array $values ): string {
+	private static function command_class( array $values ): string {
 		return self::node_class( $values[ self::type_is( $values[1] ?? '', Vault_Group_Node::class ) ? 3 : 1 ] ?? '' );
 	}
 

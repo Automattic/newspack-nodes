@@ -11,7 +11,7 @@
  * earlier argument has to be written, not skipped, or the edited value lands
  * in the wrong position.
  *
- * The verb half decides what a `command_node` line may say: which verbs the
+ * The command half decides what a `command_node` line may say: which commands the
  * editor offers as persisted configuration, and whether the line addresses
  * the node itself or its `:config` interpreter.
  */
@@ -65,36 +65,36 @@ export function setArgumentsLine( id, args, current = [], spec = null ) {
 }
 
 /**
- * Whether a verb may be offered as CONFIGURATION in the topology editor.
+ * Whether a command may be offered as CONFIGURATION in the topology editor.
  *
- * The editor renders each configurable verb as a checkbox, and ticking it
- * serializes `command_node <node>:config <verb>` into the .tsl — so the verb
+ * The editor renders each configurable command as a checkbox, and ticking it
+ * serializes `command_node <node>:config <verb>` into the .tsl — so the command
  * runs on every worker boot, forever. That is right for a setting and wrong
  * for an action: `purge` would discard every in-flight request on a restart.
- * A verb declaring `action` stays a verb, invocable on a live node from the
+ * A command declaring `action` stays a command, invocable on a live node from the
  * runtime panel and the REPL; it is only withheld from the persisted set.
  * `hidden` is the stronger flag — schema plumbing, shown nowhere at all.
  *
  * @param {Object} spec A node_schema `commands[]` entry.
- * @return {boolean} True when the verb belongs in the config editor.
+ * @return {boolean} True when the command belongs in the config editor.
  */
-export function isConfigurableVerb( spec ) {
+export function isConfigurableCommand( spec ) {
 	return ! spec.hidden && ! spec.action;
 }
 
 /**
- * Whether a verb on this class is written bare or through `:config`.
+ * Whether a command on this class is written bare or through `:config`.
  *
  * The form the FILE recorded wins, because that is what the operator wrote,
- * and `viaConfig` carries it. A verb the Inspector just added has no recorded
- * form, so the class decides: an interpreter takes its verbs bare, every
+ * and `viaConfig` carries it. A command the Inspector just added has no recorded
+ * form, so the class decides: an interpreter takes its commands bare, every
  * other class through its auto-wired `:config` sibling.
  *
- * @param {Object}  invocation The verb invocation from the draft.
+ * @param {Object}  invocation The command invocation from the draft.
  * @param {?Object} schema     The class's catalog entry.
  * @return {boolean} True when the line addresses the `:config` sibling.
  */
-export function verbUsesConfig( invocation, schema ) {
+export function commandUsesConfig( invocation, schema ) {
 	if ( undefined !== invocation.viaConfig ) {
 		return invocation.viaConfig;
 	}
@@ -102,7 +102,7 @@ export function verbUsesConfig( invocation, schema ) {
 }
 
 /**
- * A verb invocation's arguments, defaults filled and trailing empties dropped.
+ * A command invocation's arguments, defaults filled and trailing empties dropped.
  *
  * The Inspector's toggle seeds one empty slot per declared argument. Written
  * out bare, those are SET as far as PHP's `parse_schema_args` is concerned, so
@@ -110,10 +110,10 @@ export function verbUsesConfig( invocation, schema ) {
  * trap `setArgumentsLine` closes for constructor arguments.
  *
  * @param {?Array} args The invocation's arguments.
- * @param {?Array} spec The verb's schema arg list.
+ * @param {?Array} spec The command's schema arg list.
  * @return {string[]} Argument tokens for the `command_node` line.
  */
-export function verbInvocationArgs( args, spec ) {
+export function commandInvocationArgs( args, spec ) {
 	// A schema default may be a number; invocation args are spans.
 	return trimTrailingEmpties( applyDefaults( args ?? [], spec ) ).map(
 		( a ) => String( a )

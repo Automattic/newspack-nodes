@@ -85,10 +85,10 @@ because it arrives disguised as cleanup: it adds the parallel API this ADR forbi
 hands its result back as a return value.
 
 **Consequences:** Every behavior is "a message arrived." Richer control surfaces are message
-types / verbs through an interpreter, not new methods.
+types / commands through an interpreter, not new methods.
 
 **Revisit if:** a node type genuinely cannot express its operation as a single message-in.
-None in the tree does: the interpreter/verb pattern absorbs every case.
+None in the tree does: the interpreter/command pattern absorbs every case.
 
 **Amendment: a broker's reader splits its stream behind `fill()`.**
 A broker hands each raw block and its header to the reader through `fill()`, the one entry
@@ -368,8 +368,8 @@ because overwriting it would deliver the reply to a view instead of its receiver
   and the reply arrives at `vault:test:in` carrying `spoke-01` as its remaining TO. A screen
   serving many rows then FILES that answer under the subject; a per-row map is view state, not
   correlation. What this ADR forbids is a table that decides WHICH ask a reply belongs to.
-  Split by JOB (a verb, a poll, a stream), never by SUBJECT: a table of ten servers is one
-  node per verb, not fifty. A subject is one path segment, so it goes out
+  Split by JOB (a command, a poll, a stream), never by SUBJECT: a table of ten servers is one
+  node per command, not fifty. A subject is one path segment, so it goes out
   `encodeURIComponent`'d and is read back on arrival ([`useCommandOnce`](../src/shared/hooks/useCommandOnce.js)'s `subjectOf`). An
   escaped subject past `SUBJECT_MAX` (128 characters) is a document rather than an identity:
   the command goes out carrying no subject and the log names the one that needs a `subjectOf`
@@ -592,10 +592,10 @@ where a verb's `variadic` IS bound, as a list, and may precede named arguments: 
 keeps the tail as raw tokens because a node such as `Vault_Group` parses them into a structure of
 its own.
 
-**Amendment: a list of one value is a declaration too.** A verb declaring `toggle` or `setter`
+**Amendment: a list of one value is a declaration too.** A command declaring `toggle` or `setter`
 takes its handler from `declared_setter()` and its `dump_config()` line from `dump_toggles()` or
-`dump_setters()`. [`Schema_Reflection::list_verbs( $noun, $property, $arg, $description )`](../includes/trait-schema-reflection.php)
-adds the third kind, for a verb that appends to a list: it returns two declarations, `add_<noun>`
+`dump_setters()`. [`Schema_Reflection::list_commands( $noun, $property, $arg, $description )`](../includes/trait-schema-reflection.php)
+adds the third kind, for a command that appends to a list: it returns two declarations, `add_<noun>`
 carrying `list => <property>` and `remove_<noun>` carrying `unlist => <property>`, both taking
 `$arg`. `declared_list()` synthesizes both handlers: the add appends its trimmed argument, a
 variadic one's tokens joined with a space, and an identical repeat is a no-op, as `add_source`,
@@ -632,7 +632,7 @@ cursor names the next unread position, identically in both readers, and a record
 rather than forwarded is committed past gracefully, so there is no re-encounter to recognise
 and no quarantine marker.
 
-![The checkpoint frame as six slots: segment, offset, attempts, reason, first_crash_ts and Consumer's co-committed cache, committed every CHECKPOINT_INTERVAL_S 30 seconds, at a clean stop and after every message in crawl. Three paths: a caught throw is dead-lettered on sight at Durable_Reader::forward_line and committed past, with Tail as the exception that wraps nothing; a cooperative stop strikes the in-flight message only when the worker stopped on the message it booted on and quarantines it at COOP_MAX_ATTEMPTS 2; an uncatchable death climbs attempts until CRASH_MAX_ATTEMPTS 5 enters crawl, sacrificing the boot-pinned head with reason crash and checkpointing every message until 30 crash-free seconds. Cards: state older than STATE_WIPE_AFTER_S 900 seconds is discarded, the dl_ verbs on the reader's :config interpreter, and Partition's cursor-less third use.](img/adr-poison-accounting.png)
+![The checkpoint frame as six slots: segment, offset, attempts, reason, first_crash_ts and Consumer's co-committed cache, committed every CHECKPOINT_INTERVAL_S 30 seconds, at a clean stop and after every message in crawl. Three paths: a caught throw is dead-lettered on sight at Durable_Reader::forward_line and committed past, with Tail as the exception that wraps nothing; a cooperative stop strikes the in-flight message only when the worker stopped on the message it booted on and quarantines it at COOP_MAX_ATTEMPTS 2; an uncatchable death climbs attempts until CRASH_MAX_ATTEMPTS 5 enters crawl, sacrificing the boot-pinned head with reason crash and checkpointing every message until 30 crash-free seconds. Cards: state older than STATE_WIPE_AFTER_S 900 seconds is discarded, the dl_ commands on the reader's :config interpreter, and Partition's cursor-less third use.](img/adr-poison-accounting.png)
 
 `Durable_Reader`'s drain loop advances past each record by the length in that record's own
 crumb — the line's own bytes for a tailing reader, the spoke's stamped length for a pull
@@ -708,7 +708,7 @@ builds such a reader over one partition dir, and `Consumer_Node::take_unparseabl
 takes and sums the counts of every reader a caller holds. Three callers take it, each reporting it where
 its reader looks: [`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) sends an
 `unparseable_lines` event down a worker IPC stream, which the browser's `SseInNode` totals as
-`UNPARSEABLE_LINES`; event-logger-nodes' `grep_requests` verb returns it in its reply; and
+`UNPARSEABLE_LINES`; event-logger-nodes' `grep_requests` command returns it in its reply; and
 `wp nodes reqgrep` prints a warning. A stream's log or source reader sends raw blocks and does not
 read lines, so its client meets the torn line instead. The browser's `SseInNode` is a view with
 no quarantine, so it skips and counts under this amendment, adding to `UNPARSEABLE_LINES`. A
@@ -785,7 +785,7 @@ A loop that must attempt every step collects what the steps threw through
 `attempt()`, its form for a fixed list of closures — and raises it after the last through
 `Worker_Should_Stop::raise()`, which ignores the keys: fan-out through `Fanout_Targets` (Tee, Tap and
 `send_signed()`), `Settings_Sync_Node` over its options and their mappings,
-`Vault_Group_Node` forwarding a config verb to its children, `LRU_Cache` over its evict
+`Vault_Group_Node` forwarding a config command to its children, `LRU_Cache` over its evict
 callbacks, and `HTTP_Out_Node` over the reply lines of one POST. `Worker_Should_Stop::combine()`
 is the one rule for what escapes. Only when every catch is clean is the result clean. Any stop
 among them makes the result a stop, carrying every failure — each non-stop throwable and each
@@ -877,7 +877,7 @@ already holds.
 **Status:** Accepted
 
 **Context:** A command is graph construction with full interpreter authority — `make_node`,
-`connect_node`, the config verbs. The *same* [`Command_Interpreter_Node`](../includes/class-command-interpreter-node.php) class runs in two
+`connect_node`, the config commands. The *same* [`Command_Interpreter_Node`](../includes/class-command-interpreter-node.php) class runs in two
 trust roles: in-process, where the browser console and the bare `wp nodes cli` mint their own
 commands, and over the wire, where a worker reads them off an IPC partition and the
 [`/command`](API.md#command-dispatch) request-scope CI reads them out of an HTTP body. WordPress authentication answers
@@ -1032,7 +1032,7 @@ process's next check fails and reads the lease as `superseded`, so it closes qui
 than holding a second slot until it notices the drop.
 
 **Amendment:** a `/command` batch judges freshness at its arrival. The commands of one POST
-dispatch one after another, so judged against the clock at each one's turn a slow verb would
+dispatch one after another, so judged against the clock at each one's turn a slow command would
 age every command behind it past `MAX_PAST_S`. `Command_Auth::batch_verifier()` binds the
 closure it answers to the batch it builds, which holds the clock read as the batch arrives
 and the sessions the batch has read, so a clock is never static and a batch begun beside another
@@ -1325,7 +1325,7 @@ physical-write case and leave only the conditional-TO one.
 **Amendment: a verb may name a destination too.** `Node::command_targets( $commands )` is the
 verb-side twin of `declared_targets()`. It takes the ordered list of `[ verb, tokens ]` commands
 sent to a node's `:config` and answers the destinations they leave once each has applied, so a
-verb that undoes another takes its destination back. `Topology_Analyzer` asks again after each
+command that undoes another takes its destination back. `Topology_Analyzer` asks again after each
 `command_node` line and draws a `pair` edge to each destination the line adds, on the node or
 on a `Vault_Group` of its class, as it draws an argument's. A running node declares the same
 destinations through `extra_targets()`. The one class that answers is a broker, whose
@@ -1419,7 +1419,7 @@ one of them unless the flatten knows how to see it.
 **Decision:** [`Vault_Group_Node`](../includes/class-vault-group-node.php) owns one child per
 server `Vault::in_group()` returns, each published as an owned sibling
 (`Node::publish_sibling()`) named `<group>:<vault id>`, and NOT patroned, so each draws on the
-canvas; it keeps its own `:config` interpreter, as every node declaring verbs does unless its
+canvas; it keeps its own `:config` interpreter, as every node declaring commands does unless its
 builder calls `without_config()`. Unlike a hand-written node, a child cannot be
 removed or renamed from the console or the shell: `remove_node` and `move_node` refuse an owned
 sibling, and `dump_metadata` names the group as the child's `owner`. A child leaves through the
@@ -1444,11 +1444,11 @@ console's editor is the one exception: it seeds from a flatten that keeps each g
 a member. The group declares its child class's targets as its own (ADR-19), so its `pair`
 edges draw on it in every view, the live canvas and both flattens alike.
 
-Group configuration goes through the group: a verb sent to `<group>:config` reaches every
+Group configuration goes through the group: a command sent to `<group>:config` reaches every
 child and, when every child accepted it and it changed a child's configuration, is recorded
 in the order sent, so a `remove_source` replays after the `add_source` it undoes; a `toggle` or
-`setter` verb keeps only its last write, and a command repeating the latest record is not
-recorded twice. A per-child verb sent straight to `<group>:<id>:config` is LIVE-ONLY — no
+`setter` command keeps only its last write, and a command repeating the latest record is not
+recorded twice. A per-child command sent straight to `<group>:<id>:config` is LIVE-ONLY — no
 dump replays it, because `dump_config` replays the group and its recorded commands, never a
 child.
 
@@ -1566,7 +1566,7 @@ mutating request has to live somewhere else.
 
 **Decision:** From outside a worker, a request reaches the worker's nodes only through that
 worker's input Partition, and two things write there. `Bootstrap::register_worker_partition()`
-mounts it into a request graph, and every verb reaching that call declares MANAGE:
+mounts it into a request graph, and every command reaching that call declares MANAGE:
 `topologies connect_worker_input`, by declaring no capability, which `dispatch()` holds at
 MANAGE ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), and
 intelligence's `intelligence fetch_now`, by declaring MANAGE.
@@ -1602,10 +1602,10 @@ string. A Row_Table's `ROWS` carries a list of row ops the same way, VALUE
 answers as every Table write does, a bare `TM_RESPONSE` `ROWS <written>`, or a
 `TM_ERROR` carrying the arm's message; a Row_Table refuses every keyed request, a keyed
 Table refuses `ROWS`, and a mount refuses it as it refuses every write. Each of the three declares it on its `requests` entry, `'value' => 'struct'`, and
-every sender reads that declaration: the console's verb dialog sends `TM_REQUEST | TM_STRUCT`
+every sender reads that declaration: the console's command dialog sends `TM_REQUEST | TM_STRUCT`
 for such an entry alone, and never infers one from the types of its args. `topologies mount_tables` mounts Tables into a request graph and
-declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mounts to read
-stays mounted for the rest of that POST: a later verb or request in it reads through the same
+declares MANAGE, as `connect_worker_input` does. A Table a command below MANAGE mounts to read
+stays mounted for the rest of that POST: a later command or request in it reads through the same
 mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing.
 
 **Amendment: an application's WP-CLI command is a third writer.** A plugin's own WP-CLI
@@ -1624,15 +1624,15 @@ signature would gate the same principal twice. A capability on each `requests` e
 rejected: the handler runs in a worker, where there is no current WordPress user, so
 `Capabilities` has nothing to test and the declaration would be decoration that is not enforced by any code.
 
-**Consequences:** A request handler may mutate, and its author weighs it as a MANAGE verb.
+**Consequences:** A request handler may mutate, and its author weighs it as a MANAGE command.
 Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
-acts with the authority that loaded the topology. A verb whose caller must be told apart
+acts with the authority that loaded the topology. A command whose caller must be told apart
 from another MANAGE holder by session scope is a command, because only a command carries
 the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `GET` any key through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
 is not the bound: `HTTP_In` does not filter by message type, so a raw `GET` in the same POST names any
-key, including one the verb never shows.
+key, including one the command never shows.
 
-**Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
+**Revisit if:** anything writes into a worker's input Partition below MANAGE — a command that
 mounts it under a lower role, a writer beside the attached cli and an application's WP-CLI
 command, or either of those running as root — or a Table must be
 readable below MANAGE while holding rows that role may not read, or a mount outlives the HTTP
@@ -1684,7 +1684,7 @@ classes is invisible to `ls`, `dump_node` and the console.
   its file or table already belongs to this install, so `wp nodes memcache flush` leaves its
   rows. `Sqlite_Arm` stores `{namespace}:{key}`; `Wpdb_Arm` stores the key alone, because
   its `namespace` column already scopes the row (`PRIMARY KEY ( namespace, cache_key )`).
-- `flush`, a `:config` verb, empties a durable Table. A `sqlite` Table's writer, the file's
+- `flush`, a `:config` command, empties a durable Table. A `sqlite` Table's writer, the file's
   one writer, unlinks the database and its `-wal` and `-shm` and opens a new file with the
   same pragmas and tables, a cost that never grows with the rows, and answers the bytes the
   old files held; a mount in another process that opened the old file reads its rows until
@@ -1754,7 +1754,7 @@ classes is invisible to `ls`, `dump_node` and the console.
   reaches them with the sessions, and a session handle's shape keeps a revoke from deleting
   any of them.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
-  declared, once a minute, and `vacuum` is an operator verb, never automatic.
+  declared, once a minute, and `vacuum` is an operator command, never automatic.
 - A COMMIT never checkpoints a `sqlite` file a worker writes. The writer turns `wal_autocheckpoint` off, and the
   tick runs a `wal_checkpoint(PASSIVE)` per Table at most once every
   `Table_Node::CHECKPOINT_INTERVAL_S` (30 s), after the tick's timers have flushed and after
@@ -1958,19 +1958,19 @@ hands the handler the bound values by name. A handler never parses.
   tokens in its history and transcript; the command line `$around_dispatch` hands a wrapper
   masks it as `--<name>=<redacted>`. A refused command never reaches a wrapper, so no
   refusal is logged with its tokens.
-- A verb whose schema carries no `args` key receives its tokens as they came. A declared
+- A command whose schema carries no `args` key receives its tokens as they came. A declared
   `'args' => []` binds too, so a stray token refuses.
 - A binding refusal throws `\InvalidArgumentException`, which `interpret()` answers as the
   verb's TM_ERROR.
 - A `toggle` or `setter` verb declares its one arg, and the synthesized handler reads it by
   name; one declaring none refuses at wiring.
-- A request is not a verb. Its VALUE is words, answered in the addressed node's `fill()`
+- A request is not a command. Its VALUE is words, answered in the addressed node's `fill()`
   ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), and nothing binds it.
 
 **Alternatives considered:**
 
 - Bind in `Service_CI_Node`'s table build — rejected: it covers service CIs and misses every
-  `:config` verb. `dispatch()` is the one door both reach, and `Vault_Group_Node`'s forwarder
+  `:config` command. `dispatch()` is the one door both reach, and `Vault_Group_Node`'s forwarder
   re-enters it through each child's interpreter.
 - Keep hand-parsing and hold each handler to its schema with a test — rejected: a declaration
   the runtime ignores drifts at the next handler written.
@@ -1986,18 +1986,18 @@ hands the handler the bound values by name. A handler never parses.
 - Binding runs after the verb's role check
   ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), so a malformed
   command from a caller without the role hears `permission denied` and nothing of the args
-  the verb declares. A binding refusal echoes a caller's token only in a type refusal on a
+  the command declares. A binding refusal echoes a caller's token only in a type refusal on a
   non-secret arg, and counts a surplus rather than echoing it, since a surplus token may be a
   mis-slotted secret. `SessionsCINodeTest` pins the order.
 - A binding refusal is not a dispatch span: like an unknown verb, it never reaches
   `$around_dispatch`.
 
-**Revisit if:** a verb needs a grammar the declaration cannot state — a repeated named option,
-a named list — or `dispatch()` stops being the one door a verb enters through.
+**Revisit if:** a command needs a grammar the declaration cannot state — a repeated named option,
+a named list — or `dispatch()` stops being the one door a command enters through.
 
 ---
 
-## ADR-26: Every verb is gated by the role its schema declares
+## ADR-26: Every command is gated by the role its schema declares
 
 **Status:** Accepted
 
@@ -2005,15 +2005,15 @@ a named list — or `dispatch()` stops being the one door a verb enters through.
 `HTTP_In` pins, never reaches a worker. A `:config` interpreter — a Table's, a Consumer's,
 every patron's — would then gate nothing, in a worker or in a request graph, so a session's
 scope, which [ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs) makes a
-ceiling, would not bound any worker verb: a READ session signed for a spoke could `vacuum` its
+ceiling, would not bound any worker command: a READ session signed for a spoke could `vacuum` its
 Tables or `dl_purge` its dead letters.
 
 **Decision:** `Command_Interpreter_Node::dispatch()` refuses every verb, before anything else
 runs, against the role its schema declares: the `capability` of the verb's `commands` entry —
 a service CI's own schema, or for a `:config` interpreter its patron's schema — and MANAGE when the entry
-declares none. A verb that is not named by any schema — the base interpreter's vocabulary, and the `help`
+declares none. A command that is not named by any schema — the base interpreter's vocabulary, and the `help`
 every interpreter answers — demands MANAGE, except the read-only builtins `READ_VERBS` lists,
-which answer READ. One function, `Capabilities::require_verb()`, makes the decision:
+which answer READ. One function, `Capabilities::require_command()`, makes the decision:
 
 - where a WordPress user is current, `Capabilities::can( $role )`: the user's capability,
   under whatever ceiling the command's session installed;
@@ -2022,42 +2022,42 @@ which answer READ. One function, `Capabilities::require_verb()`, makes the decis
   scope alone. A command carrying no ceiling, signed by the site's own secret or LOCAL to the
   process, runs at MANAGE, the authority that loaded the topology.
 
-A handler never checks a role. A `:config` verb that only reports declares `read` — a Table's
+A handler never checks a role. A `:config` command that only reports declares `read` — a Table's
 `stats`, a dead-letter queue's `dl_list` and `dl_show` — and every other declares nothing. [`scripts/lint-contract.mjs`](../scripts/lint-contract.mjs)'s
 `scope-check-in-handler` rule refuses a line reading `Capabilities::$session_scope` to check a
 role, so a handler cannot grow its own check back.
 The role check precedes the secure-level refusal, the unknown-verb throw and argument binding,
-so a caller without the role learns neither whether the verb exists nor what it binds, and a
-refused verb never reaches `$around_dispatch`.
+so a caller without the role learns neither whether the command exists nor what it binds, and a
+refused command never reaches `$around_dispatch`.
 
 **Alternatives considered:**
 
-- A role check in each handler — rejected: it drifts verb by verb, and a handler that omits
+- A role check in each handler — rejected: it drifts command by command, and a handler that omits
   one gates nothing.
-- Gating in `Service_CI_Node`'s table build — rejected: it misses every `:config` verb, which
+- Gating in `Service_CI_Node`'s table build — rejected: it misses every `:config` command, which
   the service CIs never build.
 - An endpoint floor on the interpreter — rejected: with MANAGE the role of every undeclared
-  verb, `dispatch()` already holds that floor everywhere, and a floor a worker leaves null is
+  command, `dispatch()` already holds that floor everywhere, and a floor a worker leaves null is
   the hole.
 - A role per argument, `stats` at read and `stats reset` at manage — rejected: a role belongs
-  to a verb, so the reset is its own verb, `reset_stats`.
+  to a command, so the reset is its own command, `reset_stats`.
 
 **Consequences:**
 
-- A READ or TUNE session reaches a worker's verbs only where they declare that role: `stats`,
-  `dl_list`, `dl_show` and the base `READ_VERBS`. Every other `:config` verb, and the graph
+- A READ or TUNE session reaches a worker's commands only where they declare that role: `stats`,
+  `dl_list`, `dl_show` and the base `READ_VERBS`. Every other `:config` command, and the graph
   vocabulary, demands MANAGE of a session in a worker.
 - A service CI's `help` answers READ, as the base interpreter's does.
-- A consumer's `:config` verbs follow the same rule; event-logger-nodes' and intelligence's
+- A consumer's `:config` commands follow the same rule; event-logger-nodes' and intelligence's
   declare nothing, so each demands MANAGE.
-- A verb refused by role emits no dispatch span, because `$around_dispatch` never runs.
-- A `Vault_Group_Node` forwards its child class's verbs through an interpreter whose patron is
+- A command refused by role emits no dispatch span, because `$around_dispatch` never runs.
+- A `Vault_Group_Node` forwards its child class's commands through an interpreter whose patron is
   the group, whose schema declares none of them, so the group holds each at MANAGE; the
   child's own interpreter then applies the child's declared role.
-- A test reaching a verb the way a REST request would has to make a user current. With none
+- A test reaching a command the way a REST request would has to make a user current. With none
   current the scope decides, so an unscoped test command runs at MANAGE.
 
-**Revisit if:** a worker gains a current user — `require_verb()` would then ask that user's
+**Revisit if:** a worker gains a current user — `require_command()` would then ask that user's
 capabilities in place of the session's ceiling alone — or a verb's blast radius turns on its
 arguments in a way a second verb cannot split.
 
@@ -2307,14 +2307,14 @@ would spend two slots per spoke.
 **Consequences:** A reader does not appear in any `dump_config` or in any TSL: `dump_config` replays the
 broker, which rebuilds its readers from the stream, and the broker's "…" lists each one only
 once it exists. A reader's configuration therefore goes through the broker's own
-verbs — `assume_clean_shutdown` reaches every reader present or built later — and a verb sent
+commands — `assume_clean_shutdown` reaches every reader present or built later — and a command sent
 straight to one reader's `:config` is live-only, as a `Vault_Group` child's is. The analyzer reads a broker's roots and
 its `add_source` lines, never its readers, so an analysis question about one reader — its exact cursor dir, its
 lag — is answered at runtime: by the probe log, where each reader reports under
 `Remote_Broker_Node::reader_id()`.
 
 **Revisit if:** a reader must appear in `dump_config` or the TSL — an operator wiring one
-reader to its own target, or a verb on one reader that must survive a restart — at which point
+reader to its own target, or a command on one reader that must survive a restart — at which point
 the reader becomes a declared node and the glob a configuration-time expansion.
 
 **Amendment: a reader of a source without a partition token runs once per fleet.** A source
@@ -2329,26 +2329,26 @@ every `retry_ms` (default `http_retry_ms`, 5000): a broker builds a reader on fi
 source claims, whether its remote sends the stamp or lists it. `consumer_for()` stays the one
 builder and `MAX_READERS` caps both. The base both brokers share is `Remote_Broker_Node`, so the
 analyzer, `Aggregator_CI` and the console recognize a broker by that class, or by its schema's
-`add_source` verb, never by a name.
+`add_source` command, never by a name.
 
 **Amendment: a broker's sources come by `add_source`.** A broker takes `<vault_id>
 <offsetlog_root> <deadletter_root>` (`HTTP_Source` adds an optional `retry_ms`), and
 `make_node` refuses a surplus token, so a line carrying a `<source>=<target>` pair is refused
-and reads as unreadable to the analyzer too. Each source is a verb on the broker's `:config`,
+and reads as unreadable to the analyzer too. Each source is a command on the broker's `:config`,
 `add_source <remote_log> <local_node>`: a stamp, a glob or `sources:<name>`, with `{partition}`
 resolved at the worker as [ADR-33](#adr-33-a-line-without-a-partition-token-runs-once-per-fleet)
 resolves it, then the node its lines go to. A source goes to one target: a second target for
 a declared source is refused ("already goes to"), and a repeat of the same pair is a no-op.
 `remove_source <remote_log> <local_node>` is the inverse: it stops routing the source and
 retracts every reader that is not claimed by any other source, leaving the reader's offsetlog and dead letters
-on disk. `Vault_Group_Node` forwards either verb to every member and records it
+on disk. `Vault_Group_Node` forwards either command to every member and records it
 ([ADR-21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it)),
 so one group line reaches every spoke, and a broker's `dump_config()` emits one `add_source`
 line per source after its `make_node`. The analyzer and the console read those lines, in the
 order sent, through `Node::command_targets()`
 ([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the browser's
 `RemoteLink` takes its sources through `addSource()` and `removeSource()`, which refuse as the
-PHP verbs refuse, and its own `:config` answers the same two verbs through them.
+PHP commands refuse, and its own `:config` answers the same two commands through them.
 
 ---
 
@@ -2416,7 +2416,7 @@ none of today. The blast radius, sender by sender, with what each does with one 
   would read `Discovery refused: Command not delivered: <reason>` beside HTTP_Out's own
   rate-limited line, the double report the heartbeat bullet names.
 - **`Fanout_Targets::send_signed()` from `Settings_Sync_Node`** (FROM the node; the spoke's
-  `settings` verbs). Its `fill()` returns on anything not TM_STRUCT, so the bounce is counted and
+  `settings` commands). Its `fill()` returns on anything not TM_STRUCT, so the bounce is counted and
   dropped; the periodic re-push already covers a lost push. No change needed.
 - **`Fanout_Targets::send_signed()` from event-logger-nodes' `Discovery_Collector_Node`** (FROM
   the node; `discovery get`). Its `fill()` returns on a payload that is not an array, so the
@@ -2430,7 +2430,7 @@ none of today. The blast radius, sender by sender, with what each does with one 
   answers none of them; under the proposal each gets a TM_ERROR at its FROM, which a Shell
   prints and any other node handles as its `fill()` handles any TM_ERROR. A topology line
   carries TM_NOREPLY and is not answered. These commands are whatever their senders wrote,
-  writes included: an operator's `cmd … set` or `vault` verb applies state.
+  writes included: an operator's `cmd … set` or `vault` command applies state.
 
 **Revisit if:** a transport cannot tell delivered from lost — a non-200 a proxy answers after
 the spoke applied the command — at which point a bounce invites a retry that applies a write
@@ -2495,7 +2495,7 @@ refuse `<partition>` rather than read it as a fixed name and declare one literal
 
 A reader that owns nothing idles in one state, held by `Durable_Reader`: it builds no source,
 opens nothing, arms no timer, blanks its offsetlog and dead-letter dirs so a sidecar is never built
-and a `dl_*` verb never finds a quarantine, reports `POLLING` as `IDLE` with `idle: { since,
+and a `dl_*` command never finds a quarantine, reports `POLLING` as `IDLE` with `idle: { since,
 reason }` beside it, refuses `poll`, `step`, `pause`, `play`, `seek_frame` and a seek with that
 reason, and writes no stderr line, because idling is normal operation. Every line is still
 parsed on every partition, so a bad one fails everywhere.
@@ -2546,7 +2546,7 @@ a `delete` removes the rows whose named columns match, refused on a table whose 
 others, which only the purge releases). A reader attaches every
 partition's file read-only into one connection and answers in one statement;
 `Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that under SQLite's ten attachments. A reader
-finds its table by schema, never by name. A verb answering from `read()` answers only rows
+finds its table by schema, never by name. A command answering from `read()` answers only rows
 its declared role may read, as [ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)
 bounds what a verb's mount may expose. A schema version mismatch discards the file at open.
 Retention is declared per table and runs on the Table tick, as a `retain` window or a
@@ -2814,7 +2814,7 @@ cap. Every Partition otherwise prunes at `max_segments`, whatever its segments' 
 rule, the count rule and the hard cap. `cleanup_segments()` refreshes its warm segment
 cache and prunes nothing. The flag is per process, and retention runs in whichever process
 rotates, so every writer over the directory must carry it; a writer without it prunes on
-its own rotation. The verb is a declared `toggle`, so `dump_toggles()` round-trips it, and,
+its own rotation. The command is a declared `toggle`, so `dump_toggles()` round-trips it, and,
 undeclared, it requires `manage` like `void_warranty`. `wp nodes gc` and `Log_Cleaner` are
 unchanged: they sweep undeclared directories, never a declared partition's segments.
 
@@ -2836,8 +2836,8 @@ each Partition's size.
 **Context:** Event-logger-nodes served the one MCP door, and its controller held two halves
 in one class: a server — the session check, the scope ceiling, the per-session meter, the
 JSON-RPC dispatch, the argument tokens, the `<site-data>` fence and the OAuth sign-in
-pointer — and a declaration of which verbs it fronts and what it tells an agent about them.
-A second plugin, newspack-intelligence, needs a door of its own over its own verbs.
+pointer — and a declaration of which commands it fronts and what it tells an agent about them.
+A second plugin, newspack-intelligence, needs a door of its own over its own commands.
 
 **Decision:** The server lives in the substrate as the abstract
 [`Mcp_Door`](../includes/class-mcp-door.php), and a plugin's door is a subclass declaring
@@ -2862,7 +2862,7 @@ another's, and a grant session minted for one door's resource is refused at ever
 `<site-data>` tag, encoded with `JSON_HEX_TAG` so a payload cannot close it, and leads its
 instructions with `Mcp_Door::FENCE_NOTE`, the one sentence saying the tag holds data and
 that a direction inside it is never followed. The server's methods are `final`, so a door says
-nothing its declarations do not carry. A verb that attributes an act reads the calling
+nothing its declarations do not carry. A command that attributes an act reads the calling
 session's label from `Capabilities::$session_label`, which the door installs beside the
 scope as `/command`'s verifier does.
 
@@ -2952,8 +2952,8 @@ marked yet marks its own dirs only once the source is.
 - Deriving the gated dirs from the active topologies — rejected: the bytes outlive the
   configuration, so every reshaping of a fleet ungated a log, and a broken topology left
   every gate unknown.
-- A capability per verb on `raw-logs` — rejected: a verb cannot know which log holds what,
-  and the SSE stream reads the same logs past every verb.
+- A capability per command on `raw-logs` — rejected: a command cannot know which log holds what,
+  and the SSE stream reads the same logs past every command.
 - An option listing gated dirs — rejected: a second list drifts from the data it names.
 
 **Consequences:** One stat per raw read, per glob match and per listed dir, two per

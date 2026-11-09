@@ -101,7 +101,7 @@ class Scorer_Demo_Node extends Node {
 	/**
 	 * Topology-console manifest: the palette tile and the node's argument form. The weight
 	 * table is a constant rather than a constructor argument, so the form carries nothing
-	 * to configure, and a pure transform declares no verbs.
+	 * to configure, and a pure transform declares no commands.
 	 *
 	 * @return array<string,mixed>
 	 */

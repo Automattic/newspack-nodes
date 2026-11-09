@@ -212,7 +212,7 @@ describe( 'TopologySettingsPanel', () => {
 } );
 
 /**
- * The secure level is a STATEMENT, not frontmatter — it stays the verb an
+ * The secure level is a STATEMENT, not frontmatter — it stays the command an
  * operator would type, and it is greppable, which is half its value. So it
  * rides its own prop and its own callback rather than the frontmatter map.
  */

@@ -1,15 +1,15 @@
 <?php
 /**
- * Workers_CI: command-dispatch for worker-lifecycle verbs.
+ * Workers_CI: command-dispatch for worker-lifecycle commands.
  *
- * Verbs:
+ * Commands:
  *   list           — one row per worker lock dir (`CLI::ls_workers()`): type,
  *                    partition and heartbeat liveness, nothing else.
  *   dump_graph     — the operator-grade envelope `collect_dump_metadata()`
  *                    builds, plus a `graph` map of active-topology-name =>
  *                    `{nodes, edges}` and a catalog entry for every `Log`
  *                    file-sink. The Worker Status dashboard polls it; it stats
- *                    the whole log tree, so it is the expensive verb here.
+ *                    the whole log tree, so it is the expensive command here.
  *   dump_cleanup — what sits on disk under `logs/`, the set `Log_Cleaner`
  *                    declares, and the orphans between them.
  *   restart        — request a graceful restart of matching worker types.
@@ -80,13 +80,13 @@ class Workers_CI_Node extends Service_CI_Node {
 	public ?object $cli = null;
 
 	/**
-	 * `dump_graph` verb handler — the fleet snapshot the Worker Status
+	 * `dump_graph` command handler — the fleet snapshot the Worker Status
 	 * dashboard renders.
 	 *
 	 * Three reads compose into ONE reply because the browser joins them:
 	 * `collect_dump_metadata()` for live state, `collect_topology_graphs()`
 	 * for the declared `.tsl` structure, and `append_log_sinks()` for the Log
-	 * file-sinks the partitioned catalog does not cover. Separately timed verbs
+	 * file-sinks the partitioned catalog does not cover. Separately timed commands
 	 * would let a slow poll join a worker list against a graph and a segment
 	 * list captured at other instants. A topology that will not load draws no
 	 * graph and answers its `unreadable` row; a catalog that will not load
@@ -660,7 +660,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `heartbeat` verb handler — refresh the caller's own SSE slot lease.
+	 * `heartbeat` command handler — refresh the caller's own SSE slot lease.
 	 *
 	 * Both arguments are declared `int`, so the binder reads them through
 	 * `Core::canonical_decimal()`, which refuses anything but a canonical
@@ -673,7 +673,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * that the caller lacks a capability. `SSE_Slot_Pool::inspect()` names
 	 * which of its six states caused it, and that name rides out in the throw.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: slot, owner.
+	 * @param array<array-key,mixed> $args Bound command arguments: slot, owner.
 	 * @return array<string,mixed>
 	 * @throws \RuntimeException On a zero owner, an unreachable cache backend, or a lease this owner no longer holds.
 	 */
@@ -696,7 +696,7 @@ class Workers_CI_Node extends Service_CI_Node {
 
 	/**
 	 * The injected CLI, materialized non-null. Fails loud when the bootstrap
-	 * did not assign `$cli` before a worker-control verb dispatched.
+	 * did not assign `$cli` before a worker-control command dispatched.
 	 *
 	 * @return \Newspack_Nodes\CLI
 	 * @throws \RuntimeException When `$cli` was never assigned.
@@ -708,7 +708,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		return $this->cli;
 	}
 	/**
-	 * `list` verb handler — one row per worker lock dir, through the injected
+	 * `list` command handler — one row per worker lock dir, through the injected
 	 * CLI, carrying type, partition and heartbeat liveness.
 	 *
 	 * @param Workers_CI_Node $self The dispatching node, carrying `$cli`.
@@ -719,7 +719,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `dump_cleanup` verb handler — the orphan-log diagnostic.
+	 * `dump_cleanup` command handler — the orphan-log diagnostic.
 	 *
 	 * Reports the first-level dirs on disk under `logs/`, the set
 	 * `Log_Cleaner` declares, and the difference. Both halves come from the
@@ -753,7 +753,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `restart` verb handler — request a graceful restart of matching workers.
+	 * `restart` command handler — request a graceful restart of matching workers.
 	 *
 	 * Leaving out the type — or naming the literal `all` — matches every
 	 * worker, and an absent `partition` binds null, which asks the CLI for
@@ -763,7 +763,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * wrong fleet and reporting success.
 	 *
 	 * @param Workers_CI_Node        $self The dispatching node, carrying `$cli`.
-	 * @param array<array-key,mixed> $args Bound verb arguments: the types list, and partition.
+	 * @param array<array-key,mixed> $args Bound command arguments: the types list, and partition.
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_restart( Workers_CI_Node $self, array $args ): array {

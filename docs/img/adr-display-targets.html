@@ -40,7 +40,7 @@
 
 <div class="card union">
   <h3><span class="mono">display_targets()</span>: the union, consumed by presentation only</h3>
-  <p><span class="mono">target_list( target() )</span> first, then the extras, de-duplicated, empties dropped. It feeds <span class="mono">ls</span>'s TARGET column and <span class="mono">dump_metadata</span>'s <span class="mono">targets</span> key, always a list, which is what edges are drawn from. Two keys because a flattened list cannot express fan-out, and the connect/disconnect verbs need the distinction.</p>
+  <p><span class="mono">target_list( target() )</span> first, then the extras, de-duplicated, empties dropped. It feeds <span class="mono">ls</span>'s TARGET column and <span class="mono">dump_metadata</span>'s <span class="mono">targets</span> key, always a list, which is what edges are drawn from. Two keys because a flattened list cannot express fan-out, and the connect/disconnect commands need the distinction.</p>
   <div class="slots"><span class="lbl">Routing target set, one extra:</span><span class="s r"><span class="i">0</span>firehose:partition</span><span class="s e"><span class="i">1</span>flame-stats:aggregate</span></div>
   <div class="slots"><span class="lbl">Tee with two, one extra:</span><span class="s r"><span class="i">0</span>request-builder</span><span class="s r"><span class="i">1</span>error-log</span><span class="s e"><span class="i">2</span>flame-stats:aggregate</span></div>
   <div class="slots"><span class="lbl">Empty target, one extra:</span><span class="s e"><span class="i">0</span>flame-stats:aggregate</span><span style="font-size:12px;color:#B32D2E">← index 0 is presentation-only here</span></div>

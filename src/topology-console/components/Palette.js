@@ -31,8 +31,8 @@ import { useChrome } from '../ChromeContext';
  * declared in TSL, so a tile for one would drop a node that a topology cannot
  * build, and a `Hidden` class is one another node builds, such as a broker's
  * reader. Those entries still belong in the catalog, because the inspector
- * reads the same list for a selected node's verbs and arguments — which is why
- * the refusal sits here rather than in the `classes dump` verb.
+ * reads the same list for a selected node's commands and arguments — which is why
+ * the refusal sits here rather than in the `classes dump` command.
  */
 const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote', 'Hidden' ] );
 

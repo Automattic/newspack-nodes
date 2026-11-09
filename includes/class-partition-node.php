@@ -242,7 +242,7 @@ class Partition_Node extends Timer_Node {
 	/** @var (callable(array<int,mixed>, array<string,int>): (string|null))|null fn(array $message, array $position) => string|null */
 	protected $index_callback = null;
 
-	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
+	/** Formatter name set via the `with_index` command — the round-trippable form of the index callback (which itself can't be dumped). */
 	protected ?string $index_formatter_name = null;
 
 	/** Large-write opt-in: NONE, LOCK (allow_large_writes, held Lock), VOID (void_warranty, no lock). Topic_Node carries the same three. */
@@ -2569,13 +2569,13 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Emit the base config plus this Partition's verb-config, from STATE — the
+	 * Emit the base config plus this Partition's `:config` lines, from STATE — the
 	 * large-write mode, the `with_index` formatter name, the declared toggles and
 	 * the declared setters.
 	 * (The index callback itself cannot be dumped; the formatter name is its
 	 * round-trip form.)
 	 *
-	 * @return string The `make_node` line, plus one config line per verb that is set.
+	 * @return string The `make_node` line, plus one config line per setting that is set.
 	 */
 	public function dump_config(): string {
 		$out = parent::dump_config();
@@ -2662,14 +2662,14 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * `allow_large_writes` verb handler: lift the 4KB cap on the patron and take
+	 * `allow_large_writes` command handler: lift the 4KB cap on the patron and take
 	 * its write lock. An optional debounce_ms switches to debounced mode — lock
 	 * per write burst, released after that many ms of idle — instead of
 	 * acquire-and-hold.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: the optional debounce_ms; absent or 0 is hold mode.
-	 * @return string The verb reply.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: the optional debounce_ms; absent or 0 is hold mode.
+	 * @return string The command's reply.
 	 */
 	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -2680,11 +2680,11 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * `void_warranty` verb handler: lift the 4KB cap with NO lock, on the caller's
+	 * `void_warranty` command handler: lift the 4KB cap with NO lock, on the caller's
 	 * assertion that it is this partition's only writer.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
-	 * @return string The verb reply.
+	 * @return string The command's reply.
 	 */
 	public static function cmd_void_warranty( Command_Interpreter_Node $interpreter ): string {
 		/** @var self $patron */
@@ -2694,12 +2694,12 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * `with_index` verb handler: set the patron's companion-index line-formatter
+	 * `with_index` command handler: set the patron's companion-index line-formatter
 	 * by its registered name.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: formatter.
-	 * @return string The verb reply.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: formatter.
+	 * @return string The command's reply.
 	 * @throws \RuntimeException When the name is unregistered.
 	 */
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
@@ -2738,7 +2738,7 @@ class Partition_Node extends Timer_Node {
 
 	/**
 	 * Topology console manifest: the palette entry, the seven positional arguments
-	 * `parse_schema_args()` assigns, and the config verbs.
+	 * `parse_schema_args()` assigns, and the config commands.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -2780,7 +2780,7 @@ class Partition_Node extends Timer_Node {
 				],
 				[
 					'name'        => 'set_read_capability',
-					'description' => 'Name the WordPress capability a raw read of this log needs. The log writes it to a .read-capability marker in its dir at once when the dir exists, else before the flush that makes it; its write quarantine and every reader\'s cursor and dead letters copy it, and a raw-logs verb, the catalog and the SSE stream refuse them to a caller without it. Removing the line leaves the marker (ADR-39).',
+					'description' => 'Name the WordPress capability a raw read of this log needs. The log writes it to a .read-capability marker in its dir at once when the dir exists, else before the flush that makes it; its write quarantine and every reader\'s cursor and dead letters copy it, and a raw-logs command, the catalog and the SSE stream refuse them to a caller without it. Removing the line leaves the marker (ADR-39).',
 					'args'        => [
 						[ 'name' => 'capability', 'type' => 'string', 'required' => true, 'description' => 'Lowercase letters, digits and underscores.' ],
 					],

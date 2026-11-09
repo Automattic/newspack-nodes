@@ -468,7 +468,7 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( '', $ref->getProperty( 'deadletter_dir' )->getValue( $c ) );
 	}
 
-	public function test_deadletter_triage_verbs_are_wired_into_the_schema(): void {
+	public function test_deadletter_triage_commands_are_wired_into_the_schema(): void {
 		$verbs = \array_column( Consumer_Node::node_schema()['commands'], 'name' );
 		$this->assertContains( 'dl_list', $verbs );
 		$this->assertContains( 'dl_requeue', $verbs );
@@ -515,7 +515,7 @@ class ConsumerTest extends TestCase {
 	/**
 	 * A Consumer's source is a read view, so a `cmd <reader>:source:config`
 	 * can never lift its cap or take the log's write lock; the offsetlog it
-	 * writes keeps its `:config`, and its verbs reach it there.
+	 * writes keeps its `:config`, and its commands reach it there.
 	 */
 	public function test_a_consumers_source_takes_no_config_and_its_offsetlog_keeps_one(): void {
 		$c = new Consumer_Node();
@@ -1975,7 +1975,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_assume_clean_shutdown_round_trips_through_dump_config(): void {
-		// The verb re-emits on dump_config so a console-serialized graph replays it.
+		// The command re-emits on dump_config so a console-serialized graph replays it.
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->name( 'firehose:consumer' );
@@ -2462,8 +2462,8 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 'C', Message::unpacked( $head )[ Message::VALUE ], 'the un-forwarded in-flight message stays at the buffer head' );
 	}
 
-	public function test_set_line_mode_verb_enables_only_on_an_explicit_truthy_arg(): void {
-		// Only 1/true/yes/on enable line mode; a bare/empty verb (or any other value)
+	public function test_set_line_mode_command_enables_only_on_an_explicit_truthy_arg(): void {
+		// Only 1/true/yes/on enable line mode; a bare/empty command (or any other value)
 		// disables it — so an accidental click is reversible and the default is "off".
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
@@ -2474,7 +2474,7 @@ class ConsumerTest extends TestCase {
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'an explicit truthy arg enables it' );
 
 		$wired->dispatch( 'set_line_mode', [] );
-		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'a bare/empty verb disables it' );
+		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'a bare/empty command disables it' );
 
 		$wired->dispatch( 'set_line_mode', [ 'on' ] );
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ) );
@@ -4198,7 +4198,7 @@ class ConsumerTest extends TestCase {
 	// node_schema() — palette manifest for the topology console.
 	// ============================================================================
 
-	public function test_node_schema_declares_io_category_and_no_request_verbs(): void {
+	public function test_node_schema_declares_io_category_and_no_requests(): void {
 		// Topology console reads node_schema() to render the palette entry.
 		// Consumer is in the I/O category and declares no request verbs, so the
 		// editor offers none: the read surface is dump_metadata, and lag is
@@ -4209,11 +4209,11 @@ class ConsumerTest extends TestCase {
 		$this->assertNotSame( '', $schema['description'] );
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
-		// Set equality, NOT order: verb ordering is presentation, free to change.
+		// Set equality, NOT order: command ordering is presentation, free to change.
 		$this->assertEqualsCanonicalizing(
 			[ 'add_snapshot_node', 'remove_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
-			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (`step` is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
+			'Consumer exposes the snapshot-cache + line-mode config commands, the time-travel transport (`step` is a mutating command, not a request), the dead-letter triage commands, and set_multi_writer (seal-grace)'
 		);
 
 		// Three ctor params: source_dir (required), offsetlog_dir + deadletter_dir (default '').
@@ -4767,12 +4767,12 @@ class ConsumerTest extends TestCase {
 	}
 
 	/**
-	 * The time-travel transport verbs (`seek_frame`/`pause`/`play`/`step`) are driven by
+	 * The time-travel transport commands (`seek_frame`/`pause`/`play`/`step`) are driven by
 	 * the Inspector's Time Travel bar, so they carry hidden:true to keep them out
-	 * of the generic per-command verb-button list. Non-transport config verbs
+	 * of the generic per-command button list. Non-transport config commands
 	 * (add_snapshot_node, set_line_mode) stay visible.
 	 */
-	public function test_node_schema_marks_time_travel_verbs_hidden(): void {
+	public function test_node_schema_marks_time_travel_commands_hidden(): void {
 		$commands = [];
 		foreach ( Consumer_Node::node_schema()['commands'] as $command ) {
 			$commands[ $command['name'] ] = $command;
@@ -4780,7 +4780,7 @@ class ConsumerTest extends TestCase {
 
 		foreach ( [ 'seek_frame', 'pause', 'play', 'step' ] as $verb ) {
 			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
-			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic verb list" );
+			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic command list" );
 		}
 
 		foreach ( [ 'add_snapshot_node', 'set_line_mode' ] as $verb ) {
@@ -4790,11 +4790,11 @@ class ConsumerTest extends TestCase {
 	}
 
 	/**
-	 * The dead-letter triage verbs are driven by the Inspector's Triage modal
+	 * The dead-letter triage commands are driven by the Inspector's Triage modal
 	 * (dl_show/dl_requeue take a raw locator; dl_purge gets a two-click arm
-	 * there), so like the time-travel transport verbs they carry hidden:true.
+	 * there), so like the time-travel transport commands they carry hidden:true.
 	 */
-	public function test_node_schema_marks_triage_verbs_hidden(): void {
+	public function test_node_schema_marks_triage_commands_hidden(): void {
 		$commands = [];
 		foreach ( Consumer_Node::node_schema()['commands'] as $command ) {
 			$commands[ $command['name'] ] = $command;
@@ -4802,7 +4802,7 @@ class ConsumerTest extends TestCase {
 
 		foreach ( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge' ] as $verb ) {
 			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
-			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic verb list" );
+			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic command list" );
 		}
 	}
 
@@ -4935,7 +4935,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c->set_multi_writer( true );
 
-		// Real round-trip: extract the emitted arg and replay it through the verb
+		// Real round-trip: extract the emitted arg and replay it through the command
 		// handler on a fresh node — a value-less line would restore false.
 		$matched = \preg_match( '/command_node firehose:config set_multi_writer (\S+)/', $c->dump_config(), $matches );
 		$this->assertSame( 1, $matched, 'set_multi_writer must be emitted with an explicit argument' );

@@ -2,7 +2,7 @@
 /**
  * RawLogsCITest: unit tests for the substrate Raw_Logs_CI, which owns the
  * `list_logs` (catalog) + `dump_log` (per-partition metadata)
- * verbs the Raw Logs admin dashboard subscribes to.
+ * commands the Raw Logs admin dashboard subscribes to.
  *
  * @package Newspack_Nodes
  */
@@ -19,7 +19,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Raw_Logs_CI_Node::class )]
@@ -44,7 +44,7 @@ class RawLogsCITest extends TestCase {
 	protected function tearDown(): void {
 		Log_Sources::$builtin_sources = null;
 		Topology_Registry::reset();
-		VerbHarness::reset();
+		CommandHarness::reset();
 		Log_Discovery::reset();
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
@@ -54,11 +54,11 @@ class RawLogsCITest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// schema + list_logs verb — disk-discovered catalog.
+	// schema + list_logs command — disk-discovered catalog.
 	// -------------------------------------------------------------------------
 
-	public function test_list_logs_verb_returns_sorted_disk_catalog(): void {
-		// Three concrete partition dirs on disk; the verb returns a sorted
+	public function test_list_logs_command_returns_sorted_disk_catalog(): void {
+		// Three concrete partition dirs on disk; the command returns a sorted
 		// catalog of {key, label} pairs where both are the concrete dir name
 		// verbatim (flat partition-in-name layout) — the shape the React picker
 		// mounts on.
@@ -66,7 +66,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/logs/jobs.p0',     0755, true );
 		\mkdir( $this->tmp . '/logs/requests.p0', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -78,28 +78,28 @@ class RawLogsCITest extends TestCase {
 		);
 	}
 
-	public function test_list_logs_verb_returns_empty_when_no_logs_dir(): void {
+	public function test_list_logs_command_returns_empty_when_no_logs_dir(): void {
 		// No logs/ dir means no glob matches — the picker shows an empty
 		// list and the dashboard renders a "no logs" affordance.
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 		$this->assertSame( [], $result );
 	}
 
-	public function test_list_logs_verb_rejects_unauthorized(): void {
+	public function test_list_logs_command_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
 	// -------------------------------------------------------------------------
-	// dump_log verb — per-partition segment metadata.
+	// dump_log command — per-partition segment metadata.
 	// -------------------------------------------------------------------------
 
 	public function test_dump_log_answers_the_segment_summary(): void {
 		\mkdir( $this->tmp . '/logs/renamed.p3', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'renamed.p3' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'renamed.p3' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'renamed.p3', $result['log_id'] );
@@ -110,18 +110,18 @@ class RawLogsCITest extends TestCase {
 	public function test_log_status_is_refused_as_an_unknown_command(): void {
 		\mkdir( $this->tmp . '/logs/renamed.p3', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'renamed.p3' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'renamed.p3' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'unknown command: log_status', $result );
 	}
 
-	public function test_dump_log_verb_returns_single_dir_summary(): void {
-		// `log` is a CONCRETE partition dir name; the verb stats THAT one
+	public function test_dump_log_command_returns_single_dir_summary(): void {
+		// `log` is a CONCRETE partition dir name; the command stats THAT one
 		// dir's segments (no num_partitions loop, no nested `/p{N}`).
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'dump_log',
@@ -138,7 +138,7 @@ class RawLogsCITest extends TestCase {
 	public function test_dump_log_refuses_an_unknown_log(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'kea-7713.p9' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'kea-7713.p9' );
 
 		$this->assertSame( "unknown log: \"kea-7713.p9\"\n", $result );
 	}
@@ -146,7 +146,7 @@ class RawLogsCITest extends TestCase {
 	public function test_dump_log_refuses_an_empty_log_at_the_binder(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', '' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', '' );
 
 		$this->assertSame( "missing required argument: log\n", $result );
 	}
@@ -156,7 +156,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/offsets/combined.firehose.p0', 0755, true );
 		\mkdir( $this->tmp . '/deadletter/job-worker.jobs.p0', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -199,7 +199,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $this->tmp . '/deadletter/hub.coast-73/sources:php/7.log', '' );
 		\mkdir( $this->tmp . '/deadletter/performance.requests.p2', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -225,7 +225,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $this->tmp . '/offsets/hub.tundra-41/firehose.p3/7.log', '' );
 		\chmod( $this->tmp . '/offsets/job-worker.jobs.p4', 0 );
 		try {
-			$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+			$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 		} finally {
 			\chmod( $this->tmp . '/offsets/job-worker.jobs.p4', 0755 );
 		}
@@ -251,7 +251,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/offsets/hub:tw0/firehose.p3', 0755, true );
 		\file_put_contents( $this->tmp . '/offsets/hub:tw0/firehose.p3/7.log', '' );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -292,7 +292,7 @@ class RawLogsCITest extends TestCase {
 	public function test_dump_log_reads_a_broker_readers_dir_by_its_stamp(): void {
 		$line = $this->seed_reader_record( 'offsets/hub.tundra-41/sources:php', 'cursor 8812' );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'offsets:hub.tundra-41:sources:php' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'offsets:hub.tundra-41:sources:php' );
 
 		$this->assertSame(
 			[
@@ -308,7 +308,7 @@ class RawLogsCITest extends TestCase {
 	public function test_read_message_reads_a_broker_readers_dead_letters_by_their_stamp(): void {
 		$this->seed_reader_record( 'deadletter/hub.coast-73/firehose.p3', 'poison 6631' );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
@@ -333,7 +333,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/logs/deadletter', 0755, true );
 		\mkdir( $this->tmp . '/logs/deadletter:firehose.p0', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -353,7 +353,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/offsets/Kea-5512.p4', 0755, true );
 		\mkdir( $this->tmp . '/offsets/kea-5512.p4', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -375,7 +375,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $present, "PHP Notice: 977\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present, 'debug' => $absent ];
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -392,7 +392,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $path, \str_repeat( 'n', 977 ) );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:php' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:php' );
 
 		$this->assertSame(
 			[
@@ -415,7 +415,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $this->tmp . '/logs/gate-4194.jsonl.3', \str_repeat( 'a', 977 ) );
 		\file_put_contents( $this->tmp . '/logs/gate-4194.jsonl.5', \str_repeat( 'b', 233 ) );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:gate-4194.jsonl' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:gate-4194.jsonl' );
 
 		$this->assertSame( [ [ 'id' => 3, 'size' => 977 ], [ 'id' => 5, 'size' => 233 ] ], $result['segments'] );
 		$this->assertSame( 2, $result['segment_count'] );
@@ -423,7 +423,7 @@ class RawLogsCITest extends TestCase {
 	}
 
 	public function test_dump_log_refuses_an_unknown_source(): void {
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:nope-977' );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:nope-977' );
 
 		$this->assertSame( "unknown log source: \"nope-977\" (known: none)\n", $result );
 	}
@@ -433,7 +433,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $seg_dir, 0755, true );
 		\file_put_contents( "{$seg_dir}/7.log", \str_repeat( 'q', 977 ) );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'dump_log',
@@ -482,7 +482,7 @@ class RawLogsCITest extends TestCase {
 		return $lines;
 	}
 
-	public function test_node_schema_declares_exactly_the_four_verbs(): void {
+	public function test_node_schema_declares_exactly_the_four_commands(): void {
 		$names = \array_column( Raw_Logs_CI_Node::node_schema()['commands'], 'name' );
 		\sort( $names );
 		$this->assertSame( [ 'dump_log', 'list_logs', 'read_block', 'read_message' ], $names );
@@ -493,11 +493,11 @@ class RawLogsCITest extends TestCase {
 	 * Fire `read_block` and return what it sent its caller: the TM_BATCH, or
 	 * null, and its header's flat pairs as a map.
 	 *
-	 * @param list<string> $args The verb's tokens.
+	 * @param list<string> $args The command's tokens.
 	 * @return array{0:?array<int,mixed>,1:array<string,string>}
 	 */
 	private function read_block( array $args ): array {
-		$GLOBALS['_wp_test_current_user_id'] ??= VerbHarness::REQUEST_USER;
+		$GLOBALS['_wp_test_current_user_id'] ??= CommandHarness::REQUEST_USER;
 		$ci   = new Raw_Logs_CI_Node();
 		$sink = new Capture_Sink_Node();
 		$ci->name( 'raw-logs' );
@@ -655,10 +655,10 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( '1', $info['RESET'] ?? null );
 	}
 
-	/** A read asked with TM_NOREPLY sends nothing back, as every verb's reply is suppressed. */
+	/** A read asked with TM_NOREPLY sends nothing back, as every command's reply is suppressed. */
 	public function test_read_block_asked_for_no_reply_sends_nothing(): void {
 		$this->seed_two_records();
-		$GLOBALS['_wp_test_current_user_id'] ??= VerbHarness::REQUEST_USER;
+		$GLOBALS['_wp_test_current_user_id'] ??= CommandHarness::REQUEST_USER;
 		$ci   = new Raw_Logs_CI_Node();
 		$sink = new Capture_Sink_Node();
 		$ci->name( 'raw-logs' );
@@ -674,10 +674,10 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( [], $sink->captured );
 	}
 
-	/** A read asked with TM_NOREPLY still fails loud on a malformed line, as every verb does. */
+	/** A read asked with TM_NOREPLY still fails loud on a malformed line, as every command does. */
 	public function test_read_block_asked_for_no_reply_still_refuses_an_unknown_log(): void {
 		$this->seed_two_records();
-		$GLOBALS['_wp_test_current_user_id'] ??= VerbHarness::REQUEST_USER;
+		$GLOBALS['_wp_test_current_user_id'] ??= CommandHarness::REQUEST_USER;
 		$ci = new Raw_Logs_CI_Node();
 		$ci->name( 'raw-logs' );
 		$ci->sink( new Capture_Sink_Node() );
@@ -695,7 +695,7 @@ class RawLogsCITest extends TestCase {
 	public function test_read_block_rejects_a_malformed_position(): void {
 		$this->seed_two_records();
 
-		$bad = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'abc' ] );
+		$bad = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'abc' ] );
 
 		$this->assertSame( "read_block: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)\n", $bad );
 	}
@@ -703,7 +703,7 @@ class RawLogsCITest extends TestCase {
 	public function test_read_block_refuses_an_unknown_log(): void {
 		$this->seed_two_records();
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'kea-7713.p9', '0:0' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'kea-7713.p9', '0:0' ] );
 
 		$this->assertSame( "unknown log: \"kea-7713.p9\"\n", $result );
 	}
@@ -711,7 +711,7 @@ class RawLogsCITest extends TestCase {
 	public function test_read_message_refuses_an_unknown_log_instead_of_reading_another(): void {
 		$this->seed_two_records();
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'kea-7713.p9', '0:0' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'kea-7713.p9', '0:0' ] );
 
 		$this->assertSame( "unknown log: \"kea-7713.p9\"\n", $result );
 	}
@@ -719,7 +719,7 @@ class RawLogsCITest extends TestCase {
 	public function test_read_message_refuses_an_empty_log_at_the_binder(): void {
 		$this->seed_two_records();
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ '', '0:0' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ '', '0:0' ] );
 
 		$this->assertSame( "missing required argument: log\n", $result );
 	}
@@ -729,7 +729,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $path, "PHP Notice: 977\nPHP Warning: 4194\n" );
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'sources:php', 'start' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'sources:php', 'start' ] );
 
 		$this->assertSame( 'sources:php', $result['source'] );
 		$this->assertSame( "PHP Notice: 977\n", $result['message'][ Message::VALUE ] );
@@ -739,7 +739,7 @@ class RawLogsCITest extends TestCase {
 	public function test_read_message_returns_the_record_at_a_position(): void {
 		[ $line1 ] = $this->seed_two_records();
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
@@ -763,13 +763,13 @@ class RawLogsCITest extends TestCase {
 
 	/**
 	 * Replay seeks with the magic 'start' token and Step reads at the SAME
-	 * position, so the read verb must accept the seek transport's vocabulary.
+	 * position, so the read command must accept the seek transport's vocabulary.
 	 * Rejecting it is why pause → Replay → Step did nothing.
 	 */
 	public function test_read_message_accepts_the_magic_start_position(): void {
 		$this->seed_two_records();
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
@@ -784,7 +784,7 @@ class RawLogsCITest extends TestCase {
 		// offset + length steps to record two; a trailing :length is ignored.
 		[ $line1 ] = $this->seed_two_records();
 
-		$next = VerbHarness::fire(
+		$next = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
@@ -797,7 +797,7 @@ class RawLogsCITest extends TestCase {
 	public function test_read_message_rejects_a_malformed_position(): void {
 		$this->seed_two_records();
 
-		$bad = VerbHarness::fire(
+		$bad = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
@@ -815,7 +815,7 @@ class RawLogsCITest extends TestCase {
 		$m[ Message::VALUE ] = 'quarantined 41941';
 		\file_put_contents( "{$dir}/7.log", Message::packed( $m ) . "\n" );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
@@ -830,7 +830,7 @@ class RawLogsCITest extends TestCase {
 		[ $line1, $line2 ] = $this->seed_two_records();
 		$end               = \strlen( $line1 . $line2 );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
@@ -851,19 +851,19 @@ class RawLogsCITest extends TestCase {
 	public function test_read_message_refuses_an_explicit_logs_prefix(): void {
 		$this->seed_two_records();
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'logs/firehose.p0', '0:0' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'logs/firehose.p0', '0:0' ] );
 
 		$this->assertSame( "invalid subscription: logs/firehose.p0\n", $result );
 	}
 
-	public function test_dump_log_verb_reflects_seeded_segments(): void {
-		// Seed a 128-byte segment in the flat concrete dir so the verb reports
+	public function test_dump_log_command_reflects_seeded_segments(): void {
+		// Seed a 128-byte segment in the flat concrete dir so the command reports
 		// non-zero size for that single dir.
 		$seg_dir = $this->tmp . '/logs/firehose.p0';
 		\mkdir( $seg_dir, 0755, true );
 		\file_put_contents( "{$seg_dir}/0.log", \str_repeat( 'x', 128 ) );
 
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'dump_log',
@@ -876,9 +876,9 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 128, $result['segments'][0]['size'] );
 	}
 
-	public function test_dump_log_verb_rejects_unauthorized(): void {
+	public function test_dump_log_command_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result = VerbHarness::fire(
+		$result = CommandHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'dump_log',
@@ -968,7 +968,7 @@ class RawLogsCITest extends TestCase {
 	public function test_a_marked_log_is_refused_to_a_caller_without_its_capability( string $verb, array $args ): void {
 		$this->gate_ledger();
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', $verb, $args );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', $verb, $args );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( "permission denied: log \"{$args[0]}\" needs the " . self::GATE_CAP . ' capability', $result );
@@ -979,8 +979,8 @@ class RawLogsCITest extends TestCase {
 		$this->gate_ledger();
 		$GLOBALS['_wp_test_current_user_can'][ self::GATE_CAP ] = true;
 
-		$record = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-items.p0', 'start' ] );
-		VerbHarness::reset();
+		$record = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-items.p0', 'start' ] );
+		CommandHarness::reset();
 		[ $batch ] = $this->read_block( [ 'ledger-items.p0', 'start' ] );
 
 		$this->assertSame( 'restricted body 6113 in ledger-items.p0', $record['message'][ Message::VALUE ] );
@@ -991,7 +991,7 @@ class RawLogsCITest extends TestCase {
 	public function test_the_listing_omits_a_marked_log_and_what_derives_from_it(): void {
 		$this->gate_ledger();
 
-		$keys = \array_column( VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' ), 'key' );
+		$keys = \array_column( CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' ), 'key' );
 
 		$this->assertSame( [ 'ledger-public.p0' ], $keys );
 	}
@@ -1000,7 +1000,7 @@ class RawLogsCITest extends TestCase {
 		$this->gate_ledger();
 		$GLOBALS['_wp_test_current_user_can'][ self::GATE_CAP ] = true;
 
-		$keys = \array_column( VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' ), 'key' );
+		$keys = \array_column( CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' ), 'key' );
 
 		$this->assertSame(
 			[
@@ -1024,7 +1024,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( "{$this->tmp}/logs/ledger-public.p0/.read-capability", "Harbor-Ledger reader\n" );
 		$GLOBALS['_wp_test_current_user_can'][ self::GATE_CAP ] = true;
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied: log "ledger-public.p0" carries a read-capability marker that does not read', $result );
@@ -1037,7 +1037,7 @@ class RawLogsCITest extends TestCase {
 		$late->arguments( [ "{$this->tmp}/logs/ledger-public.p0" ] );
 
 		$late->set_read_capability( 'quay_manifest_reader' );
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
 
 		$this->assertSame( "permission denied: log \"ledger-public.p0\" needs the quay_manifest_reader capability\n", $result );
 	}
@@ -1045,7 +1045,7 @@ class RawLogsCITest extends TestCase {
 	public function test_an_unmarked_log_beside_a_marked_one_reads_for_anyone(): void {
 		$this->gate_ledger();
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
+		$result = CommandHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'ledger-public.p0', 'start' ] );
 
 		$this->assertSame( 'public body 6113 in ledger-public.p0', $result['message'][ Message::VALUE ] );
 	}

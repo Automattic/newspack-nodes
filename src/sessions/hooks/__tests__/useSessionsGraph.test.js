@@ -91,7 +91,7 @@ it( 'names the handle each revoke answered, from the reply path', async () => {
 	).toEqual( [ 'sessions:revoke:in/h-4471', 'sessions:revoke:in/h-8823' ] );
 }, 30000 );
 
-// A connection is revoked by its grant id, through the same verb a session is.
+// A connection is revoked by its grant id, through the same command a session is.
 it( 'revokes a connection by sending its grant id', async () => {
 	const answers = [];
 	const wire = installFakeCommandWire( () => LISTING );

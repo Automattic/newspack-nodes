@@ -1,7 +1,7 @@
 /**
  * aggregator servers:view tests — the SERVER-CARDS slice. Owns ONLY the
  * per-server partition snapshot the server cards render. Fed by its own
- * `list_servers` slice verb (FROM=servers:view), it maps the struct
+ * `list_servers` slice command (FROM=servers:view), it maps the struct
  * payload (a sequential array of server snapshots) into `{ servers }` and
  * publishes via setState('view', …) for the <AggregatorServers> widget. No
  * counts, no snapshot clock — that's the summary slice's job.
@@ -26,7 +26,7 @@ function makeView() {
 	return node;
 }
 
-// A reply Message as the slice verb emits: VALUE.payload = the server array.
+// A reply Message as the slice command emits: VALUE.payload = the server array.
 function reply( serversArray ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;

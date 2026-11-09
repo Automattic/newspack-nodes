@@ -124,7 +124,7 @@ class HTTP_Filter_Node extends Node {
 	}
 
 	/**
-	 * Topology console manifest: hidden, with no arguments and no verbs.
+	 * Topology console manifest: hidden, with no arguments and no commands.
 	 *
 	 * `Hidden` is what keeps it out of the class palette. A TSL `make_node`
 	 * line cannot build it either: `make_node` constructs with `new $fqcn()`,

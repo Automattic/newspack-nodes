@@ -9,7 +9,7 @@
  * (ADR-13).
  *
  * The verb vocabulary mirrors PHP `Shell_Node`: ping / tell / send / send_eof /
- * request / cmd, plus the bare-verb default that sends TM_COMMAND to the cwd.
+ * request / cmd, plus the bare-command default that sends TM_COMMAND to the cwd.
  * TO is `prefix( path )` against that cwd, which starts empty (the local graph)
  * and a host moves with `cd`. FROM is the bare reply node `_output` (the
  * Dumper); scoping a reply to one SSE session is `_sse:{session}`'s job downstream.
@@ -485,7 +485,7 @@ function buildStatement( shell, text, line ) {
 				'' === shell.path
 					? [ 'pwd' ]
 					: [ 'pwd', serializeArg( shell.path ) ];
-		// falls through to the cwd routing every bare verb takes
+		// falls through to the cwd routing every bare command takes
 		default: {
 			// parse()'s default: TM_COMMAND at the cwd, named by verb.
 			const head =
@@ -608,7 +608,7 @@ export class ShellNode extends Node {
 	 */
 	constructor() {
 		super();
-		/** The cwd bare verbs route to by default. The host sets it. */
+		/** The cwd bare commands route to by default. The host sets it. */
 		this.path = '';
 		/**
 		 * `var`-set values, read back by `<name>` interpolation. PHP keeps
@@ -950,7 +950,7 @@ export class ShellNode extends Node {
 			return this.stampNoreply( message, forged );
 		}
 
-		// Bare verb: TM_COMMAND at the cwd (path); args are the token tail.
+		// Bare command: TM_COMMAND at the cwd (path); args are the token tail.
 		message[ TYPE ] = TM_COMMAND;
 		message[ TO ] = this.prefix( '' );
 		message[ VALUE ] = { name: verb, arguments: args };

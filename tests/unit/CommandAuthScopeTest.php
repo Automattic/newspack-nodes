@@ -102,7 +102,7 @@ class CommandAuthScopeTest extends TestCase {
 		);
 	}
 
-	/** A verified session installs its label beside its scope, so a verb can name the caller. */
+	/** A verified session installs its label beside its scope, so a command can name the caller. */
 	public function test_verifying_a_session_command_installs_its_label(): void {
 		$GLOBALS['_wp_test_current_user_id'] = 7319;
 		$session = Command_Auth::mint_session( Capabilities::READ, 900, 'Fixture Desk' );

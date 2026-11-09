@@ -176,7 +176,7 @@ abstract class Mcp_Door {
 	 * `</site-data>` cannot close the tag early. A string reply encodes as a
 	 * JSON string, so the reader needs no second rule for it.
 	 *
-	 * @param mixed $reply Whatever the verb answered.
+	 * @param mixed $reply Whatever the command answered.
 	 * @return string The fenced JSON.
 	 */
 	private static function fence( mixed $reply ): string {
@@ -246,7 +246,7 @@ abstract class Mcp_Door {
 	 * refused for wastes a round trip and reads to an agent as a broken server.
 	 *
 	 * @return list<array<string,mixed>>
-	 * @throws \LogicException When a tool offers an arg its verb does not declare.
+	 * @throws \LogicException When a tool offers an arg its command does not declare.
 	 */
 	private function visible_tools(): array {
 		$fills  = $this->fills();
@@ -262,7 +262,7 @@ abstract class Mcp_Door {
 			$properties = [];
 			$required   = [];
 			foreach ( $tool['args'] as $arg => $description ) {
-				$spec = Core::arr( $declared[ $arg ] ?? throw new \LogicException( \esc_html( "{$name} offers --{$arg}, which its verb does not declare" ) ) );
+				$spec = Core::arr( $declared[ $arg ] ?? throw new \LogicException( \esc_html( "{$name} offers --{$arg}, which its command does not declare" ) ) );
 				$properties[ $arg ] = self::arg_schema( $spec ) + [ 'description' => \strtr( $description, $fills + self::declared_fill( $name, $arg, $description, $spec ) ) ];
 				if ( true === ( $spec['required'] ?? false ) ) {
 					$required[] = $arg;
@@ -275,7 +275,7 @@ abstract class Mcp_Door {
 				'inputSchema' => [
 					'type'                 => 'object',
 					'properties'           => empty( $properties ) ? new \stdClass() : $properties,
-					// The verb refuses an argument it does not declare.
+					// The command refuses an argument it does not declare.
 					'additionalProperties' => false,
 				] + ( [] === $required ? [] : [ 'required' => $required ] ),
 			];
@@ -292,17 +292,17 @@ abstract class Mcp_Door {
 	 * @param string                 $description The tool's description of it.
 	 * @param array<array-key,mixed> $spec        The verb's declaration of it.
 	 * @return array<string,string>
-	 * @throws \LogicException When the description names `{declared}` and the verb declares none.
+	 * @throws \LogicException When the description names `{declared}` and the command declares none.
 	 */
 	private static function declared_fill( string $name, string $arg, string $description, array $spec ): array {
 		if ( ! \str_contains( $description, '{declared}' ) ) {
 			return [];
 		}
-		return [ '{declared}' => Core::as_string( $spec['description'] ?? throw new \LogicException( \esc_html( "{$name} reads --{$arg}'s declared description, which its verb does not give" ) ) ) ];
+		return [ '{declared}' => Core::as_string( $spec['description'] ?? throw new \LogicException( \esc_html( "{$name} reads --{$arg}'s declared description, which its command does not give" ) ) ) ];
 	}
 
 	/**
-	 * The JSON Schema type of one declared verb arg: its token type as JSON
+	 * The JSON Schema type of one declared command arg: its token type as JSON
 	 * names it, and a list of that type for a variadic arg.
 	 *
 	 * @param array<array-key,mixed> $spec The arg's declaration.
@@ -314,7 +314,7 @@ abstract class Mcp_Door {
 	}
 
 	/**
-	 * The role a verb demands: its declared `capability`, MANAGE when it
+	 * The role a command demands: its declared `capability`, MANAGE when it
 	 * declares none, the default the interpreter's own gate applies.
 	 *
 	 * @param array<array-key,mixed> $verb The verb's `commands` entry.
@@ -332,7 +332,7 @@ abstract class Mcp_Door {
 	 * @throws \LogicException When the class declares no such verb.
 	 */
 	private static function declaration( array $tool ): array {
-		return Command_Interpreter_Node::declared_verbs( $tool['class'] )[ $tool['verb'] ]
+		return Command_Interpreter_Node::declared_commands( $tool['class'] )[ $tool['verb'] ]
 			?? throw new \LogicException( \esc_html( "{$tool['class']} does not declare {$tool['verb']}" ) );
 	}
 

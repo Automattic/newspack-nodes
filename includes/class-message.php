@@ -60,7 +60,7 @@ class Message {
 
 	/**
 	 * Provenance taint appended AFTER the canonical seven. A Shell stamps it on
-	 * what it mints from a console line, and the interpreter's `reply_to` verb on
+	 * what it mints from a console line, and the interpreter's `reply_to` command on
 	 * the command it re-addresses, so its presence means "born here". `packed()`
 	 * never emits it and `unpacked()` rejects an 8-field line, so it cannot cross
 	 * a process boundary — an SSE or IPC message inherently lacks it, which is

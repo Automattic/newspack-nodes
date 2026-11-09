@@ -639,7 +639,7 @@ class PartitionTest extends TestCase {
 		$this->assertNull( $p->read_message_at( 0, 0, 5 ) );
 	}
 
-	public function test_void_warranty_dumps_its_own_verb_not_allow_large_writes(): void {
+	public function test_void_warranty_dumps_its_own_command_not_allow_large_writes(): void {
 		// Round-trip fidelity: a void_warranty partition must NOT dump
 		// `allow_large_writes` — replaying that would acquire the very lock we
 		// deliberately skipped.
@@ -775,7 +775,7 @@ class PartitionTest extends TestCase {
 	/**
 	 * `void_warranty()` then `allow_large_writes()` is one Partition changing
 	 * its mind, and the lock SUPERSEDES the void — the round trip has to
-	 * replay the verb that is in force, or a replay drops the lock.
+	 * replay the command that is in force, or a replay drops the lock.
 	 */
 	public function test_taking_the_lock_supersedes_a_voided_warranty(): void {
 		$this->use_base_dir( $this->tmp );
@@ -1116,7 +1116,7 @@ class PartitionTest extends TestCase {
 
 	public function test_dump_config_reflects_allow_large_writes_state(): void {
 		// dump_config emits the config from the node's own STATE — not from a
-		// generically-recorded verb invocation. Setting the flag (however) shows
+		// generically-recorded command invocation. Setting the flag (however) shows
 		// up; no invoked_verbs bookkeeping required.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
@@ -1128,9 +1128,9 @@ class PartitionTest extends TestCase {
 		);
 	}
 
-	public function test_dump_config_quotes_a_spaced_name_in_the_config_verb_path(): void {
+	public function test_dump_config_quotes_a_spaced_name_in_the_config_command_path(): void {
 		// `<name>:config` is ONE token. A spaced name emitted bare splits the
-		// path in two and the verb line addresses a node that doesn't exist.
+		// path in two and the command line addresses a node that doesn't exist.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'spaced part' );
@@ -1859,7 +1859,7 @@ class PartitionTest extends TestCase {
 		// Attached-mode IPC uses Partition as a generic message transport: cli
 		// → cmd-out (Partition) → worker; worker → _repl (Partition) → cli.
 		// Control messages (TM_REQUEST for introspection requests, TM_ERROR
-		// for failed verb responses, TM_EOF for stdin-close drain markers)
+		// for failed command responses, TM_EOF for stdin-close drain markers)
 		// must round-trip through these IPC partitions, so Partition::fill
 		// packs them like any other type. Data partitions like firehose.p0
 		// don't see these types in practice — producers only emit
@@ -2236,18 +2236,18 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_with_index_on_a_live_partition_starts_indexing_at_once(): void {
-		// The `with_index` verb runs against a RUNNING node, whose .log handle is
+		// The `with_index` command runs against a RUNNING node, whose .log handle is
 		// already open for the current segment — the .idx has to open anyway.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
 		$p->void_warranty();
-		$this->produce_into( $p, 'written-before-the-verb' );
+		$this->produce_into( $p, 'written-before-the-command' );
 
 		$p->with_index( fn ( array $message, array $pos ) => 'indexed:' . $message[ Message::VALUE ] );
-		$this->produce_into( $p, 'written-after-the-verb' );
+		$this->produce_into( $p, 'written-after-the-command' );
 
 		$this->assertSame(
-			[ 'indexed:written-after-the-verb' ],
+			[ 'indexed:written-after-the-command' ],
 			array_values( array_filter( explode( "\n", (string) @file_get_contents( "{$this->tmp}.p0/0.idx" ) ) ) )
 		);
 	}
@@ -2498,7 +2498,7 @@ class PartitionTest extends TestCase {
 		$this->assertSame( $p, $sibling->patron() );
 	}
 
-	public function test_partition_allow_large_writes_verb_emits_cmd_line(): void {
+	public function test_partition_allow_large_writes_command_emits_cmd_line(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
@@ -2511,7 +2511,7 @@ class PartitionTest extends TestCase {
 		$this->assertStringContainsString( 'command_node my_part:config allow_large_writes', $dump );
 	}
 
-	public function test_partition_with_index_verb_resolves_and_installs_callable(): void {
+	public function test_partition_with_index_command_resolves_and_installs_callable(): void {
 		\Newspack_Nodes\Formatters::reset();
 		$called = 0;
 		\Newspack_Nodes\Formatters::register(
@@ -2530,7 +2530,7 @@ class PartitionTest extends TestCase {
 		$result = $sibling->dispatch( 'with_index', [ 'a2-test-formatter' ] );
 		$this->assertSame( "ok\n", $result );
 
-		// Verb installs the formatter as the patron's index callback.
+		// The command installs the formatter as the patron's index callback.
 		$ref     = new \ReflectionClass( $p );
 		$cb_prop = $ref->getProperty( 'index_callback' );
 		$installed = $cb_prop->getValue( $p );
@@ -2542,7 +2542,7 @@ class PartitionTest extends TestCase {
 		$this->assertStringContainsString( 'command_node my_part:config with_index a2-test-formatter', $dump );
 	}
 
-	public function test_partition_with_index_verb_unknown_formatter_raises(): void {
+	public function test_partition_with_index_command_unknown_formatter_raises(): void {
 		\Newspack_Nodes\Formatters::reset();
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
@@ -2554,7 +2554,7 @@ class PartitionTest extends TestCase {
 		$sibling->dispatch( 'with_index', [ 'no-such-formatter' ] );
 	}
 
-	public function test_partition_with_index_verb_refuses_without_a_formatter_name(): void {
+	public function test_partition_with_index_command_refuses_without_a_formatter_name(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
@@ -2565,7 +2565,7 @@ class PartitionTest extends TestCase {
 		$sibling->dispatch( 'with_index' );
 	}
 
-	public function test_partition_node_schema_declares_ctor_and_verbs(): void {
+	public function test_partition_node_schema_declares_ctor_and_commands(): void {
 		$schema = Partition_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertSame( 7, \count( $schema['arguments'] ) );

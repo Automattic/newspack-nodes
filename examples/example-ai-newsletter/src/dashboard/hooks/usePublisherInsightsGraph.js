@@ -10,7 +10,7 @@
  *   top-table:in     (Tee) ─> top-table:view     ─> <TopTable/>
  *   accumulated:in   (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
  *
- * One view node behind a single omnibus verb would be the god object: every
+ * One view node behind a single omnibus command would be the god object: every
  * card re-renders on every field, and the server computes the whole model to
  * answer any part of it. Here the counts reply never touches the top table.
  *
@@ -70,7 +70,7 @@ const TARGET = egressPath( GROUP, SERVER );
 
 /**
  * One entry per card: the Fetcher that asks, the receiver Tee a reply pivots
- * back to, the verb it asks for, and the view node the reply lands on. A fourth
+ * back to, the command it asks for, and the view node the reply lands on. A fourth
  * card is an entry here and a widget; the poll itself does not change.
  *
  * `viewClass` carries the CLASS, never its registered name. The name table is a

@@ -91,7 +91,7 @@
     <header style="background:#B32D2E"><span class="mono">void_warranty()</span> — lift the cap with NO lock</header>
     <div class="body">
       <p>The caller asserts it is the sole writer. Nothing enforces it: a second writer is the silent torn write ADR-4 warns about. The worker's <span class="mono">_repl</span> output Partition runs this way, which is what lets a <span class="mono">dump_metadata</span> reply reach an attached cli.</p>
-      <p>On a Topic both verbs record the mode and re-apply it to every partition materialized later; <span class="mono">Topic::allow_large_writes( $debounce_ms = 0 )</span> exposes no timeout and always passes 15 s down, so the FIRST message routed to an index can block and then throw straight out of <span class="mono">fill()</span>.</p>
+      <p>On a Topic both commands record the mode and re-apply it to every partition materialized later; <span class="mono">Topic::allow_large_writes( $debounce_ms = 0 )</span> exposes no timeout and always passes 15 s down, so the FIRST message routed to an index can block and then throw straight out of <span class="mono">fill()</span>.</p>
     </div>
   </div>
 </div>

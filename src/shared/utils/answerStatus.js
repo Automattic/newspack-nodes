@@ -1,7 +1,7 @@
 /**
  * answerStatus — an answer, as the line a row or form shows for it.
  *
- * Every admin surface says the same three things about a verb it sent: it is
+ * Every admin surface says the same three things about a command it sent: it is
  * working, it failed with this text, or it succeeded. Only the words differ,
  * so the words are the argument.
  */
@@ -19,10 +19,10 @@
  *
  * @param {?{error?: ?string}}        answer         The reply about this subject, if any.
  * @param {Object}                    texts          The words this surface uses.
- * @param {string}                    [texts.busy]   Shown while the verb is outstanding.
+ * @param {string}                    [texts.busy]   Shown while the command is outstanding.
  * @param {(error: string) => string} [texts.failed] Renders a refusal; the raw error stands when it is omitted.
  * @param {string}                    [texts.ok]     Shown on success; omit to say nothing.
- * @param {boolean}                   [busy]         Whether a verb about this subject is outstanding.
+ * @param {boolean}                   [busy]         Whether a command about this subject is outstanding.
  * @return {{text: string, tone: string}} The status line and its tone class.
  */
 export function answerStatus( answer, texts, busy = false ) {

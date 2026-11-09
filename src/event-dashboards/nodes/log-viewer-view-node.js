@@ -99,7 +99,7 @@ class LogViewerRow {
  * `LogStreamViewNode` holds everything the log-stream dashboards share: the
  * ring, the paused belt and step budget, the decaying lps readout, seek
  * tracking, and the `pause`, `step`, `connection`, `browse`, `follow`,
- * `clear`, `filter` and `select` control verbs. This class adds what belongs
+ * `clear`, `filter` and `select` controls. This class adds what belongs
  * to the Log Viewer alone:
  *
  * - `shapeRow()`, which shapes a raw SSE envelope into a row carrying all
@@ -153,7 +153,7 @@ export class LogViewerViewNode extends LogStreamViewNode {
 	}
 
 	/**
-	 * Handle the Log Viewer's own control verbs, deferring every shared
+	 * Handle the Log Viewer's own controls, deferring every shared
 	 * one (`pause`, `step`, `connection`, `browse`, `follow`, `clear`,
 	 * `filter`, `select`) to the base.
 	 *
@@ -169,7 +169,7 @@ export class LogViewerViewNode extends LogStreamViewNode {
 	 * produced the selection, so a later catalog cannot yank a reader out of
 	 * a replay.
 	 *
-	 * @param {?{action?: string, log?: string, logs?: Array<{key?: string, label: string, available: boolean}>}} value The control payload; `action` picks the verb.
+	 * @param {?{action?: string, log?: string, logs?: Array<{key?: string, label: string, available: boolean}>}} value The control payload; `action` picks the control.
 	 */
 	_control( value ) {
 		const action = value?.action;

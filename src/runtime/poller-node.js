@@ -1,5 +1,5 @@
 /**
- * Poller — the self-timed verb poller every console readout is built on.
+ * Poller — the self-timed command poller every console readout is built on.
  *
  * One mechanism: ride the `_router` TIMER, mint the configured verb as a
  * command to `target`, and publish the reply into a node field. FROM is the
@@ -37,7 +37,7 @@ const POLL_INTERVAL_MS = 10000;
 export const LIVE_POLL_INTERVAL_MS = 2000;
 
 /**
- * Self-timed verb poller. `verb`, `pollArgs`, `pollIntervalMs` and `target`
+ * Self-timed command poller. `verb`, `pollArgs`, `pollIntervalMs` and `target`
  * are all set by the mounting view, so one class serves `list_timers`,
  * `list_handles` and `list_profiles` with no subclass for any of them.
  *
@@ -188,7 +188,7 @@ export class PollerNode extends ReactBridge( TimerNode ) {
 		return {
 			category: 'Hidden',
 			description:
-				'Self-timed verb poller (configurable verb/args/target); publishes the reply as `reply`.',
+				'Self-timed command poller (configurable verb/args/target); publishes the reply as `reply`.',
 			accepts_fill: false,
 			arguments: [],
 			commands: [],

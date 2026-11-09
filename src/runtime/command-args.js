@@ -2,13 +2,13 @@
  * The browser half of the one command-argument grammar, mirroring PHP
  * `Newspack_Nodes\Command_Args::format()`. A command's `arguments` are a flat
  * token array end to end: each argument rides by position, in the order the
- * verb declares, or named as `--key=value`, and a boolean flag is a bare
+ * command declares, or named as `--key=value`, and a boolean flag is a bare
  * `--key`. A dashboard mints the tokens here and the PHP interpreter binds them
- * against the verb's declared `args` before its handler runs, so a handler
+ * against the command's declared `args` before its handler runs, so a handler
  * reads each argument by name.
  *
  * `bindCommandArgs()` is the other direction, PHP `Command_Args::bind()` for a
- * verb of string args, which a browser node binding its own verb reads.
+ * command of string args, which a browser node binding its own command reads.
  *
  * Nothing here quotes or unescapes. Token boundaries belong to the array, so a value
  * carrying spaces — a .tsl body, a layout positions JSON — stays whole inside its
@@ -22,7 +22,7 @@
  * as its string cast.
  *
  * `false` rides explicitly because the bare form already means true and an
- * omitted option leaves the verb's own default standing, which for a default-on
+ * omitted option leaves the command's own default standing, which for a default-on
  * setting is the opposite of what the caller asked for.
  *
  * @param {Array<string|number>} [positional] Values for the required tokens.
@@ -51,7 +51,7 @@ export function formatCommandArgs( positional = [], options = {} ) {
 }
 
 /**
- * Bind a verb's tokens against its declared string `args`, as PHP
+ * Bind a command's tokens against its declared string `args`, as PHP
  * `Command_Args::bind()` binds them, and held to it by
  * `tests/fixtures/add-source-args.json`: each arg by position, in declared
  * order, or as `--name=value`, the two forms mixed. A blank token for a
@@ -59,7 +59,7 @@ export function formatCommandArgs( positional = [], options = {} ) {
  * reads types, defaults, `variadic` and `secret`: every value binds as
  * the string it is.
  *
- * @param {Array<{name:string,required?:boolean}>} specs  The verb's `args`.
+ * @param {Array<{name:string,required?:boolean}>} specs  The command's `args`.
  * @param {string[]}                               tokens Its tokens.
  * @return {Object<string,?string>} Arg name => value, in declared order.
  * @throws {Error} In PHP's words: an unknown option, a name given twice or
@@ -79,7 +79,7 @@ export function bindCommandArgs( specs, tokens ) {
 			if ( ! specs.some( ( spec ) => spec.name === name ) ) {
 				const takes = specs.map( ( spec ) => spec.name ).join( ', --' );
 				throw new Error(
-					`unknown option --${ name }; this verb takes --${ takes }`
+					`unknown option --${ name }; this command takes --${ takes }`
 				);
 			}
 			if ( named.has( name ) ) {

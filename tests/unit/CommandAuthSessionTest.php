@@ -180,7 +180,7 @@ class CommandAuthSessionTest extends TestCase {
 	}
 
 	/**
-	 * A batch dispatches its commands one after another, so a slow verb ages
+	 * A batch dispatches its commands one after another, so a slow command ages
 	 * the ones behind it: every command verifies against the batch's arrival.
 	 */
 	public function test_a_batch_verifies_every_command_against_its_arrival(): void {
@@ -210,7 +210,7 @@ class CommandAuthSessionTest extends TestCase {
 	 * The nonce claim lasts NONCE_TTL_S from first verification while a
 	 * batch's freshness never ages, so the batch path also refuses a command
 	 * past NONCE_TTL_S - MAX_FUTURE_S of wall age at its own turn: a replay
-	 * queued behind slow verbs past its nonce claim finds that claim expired.
+	 * queued behind slow commands past its nonce claim finds that claim expired.
 	 */
 	public function test_a_replay_queued_past_the_nonce_claim_is_refused(): void {
 		$claims                    = [];

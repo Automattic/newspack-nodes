@@ -70,9 +70,9 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
  * Register the `wp nodes` command tree.
  *
  * `nodes`, `nodes memcache`, `nodes session` and `nodes tables` register as classes, so each is a group whose
- * public methods are its subcommands; the other verbs are bound methods,
- * because the verb methods cannot be static (wp-cli#5472). A group registers
- * its own path, or `wp nodes` never lists its verbs —
+ * public methods are its subcommands; the other subcommands are bound methods,
+ * because the subcommand methods cannot be static (wp-cli#5472). A group registers
+ * its own path, or `wp nodes` never lists its subcommands —
  * `ListsEveryCliCommand` states the rule.
  *
  * @api Called by the WP_CLI block above; tests drive it against a recorder.
@@ -108,7 +108,7 @@ function newspack_nodes_register_cli_commands(): void {
  * `Bootstrap::mount_request_graph()` builds `_router` and
  * `_command_interpreter`, then fires `newspack_nodes/request_graph_ready` —
  * the same action applications mount their own CIs on, so a door never ends up
- * with a different verb surface behind it. Each CI arrives through
+ * with a different command surface behind it. Each CI arrives through
  * `make_node()`, which constructs, names and sinks it in one step; without that
  * sink a verb reply, addressed TO=FROM, has no path back to the `_output`
  * response writer and drops silently.

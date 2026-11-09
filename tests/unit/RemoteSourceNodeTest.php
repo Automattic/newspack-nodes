@@ -968,7 +968,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = $this->bare_broker( 'remote-ibis' );
 		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
 		$before = $node->dump_config();
-		$bound  = Command_Args::bind( Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class )['add_source']['args'], $tokens );
+		$bound  = Command_Args::bind( Command_Interpreter_Node::declared_commands( Remote_Source_Node::class )['add_source']['args'], $tokens );
 
 		try {
 			$node->interpreter()->dispatch( 'remove_source', $tokens );
@@ -1009,15 +1009,15 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [], Remote_Source_Node::command_targets( [ [ 'set_multi_writer', [ 'true' ] ] ] ) );
 	}
 
-	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>|array{refused:string}}> The console's TSL reader and the link's verbs read these too. */
+	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>|array{refused:string}}> The console's TSL reader and the link's commands read these too. */
 	public static function source_commands(): array {
 		$cases = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-sources.json' ), true );
 		return \array_column( \array_map( static fn ( array $c ): array => [ $c[0], [ $c[1], $c[2] ] ], $cases ), 1, 0 );
 	}
 
 	/**
-	 * The commands apply in order, each as the verb would take it, and the
-	 * first the verb refuses refuses the run.
+	 * The commands apply in order, each as its handler would take it, and the
+	 * first a handler refuses refuses the run.
 	 *
 	 * @param list<array{0:string,1:list<string>}>  $commands Each verb and its tokens.
 	 * @param list<string>|array{refused:string}    $expected The targets left, or the refusal.
@@ -1048,14 +1048,14 @@ class RemoteSourceNodeTest extends TestCase {
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'unbound_source_commands' )]
 	public function test_an_unbound_fold_answers_as_the_browser_link( array $commands, array $expected ): void {
-		$verbs   = Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class );
-		$sources = [];
+		$declared = Command_Interpreter_Node::declared_commands( Remote_Source_Node::class );
+		$sources  = [];
 		try {
 			foreach ( $commands as [ $verb, $tokens ] ) {
-				if ( ! isset( $verbs[ $verb ] ) || ! \in_array( $verb, [ Remote_Broker_Node::ADD_SOURCE, Remote_Broker_Node::REMOVE_SOURCE ], true ) ) {
+				if ( ! isset( $declared[ $verb ] ) || ! \in_array( $verb, [ Remote_Broker_Node::ADD_SOURCE, Remote_Broker_Node::REMOVE_SOURCE ], true ) ) {
 					continue;
 				}
-				$bound   = Command_Args::bind( Core::arr( $verbs[ $verb ]['args'] ), $tokens );
+				$bound   = Command_Args::bind( Core::arr( $declared[ $verb ]['args'] ), $tokens );
 				$sources = Remote_Broker_Node::fold_source( $sources, $verb, Core::as_string( $bound['remote_log'] ), Core::as_string( $bound['local_node'] ), null );
 			}
 		} catch ( \InvalidArgumentException $e ) {
@@ -1067,7 +1067,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/**
 	 * A live broker answers each command run as the fold does: the targets it
-	 * displays, or the refusal its verb throws.
+	 * displays, or the refusal the command throws.
 	 *
 	 * @param list<array{0:string,1:list<string>}>  $commands Each verb and its tokens.
 	 * @param list<string>|array{refused:string}    $expected The targets left, or the refusal.
@@ -1562,7 +1562,7 @@ class RemoteSourceNodeTest extends TestCase {
 	// Multi-writer seal-grace and the fanned-out reader toggle.
 	// ---------------------------------------------------------------------
 
-	public function test_seal_grace_seeds_a_patron_created_after_the_verb(): void {
+	public function test_seal_grace_seeds_a_patron_created_after_the_command(): void {
 		// The aggregator configures its spokes before anything connects, so the
 		// flag has to survive until the patron exists.
 		$this->seed_vault( 'aspen', [ 'url' => 'https://aspen.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
@@ -1590,7 +1590,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_reasserting_the_same_seal_grace_leaves_the_stream_up(): void {
-		// The verb is what an operator or an idempotent apply script invokes, and
+		// The command is what an operator or an idempotent apply script invokes, and
 		// re-asserting a value the source already holds should cost nothing.
 		$node = $this->broker();
 		$sse  = $this->seal_grace_spy();
@@ -1614,7 +1614,7 @@ class RemoteSourceNodeTest extends TestCase {
 		};
 	}
 
-	public function test_set_multi_writer_is_a_declared_verb(): void {
+	public function test_set_multi_writer_is_a_declared_command(): void {
 		$verbs = \array_column( Remote_Source_Node::node_schema()['commands'], 'name' );
 		$this->assertContains( 'set_multi_writer', $verbs );
 	}

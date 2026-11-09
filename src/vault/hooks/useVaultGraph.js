@@ -21,7 +21,7 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { views } from '../nodes/register';
 
-/** The server CI mount the list poll and all four verbs are addressed to. */
+/** The server CI mount the list poll and all four commands are addressed to. */
 const VAULT_CI = 'vault';
 
 /** The group every command the Vault screen sends belongs to. */
@@ -36,13 +36,13 @@ const GROUP = 'vault';
 const LIST_INTERVAL_MS = 30000;
 
 /**
- * One verb's outcome for one row, as `onAnswer` receives it.
+ * One command's outcome for one row, as `onAnswer` receives it.
  *
  * @typedef {Object} VaultAnswer
  * @property {string}  verb    The verb answered: add, update, delete or test.
  * @property {?string} subject The server id the send was about, read off the
  *                             reply's own address.
- * @property {?string} error   The refusal, or null when the verb succeeded.
+ * @property {?string} error   The refusal, or null when the command succeeded.
  */
 
 /**
@@ -70,7 +70,7 @@ const LIST_INTERVAL_MS = 30000;
  */
 
 /**
- * Mount the vault catalog and its four verbs, and hand back the table's model
+ * Mount the vault catalog and its four commands, and hand back the table's model
  * with the calls that change it.
  *
  * @param {Object}        [o]          Options.
@@ -79,7 +79,7 @@ const LIST_INTERVAL_MS = 30000;
  *                                     its own outcome; the model carries none.
  * @return {{addServer: (fields: VaultServerFields) => void, updateServer: (id: string, fields: VaultServerFields) => void, removeServer: (id: string) => void, testServer: (id: string) => void, pendingVerb: (subject: ?string) => ('add'|'update'|'delete'|'test'|null), servers: ?Object[], loading: boolean, error: ?string, refresh: () => void}}
  *   The catalog model — `servers` stays null until the first reply lands —
- *   plus the four verbs and `pendingVerb()`.
+ *   plus the four commands and `pendingVerb()`.
  */
 export function useVaultGraph( { onAnswer } = {} ) {
 	const list = useCatalogSlice( {

@@ -45,7 +45,7 @@ const GAP_INTERVALS = 6;
  * The payload is LEAN and POSITIONAL. PHP ships four independent sections —
  * `graph` (the `.tsl` structure), `workers` (liveness), `consumers` (per-reader
  * probe state) and `logs` (live segment lists) — and pre-joins no worker
- * attribution, because one verb answering from one atomic snapshot is what
+ * attribution, because one command answering from one atomic snapshot is what
  * keeps the four coherent. `reconstructWorkers` joins them here into the rich
  * `workers[]` array that `topologyGraph.buildTopologySections`, `TreeEntity`
  * and `SegmentBar` read, so the join lives in one place and the lean shape

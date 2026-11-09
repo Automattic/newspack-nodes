@@ -22,7 +22,7 @@
 </style>
 <div class="sheet">
 <h1>A dashboard is a node graph with traffic on every edge</h1>
-<p class="sub">One Timer ticks, one Tee fans out, three Fetchers each send their own verb, and three replies each route back to their own receiver, view and widget. The model is split across nodes.</p>
+<p class="sub">One Timer ticks, one Tee fans out, three Fetchers each send their own command, and three replies each route back to their own receiver, view and widget. The model is split across nodes.</p>
 
 <div class="g" id="g">
 <svg class="wire" id="wire" width="1052" height="572"><defs>
@@ -71,7 +71,7 @@
   </div>
   <div class="callout">
     <h4>The god node this avoids</h4>
-    <p>One <span class="mono">insights</span> verb computing <span class="mono">{ sources, top, accumulated }</span>, one view node, one component. It sits at counter 0 / 0 B in the topology console: nothing to Tee, nothing for the overlay to show, nothing reusable. Decompose both sides: three verbs, three Fetchers, three receivers, three views, three widgets.</p>
+    <p>One <span class="mono">insights</span> command computing <span class="mono">{ sources, top, accumulated }</span>, one view node, one component. It sits at counter 0 / 0 B in the topology console: nothing to Tee, nothing for the overlay to show, nothing reusable. Decompose both sides: three commands, three Fetchers, three receivers, three views, three widgets.</p>
   </div>
 </div>
 </div>

@@ -12,7 +12,7 @@
 #   2. No newspack-ai-newsletter slug in docs/ or README.md — the real sibling
 #      plugin is newspack-intelligence. (example-ai-newsletter is a different,
 #      legitimate name and is intentionally NOT matched.)
-#   3. No retired aggregator verb (status / health / servers) on the
+#   3. No retired aggregator command (status / health / servers) on the
 #      Aggregator_CI_Node row in docs/API.md.
 #   4. Retention arity proxy: every doc make_node line passing
 #      <config:segment_size> also passes <config:min_segments> (the retention
@@ -46,10 +46,10 @@ hits=$(grep -rnE '<config:(max_lifetime|max_lifespan)>' docs README.md AGENTS.md
 hits=$(grep -rn 'newspack-ai-newsletter' docs README.md --include='*.md' 2>/dev/null || true)
 [ -n "$hits" ] && report "stale slug newspack-ai-newsletter — use newspack-intelligence:"$'\n'"$hits"
 
-# 3. removed aggregator verbs on the Aggregator_CI_Node row.
+# 3. removed aggregator commands on the Aggregator_CI_Node row.
 # shellcheck disable=SC2016 # backticks are grep regex, not a subshell.
 hits=$(grep -n 'Aggregator_CI_Node' docs/API.md 2>/dev/null | grep -E '`(status|health|servers)`' || true)
-[ -n "$hits" ] && report "removed aggregator verb in API.md (0.47.1 dropped status/health/servers):"$'\n'"$hits"
+[ -n "$hits" ] && report "removed aggregator command in API.md (0.47.1 dropped status/health/servers):"$'\n'"$hits"
 
 # 4. retention arity: <config:segment_size> implies <config:min_segments>.
 hits=$(grep -rn '<config:segment_size>' docs --include='*.md' 2>/dev/null \

@@ -188,7 +188,7 @@ class Log_Node extends Partition_Node {
 	/**
 	 * Topology console manifest: the required `file` positional in front of the
 	 * parent's retention knobs. The parent merge supplies the `I/O` category, the
-	 * `allow_large_writes`, `void_warranty` and `with_index` verbs, the `READY`
+	 * `allow_large_writes`, `void_warranty` and `with_index` commands, the `READY`
 	 * registration and `has_target => false`. Declaring the arguments here is the
 	 * whole parse — ADR-11 puts defaults and coercion in `parse_schema_args()`,
 	 * not in `arguments()`.

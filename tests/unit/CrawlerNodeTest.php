@@ -1205,7 +1205,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'crawl-4471:seen' ) );
 	}
 
-	public function test_node_schema_declares_the_four_arguments_and_no_verbs(): void {
+	public function test_node_schema_declares_the_four_arguments_and_no_commands(): void {
 		$crawler = $this->crawler();
 		$schema  = Crawler_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
@@ -1215,6 +1215,6 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( [ '', 0, 1 ], \array_column( $schema['arguments'], 'default' ) );
 		$this->assertTrue( $schema['arguments'][0]['required'] );
 		$this->assertSame( [], $schema['commands'] );
-		$this->assertNull( Core::node( "{$crawler->name()}:config" ), 'no verb, no config interpreter' );
+		$this->assertNull( Core::node( "{$crawler->name()}:config" ), 'no command, no config interpreter' );
 	}
 }

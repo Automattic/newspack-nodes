@@ -1,10 +1,10 @@
 <?php
 /**
  * ServiceCITest: unit tests for the Service_CI base class — the shared
- * verb-helper seams (require_valid_name, probe_command)
+ * command-helper seams (require_valid_name, probe_command)
  * that substrate + application interpreters both reach for. Tests exercise each
  * helper via a transparent subclass that exposes them publicly so the
- * helpers can be asserted in isolation, without dragging in VerbHarness +
+ * helpers can be asserted in isolation, without dragging in CommandHarness +
  * the request-scope interpreter graph.
  *
  * @package Newspack_Nodes
@@ -20,7 +20,7 @@ use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Service_CI_Node::class )]
@@ -95,48 +95,48 @@ class ServiceCITest extends TestCase {
 		);
 	}
 
-	// ── central gate: dispatch() refuses EVERY verb below its declared role ──
+	// ── central gate: dispatch() refuses EVERY command below its declared role ──
 
-	public function test_schema_verb_is_denied_without_manage_options(): void {
+	public function test_schema_command_is_denied_without_manage_options(): void {
 		// The probe's `ping` handler does not check a role, so the refusal must
 		// come from dispatch(). With the cap denied (default) the reply is the
-		// permission error, not the verb's sentinel.
-		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
+		// permission error, not the command's sentinel.
+		$result = CommandHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
 		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
 
-	public function test_schema_verb_runs_with_manage_options(): void {
+	public function test_schema_command_runs_with_manage_options(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
+		$result = CommandHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
 		$this->assertSame( "pong\n", $result );
 	}
 
 	public function test_auto_injected_help_is_also_gated(): void {
 		// `help` is injected by the base commands() accessor, not declared in the
 		// schema: a read-only builtin, it demands READ, never nothing.
-		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
+		$result = CommandHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
 		$this->assertSame( "permission denied: read capability required\n", $result );
 	}
 
 	public function test_auto_injected_help_runs_after_manage_options_gate_passes(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 
-		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
+		$result = CommandHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
 
 		$this->assertStringContainsString( 'help', $result );
 		$this->assertStringContainsString( 'ping', $result );
 	}
 
-	public function test_schema_with_non_array_commands_installs_no_service_verbs(): void {
+	public function test_schema_with_non_array_commands_installs_no_service_commands(): void {
 		$probe = new ServiceCINonArrayCommandsProbe();
 
 		$this->assertSame( [ 'help' ], \array_keys( $probe->commands() ) );
 	}
 
-	public function test_schema_skips_non_array_verb_entries(): void {
+	public function test_schema_skips_non_array_command_entries(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 
-		$result = VerbHarness::fire( new ServiceCINonArrayVerbProbe(), 'probe', 'ok' );
+		$result = CommandHarness::fire( new ServiceCINonArrayCommandEntryProbe(), 'probe', 'ok' );
 
 		$this->assertSame( "ok\n", $result );
 	}
@@ -145,14 +145,14 @@ class ServiceCITest extends TestCase {
 
 	public function test_a_shape_handler_is_gated_when_registered_through_schema(): void {
 		// The shape never self-gates; dispatch() refuses it without the cap.
-		$result = VerbHarness::fire( new ServiceCIShapeHandlerProbe(), 'probe', 'slice' );
+		$result = CommandHarness::fire( new ServiceCIShapeHandlerProbe(), 'probe', 'slice' );
 		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
 
 	public function test_a_shape_handler_receives_the_ci_and_answers_its_struct_unencoded(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 
-		$result = VerbHarness::fire( new ServiceCIShapeHandlerProbe(), 'probe-6618', 'slice' );
+		$result = CommandHarness::fire( new ServiceCIShapeHandlerProbe(), 'probe-6618', 'slice' );
 
 		$this->assertSame( [ 'sliced' => 'avocet-2290', 'name' => 'probe-6618' ], $result );
 	}
@@ -168,7 +168,7 @@ class ServiceCITest extends TestCase {
 		$ci->name( 'probe' );
 		$ci->install_ungated_table();
 
-		$result = VerbHarness::fire( $ci, 'probe', 'late' );
+		$result = CommandHarness::fire( $ci, 'probe', 'late' );
 
 		$this->assertSame(
 			"permission denied: manage capability required\n",
@@ -183,7 +183,7 @@ class ServiceCITest extends TestCase {
 		$ci->name( 'probe' );
 		$ci->install_ungated_table();
 
-		$this->assertSame( "late-ran\n", VerbHarness::fire( $ci, 'probe', 'late' ) );
+		$this->assertSame( "late-ran\n", CommandHarness::fire( $ci, 'probe', 'late' ) );
 	}
 
 	/** And the base's `help` injection answers READ, never nothing. */
@@ -194,7 +194,7 @@ class ServiceCITest extends TestCase {
 
 		$this->assertSame(
 			"permission denied: read capability required\n",
-			VerbHarness::fire( $ci, 'probe', 'help' )
+			CommandHarness::fire( $ci, 'probe', 'help' )
 		);
 	}
 
@@ -410,12 +410,12 @@ class ServiceCITestProbe extends Service_CI_Node {
 		return self::require_valid_name( $name, $pattern );
 	}
 
-	public static function probe_command_probe( array $server, string $to, string $verb, array $verb_args = [] ): array {
-		return HTTP_Out_Node::probe_command( 'test-spoke', $server, $to, $verb, $verb_args );
+	public static function probe_command_probe( array $server, string $to, string $verb, array $command_args = [] ): array {
+		return HTTP_Out_Node::probe_command( 'test-spoke', $server, $to, $verb, $command_args );
 	}
 
 	/**
-	 * One verb whose handler does NOT self-gate — so any auth must come from
+	 * One command whose handler does NOT self-gate — so any auth must come from
 	 * `dispatch()`. Returns a sentinel the gate test asserts against.
 	 */
 	public static function node_schema(): array {
@@ -424,7 +424,7 @@ class ServiceCITestProbe extends Service_CI_Node {
 			'commands' => [
 				[
 					'name'        => 'ping',
-					'description' => 'Probe verb that returns a sentinel; never self-gates.',
+					'description' => 'Probe command that returns a sentinel; never self-gates.',
 					'handler'     => static function ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
 						return 'pong';
 					},
@@ -434,7 +434,7 @@ class ServiceCITestProbe extends Service_CI_Node {
 	}
 }
 
-/** Registers a one-parameter shape closure as a verb handler, to exercise the central gate end-to-end. */
+/** Registers a one-parameter shape closure as a command handler, to exercise the central gate end-to-end. */
 class ServiceCIShapeHandlerProbe extends Service_CI_Node {
 	public static function node_schema(): array {
 		return [
@@ -459,12 +459,12 @@ class ServiceCINonArrayCommandsProbe extends Service_CI_Node {
 	}
 }
 
-class ServiceCINonArrayVerbProbe extends Service_CI_Node {
+class ServiceCINonArrayCommandEntryProbe extends Service_CI_Node {
 	public static function node_schema(): array {
 		return [
 			'category' => 'Hidden',
 			'commands' => [
-				'not-a-verb',
+				'not-a-command',
 				[
 					'name'    => 'ok',
 					'handler' => static fn (): string => 'ok',
@@ -475,7 +475,7 @@ class ServiceCINonArrayVerbProbe extends Service_CI_Node {
 }
 
 /**
- * Installs a verb table AFTER construction, the way a subclass or an external
+ * Installs a command table AFTER construction, the way a subclass or an external
  * holder can — a path that must not bypass the capability wrap.
  */
 class ServiceCILateTableProbe extends Service_CI_Node {

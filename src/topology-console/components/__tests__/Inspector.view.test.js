@@ -1503,7 +1503,7 @@ describe( 'Inspector (view mode)', () => {
 		).toBeNull();
 	} );
 
-	it( 'adds a Verbs section when the class schema declares verbs', () => {
+	it( 'adds a Class Commands section when the class schema declares commands', () => {
 		const { container } = renderNode( {
 			catalog: [
 				{
@@ -1519,7 +1519,7 @@ describe( 'Inspector (view mode)', () => {
 			'Commands',
 			'Messages',
 			'Toggles',
-			'Verbs',
+			'Class Commands',
 		] );
 	} );
 
@@ -1930,7 +1930,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Connect' ) ).not.toBeNull();
 	} );
 
-	it( 'live verb modal node_name input suggests the live graph', () => {
+	it( 'live command modal node_name input suggests the live graph', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -1960,7 +1960,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( opts ).not.toContain( 'echo' ); // self excluded
 	} );
 
-	it( 'live verb modal runs a node_name arg typed as a remote path', () => {
+	it( 'live command modal runs a node_name arg typed as a remote path', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -1993,7 +1993,7 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
-	it( 'live verb modal disables Run while a node_name arg refuses its draft', () => {
+	it( 'live command modal disables Run while a node_name arg refuses its draft', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -2030,7 +2030,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	// jsdom performs no implicit submission, so Enter is the form's submit.
-	it( 'live verb modal runs when its form submits, Run being its submit', () => {
+	it( 'live command modal runs when its form submits, Run being its submit', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -2091,7 +2091,7 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
-	it( 'renders argless TM_COMMAND verb buttons and fires invoke', () => {
+	it( 'renders argless TM_COMMAND buttons and fires invoke', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -2110,7 +2110,7 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
-	it( 'opens an arg modal for a verb with args; Run fires invoke; Cancel closes silently', () => {
+	it( 'opens an arg modal for a command with args; Run fires invoke; Cancel closes silently', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -2153,7 +2153,7 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
-	it( 'runs a verb with optional blank args as an empty invocation payload', () => {
+	it( 'runs a command with optional blank args as an empty invocation payload', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -2275,7 +2275,7 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
-	it( 'sends a TM_REQUEST verb its args by position, in declared order', () => {
+	it( 'sends a TM_REQUEST its args by position, in declared order', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -2439,7 +2439,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( document.activeElement ).toBe( getByLabelText( /rootstock/ ) );
 	} );
 
-	it( 'clicking a live verb button is a no-op without a wired action handler', () => {
+	it( 'clicking a live command button is a no-op without a wired action handler', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -2450,8 +2450,8 @@ describe( 'Inspector (view mode)', () => {
 		expect( () => fireEvent.click( getByText( 'noop' ) ) ).not.toThrow();
 	} );
 
-	it( 'hides verb buttons (allow_large_writes, with_index, …) for a reserved spine node', () => {
-		// Reserved spine node (by id): its verb buttons are blocked.
+	it( 'hides command buttons (allow_large_writes, with_index, …) for a reserved spine node', () => {
+		// Reserved spine node (by id): its command buttons are blocked.
 		const catalog = [
 			{
 				shell_name: 'Partition',
@@ -2485,8 +2485,8 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Trace' ) ).not.toBeNull();
 	} );
 
-	it( 'hides verb buttons flagged hidden:true while keeping normal verbs', () => {
-		// A hidden:true command renders no verb button; normal ones do.
+	it( 'hides command buttons flagged hidden:true while keeping normal commands', () => {
+		// A hidden:true command renders no command button; normal ones do.
 		const catalog = [
 			{
 				shell_name: 'Echo',

@@ -68,7 +68,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 		);
 	}
 
-	public function test_cd_block_bare_verbs_become_config_edges(): void {
+	public function test_cd_block_bare_commands_become_config_edges(): void {
 		$edges = Topology_Analyzer::expand( [ 'request-builder' ] )['edges'];
 		$targets = [];
 		foreach ( $edges as $e ) {
@@ -87,7 +87,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 		);
 	}
 
-	public function test_command_aliases_capture_verbs(): void {
+	public function test_command_aliases_capture_commands(): void {
 		$out    = Topology_Analyzer::expand( [ 'request-builder' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
@@ -112,7 +112,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 			[ [ 'verb' => 'void_warranty', 'args' => [] ] ],
 			$byName['completed:partition']['verbs']
 		);
-		// `cmd` canonical, non-target config verb.
+		// `cmd` canonical, non-target config command.
 		$this->assertSame(
 			[ [ 'verb' => 'set_multi_writer', 'args' => [ 'true' ] ] ],
 			$byName['fanout']['verbs']

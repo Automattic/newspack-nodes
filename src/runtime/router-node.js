@@ -229,7 +229,7 @@ export class RouterNode extends TimerNode {
 	 * pay for a second POST. The `finally` flushes even when a subscriber
 	 * throws, and trims idle profile entries while profiling is on.
 	 *
-	 * A tick asked for from INSIDE the walk — a rail refresh sending its verb
+	 * A tick asked for from INSIDE the walk — a rail refresh sending its command
 	 * — is served in the same bracket, by one more pass firing only the
 	 * timers marked due, so its commands join this POST. That pass is the
 	 * only one: an ask it makes leaves its timer due for the next cadence

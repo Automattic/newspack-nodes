@@ -5,7 +5,7 @@
  * a removable physical connection, the fold of a document's `set_*target`
  * lines into config-role edges, the canvas's reserved `_repl` anchors, and the
  * unique name a palette drop takes. None of them mutates a document. Mutation
- * belongs to the draft interpreter, where a TSL verb can reach it, so a
+ * belongs to the draft interpreter, where a TSL command can reach it, so a
  * transform here that DECIDED something would be in the wrong place.
  */
 
@@ -16,7 +16,7 @@ import names from '../../runtime/reserved-node-names.json';
  * the editor may remove.
  *
  * Removing an edge issues `disconnect_node`, which undoes nothing else: a
- * config-role edge exists because a `set_*target` verb named its destination,
+ * config-role edge exists because a `set_*target` command named its destination,
  * and that line would outlive the gesture. An edge carrying no `roles` array
  * is physical — the live graph and the virtual-edge pass both emit bare edges,
  * and the config fold below is the only thing that ever labels one.
@@ -31,7 +31,7 @@ export function edgeHasConnectRole( edge ) {
 /** A whole-argument `<ns:key>` token; char classes mirror PHP Core::resolve_config_tokens. */
 const CONFIG_TOKEN_RE = /^<[a-zA-Z_]\w*:[a-zA-Z_]\w*>$/;
 
-/** The verbs whose argument names a config TARGET, so it folds into an edge. */
+/** The commands whose argument names a config TARGET, so it folds into an edge. */
 export const CONFIG_TARGET_VERB_RE = /^set_\w*target$/;
 
 /**
@@ -54,7 +54,7 @@ export function withResolvedConfigEdges( graph, edges ) {
 		return { ...graph, resolvedConfigEdges: edges };
 	}
 	const ownTokenTarget = ( graph.nodes || [] ).some( ( node ) =>
-		( node.verbInvocations || [] ).some(
+		( node.commandInvocations || [] ).some(
 			( invocation ) =>
 				CONFIG_TARGET_VERB_RE.test( invocation.verb ) &&
 				( invocation.args || [] ).some( ( arg ) =>
@@ -77,7 +77,7 @@ export function withResolvedConfigEdges( graph, edges ) {
  * Fold `configOverrides` into the edge list as config-role edges.
  *
  * The last step of composing a document with its expansion: a `set_*target`
- * verb produces an edge, and a `<ns:key>` token in one has to be resolved
+ * command produces an edge, and a `<ns:key>` token in one has to be resolved
  * against the server's answer before it names anything. An endpoint without a
  * providing node is skipped, so a setter pointing at a node the composed graph
  * lacks draws nothing rather than a dangling edge.
@@ -103,7 +103,7 @@ export function withConfigEdges( graph ) {
 /**
  * The nodes every worker mounts on its own, as reserved canvas nodes: the
  * REPL Partition, and the Consumer reading the worker's IPC input, whose
- * quarantine the `dl_*` verbs reach. No `.tsl` declares either, and the
+ * quarantine the `dl_*` commands reach. No `.tsl` declares either, and the
  * document never gains a line that does.
  */
 const REPL_ANCHORS = [

@@ -9,7 +9,7 @@
  *      inactive `b` a null `status`, each with the right `source` / `active`;
  *  (b) `await deactivate('a')` dispatched `topologies deactivate a`;
  *  (c) `await activate('b')` dispatched `topologies activate b`;
- *  (d) `restart` dispatches the worker `restart` verb.
+ *  (d) `restart` dispatches the worker `restart` command.
  *
  * The fake client records every posted command into `sent` so dispatch can be
  * asserted from the recorded sends (mirrors the worker-status integration
@@ -273,7 +273,7 @@ describe( 'useTopologyManager', () => {
 		] );
 	}, 15000 );
 
-	it( 'restart is exposed and dispatches the worker restart verb', async () => {
+	it( 'restart is exposed and dispatches the worker restart command', async () => {
 		const { sent } = buildClient();
 		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );

@@ -587,8 +587,8 @@ or by an [OAuth grant](#oauth-authorization-server) for this door's resource; a
 grant session for another resource is refused. It signs in as the session's
 minting user and installs the session's scope as the request's ceiling, so a
 tool is listed and called only where `Capabilities::can()` admits the role its
-verb declares. It installs the session's label as `Capabilities::$session_label`,
-which a verb reads to name the caller: `''` for a session minted without one.
+command declares. It installs the session's label as `Capabilities::$session_label`,
+which a command reads to name the caller: `''` for a session minted without one.
 Then, and only then, so an unauthenticated flood
 spends no slots, it claims one of `RATE_LIMIT_BURST` (20) slots named
 `mcp:<namespace>:<handle>` through `Rate_Limit`, an atomic `add()` on
@@ -633,7 +633,7 @@ on.
 
 The permission callback (`HTTP_In_Node::check_permission`) authenticates the
 request and does not sign any command inside it — see
-[Command Signing](#command-signing). READ is the FLOOR every verb behind the
+[Command Signing](#command-signing). READ is the FLOOR every command behind the
 endpoint needs, not the level any of them demands; who may call what is drawn
 under [Service CIs](#service-cis).
 
@@ -660,9 +660,9 @@ sleeping on-demand worker, which holds no lock dir, skips the `ipc/{id}/input`
 existence check, because it creates that directory only once it runs, and is
 woken through `Spawn_Coordinator::wake_channel()` once its input is mounted — so
 attaching a browser console to an `idle` on-demand slot STARTS a process. A mount
-refusal is silent, since the verb answers an empty string, and the command behind
+refusal is silent, since the command answers an empty string, and the command behind
 it bounces `NOT_AVAILABLE` instead. A wake the spawn endpoint refuses is not: the
-verb answers a `TM_COMMAND|TM_ERROR` to its FROM whose payload reads
+command answers a `TM_COMMAND|TM_ERROR` to its FROM whose payload reads
 `wake failed for {id}: HTTP {status}: {the endpoint's message}`, or the transport's
 error when the POST never landed, in the same response body, and the commands
 behind it still land in the mounted input for when the worker starts. The endpoint's
@@ -673,7 +673,7 @@ any other 429 is a refusal like the rest.
 `topologies mount_tables <topology>` also answers an empty string, but refuses
 out loud: an inactive topology draws a `TM_ERROR` reading
 `mount_tables: <topology> is not active`, and a Table whose backend cannot open
-fails the verb naming the Table, unmounting whatever the call had mounted. In
+fails the command naming the Table, unmounting whatever the call had mounted. In
 PHP, `Bootstrap::mount_table()` throws
 [`Table_Unavailable`](../includes/class-table-unavailable.php) for that backend,
 and a plain `\RuntimeException` for a Table two active topologies declare
@@ -705,7 +705,7 @@ Per-slot semantics (named here for documentation only — the wire is positional
 | `TO` (index 3) | string | CI node name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
 | `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `ID`. |
 | `KEY` (index 5) | string | Routing and correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help` and `ls`). |
-| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell and the browser transport tokenize ONCE at the producer boundary, and the tokens ride verbatim through envelope, interpreter and `make_node`. Every verb, scalar and structured alike, reads its data from that array (`$args[0]`, `$args[1]`, …). VALUE also carries `auth`, the HMAC envelope every minter stamps; see [Command Signing](#command-signing). |
+| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell and the browser transport tokenize ONCE at the producer boundary, and the tokens ride verbatim through envelope, interpreter and `make_node`. Every command, scalar and structured alike, reads its data from that array (`$args[0]`, `$args[1]`, …). VALUE also carries `auth`, the HMAC envelope every minter stamps; see [Command Signing](#command-signing). |
 
 The browser's command transport and the attached `wp nodes cli` both produce
 this exact wire shape via `Message::packed()`.
@@ -732,7 +732,7 @@ before verification.
 The batch answers 401 when any command in it failed `Command_Auth`
 verification; the 401 is the fast signal a client checks before parsing the
 body. A capability refusal is
-not this 401: [`Capabilities::require_verb()`](../includes/class-capabilities.php) throws
+not this 401: [`Capabilities::require_command()`](../includes/class-capabilities.php) throws
 `RuntimeException( "permission denied: <role> capability required" )` from
 [`Command_Interpreter_Node::dispatch()`](../includes/class-command-interpreter-node.php), after `authorize` has already passed.
 
@@ -751,7 +751,7 @@ reach this path.
 
 #### Refusals the client mints
 
-A batch turned away at the door never reaches a verb, so the browser transport
+A batch turned away at the door never reaches a command, so the browser transport
 answers its own caller rather than let a node wait out its deadline:
 [`postBatch()`](../src/runtime/command-transport.js) mints the `undelivered: true` refusals the diagram shows.
 
@@ -765,7 +765,7 @@ below the role it declares ([ADR-26](architecture-decisions.md#adr-26-every-verb
 verb that declares no `capability` demands MANAGE, so silence is the strictest
 role rather than the loosest.
 
-| Node name | Class | Verbs (role) |
+| Node name | Class | Commands (role) |
 |-----------|-------|--------------|
 | `classes` | [`Classes_CI_Node`](../includes/rest/class-classes-ci-node.php) | `dump` (read) |
 | `layouts` | [`Layouts_CI_Node`](../includes/rest/class-layouts-ci-node.php) | `get` (read), `save` (tune) |
@@ -784,8 +784,8 @@ The first column is the NODE name — `make_node`'s second argument, and what a
 caller puts in TO. A CI's SHELL name is a different string: the class short name
 minus `_Node`, so `Layouts_CI_Node` is addressed as `layouts` and described as
 `Layouts_CI`. [`Command_Interpreter_Node::shell_name_for()`](../includes/class-command-interpreter-node.php) derives that name;
-the `classes` CI's `dump` verb reports it under `shell_name`, `dump_metadata`
-returns it as `class`, and the topology console's Inspector looks a node's verbs
+the `classes` CI's `dump` command reports it under `shell_name`, `dump_metadata`
+returns it as `class`, and the topology console's Inspector looks a node's commands
 up by it. It is also what `help Layouts_CI` renders a schema for, because
 `Bootstrap` registers the `Newspack_Nodes\Rest\` prefix alongside
 `Newspack_Nodes\`.
@@ -806,11 +806,11 @@ every transport. The header is empty for none, or 1 to 64 letters, digits and hy
 one of `Vault::FRAMING_HEADERS` (`Host`, `Cookie`, `Content-Length`,
 `Transfer-Encoding`, `Connection`, `Expect`, `Upgrade`, `TE`, `Keep-Alive`,
 `Proxy-Connection`, `Proxy-Authorization`) or `Content-Type`, in any case; the scheme is empty or 1 to 32 of the same. Each
-verb refuses either by name, `invalid header: <header>` or `invalid scheme:
+command refuses either by name, `invalid header: <header>` or `invalid scheme:
 <scheme>`, and an absent option leaves the stored one alone on `update`.
 `has_credentials` is true when the entry sends a line.
 
-**`workers.dump_graph` vs `dump_metadata` — different verbs, different shapes.**
+**`workers.dump_graph` vs `dump_metadata` — different commands, different shapes.**
 The `workers` CI's `dump_graph` returns the dashboard payload:
 
 ```
@@ -854,7 +854,7 @@ itself makes, but the diagnostic applies NO grace window, where the sweep and
 `wp nodes gc` spare any dir whose newest inner mtime is under
 `Log_Cleaner::DELETE_GRACE_S` (3600s). A dir an in-flight deploy created moments
 ago therefore lists as an orphan here while [`gc`](cli.md) would still leave it alone, so
-reading this verb as "what the next sweep deletes" overcounts.
+reading this command as "what the next sweep deletes" overcounts.
 
 **`sessions list` — the labelled sessions and the OAuth connections, never a
 key or a token.** It returns `{ sessions[], connections[], ttl_max, scopes{} }`,
@@ -875,7 +875,7 @@ refuses. Every row is live:
 `labelled` set, then every row it names in one read, takes each fact from the
 session's row, and leaves out a session whose row has gone — lapsed, a
 `sessions revoke`, or `wp nodes session revoke --all`. A store that does
-not answer, or a set holding more than 10,000 handles, refuses the verb rather
+not answer, or a set holding more than 10,000 handles, refuses the command rather
 than listing part or nothing. Reading the listing writes nothing.
 
 **`sessions create` and `sessions revoke`.** `create [<label>] [<scope>] [<ttl>]`
@@ -895,7 +895,7 @@ connection with id <id>; the label <id> names <handle>, …`.
 
 **`topologies expand` and `topologies get` compose different views.** `expand`
 returns [`Topology_Analyzer::expand()`](../includes/class-topology-analyzer.php)'s shape for an include SET —
-`{ nodes, edges, tree, hulls }`. Both verbs take `--group_children=false`, which leaves each
+`{ nodes, edges, tree, hulls }`. Both commands take `--group_children=false`, which leaves each
 `Vault_Group` as written: no derived member, in `nodes`, `edges` or `hulls`. The topology
 console's editor seeds from that form; every other reader gets the members. Either form draws
 the group's own `pair` edges, the ones its child class declares, on the group. A node
@@ -918,7 +918,7 @@ file's DIRECT includes alone: it holds the borrowed members and none of the
 file's own lines, which is what lets the editor render a borrowed node as
 borrowed. `--group_children` governs `expanded` alone: `resolved_config_edges`
 comes from the member-bearing walk. `resolved_config_edges` covers the whole topology, because a
-config verb pointed at a `<namespace:key>` token names an edge only the server
+config command pointed at a `<namespace:key>` token names an edge only the server
 can resolve. A client parsing a document that carries such a token must treat a
 response without that list as fatal rather than wire an edge to the literal
 token text; the console's document loader throws there, and
@@ -941,7 +941,7 @@ spoke last reported past its own reader plus what the hub reader holds
 undrained, null until the spoke reports. `list_servers` alone reads the probe
 log; `summary` counts connections and never decodes it. `probe <id>` wants the VAULT id,
 answers `server not found: <id>` for anything else, and echoes it back as its
-own `id`. A client that carries `id` straight from one verb into the other is
+own `id`. A client that carries `id` straight from one command into the other is
 refused. The probe's reply is the whitelisted roll-up
 `{ id, workers: { total, live, stale, held, idle, down }, worst_distance,
 deadletter_segments }`, counting the spoke's workers by the `state` each
@@ -969,7 +969,7 @@ settings page renders them. An int Field with no minimum (`sse_idle_timeout`,
 `unknown setting: <name>`. The option name is accepted either way it is spelled,
 short key or full `newspack_nodes_` option name, which is how
 [`Settings_Sync_Node`](../includes/class-settings-sync-node.php) pushing the full name and an operator typing the short key
-drive one verb unmodified.
+drive one command unmodified.
 
 Two `set` behaviours differ from the settings page. A value outside the Field's
 bounds is REFUSED rather than clamped, throwing `invalid value for setting:
@@ -1007,7 +1007,7 @@ or a map placing no node, removes the file, as Save Layout does while every card
 still sits where the canvas laid it out. `save` refuses any other value. Every other canvas in the substrate, the debug
 overlay's Inspector and each station tab graph included, persists positions to
 `localStorage` through the same hook and never reaches the server, so a
-dashboard wanting layout to survive a change of browser wires these two verbs up
+dashboard wanting layout to survive a change of browser wires these two commands up
 itself.
 
 Every `Command_Interpreter_Node` separately exposes `dump_metadata` for the
@@ -1045,7 +1045,7 @@ Crawler lists its `{name}:curl` and its `{name}:seen` Table, and a
 `Remote_Source` its per-stream `Remote_Consumer` readers and its channel. The
 key is absent from a row owning none. A published sibling with no patron,
 such as a `Vault_Group`'s child, draws on the canvas instead. A patron keeps
-a node's `:config`, so a sidecar's verbs reach it there as a canvas node's do.
+a node's `:config`, so a sidecar's commands reach it there as a canvas node's do.
 Naming a node, `dump_metadata <name>`, answers it unless its schema is
 `hidden`, owned or not, carrying `owner` as above. `dump_metadata -o
 <name>...` answers each node named the same way, then the row of every
@@ -1077,7 +1077,7 @@ Address `dump_graph` to `workers` for the dashboard shape; address
 `dump_metadata` with empty TO for the canvas shape.
 
 The root (empty-TO) base `Command_Interpreter_Node`'s own vocabulary, the
-Shell builtins that precede it and the `secure` ladder are in the verb chart
+Shell builtins that precede it and the `secure` ladder are in the command chart
 above. `help <NodeType>` renders a class's `node_schema()` / `nodeSchema()`
 identically in PHP and browser-local JS. Addressing a command with empty TO
 dispatches against the root table; a non-empty TO routes to the named CI.
@@ -1085,8 +1085,8 @@ dispatches against the root table; a non-empty TO routes to the named CI.
 **`node_schema()` shape.** A CI's `node_schema()` returns a `Service`-category
 schema: `{ category, description, arguments, commands }`, where each `commands`
 entry is `{ name, description, capability, args, handler }` plus the optional
-console flags `multiple`, `hidden` and `action`. A verb with none is configuration the
-editor writes into a `.tsl` and also a verb a live node takes; `multiple` makes it one row
+console flags `multiple`, `hidden` and `action`. A command with none is configuration the
+editor writes into a `.tsl` and also a command a live node takes; `multiple` makes it one row
 per call, as every `add_*` is; `action` keeps it out of the editor and in the live panel
 and the REPL, as every `remove_*` is; `hidden` drops its button from the Inspector, though
 the REPL and the Inspector's own controls still send it. Each arg is
@@ -1107,7 +1107,7 @@ addressed node answers a TM_REQUEST itself, by calling
 returning when that answers true. The trait takes VALUE's first word,
 upper-cased, as the verb and runs the matching entry's `handler` for the
 reply's `data`, answering `TM_STRUCT | TM_RESPONSE` with VALUE
-`{ verb, data }`. Any other verb, a handlerless entry included, is refused with
+`{ verb, data }`. Any other request, a handlerless entry included, is refused with
 `TM_ERROR` and VALUE `"unknown request verb: <VERB>\n"`, the error plane the
 interpreter refuses a command on. Either reply goes from the node TO the
 request's FROM, with ID and KEY echoed, and a request reaching a node with no
@@ -1133,7 +1133,7 @@ echoing nothing, because the browser masks only `--name=` tokens in its history
 and transcript — and the command line `Command_Interpreter_Node::$around_dispatch`
 hands a wrapper renders it `--<name>=<redacted>`; every other token reaches the
 wrapper verbatim. `Core::$around_span` is the same kind of slot for substrate
-work outside a verb: `Core::span( $label, $work, $describe )` runs `$work`
+work outside a command: `Core::span( $label, $work, $describe )` runs `$work`
 through it, handing it the label, the work and a `$describe` that turns the
 work's result into the span's closing detail, and runs `$work` bare when it is
 null. A Table's purge pass (`table purge`) and WAL checkpoint (`table
@@ -1149,15 +1149,15 @@ What `help` renders of that is thinner. The COMMANDS and REQUESTS tables
 verb's capability, its declared `args` and the `multiple` / `hidden` / `action`
 flags never appear, and a `hidden` command prints like any other. So `help
 Workers_CI` will not tell an operator what `restart` takes or which of the three
-roles it needs. The live-mode Inspector's verb modals and the Service-CI tables
+roles it needs. The live-mode Inspector's command modals and the Service-CI tables
 above are where arguments and capabilities surface; help is a summary, not the
-verb reference.
+command reference.
 
-`Classes_CI`'s `dump` verb inlines the serializable half of every concrete Node
+`Classes_CI`'s `dump` command inlines the serializable half of every concrete Node
 class's schema for the topology-editor palette and the live-mode Inspector:
 each class declaring a category and no `hidden` flag. A `Hidden`-category
 class, such as a broker's `Remote_Consumer`, is listed for the Inspector, which
-reads a sidecar's arguments and verbs here, and the palette leaves it out. It
+reads a sidecar's arguments and commands here, and the palette leaves it out. It
 returns `{ classes[], formatters[] }`, each class carrying `shell_name`, `fqcn`,
 `category`, `description`, `arguments`, `commands`, `requests`,
 `registrations`, `accepts_fill`, `has_target`, `is_interpreter` and
@@ -1168,13 +1168,13 @@ the option list the console renders for any `node_schema()` argument declared
 `type: formatter_name` — today only the one `with_index` takes. The substrate registers no
 formatters of its own, so on an install carrying no consumer plugin that calls
 `Formatters::register()` the array is empty, the console falls back to a
-free-text input, and a `with_index` verb raises `unknown formatter: <name>` for
+free-text input, and a `with_index` command raises `unknown formatter: <name>` for
 whatever is typed into it. Discovery reads the composer classmap
 ([ADR-10](architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution)),
 so a class added or renamed without `composer dump-autoload -o` is absent from
 the palette.
 
-**Every verb reads its bound arguments by name.** A producer sends the flat
+**Every command reads its bound arguments by name.** A producer sends the flat
 `arguments` token array — each arg by position in declared order or as
 `--name=value` — and the handler receives
 `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`,
@@ -1214,9 +1214,9 @@ and `layouts save` bind `[ name, body ]`, where the whole TSL body or positions 
 newlines included, rides as one token, with no rest-of-line splitting to guess at.
 `workers restart` binds `<type>… [--partition=<n>]`: `types` is variadic, so a
 partition is reachable by name alone, and an absent partition restarts every
-one. A verb whose schema carries no `args` key —
+one. A command whose schema carries no `args` key —
 the base interpreter's own vocabulary — receives its raw token list. The
-`$envelope` is the full 7-field positional Message; both `save` verbs use it to
+`$envelope` is the full 7-field positional Message; both `save` commands use it to
 enforce a 1 MiB body cap via `Message::packed_size( $envelope )`.
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'`
@@ -1237,7 +1237,7 @@ verb's declared role decides the rest. A refusal THROWS —
 and `read_message` answers a position holding no record as a result whose
 `message` is null (see [Log Sources](#log-sources)).
 
-A Table's `stats` verb (`read`, no arguments) answers one map per counted
+A Table's `stats` command (`read`, no arguments) answers one map per counted
 operation, `GET` to `CHECKPOINT`, each `{ calls, asked, answered, bytes,
 total_ms, max_ms, errors }`. `errors` counts the requests the Table answered with
 a `TM_ERROR`: a refused request, or a read its backend failed. A write that lands
@@ -1298,7 +1298,7 @@ stream with the reason; a registry that will not read is a server error:
 | `session` | string | no | The handle of the [command session](#establishing-a-session) the client signs with. Its attached commands head their FROM with `_sse:{session}`, and this stream passes only the replies headed with it; a stream presenting none passes none, which is what a server-to-server pull does. |
 | `stream` | string | no | The client's own id for this stream, 1-64 characters of `[A-Za-z0-9_.:-]`; the browser sends its `SseInNode`'s name. With `session` it keys the slot lease, so a reconnect takes its own live lease over instead of claiming a second slot, while two streams on one page keep two leases. A malformed id answers `400 sse_stream_invalid`. Because the session is resolved first, a request carrying a deliberately malformed id is a probe: it answers `401 sse_session_refused` for a dead session and `400` for a live one, and opens nothing. |
 | `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as [`Consumer_Node::SEEK_START`](../includes/class-consumer-node.php) / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: a `Remote_Source` states a position for every live reader it asks for, so a reader resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. `-1` / `end` seeks the newest segment's current size; `-2` / `recent` seeks byte 0 of the SECOND-newest segment, or of the only segment when there is just one, so it can replay up to a whole segment. Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value is handled the opposite way: `SSE_Out_Node::position_arg()` reads a word of `Log_Position::WORDS` as its number and any other string through [`Log_Position::parse()`](../includes/class-log-position.php), so `"<segment>:<offset>"` seeks that place, and any string that is neither seeks to `start`, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. A value of `skip` ([`SSE_Out_Node::SKIP`](../includes/rest/class-sse-out-node.php)) keeps that stamp out of the stream: a reader never opens for it, and under a glob the stamp stays closed through every rescan while the glob's other matches open. |
-| `multi_writer` | boolean | no | Read the subscribed logs with the multi-writer seal-grace (`Consumer_Node::SEAL_GRACE_SECONDS`). Set it for a log every request process on this server appends to — the firehose — where a peer can keep writing to segment N for up to [`Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS`](../includes/class-partition-node.php) after N+1 appears; without it the reader advances off N on sight and orphans that straggler, typically a request's terminal `process (complete)`. The CLIENT asserts it, because nothing on disk records which logs are shared. It applies to log Consumers only — a worker IPC attach has one writer and never takes the grace. Default off: a single-writer log seals N the instant it creates N+1, so the grace would be pure added latency. [`Remote_Source_Node`](../includes/class-remote-source-node.php) sends it through its `set_multi_writer` config verb; browser dashboards leave it unset. |
+| `multi_writer` | boolean | no | Read the subscribed logs with the multi-writer seal-grace (`Consumer_Node::SEAL_GRACE_SECONDS`). Set it for a log every request process on this server appends to — the firehose — where a peer can keep writing to segment N for up to [`Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS`](../includes/class-partition-node.php) after N+1 appears; without it the reader advances off N on sight and orphans that straggler, typically a request's terminal `process (complete)`. The CLIENT asserts it, because nothing on disk records which logs are shared. It applies to log Consumers only — a worker IPC attach has one writer and never takes the grace. Default off: a single-writer log seals N the instant it creates N+1, so the grace would be pure added latency. [`Remote_Source_Node`](../includes/class-remote-source-node.php) sends it through its `set_multi_writer` config command; browser dashboards leave it unset. |
 
 #### Subscription grammar
 
@@ -1728,7 +1728,7 @@ a non-numeric or negative token for either, a `delay_ms` from 1 to 99, and a
 extends `Timer_Node` and refills on a recurring timer: the one-second tick
 with no delay, every `delay_ms` with one.
 
-The crawler declares no verbs. Its pacing is set by `make_node` alone, because
+The crawler declares no commands. Its pacing is set by `make_node` alone, because
 a worker rebuilds the graph from its `.tsl` at least every ten minutes and a
 change made at runtime would revert without a word. A replay of its arguments
 that changes only `delay_ms` or `concurrency` keeps both siblings and their
@@ -1966,7 +1966,7 @@ consequence differs by call path, and neither is a permission denial. Nothing
 catches the throw on a REST permission callback (`HTTP_In_Node::check_permission`, `Auth_Controller`,
 `Spawn_Controller`) or at admin-menu registration, where `Admin` passes
 `Capabilities::cap_for( Capabilities::MANAGE )` straight into `add_menu_page()`,
-so a partial map is a 500 and a dead wp-admin; inside a CI verb
+so a partial map is a 500 and a dead wp-admin; inside a CI command
 `Command_Interpreter_Node::interpret()` catches it and returns it as
 `TM_COMMAND|TM_ERROR`. `wp nodes caps status` resolves all three roles and throws
 too.
@@ -1987,7 +1987,7 @@ call), takes the same path.
 
 Fires from [`Bootstrap::mount_request_graph()`](../includes/class-bootstrap.php) once the request-scope graph has
 been built or confirmed already-built. That builder is shared by every command
-door, not just `/command`, so a door never ends up with a different verb surface
+door, not just `/command`, so a door never ends up with a different command surface
 behind it. At this point `Core`'s node map holds `_router` and
 `_command_interpreter` (the base CI); `HTTP_In_Node` names itself `_output`
 immediately after.
@@ -2023,12 +2023,12 @@ collision — same name, different class or different tokens — throws. A
 constructor or `name()` that rejects is cleaned up, never left orphaned.
 
 Skipping `make_node()` — constructing and `name()`-ing a node by hand — leaves
-it unwired. Its verb responses walk back via TO=FROM
+it unwired. Its command responses walk back via TO=FROM
 ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)),
 cannot find a path to `_output`, and drop on the floor. Always go through
 `make_node()`.
 
-Because the hook fires on every command request, keep CIs stateless: pure verb
+Because the hook fires on every command request, keep CIs stateless: pure command
 dispatchers with their dependencies injected. For the application-side build-out,
 read the per-CI `node_schema()` declarations under
 [`newspack-event-logger-nodes/includes/app/`](https://github.com/Automattic/newspack-event-logger-nodes/tree/v0.96.0/includes/app).

@@ -18,14 +18,14 @@ Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guid
 
 A dashboard's data flow is a node graph. Here is the whole graph, server side and browser side, with traffic on every edge:
 
-![The dashboard's node graph in three parts: the browser send path, where insights:timer ticks insights:tee, which fans to three Fetchers that route through the insights:shell group Tap and the _http egress into one POST; the PHP server, where insights-demo reads the offsets/example-scored.p* snapshot once per request and answers the counts, top and accumulated verbs with TO set to each request's FROM; and the browser reply path, where _router delivers each reply to its own receiver Tee, view node and widget, and a note between the two columns: each receiver fans its reply to the view, then last to its own Fetcher, which takes the ask off its outbox. Two boxes beneath contrast the three independent reply paths with the god node at counter 0 that one insights verb would produce.](img/wd-dashboard-graph.png)
+![The dashboard's node graph in three parts: the browser send path, where insights:timer ticks insights:tee, which fans to three Fetchers that route through the insights:shell group Tap and the _http egress into one POST; the PHP server, where insights-demo reads the offsets/example-scored.p* snapshot once per request and answers the counts, top and accumulated commands with TO set to each request's FROM; and the browser reply path, where _router delivers each reply to its own receiver Tee, view node and widget, and a note between the two columns: each receiver fans its reply to the view, then last to its own Fetcher, which takes the ask off its outbox. Two boxes beneath contrast the three independent reply paths with the god node at counter 0 that one insights command would produce.](img/wd-dashboard-graph.png)
 
-**There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card. That decomposition is the entire point, and it cuts both ways: **god commands are as bad as god nodes**, so the server side is three slice verbs, not one `insights` verb computing `{sources, top, accumulated}`.
+**There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card. That decomposition is the entire point, and it cuts both ways: **god commands are as bad as god nodes**, so the server side is three slice commands, not one `insights` command computing `{sources, top, accumulated}`.
 
 Three pieces of new work, built in dependency order:
 
 1. **Make the pipeline produce durable, scored state** the dashboard can read (a `Scorer` node + a durable log + a snapshotting `Consumer`). *Unchanged from a god-object dashboard — the data side is the same.*
-2. **Serve that state** over the command protocol — as **three small slice verbs** (`counts`, `top`, `accumulated`), not one god verb, sharing one offsetlog read.
+2. **Serve that state** over the command protocol — as **three small slice commands** (`counts`, `top`, `accumulated`), not one god command, sharing one offsetlog read.
 3. **Render it** — the real JS node graph, a Timer feeding a Tee that fans out to three Fetchers, each answering into its own view node, three thin widgets, the build, the enqueue.
 
 ---
@@ -182,21 +182,21 @@ That's the whole durability story: the worker writes a snapshot the web request 
 
 ---
 
-## 2. Serve the data — three small slice verbs, not one god command
+## 2. Serve the data — three small slice commands, not one god command
 
-The browser can't read a file off the worker's disk. It speaks the **command protocol**: a `POST` of a `TM_COMMAND` to [`/newspack-nodes/v1/command`](API.md#command-dispatch), which the substrate routes to a node by name. So we mount a **service interpreter** into every web request and give it verbs.
+The browser can't read a file off the worker's disk. It speaks the **command protocol**: a `POST` of a `TM_COMMAND` to [`/newspack-nodes/v1/command`](API.md#command-dispatch), which the substrate routes to a node by name. So we mount a **service interpreter** into every web request and give it commands.
 
-The decomposition decision here is the same one we make on the client: a single `insights` verb returning `{sources, top, accumulated}` would be a **god command** — one verb that computes everything, cannot be reused a slice at a time, and can only be fetched all-or-nothing. So `Insights_CI` exposes **three small verbs**, one slice each:
+The decomposition decision here is the same one we make on the client: a single `insights` command returning `{sources, top, accumulated}` would be a **god command** — one command that computes everything, cannot be reused a slice at a time, and can only be fetched all-or-nothing. So `Insights_CI` exposes **three small commands**, one slice each:
 
 - `counts` → `{ "sources": { "releases": 2, "community": 3 } }`
 - `top` → `{ "top": [ { "source", "title", "score" }, … ] }`
 - `accumulated` → `{ "accumulated": 5 }`
 
-Each is independently fetchable (one `Fetcher` per verb, §3) — and because all three run inside one POST (§4's batching), they share **one** offsetlog read instead of globbing and unpacking the snapshot three times. That's the **memoized read** (`items()` + the `$read_items` closure seam): the first verb to run reads the snapshot once and caches the flattened items; the other two reuse the cache.
+Each is independently fetchable (one `Fetcher` per command, §3) — and because all three run inside one POST (§4's batching), they share **one** offsetlog read instead of globbing and unpacking the snapshot three times. That's the **memoized read** (`items()` + the `$read_items` closure seam): the first command to run reads the snapshot once and caches the flattened items; the other two reuse the cache.
 
 **All three count the same list, and that list is the digest's *unflushed* buffer.** It is the `items` the digest's `save_state()` handed the Consumer at its last commit, so `accumulated` is a pending count, not a lifetime total, and `counts` and `top` describe the same pending items. `request_node digest FLUSH` — the runtime trigger [writing-a-plugin.md §4](writing-a-plugin.md#4-the-digest-builder--accumulate-then-flush-and-reuse-log) teaches you to type at the REPL — empties `$items` after emitting the draft, so once the Consumer's next cursor-advancing checkpoint commits the emptied list, **By source**, the score-ranked table and the **Total items** card all drop to zero together and climb again as new scored records arrive. The dashboard's own **Draft newsletter** button does *not* flush: it renders the markdown in the browser from the `top` slice it already holds, and leaves the numbers alone.
 
-A service interpreter is a [`Service_CI_Node`](../includes/class-service-ci-node.php) — a `Command_Interpreter_Node` whose verb table comes from its `node_schema()`, the same double-duty schema you already write for nodes. `includes/class-insights-ci-node.php`:
+A service interpreter is a [`Service_CI_Node`](../includes/class-service-ci-node.php) — a `Command_Interpreter_Node` whose command table comes from its `node_schema()`, the same double-duty schema you already write for nodes. `includes/class-insights-ci-node.php`:
 
 ```php
 class Insights_CI_Node extends Service_CI_Node {
@@ -219,7 +219,7 @@ class Insights_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Read the offsetlog snapshot ONCE per request and memoize the flattened items, so the
-	 * three batched slice verbs share a single read instead of globbing + unpacking thrice.
+	 * three batched slice commands share a single read instead of globbing + unpacking thrice.
 	 */
 	private function items(): array {
 		if ( null !== $this->items_cache ) {
@@ -274,13 +274,13 @@ class Insights_CI_Node extends Service_CI_Node {
 
 > **← two Partition readers.** [`Partition_Node::read_latest_value_at( $offsetlog_dir )`](../includes/class-partition-node.php) reads the newest committed record's VALUE from an offsetlog in one call. It wraps the 20-line segment walk you would otherwise write — construct a `Partition_Node`, set `arguments`, `get_segments( true )`, take the newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE` — and falls back a segment when the newest one rotated but was never written. **`Partition_Node::read_latest_snapshot_cache( $offsets_dir, $glob, $node )`** does the rest of the descent on top of it: it globs the `p*` snapshot dirs, descends into each `cache[<node>]['items']`, and flattens the lists (`$cache_key` and `$items_key` default to `cache` and `items`). That is why `read_snapshot_items()` above is one line: you ask the Partition for its latest snapshot instead of walking segments. It re-globs on every call, which is why `items()` memoizes.
 
-Now the three verbs. Each is a one-line `handler` that shapes one slice off the **memoized** `items()` and answers it as a struct. Because a `Service_CI` verb runs *on the CI itself*, the interpreter handed to each handler **is** this node — so `$ci->items()` shares the per-request memo across all three:
+Now the three commands. Each is a one-line `handler` that shapes one slice off the **memoized** `items()` and answers it as a struct. Because a `Service_CI` command runs *on the CI itself*, the interpreter handed to each handler **is** this node — so `$ci->items()` shares the per-request memo across all three:
 
 ```php
 public static function node_schema(): array {
-	// A Service_CI verb runs ON the CI — the interpreter IS this node, so $ci->items()
-	// is the shared per-request memo. dispatch() gates every verb on the role its
-	// schema entry declares in `capability`, defaulting to MANAGE — so a verb that
+	// A Service_CI command runs ON the CI — the interpreter IS this node, so $ci->items()
+	// is the shared per-request memo. dispatch() gates every command on the role its
+	// schema entry declares in `capability`, defaulting to MANAGE — so a command that
 	// declares nothing demands the strictest role, and a per-slice gate here would
 	// only stack a second check. Each handler is a shape closure: dispatch hands
 	// it the CI, and the array it returns is the reply's struct.
@@ -311,9 +311,9 @@ public static function node_schema(): array {
 }
 ```
 
-A read-only dashboard can widen that gate by declaring the role on the verb — `'capability' => \Newspack_Nodes\Capabilities::READ` beside `'name'`, which is what the substrate's own dashboard verbs do. The three roles are `read` (dashboards, SSE, introspection), `tune` (declared configuration and application data) and `manage` (fleet control and credentials); all three resolve to `manage_options` until a site filters one down through [`newspack_nodes/capability_map`](API.md#filters) or an operator runs [`wp nodes caps install`](cli.md#capabilities-and-the-hub-user).
+A read-only dashboard can widen that gate by declaring the role on the command — `'capability' => \Newspack_Nodes\Capabilities::READ` beside `'name'`, which is what the substrate's own dashboard commands do. The three roles are `read` (dashboards, SSE, introspection), `tune` (declared configuration and application data) and `manage` (fleet control and credentials); all three resolve to `manage_options` until a site filters one down through [`newspack_nodes/capability_map`](API.md#filters) or an operator runs [`wp nodes caps install`](cli.md#capabilities-and-the-hub-user).
 
-Mount the CI on every request, exactly as a god-command dashboard would — the decomposition is in the *verbs*, not the mount:
+Mount the CI on every request, exactly as a god-command dashboard would — the decomposition is in the *commands*, not the mount:
 
 ```php
 // In the plugin file: mount the CI into every request graph (idempotent).
@@ -329,7 +329,7 @@ add_action( 'newspack_nodes/request_graph_ready', __NAMESPACE__ . '\\mount_insig
 
 The `require_once` is not the autoloader repeated. Composer's classmap is refreshed only by a hand-run `composer dump-autoload -o`, so a class added or renamed since the last dump would have `make_node` answering `unknown class` from inside a live request. Requiring the file makes the mount independent of how fresh the classmap is — which is why §8's `composer dump-autoload -o` step notes this one node as its exception. Delete the line and you have coupled every dashboard request to a build step that never runs.
 
-Each verb returns its **slice as a struct**, which the wire encodes once with the rest of the reply — `counts` gives `{sources}`, `top` gives `{top}`, `accumulated` gives `{accumulated}`. No transform node, no second round-trip; the browser's three fetches each get a finished slice in the POST response body. That choice — small slices, synchronous reads — is what makes the client three pure polls with no SSE.
+Each command returns its **slice as a struct**, which the wire encodes once with the rest of the reply — `counts` gives `{sources}`, `top` gives `{top}`, `accumulated` gives `{accumulated}`. No transform node, no second round-trip; the browser's three fetches each get a finished slice in the POST response body. That choice — small slices, synchronous reads — is what makes the client three pure polls with no SSE.
 
 You can verify this half **with no browser** — it's plain PHP:
 
@@ -378,9 +378,9 @@ fill( message ) {
 
 Read `fill()` carefully — apart from a reply, it **ignores its trigger message entirely**. Its type, VALUE and addressing go unread: any message that is not a reply is only the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`source-counts:fetch`'s command is `counts`, fixed), **never read from the triggering message**.
 
-Two fields are what a caller reaches for. `outbox` holds the asks in flight, so a table can read which rows are still waiting; `command_args` holds either a static token array or a **fire-time getter** the trigger calls, which is how a filter, a sort or a page value tracks React state without re-wiring the graph. Build those tokens with **`formatCommandArgs( positional, options )`** (`@newspack-nodes/runtime`) rather than spelling `--key=value` by hand: it is the browser half of the one argument grammar, mirroring PHP [`Newspack_Nodes\Command_Args`](../includes/class-command-args.php), so what a dashboard mints is what the verb parses. Required values ride positionally in the order the verb declares, `true` renders as a bare `--key`, `false` as an explicit `--key=false` (the bare form already means true, and omitting the option leaves a default-on setting standing), and an array as its comma-joined members — `formatCommandArgs( [ id ], { limit: 50, categories: true } )`. Nothing quotes anything: token boundaries belong to the array, so a value carrying spaces — a `.tsl` body, a JSON blob — stays whole inside its own element. `send( args, path, supersede )` is the other way in, for a caller with an answer to wait on: it parks arguments the next trigger puts on the wire, and parks the **subject** the ask is about, which rides on FROM so the answer comes back naming it. That is how one Fetcher serves many rows with nothing correlated. `askNow( args, path )` parks an ask superseding every older one and sends it in the same breath, for a question that cannot wait for the next tick — a search, a sort, a page turn; a question its arguments identify needs no path. A reply settles the ask carrying its remaining TO and exactly the arguments it echoes, as both interpreters echo them in every reply, or, when it echoes none like the Router's `NOT_AVAILABLE`, the first ask on its address; `answers( reply )` is that test without the fallback, which the gate reads. [`useCommandOnce`](../src/shared/hooks/useCommandOnce.js) is the `send()` path packaged — reach for it rather than driving `send()` by hand.
+Two fields are what a caller reaches for. `outbox` holds the asks in flight, so a table can read which rows are still waiting; `command_args` holds either a static token array or a **fire-time getter** the trigger calls, which is how a filter, a sort or a page value tracks React state without re-wiring the graph. Build those tokens with **`formatCommandArgs( positional, options )`** (`@newspack-nodes/runtime`) rather than spelling `--key=value` by hand: it is the browser half of the one argument grammar, mirroring PHP [`Newspack_Nodes\Command_Args`](../includes/class-command-args.php), so what a dashboard mints is what the command parses. Required values ride positionally in the order the command declares, `true` renders as a bare `--key`, `false` as an explicit `--key=false` (the bare form already means true, and omitting the option leaves a default-on setting standing), and an array as its comma-joined members — `formatCommandArgs( [ id ], { limit: 50, categories: true } )`. Nothing quotes anything: token boundaries belong to the array, so a value carrying spaces — a `.tsl` body, a JSON blob — stays whole inside its own element. `send( args, path, supersede )` is the other way in, for a caller with an answer to wait on: it parks arguments the next trigger puts on the wire, and parks the **subject** the ask is about, which rides on FROM so the answer comes back naming it. That is how one Fetcher serves many rows with nothing correlated. `askNow( args, path )` parks an ask superseding every older one and sends it in the same breath, for a question that cannot wait for the next tick — a search, a sort, a page turn; a question its arguments identify needs no path. A reply settles the ask carrying its remaining TO and exactly the arguments it echoes, as both interpreters echo them in every reply, or, when it echoes none like the Router's `NOT_AVAILABLE`, the first ask on its address; `answers( reply )` is that test without the fallback, which the gate reads. [`useCommandOnce`](../src/shared/hooks/useCommandOnce.js) is the `send()` path packaged — reach for it rather than driving `send()` by hand.
 
-> **A node that sends the command its message carries is a `Shell`, and that's verboten.** A Shell *sends* arbitrary commands; a command *interpreter* is what *interprets* them. A named, always-firing node that relays whatever verb its incoming message names is a Shell wired into the graph — exactly the thing the substrate forbids. The Fetcher is the safe inverse: the command is fixed on the node, the message is only a trigger. When you need "on a tick, send verb X to node Y", reach for a `Fetcher`, never a Shell.
+> **A node that sends the command its message carries is a `Shell`, and that's verboten.** A Shell *sends* arbitrary commands; a command *interpreter* is what *interprets* them. A named, always-firing node that relays whatever command its incoming message names is a Shell wired into the graph — exactly the thing the substrate forbids. The Fetcher is the safe inverse: the command is fixed on the node, the message is only a trigger. When you need "on a tick, send command X to node Y", reach for a `Fetcher`, never a Shell.
 
 ### b. Wiring the fan-out
 
@@ -391,13 +391,13 @@ A Timer feeds a Tee, the Tee fans out to three Fetchers, and each Fetcher is `co
 
 The group's Tap exists only while a mounted node targets it: `mountExospine` claims the group from each target its build registers, the last mount claiming it removes it, and two hooks naming one group share it. Nothing else declares the group. `_shell`, with its underscore, stays the interactive session's Tap, which the console REPL sends through; a dashboard never routes there.
 
-Spell the path through **`egressPath( group, ci )`** ([`@newspack-nodes/shared/helpers/egressPath`](../src/shared/helpers/egressPath.js)) rather than by hand: it returns `<group>:shell/_http/<ci>`, or a bare `<group>:shell/_http` for a command-interpreter builtin such as `dump_metadata`, and throws when given no group. Skipping the Tap is silent — the command still arrives, and `connect <group>:shell` stops seeing it.
+Spell the path through **`egressPath( group, ci )`** ([`@newspack-nodes/shared/helpers/egressPath`](../src/shared/helpers/egressPath.js)) rather than by hand: it returns `<group>:shell/_http/<ci>`, or a bare `<group>:shell/_http` for a base interpreter command such as `dump_metadata`, and throws when given no group. Skipping the Tap is silent — the command still arrives, and `connect <group>:shell` stops seeing it.
 
 ### c. The receiver reply path — why a `counts` reply only touches the counts view
 
 Each Fetcher stamps **`FROM = its receiver Tee`** (`source-counts:fetch` → `FROM=source-counts:in`). The service CI replies **`TO = FROM`**, so the `counts` reply routes back to `source-counts:in`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `top-table:in → top-table:view`; the `accumulated` reply on `accumulated:in → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
 
-Each receiver `Tee` fans the reply **back to its own Fetcher** as well, which is what takes the ask off that Fetcher's outbox. [`addSliceFetcher`](../src/shared/helpers/addSliceFetcher.js) connects the Fetcher **last**, after the view, because a Tee fans out in connect order and the ask must still stand while the reply renders. Until the ask settles, the Fetcher is quiet: a one-second refresh on a four-second verb asks once and waits, instead of stacking four identical commands the server is still working through. An unanswered ask is re-sent after `retry_after_s` (0 disables the re-ask, which is what a write wants) and retired at 120 seconds, so a lost reply costs one slow refresh rather than a dead widget; §4's sheet draws both timers.
+Each receiver `Tee` fans the reply **back to its own Fetcher** as well, which is what takes the ask off that Fetcher's outbox. [`addSliceFetcher`](../src/shared/helpers/addSliceFetcher.js) connects the Fetcher **last**, after the view, because a Tee fans out in connect order and the ask must still stand while the reply renders. Until the ask settles, the Fetcher is quiet: a one-second refresh on a four-second command asks once and waits, instead of stacking four identical commands the server is still working through. An unanswered ask is re-sent after `retry_after_s` (0 disables the re-ask, which is what a write wants) and retired at 120 seconds, so a lost reply costs one slow refresh rather than a dead widget; §4's sheet draws both timers.
 
 `addSliceFetcher` puts a `Current` gate named `<receiver>:current` first on every receiver's edge to the view, ahead of any transform. It forwards only a reply its Fetcher `answers()`, so the late answer to a superseded question — a search, a sort, a page — never overwrites the newer one, and a send minted straight from a receiver reaches nothing unless the Fetcher asked the very same question. An answer goes on to the transform or the view; a refusal goes to the view itself, which owns the error state, when it refuses a standing ask or does not echo its arguments, as the Router's bare `NOT_AVAILABLE` does, and a refusal of a superseded question is dropped like its answer. A question that is never replaced — a search box emptied under its search — is taken back with `withdraw()`, or `useCommandOnce`'s `abandon()`: the request still completes, its answer and its refusal stop at the gate, and `pending` clears at once.
 
@@ -556,13 +556,13 @@ export function usePublisherInsightsGraph( opts = {} ) {
 
 Four options ride in the same bag. **`intervalMs`** is required and at least 1000 ms, for the reason the sheet's red box gives; changing it re-arms the Timer live, which is how the Aggregator dashboard wires it straight to a refresh dropdown (`intervalMs: parseInt( refreshInterval, 10 ) || parseInt( DEFAULT_REFRESH_MS, 10 )`). **`paused`** suspends polling without unmounting the graph; the Overview dashboard passes `paused: dragging` so a poll doesn't fight a drag in flight. **`enabled`** gates a tab that has never been opened. **`passenger`** clips onto a backbone somebody else owns, for a poll that is *part* of a page rather than its graph: the owner keeps the full rebuild, and a passenger re-attaches when the backbone comes back. Sub-second work belongs to [`useRouterTick`](../src/shared/hooks/useRouterTick.js).
 
-A slice can also emit *live* command args per tick: `addSliceFetcher` takes an `argsFn: () => argsTokens` fire-time getter, returning the flat token array `formatCommandArgs` builds, that it assigns to the Fetcher's `command_args`. A `null` return sends nothing that tick. The toy's three verbs take no args, so it needs none.
+A slice can also emit *live* command args per tick: `addSliceFetcher` takes an `argsFn: () => argsTokens` fire-time getter, returning the flat token array `formatCommandArgs` builds, that it assigns to the Fetcher's `command_args`. A `null` return sends nothing that tick. The toy's three commands take no args, so it needs none.
 
 The batching principle is the one the worker side gets from the drain loop: more traffic per tick, the same fixed cost.
 
 > **← what the two calls own.** **`useBatchedPoll( … )`** owns the mount, the group Taps and `_http`, the Timer and Tee, the visibility gate, and the first-load and unsigned-tick retries — roughly 50 lines of `useEffect` plus `mountExospine` a poll dashboard would otherwise wire by hand. **`addSliceFetcher()`** owns the per-slice block in which a Fetcher answers into a receiver Tee that feeds the view, with its optional transform slot. The hook is left with its slices. That's the dogfooding rule this guide runs on: once a third caller copies a wiring, it moves into the substrate. This example, the topology console's catalogs and event-logger-nodes' performance hook all call `useBatchedPoll`, so §4 is one call, exactly like §6 and §7.
 
-> **A catalog is one call further.** `useCatalogSlice( { scope, group, ci, viewClass, key, command } )` polls one CI's catalog verb as a slice — `list` by default, `dump` for a CI whose rows each carry a nested structure — and hands back the published model plus `loading`, `error` and `refresh()`. The tick *is* the retry, so a refusal recovers with no latch and no memoised promise. Its default cadence is 30 seconds, on the reasoning that a catalog changes when someone edits it.
+> **A catalog is one call further.** `useCatalogSlice( { scope, group, ci, viewClass, key, command } )` polls one CI's catalog command as a slice — `list` by default, `dump` for a CI whose rows each carry a nested structure — and hands back the published model plus `loading`, `error` and `refresh()`. The tick *is* the retry, so a refusal recovers with no latch and no memoised promise. Its default cadence is 30 seconds, on the reasoning that a catalog changes when someone edits it.
 
 The reply routing is the same TO/FROM mechanics as the PHP side; the browser adds two hops the server's request graph has no need of, `<group>:shell` the observe Tap and `_http` the egress that carries the command across the wire. [`Bootstrap::mount_request_graph()`](../includes/class-bootstrap.php) raises `_router` and `_command_interpreter` and stops there.
 
@@ -964,13 +964,13 @@ Each `TICK` flows from a source through the summarizer and the scorer into `scor
 
 Drop a `Tee` onto any edge to fork a copy of the traffic, and watch the three counters — `source-counts:fetch`, `top-table:fetch`, `accumulated:fetch` — move independently. A god view-node at counter 0 gives you none of that — there's nothing flowing to observe. *That* is why you built the dashboard on Nodes instead of stapling a fetch loop to a React component.
 
-You drove a server-side worker and a browser React app with the same protocol — a `TICK` runtime request to the sources, then a batched poll of three slice verbs — because both ends speak it.
+You drove a server-side worker and a browser React app with the same protocol — a `TICK` runtime request to the sources, then a batched poll of three slice commands — because both ends speak it.
 
 ---
 
 ## 9. Make it inspectable: mount the debug overlay
 
-§8 ended on the payoff — *inspect the live graph*. From the worker's REPL that's `wp nodes cli`; **on the page itself** it's the **debug overlay**, and wiring it in is two lines. The overlay reads the page's *own* live `mountExospine` graph — the same `Core.nodes` your hook built — and renders it in the shared GraphView: every node, every edge, every counter, plus a REPL that types `connect` and `remove` at it and an inspector that invokes a node's verbs. The graph is there to be inspected, so put the inspector on the page.
+§8 ended on the payoff — *inspect the live graph*. From the worker's REPL that's `wp nodes cli`; **on the page itself** it's the **debug overlay**, and wiring it in is two lines. The overlay reads the page's *own* live `mountExospine` graph — the same `Core.nodes` your hook built — and renders it in the shared GraphView: every node, every edge, every counter, plus a REPL that types `connect` and `remove` at it and an inspector that invokes a node's commands. The graph is there to be inspected, so put the inspector on the page.
 
 Add the import and render it inside the page, alongside the widgets:
 
@@ -984,7 +984,7 @@ That's the entire wiring — `PublisherInsightsPage` already does exactly this (
 
 - **It's self-gated by [`isDebugEnabled`](../src/debug-overlay/isDebugEnabled.js).** The overlay renders `null` unless debug is on — `?nodes-debug=1` in the URL turns it on and sticks it in `localStorage` (so it survives navigation), `?nodes-debug=0` turns it off. Absent the param, the sticky flag decides. So a shipped dashboard carries the overlay dormant: invisible to normal visitors, one query param away for you. (It's a pure dev affordance — no capability/PHP gate — so the FAB only ever appears for someone who deliberately flipped the flag.)
 - **`storageKey` is per-dashboard.** It scopes the **canvas** layout — where each node sits on the graph — so name it `newspack-nodes:debug:<dashboard>`: `newspack-nodes:debug:example-insights` here, `newspack-nodes:debug:station:<tab>` on the station, where each tab builds a graph of its own. Reusing one key across pages would make two different graphs fight over one set of node positions. The panel's own frame geometry is global and ignores it. (A third prop, `buildRepl: false`, tells the Console tab to point at the page's existing console instead of building a second graph and REPL — the station passes it on its Console tab, where the two would collide on `_output`.)
-- **It reads the live graph, not a snapshot.** Because the overlay subscribes to the same `Core.nodes` your `useBatchedPoll` hook built, opening it (`` Ctrl+` `` toggles the panel) shows the real thing live: `insights:timer`, `insights:tee`, the three `*:fetch` Fetchers, the `*:in` receiver Tees, the `*:view` nodes — each at its real counter, climbing on every tick. Drop a `Tee` onto an edge or `invoke` a verb right from the panel. A god view-node at counter 0 would give the overlay nothing to draw; *this* graph is the payoff, and the overlay is how you see it.
+- **It reads the live graph, not a snapshot.** Because the overlay subscribes to the same `Core.nodes` your `useBatchedPoll` hook built, opening it (`` Ctrl+` `` toggles the panel) shows the real thing live: `insights:timer`, `insights:tee`, the three `*:fetch` Fetchers, the `*:in` receiver Tees, the `*:view` nodes — each at its real counter, climbing on every tick. Drop a `Tee` onto an edge or `invoke` a command right from the panel. A god view-node at counter 0 would give the overlay nothing to draw; *this* graph is the payoff, and the overlay is how you see it.
 
 One mount, and every dashboard you build the right way becomes self-documenting — the node graph you composed is visible, live, on its own page.
 
@@ -992,7 +992,7 @@ One mount, and every dashboard you build the right way becomes self-documenting 
 
 ## 10. Recap — what you wrote vs. what the substrate gave you
 
-**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, the four durable-snapshot topology lines, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each only an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the two client-side document builders and their shared label normalizer, and the thin build/jest/enqueue glue — a `scripts/build.mjs`, a `jest.config.js`, and the menu registration beside the enqueue.
+**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, the four durable-snapshot topology lines, an `Insights_CI` with **three small slice commands** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each only an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the two client-side document builders and their shared label normalizer, and the thin build/jest/enqueue glue — a `scripts/build.mjs`, a `jest.config.js`, and the menu registration beside the enqueue.
 
 **The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http` boundary and its group Taps, the JS node runtime and `mountExospine`, `useNodeField`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each own boilerplate this example would otherwise carry:
 
@@ -1003,14 +1003,14 @@ One mount, and every dashboard you build the right way becomes self-documenting 
 | `addSliceFetcher()` | the 6-line per-slice block wiring a Fetcher to a receiver Tee and a view (the `SLICES.forEach` body) |
 | `egressPath( group, ci )` | the `<group>:shell/_http/<ci>` path spelled out at every send site |
 | `Partition_Node::read_latest_snapshot_cache()` | a per-dashboard glob and cache descent, over a 20-line offsetlog segment walk |
-| `Service_CI_Node` + `node_schema()` verbs | a hand-built interpreter, a REST controller and a per-verb capability check |
+| `Service_CI_Node` + `node_schema()` commands | a hand-built interpreter, a REST controller and a per-command capability check |
 | `@newspack-nodes/shared/errorMessage` | a per-view error-coercion helper, copy-pasted |
 | `sliceView()` / `registerSliceViews()` | a class file per view whose whole content is an empty-model literal |
 | `buildDashboards()` / `createJestConfig()` / `alias-map.cjs` | a 250-line esbuild config, a footgun-prone jest config, and four env overrides |
 | `Admin::enqueue_react_page()` | a 40-line page-gate + manifest + localize |
 | `installFakeCommandWire()` | a hand-stubbed command client per suite, which tests past the wire |
 
-That table *is* the lesson, and it's the same one the first guide ends on, lifted to the client with one addition: **dashboards are composed node graphs, not a god view-node + god command.** You add a dashboard by composing primitives — a Timer, a Tee, Fetchers, thin view nodes, small verbs — never by building a dashboard framework. Uphold the `fill()` contract, decompose both sides, lean on the shared pieces, and the next dashboard is the handful of files you care about: the slice verbs, the view nodes, the widgets, and the hook that wires them.
+That table *is* the lesson, and it's the same one the first guide ends on, lifted to the client with one addition: **dashboards are composed node graphs, not a god view-node + god command.** You add a dashboard by composing primitives — a Timer, a Tee, Fetchers, thin view nodes, small commands — never by building a dashboard framework. Uphold the `fill()` contract, decompose both sides, lean on the shared pieces, and the next dashboard is the handful of files you care about: the slice commands, the view nodes, the widgets, and the hook that wires them.
 
 ---
 

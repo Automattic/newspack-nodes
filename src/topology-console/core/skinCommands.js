@@ -4,8 +4,8 @@
  * `shell.host` callback pair that the topology console and the debug overlay
  * each hand their Shell.
  *
- * The Shell acts on both verbs locally and mints no Message, so neither ever
- * reaches an interpreter verb table and `help`, which lists that table, never
+ * The Shell acts on both builtins locally and mints no Message, so neither ever
+ * reaches an interpreter command table and `help`, which lists that table, never
  * names them. The same locality is why the host side is a pair of plain
  * callbacks rather than a node: the stylesheet and the `localStorage` key
  * behind it belong to the browser host, and the Shell forwards the raw name

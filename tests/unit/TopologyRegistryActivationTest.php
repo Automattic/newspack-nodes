@@ -2,8 +2,8 @@
 /**
  * TopologyRegistryActivationTest: unit tests for the shared activation logic
  * extracted onto Topology_Registry — the option-write + cache-invalidate +
- * spawn/drain that BOTH the Topologies_CI_Node verbs and the
- * `wp nodes activate` / `deactivate` CLI verbs call.
+ * spawn/drain that BOTH the Topologies_CI_Node commands and the
+ * `wp nodes activate` / `deactivate` CLI commands call.
  *
  * `activate()` materializes the effective active set (Bootstrap::get_topologies()),
  * refuses a write-conflict, adds the name, writes the option, invalidates the

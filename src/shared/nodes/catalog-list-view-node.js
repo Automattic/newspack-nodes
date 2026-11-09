@@ -5,7 +5,7 @@ import { sliceView } from './slice-view-node';
  * dashboard chooses a log source or a stream subscription from. `useLogCatalog`
  * is its only builder.
  *
- * Its verb, `list_logs`, answers with an array, which the declaration reads
+ * Its command, `list_logs`, answers with an array, which the declaration reads
  * straight off the payload. The rows publish under `items`, which is the key
  * `useLogCatalog` reads.
  *

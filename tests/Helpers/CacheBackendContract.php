@@ -54,7 +54,7 @@ abstract class CacheBackendContract extends TestCase {
 		$this->assertSame( [], $arm->read_multi( [ 'kea-ttl' ] ) );
 	}
 
-	public function test_an_expired_row_is_absent_to_every_verb(): void {
+	public function test_an_expired_row_is_absent_to_every_command(): void {
 		if ( ! $this->moves_clock() ) {
 			$this->markTestSkipped( 'this arm expires on a clock that tests cannot move' );
 		}

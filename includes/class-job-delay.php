@@ -38,7 +38,7 @@ class Job_Delay {
 	 * Reader id: the sweep's Consumer takes it as a node name, the durable
 	 * cursor lives in `offsets/jobdelay-sweep.p0`, and a line that will not
 	 * unpack is quarantined in `deadletter/jobdelay-sweep.p0`. That Consumer
-	 * exists only for the length of one reconciliation pass, so a `dl_*` verb
+	 * exists only for the length of one reconciliation pass, so a `dl_*` command
 	 * can never reach its quarantine: the dead-letters alert family reports the
 	 * segment, and `wp nodes ingest` replays its packed records through a topic.
 	 * Renaming it hands the next sweep a fresh cursor at the head of the delay

@@ -2,7 +2,7 @@
 /**
  * Tests for `wp nodes activate <topology>` / `wp nodes deactivate <topology>`.
  *
- * Both verbs delegate the option-write + cache-invalidate + spawn/drain to the
+ * Both commands delegate the option-write + cache-invalidate + spawn/drain to the
  * shared Topology_Registry::activate() / deactivate(); the CLI layer owns arg
  * validation, the catalog-listing error on an unknown name, and the WP_CLI
  * success/warning messaging. Spawn POSTs are captured via the bootstrap

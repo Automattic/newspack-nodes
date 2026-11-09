@@ -60,7 +60,7 @@
   </div>
   <div class="card">
     <h3>Modes propagate to partitions built later</h3>
-    <p><span class="mono">allow_large_writes()</span>, <span class="mono">void_warranty()</span> and <span class="mono">with_index_named( $formatter )</span> record the mode on the Topic, apply it to every materialized Partition, and <span class="mono">partition()</span> applies it again to each one it creates. Each is a <span class="mono">{name}:config</span> verb and <span class="mono">dump_config()</span> re-emits it, so the round trip keeps the mode.</p>
+    <p><span class="mono">allow_large_writes()</span>, <span class="mono">void_warranty()</span> and <span class="mono">with_index_named( $formatter )</span> record the mode on the Topic, apply it to every materialized Partition, and <span class="mono">partition()</span> applies it again to each one it creates. Each is a <span class="mono">{name}:config</span> command and <span class="mono">dump_config()</span> re-emits it, so the round trip keeps the mode.</p>
     <p>The two <span class="mono">allow_large_writes()</span> disagree about their first parameter: Partition's is <span class="mono">$max_wait_ms</span>, Topic's is <span class="mono">$debounce_ms</span>, so <span class="mono">$t->allow_large_writes( 0 )</span> is hold mode, not a try-lock.</p>
   </div>
   <div class="callout">

@@ -2,7 +2,7 @@
  * The accumulated-total KPI tile on the Publisher Insights page.
  *
  * The tile reads one slice and nothing else. `usePublisherInsightsGraph` polls
- * the `accumulated` verb into the `accumulated:view` node, and this component
+ * the `accumulated` command into the `accumulated:view` node, and this component
  * subscribes to that node alone — the one-slice-per-view rule from
  * `docs/writing-a-view-node.md`. A failed `accumulated` read therefore takes
  * out this tile and leaves the two sibling cards showing their own data.

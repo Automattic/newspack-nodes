@@ -16,11 +16,11 @@
  *
  * The server CI replies TO=FROM, so each slice's reply lands on its own
  * receiver Tee and travels its own path to its own view: an answer to `summary`
- * never touches `servers:view`. The rejected alternative is one `status` verb
+ * never touches `servers:view`. The rejected alternative is one `status` command
  * feeding one view node, which makes the server compute the whole model to
  * answer any part of it and re-renders every card on every field.
  *
- * Both slice verbs (`summary`, `list_servers`) are READ and cheap, so they
+ * Both slice commands (`summary`, `list_servers`) are READ and cheap, so they
  * poll unconditionally on the user-chosen interval. `probe` blocks on a request
  * to the spoke and demands MANAGE, so it goes out only on a click.
  *

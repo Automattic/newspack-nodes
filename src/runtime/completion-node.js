@@ -82,7 +82,7 @@ export class CompletionNode extends ReactBridge( Node ) {
 	 * Opens the `candidates` registration slot.
 	 * `nodeSchema()` declares no `registrations`, so `seedRegistrations()` opens
 	 * nothing, and `register()` refuses an unseeded event: seeding here is
-	 * what lets a `register` verb subscribe to the channel. The React hook needs
+	 * what lets a `register` command subscribe to the channel. The React hook needs
 	 * no help — `useNodeEvent()` declares the event it subscribes to.
 	 */
 	constructor() {

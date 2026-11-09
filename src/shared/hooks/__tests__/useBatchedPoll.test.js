@@ -837,7 +837,7 @@ describe( 'useBatchedPoll — intervalMs is required', () => {
  * A filter change wants an immediate refresh. The tick already fans to every
  * slice inside the router's lock/flush bracket, with each slice's argsFn()
  * reading live refs — so firing it early IS the operation, and a consumer
- * rebuilding that bracket around hand-sent copies of the same verbs would be
+ * rebuilding that bracket around hand-sent copies of the same commands would be
  * re-implementing this.
  */
 describe( 'useBatchedPoll — pollNow()', () => {

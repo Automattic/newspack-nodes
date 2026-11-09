@@ -103,7 +103,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['_wp_user_meta']       = [];
 		$this->saved_wp_actions         = $GLOBALS['_wp_actions'] ?? [];
 
-		// Service_CI verbs are gated by default; start every test denied so a
+		// Service_CI commands are gated by default; start every test denied so a
 		// cap granted in one test can't leak into another's deny-path. Classes
 		// that need the cap grant it after parent::setUp().
 		$GLOBALS['_wp_test_current_user_can'] = [];
@@ -881,9 +881,9 @@ abstract class TestCase extends PHPUnitTestCase {
 	}
 
 	/**
-	 * Every patroned node in the registry whose class declares a verb that
+	 * Every patroned node in the registry whose class declares a command that
 	 * wires — a handler, a toggle or a setter — carries its `{name}:config`, so
-	 * a sidecar's verbs reach it. A node its builder opted out through
+	 * a sidecar's commands reach it. A node its builder opted out through
 	 * `without_config()` is exempt: it takes no `:config` by design. Fails
 	 * naming the node that has none, and fails a graph holding no such node at
 	 * all, which would check nothing.
@@ -895,17 +895,17 @@ abstract class TestCase extends PHPUnitTestCase {
 				continue;
 			}
 			$wired = \array_filter(
-				\Newspack_Nodes\Command_Interpreter_Node::declared_verbs( $node::class ),
-				static fn ( array $verb ): bool => isset( $verb['handler'] ) || isset( $verb['toggle'] ) || isset( $verb['setter'] )
+				\Newspack_Nodes\Command_Interpreter_Node::declared_commands( $node::class ),
+				static fn ( array $command ): bool => isset( $command['handler'] ) || isset( $command['toggle'] ) || isset( $command['setter'] )
 			);
 			if ( [] === $wired ) {
 				continue;
 			}
 			++$checked;
-			$this->assertNotNull( $node->interpreter(), "{$name} (" . $node::class . ') is patroned and declares verbs, but has no :config' );
+			$this->assertNotNull( $node->interpreter(), "{$name} (" . $node::class . ') is patroned and declares commands, but has no :config' );
 			$this->assertSame( $node->interpreter(), Core::node( "{$name}:config" ), "{$name}:config is not {$name}'s own interpreter" );
 		}
-		$this->assertGreaterThan( 0, $checked, 'no patroned node declaring verbs was built, so nothing was checked' );
+		$this->assertGreaterThan( 0, $checked, 'no patroned node declaring commands was built, so nothing was checked' );
 	}
 
 	protected function pump_consumer( \Newspack_Nodes\Consumer_Node $c, int $max = 5000 ): void {

@@ -53,7 +53,7 @@
   </div>
 
   <div class="n">5</div>
-  <div class="st"><b><span class="mono">interpret()</span>: the struct, then the signature, then the role.</b> A VALUE that is not an array, or carries no <span class="mono">name</span>, is dropped before anything else. <span class="mono">Command_Auth</span> then verifies the signature, and <span class="mono">dispatch()</span> gates the verb through <span class="mono">Capabilities::require_verb()</span> at its declared role.</div>
+  <div class="st"><b><span class="mono">interpret()</span>: the struct, then the signature, then the role.</b> A VALUE that is not an array, or carries no <span class="mono">name</span>, is dropped before anything else. <span class="mono">Command_Auth</span> then verifies the signature, and <span class="mono">dispatch()</span> gates the command through <span class="mono">Capabilities::require_command()</span> at its declared role.</div>
   <div class="out">
     <div class="o silent"><span class="code">—</span><span class="mono">drop_message( 'invalid command struct' )</span>: no TM_ERROR, no reply, one rate-limited audit line. Signing keys on the TYPE bit, so such a command signs cleanly and then vanishes before verification runs</div>
     <div class="o deny"><span class="code">—</span>Signature refused: the latch is raised, and the reply <span class="mono">TM_COMMAND|TM_ERROR</span> (40) carrying <span class="mono">unauthorized: &lt;verb&gt;</span> walks TO=FROM back into the body. The cause goes only to the server's drop audit <span class="t">packed Message</span></div>
@@ -64,7 +64,7 @@
   <div class="st"><b>The handler runs.</b> A return becomes the reply; a throw becomes an error reply; three things here produce no reply at all, and the struct drop at stage 5 is a fourth.</div>
   <div class="out">
     <div class="o ok"><span class="code">—</span><span class="mono">TM_COMMAND|TM_RESPONSE</span> (264), the request's ID and KEY, VALUE <span class="mono">{ name, arguments, payload }</span>; a throw answers 40 with the exception text as <span class="mono">payload</span> <span class="t">packed Message</span></div>
-    <div class="o silent"><span class="code">—</span>No reply: the message went to a per-worker <span class="mono">Partition</span> and travels by disk IPC, its replies due on the open SSE stream · the verb returned <span class="mono">''</span> (<span class="mono">secure</span>, <span class="mono">insecure</span>, <span class="mono">log</span> and <span class="mono">reply_to</span>, the last two having already sent their output down the stderr chain and to the path they name) · the command carried <span class="mono">TM_NOREPLY</span> (512), OR'd in after signing, which TYPE allows because it sits outside the signed string; it reports an error to stderr instead</div>
+    <div class="o silent"><span class="code">—</span>No reply: the message went to a per-worker <span class="mono">Partition</span> and travels by disk IPC, its replies due on the open SSE stream · the command returned <span class="mono">''</span> (<span class="mono">secure</span>, <span class="mono">insecure</span>, <span class="mono">log</span> and <span class="mono">reply_to</span>, the last two having already sent their output down the stderr chain and to the path they name) · the command carried <span class="mono">TM_NOREPLY</span> (512), OR'd in after signing, which TYPE allows because it sits outside the signed string; it reports an error to stderr instead</div>
   </div>
 
   <div class="n">7</div>
@@ -80,7 +80,7 @@
   <div class="card">
     <h3>What the browser transport mints on its own</h3>
     <p><span class="mono">postBatch()</span> unpacks the body whatever the status, because a 401 batch still carries every real reply, and returns those verbatim.</p>
-    <p>Only a body that unpacks to nothing is a bare WordPress REST error object (<span class="mono">rest_forbidden</span>, <span class="mono">rest_no_route</span>, the 429). There the transport mints one <span class="mono">TM_COMMAND|TM_ERROR</span> per command it posted, addressed back to that command's own FROM, with <span class="mono">payload</span> <span class="mono">Command refused (HTTP &lt;status&gt; &lt;code&gt;)</span> and <span class="mono">undelivered: true</span> beside it. That flag separates a batch that never arrived, where asking again is the recovery, from a verb that refused; <span class="mono">CommandResultNode</span> passes it to a view node unchanged.</p>
+    <p>Only a body that unpacks to nothing is a bare WordPress REST error object (<span class="mono">rest_forbidden</span>, <span class="mono">rest_no_route</span>, the 429). There the transport mints one <span class="mono">TM_COMMAND|TM_ERROR</span> per command it posted, addressed back to that command's own FROM, with <span class="mono">payload</span> <span class="mono">Command refused (HTTP &lt;status&gt; &lt;code&gt;)</span> and <span class="mono">undelivered: true</span> beside it. That flag separates a batch that never arrived, where asking again is the recovery, from a command that refused; <span class="mono">CommandResultNode</span> passes it to a view node unchanged.</p>
     <p style="margin:0">A transport failure is neither: <span class="mono">fetch</span> rejecting rejects the promise.</p>
   </div>
   <div class="callout">

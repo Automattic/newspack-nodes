@@ -60,7 +60,7 @@ const SYSTEM_COLORS = {
 	default: '#9e9e9e',
 };
 
-/** The word a command-interpreter verb span's base ends in. */
+/** The word a command-interpreter command span's base ends in. */
 const COMMAND_SUFFIX = ' command';
 
 /**
@@ -311,11 +311,11 @@ export const getStateColor = ( name ) => {
 };
 
 /**
- * Whether a span is a command-interpreter verb span: its base ends in
+ * Whether a span is a command-interpreter command span: its base ends in
  * ` command`. Any `(start)`/`(complete)` marker or `: label` tail is read past.
  *
  * @param {?string} name Event/node name.
- * @return {boolean} True for a verb span.
+ * @return {boolean} True for a command span.
  */
 export const isCommandSpan = ( name ) =>
 	spanBaseName( name ?? '' ).endsWith( COMMAND_SUFFIX );

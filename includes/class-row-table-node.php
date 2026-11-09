@@ -509,7 +509,7 @@ class Row_Table_Node extends Table_Node {
 	 * files open as long. A partition with no file is not attached, so a
 	 * fleet that has written nothing reads with no aliases.
 	 *
-	 * @api The row tables' read path, for a verb answering from them.
+	 * @api The row tables' read path, for a command answering from them.
 	 * @template T
 	 * @param class-string<Row_Schema> $schema The schema the table holds.
 	 * @param \Closure(Row_Reader): T  $read   The read.
@@ -578,7 +578,7 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
-	 * Palette entry and argument form. The `:config` verbs are the ones a Table answers;
+	 * Palette entry and argument form. The `:config` commands are the ones a Table answers;
 	 * the one request is ROWS. A Row_Table forwards nothing it stores, so it
 	 * declares no target.
 	 *

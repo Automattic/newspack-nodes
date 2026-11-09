@@ -1,5 +1,5 @@
 /**
- * useCommandOnce — one verb on the batched tick, sent exactly once each time.
+ * useCommandOnce — one command on the batched tick, sent exactly once each time.
  *
  * `run( args )` parks the arguments in the Fetcher's outbox; the next fan-out
  * sends them, and the reply lands on this hook's own result node because the
@@ -72,7 +72,7 @@ const SUBJECT_MAX = 128;
  *
  * @typedef {Object} CommandAnswer
  * @property {?Object}  result    The payload, or null when the reply refused.
- * @property {?string}  error     The refusal, or null when the verb succeeded.
+ * @property {?string}  error     The refusal, or null when the command succeeded.
  * @property {?Object}  errorData Structured refusal detail, where there is any.
  * @property {string[]} args      The argument tokens the reply echoed back.
  * @property {?string}  subject   What the send was ABOUT, read off the reply.
@@ -91,16 +91,16 @@ const SUBJECT_MAX = 128;
  */
 
 /**
- * Mounts one verb's Fetcher, receiver and result node onto the batched tick,
+ * Mounts one command's Fetcher, receiver and result node onto the batched tick,
  * and hands back the `run()` that sends it. See the module overview above.
  *
  * @param {Object}    o             Options.
  * @param {string}    o.command     The verb to send.
  * @param {string}    o.group       The surface sending it, whose
  *                                  `<group>:shell` Tap it passes.
- * @param {string}    [o.ci]        The server CI mount the verb lives on; omit
- *                                  for an interpreter builtin, which has none.
- * @param {string}    [o.scope]     Names this verb's own nodes; defaults to
+ * @param {string}    [o.ci]        The server CI mount the command lives on; omit
+ *                                  for an interpreter command, which has none.
+ * @param {string}    [o.scope]     Names this command's own nodes; defaults to
  *                                  `<ci>:<command>`, and only needs giving when
  *                                  two hooks would otherwise collide on it.
  * @param {OnDone}    [o.onDone]    Runs once per reply. `args` are the ones it
@@ -113,7 +113,7 @@ const SUBJECT_MAX = 128;
  *                                  with the subject as its remaining TO), which
  *                                  is how ONE node answers about many rows with
  *                                  no table. Defaults to the first token;
- *                                  override it for a verb whose first token is
+ *                                  override it for a command whose first token is
  *                                  not a subject, such as a whole document (a
  *                                  rule as JSON).
  * @return {{run: (args: string[]) => void, abandon: () => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
@@ -206,7 +206,7 @@ export function useCommandOnce( {
 	useNodeEvent( fetcher, 'settled', publishOutstanding );
 
 	/**
-	 * Send this verb once, with `args` as its tokens; a non-array sends none.
+	 * Send this command once, with `args` as its tokens; a non-array sends none.
 	 * A read already asking the same question sends nothing.
 	 */
 	const run = useCallback(
@@ -216,7 +216,7 @@ export function useCommandOnce( {
 				return;
 			}
 			const tokens = Array.isArray( args ) ? args : [];
-			// @longform A body is not an address. Left to the default, a verb
+			// @longform A body is not an address. Left to the default, a command
 			// whose first token is a document or a pasted URL would address
 			// its reply with the whole thing, past the substrate's FROM cap,
 			// and the reply would be dropped. Send it with NO subject and say

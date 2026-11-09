@@ -91,7 +91,7 @@ describe( 'useDraftInterpreter', () => {
 
 	/**
 	 * The editor guard scans the composed graph, as the live seed's
-	 * `withResolvedConfigEdges` does, not only the DOCUMENT's own verbs — or
+	 * `withResolvedConfigEdges` does, not only the DOCUMENT's own commands — or
 	 * an include seeding `set_stats_target <config:…>` is refused live and
 	 * accepted in the editor, and a save writes routing never shown.
 	 */

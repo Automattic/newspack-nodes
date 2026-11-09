@@ -65,9 +65,9 @@
   <div class="flags">
     <div class="flag"><span class="bit">= 1</span>TM_BYTESTREAM — a raw line</div>
     <div class="flag"><span class="bit">= 16</span>TM_STRUCT — an array VALUE</div>
-    <div class="flag ctl"><span class="bit">= 8</span>TM_COMMAND — build and administer: make_node, connect_node, config verbs, topology load</div>
+    <div class="flag ctl"><span class="bit">= 8</span>TM_COMMAND — build and administer: make_node, connect_node, config commands, topology load</div>
     <div class="flag ctl"><span class="bit">= 128</span>TM_REQUEST — drive or query a LIVE graph: GET_HEALTH, Table GET</div>
-    <div class="flag ctl"><span class="bit">= 256</span>TM_RESPONSE — an answer; a verb reply is TM_COMMAND | TM_RESPONSE</div>
+    <div class="flag ctl"><span class="bit">= 256</span>TM_RESPONSE — an answer; a command reply is TM_COMMAND | TM_RESPONSE</div>
     <div class="flag ctl"><span class="bit">= 512</span>TM_NOREPLY — fire-and-forget; a Shell with want_reply(false) ORs it on and the interpreter replies only with an error to stderr</div>
     <div class="flag ctl"><span class="bit">= 64</span>TM_INFO — a flat KEY VALUE string from set_state / notify</div>
     <div class="flag life"><span class="bit">= 2</span>TM_EOF — the cli's drain marker; bounced TO=FROM</div>
@@ -79,7 +79,7 @@
 </div>
 
 <div class="row" style="gap:16px;margin-top:16px;align-items:stretch">
-  <div class="callout" style="flex:1"><h4>Two control planes, two destinations</h4><p>A <b>command</b> runs once at build time and is dispatched by a <span class="mono">Command_Interpreter_Node</span> from the verb table <span class="mono">node_schema()['commands']</span> declares. A <b>request</b> fires against a running graph and is handled in the addressed node's own <span class="mono">fill()</span> — branch on <span class="mono">$type &amp; TM_REQUEST</span>, reply <span class="mono">TM_STRUCT | TM_RESPONSE</span> to <span class="mono">TO = FROM</span> — declared under <span class="mono">node_schema()['requests']</span>. A runtime trigger is never a <span class="mono">cmd_*</span> verb.</p></div>
+  <div class="callout" style="flex:1"><h4>Two control planes, two destinations</h4><p>A <b>command</b> runs once at build time and is dispatched by a <span class="mono">Command_Interpreter_Node</span> from the command table <span class="mono">node_schema()['commands']</span> declares. A <b>request</b> fires against a running graph and is handled in the addressed node's own <span class="mono">fill()</span> — branch on <span class="mono">$type &amp; TM_REQUEST</span>, reply <span class="mono">TM_STRUCT | TM_RESPONSE</span> to <span class="mono">TO = FROM</span> — declared under <span class="mono">node_schema()['requests']</span>. A runtime trigger is never a <span class="mono">cmd_*</span> command.</p></div>
   <div class="ok" style="flex:1"><h4>One shape, everywhere</h4><p>PHP, JS (<span class="mono">src/runtime/message.js</span> exports the same indices and flags), memory and wire hold the same list. There is no <span class="mono">{ type, ts, from, to, id, key, value }</span> object anywhere; <span class="mono">$message['type']</span> silently appends an eighth element that <span class="mono">packed()</span> drops.</p></div>
 </div>
 </div>

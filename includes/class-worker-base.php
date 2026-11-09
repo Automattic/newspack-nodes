@@ -362,7 +362,7 @@ class Worker_Base {
 	 * retained command history.
 	 *
 	 * Registered as `_repl:input`, so the shutdown handoff checkpoints it, the
-	 * idle scan counts an attached REPL as work, and the dead-letter verbs reach
+	 * idle scan counts an attached REPL as work, and the dead-letter commands reach
 	 * its quarantine through `_repl:input:config`. Nothing addresses it as TO.
 	 *
 	 * It stamps FROM as `_repl`, which is the whole reply path: a command read out

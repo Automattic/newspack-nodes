@@ -36,7 +36,7 @@ export function FieldRow( { k, v, vClass } ) {
  * @param {Object}                    props
  * @param {string}                    props.title    Section heading.
  * @param {string}                    [props.meta]   Qualifier rendered beside the heading, such as the activity window or `cumulative`; a falsy value omits the span.
- * @param {import('react').ReactNode} props.children Panel body: field rows, editor fields, sparklines or verb buttons.
+ * @param {import('react').ReactNode} props.children Panel body: field rows, editor fields, sparklines or command buttons.
  * @return {import('react').ReactElement} The section wrapper.
  */
 export function Section( { title, meta, children } ) {

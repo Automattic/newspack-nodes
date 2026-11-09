@@ -11,7 +11,7 @@
  *
  * The argument is whatever `payloadOf( message[ VALUE ] )` handed back: the
  * VALUE itself when a bare TM_ERROR carries a string, the `payload` field when
- * a TM_COMMAND|TM_ERROR wraps a verb's refusal, or an object carrying
+ * a TM_COMMAND|TM_ERROR wraps a command's refusal, or an object carrying
  * `message` beside the structured detail a caller renders separately.
  *
  * An empty string takes the fallback rather than passing through, because an

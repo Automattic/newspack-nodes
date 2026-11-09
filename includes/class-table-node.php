@@ -137,7 +137,7 @@ class Table_Node extends Node {
 	 */
 	private const READ_VERBS = [ 'GET' ];
 
-	/** Why a mount refuses any other verb. */
+	/** Why a mount refuses every other request. */
 	private const READS_ONLY = 'a mounted Table serves GET alone';
 
 	/** How every write request is answered. */
@@ -497,15 +497,15 @@ class Table_Node extends Node {
 		$started = self::monotonic_ns();
 		$bytes   = $this->arm_bytes();
 		try {
-			$this->answer_verb( $request, $verb, $words );
+			$this->answer_table_request( $request, $verb, $words );
 		} finally {
 			$this->count_call( $verb, $started, $bytes );
 		}
 	}
 
 	/**
-	 * Answer one request's verb: a mount refuses any write, a structure goes
-	 * to handle_struct(), a string verb this class does not declare is
+	 * Answer one request: a mount refuses any write, a structure goes
+	 * to handle_struct(), a string request this class does not declare is
 	 * refused, and a declared one goes to its reply.
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
@@ -513,7 +513,7 @@ class Table_Node extends Node {
 	 * @param list<string>     $words   A string request's words after the verb.
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
-	private function answer_verb( array $request, string $verb, array $words ): void {
+	private function answer_table_request( array $request, string $verb, array $words ): void {
 		$value  = $request[ Message::VALUE ];
 		$struct = 0 !== ( Core::num_int( $request[ Message::TYPE ] ) & Message::TM_STRUCT );
 		if ( $this->mounted && ( \is_array( $value ) || ! \in_array( $verb, self::READ_VERBS, true ) ) ) {
@@ -577,7 +577,7 @@ class Table_Node extends Node {
 	 *
 	 * @param array<int,mixed>       $request The TM_REQUEST.
 	 * @param string                 $verb    A structured verb this class declares.
-	 * @param array<array-key,mixed> $items   What the verb carries.
+	 * @param array<array-key,mixed> $items   What the request carries.
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
 	protected function answer_struct( array $request, string $verb, array $items ): void {
@@ -1279,11 +1279,11 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Reclaim a durable backend's free pages. Verb-exposed (`vacuum`), and
-	 * never automatic: SQLite's VACUUM rewrites the file, wpdb's OPTIMIZE the
+	 * Reclaim a durable backend's free pages, on the `vacuum` command and
+	 * never automatically: SQLite's VACUUM rewrites the file, wpdb's OPTIMIZE the
 	 * shared table.
 	 *
-	 * @return string The verb's reply line, `ok`.
+	 * @return string The command's reply line, `ok`.
 	 * @throws \RuntimeException On a mount, on a volatile backend, or when the
 	 *                           backend refuses, naming this Table.
 	 */
@@ -1305,8 +1305,8 @@ class Table_Node extends Node {
 	 * a `sqlite` Table replaces its file, answering the bytes the old one
 	 * held, and a `wpdb` Table, or a `sqlite` one built for MANY_WRITERS,
 	 * deletes its rows in place, answering how many. The state that described the old file — the checkpoint schedule,
-	 * the WAL stall count, a purge left behind — starts over. Verb-exposed
-	 * (`flush`).
+	 * the WAL stall count, a purge left behind — starts over. The `flush`
+	 * command runs it.
 	 *
 	 * @return array{bytes:int}|array{rows:int} What was released.
 	 * @throws \RuntimeException On a mount, a volatile backend, or a store
@@ -1324,7 +1324,7 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * This Table's durable arm, for a verb only a durable backend answers.
+	 * This Table's durable arm, for a command only a durable backend answers.
 	 *
 	 * @param string $verb The verb, for the refusal.
 	 * @return Durable_Arm The arm.
@@ -1335,7 +1335,7 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Why a verb only a durable backend answers is refused here.
+	 * Why a command only a durable backend answers is refused here.
 	 *
 	 * @return string `needs a durable backend; <table> is <backend>`.
 	 */
@@ -1519,7 +1519,7 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Refuse a `:config` write verb on a mount, which serves reads only.
+	 * Refuse a `:config` write command on a mount, which serves reads only.
 	 *
 	 * @param string $verb The verb refused.
 	 * @throws \RuntimeException On a mounted Table.
@@ -1538,7 +1538,7 @@ class Table_Node extends Node {
 	 * arm encoded or decoded; a volatile arm's serializer runs inside its
 	 * extension, so it reads 0. A call that threw still counts, with its time.
 	 *
-	 * @api The `stats` verb, dump_node() and dump_metadata() answer it.
+	 * @api The `stats` command, dump_node() and dump_metadata() answer it.
 	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
 	 */
 	public function stats(): array {
@@ -2010,7 +2010,7 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Palette entry, argument form and the `:config` verbs the auto-wired
+	 * Palette entry, argument form and the `:config` commands the auto-wired
 	 * interpreter dispatches. `has_target` is true because fill() forwards
 	 * every message it stores, so a table sits mid-graph with a next hop.
 	 *

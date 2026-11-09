@@ -23,7 +23,7 @@
  * dashboard-specific nodes, typically one `addSliceFetcher` per slice. The
  * caller still names the egress target path: the exospine provides `_http` and
  * the Tap of each group a slice's target names, and the caller names the group
- * and the server CI mount owning the verb, which `egressPath( group, ci )`
+ * and the server CI mount owning the command, which `egressPath( group, ci )`
  * spells.
  *
  *   useBatchedPoll( {
@@ -258,7 +258,7 @@ export function useBatchedPoll( opts ) {
 	 * This is how a consumer refreshes after a filter change. The tick already
 	 * fans to every slice inside the Router's lock/flush bracket, so nothing
 	 * is left to hand-batch: rebuilding that bracket around hand-sent copies of
-	 * the same verbs re-implements this one line.
+	 * the same commands re-implements this one line.
 	 *
 	 * @return {void}
 	 */
@@ -283,7 +283,7 @@ export function useBatchedPoll( opts ) {
 }
 
 /**
- * useCatalogSlice — poll one CI's catalog verb as a slice and read what it
+ * useCatalogSlice — poll one CI's catalog command as a slice and read what it
  * published: the whole of a catalog hook that is not its own field names.
  *
  * Every catalog wants this — the palette's classes, the OPEN dialog's saved
@@ -296,8 +296,8 @@ export function useBatchedPoll( opts ) {
  *
  * @param {Object}           o              Options.
  * @param {string}           o.scope        Names this catalog's own nodes.
- * @param {string}           o.group        The surface asking, whose Tap the verb passes.
- * @param {string}           o.ci           The server CI mount owning the verb.
+ * @param {string}           o.group        The surface asking, whose Tap the command passes.
+ * @param {string}           o.ci           The server CI mount owning the command.
  * @param {string}           [o.command]    The catalog verb; `list` by default, and `dump` for a
  *                                          CI whose rows each carry a nested structure.
  * @param {string|NodeClass} o.viewClass    The view class publishing the slice, or its registered name (ADR-16).

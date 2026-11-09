@@ -25,7 +25,7 @@ const MOVE_VERBS = new Set( [ 'move_node', 'move', 'mv' ] );
  * `unregister`, each with its interpreter aliases.
  *
  * The gate announces a forward without inspecting it, so this set is where a
- * verb becomes "structural". An interpreter verb that rewires the graph and is
+ * verb becomes "structural". An interpreter command that rewires the graph and is
  * missing here leaves its edit invisible to the Reset Graph chip.
  */
 const MUTATING_VERBS = new Set( [
@@ -50,7 +50,7 @@ const MUTATING_VERBS = new Set( [
 const NO_USER_NODES = new Set();
 
 /**
- * The node a create, remove or move verb names, and the name a move gives it:
+ * The node a create, remove or move command names, and the name a move gives it:
  * `make_node <Class> <name>` puts the node second, `remove_node <name>` and
  * `move_node <name> <new name>` first. Every producer tokenizes — the Shell,
  * and the Compose modal through the Shell's tokenizer — so arguments arrive
@@ -140,7 +140,7 @@ export function useGraphReset( {
 		setStructureDirty( false );
 	}, [ shell ] );
 
-	// Tap the gate's forward chokepoint: a mutating verb flips both flags.
+	// Tap the gate's forward chokepoint: a mutating command flips both flags.
 	useEffect( () => {
 		if ( ! gate ) {
 			return undefined;
@@ -152,7 +152,7 @@ export function useGraphReset( {
 			}
 			let name = message?.[ VALUE ]?.name;
 			let args = message?.[ VALUE ]?.arguments;
-			// `reply_to <target> <verb> <args…>` runs its inner verb.
+			// `reply_to <target> <verb> <args…>` runs its inner command.
 			if ( 'reply_to' === name && Array.isArray( args ) ) {
 				[ , name, ...args ] = args;
 			}

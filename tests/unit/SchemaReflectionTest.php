@@ -13,25 +13,25 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Schema_Reflection::class )]
 class SchemaReflectionTest extends TestCase {
 
-	public function test_every_toggle_verb_declares_the_argument_it_toggles_on(): void {
-		// A verb with no declared args is fired IMMEDIATELY by the console's
-		// VerbButton with no args, and the synthesized toggle handler reads that
+	public function test_every_toggle_command_declares_the_argument_it_toggles_on(): void {
+		// A command with no declared args is fired IMMEDIATELY by the console's
+		// CommandButton with no args, and the synthesized toggle handler reads that
 		// as off. So a toggle that declares no argument is a button that can
 		// only ever DISABLE the thing it names, with no way to turn it back on
 		// from the canvas.
 		$argless = [];
 		foreach ( $this->concrete_node_classes() as $fqcn ) {
-			foreach ( Core::arr( $fqcn::node_schema()['commands'] ?? [] ) as $verb ) {
-				if ( ! \is_array( $verb ) || '' === Core::as_string( $verb['toggle'] ?? '' ) ) {
+			foreach ( Core::arr( $fqcn::node_schema()['commands'] ?? [] ) as $command ) {
+				if ( ! \is_array( $command ) || '' === Core::as_string( $command['toggle'] ?? '' ) ) {
 					continue;
 				}
-				if ( empty( $verb['args'] ) ) {
-					$argless[] = $fqcn . '::' . Core::as_string( $verb['name'] ?? '?' );
+				if ( empty( $command['args'] ) ) {
+					$argless[] = $fqcn . '::' . Core::as_string( $command['name'] ?? '?' );
 				}
 			}
 		}
 
-		$this->assertSame( [], $argless, 'every toggle verb must declare its enable/disable argument' );
+		$this->assertSame( [], $argless, 'every toggle command must declare its enable/disable argument' );
 	}
 
 	/**
@@ -557,7 +557,7 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( [ 'real', 'help' ], \array_keys( $interpreter->commands() ) );
 	}
 
-	// ── declarative toggle verbs: node_schema is the WHOLE ritual ──────────
+	// ── declarative toggle commands: node_schema is the WHOLE ritual ───────
 
 	/** Anon node class with one schema-declared toggle and NO handler/fragment. */
 	private function toggle_node(): Node {
@@ -596,9 +596,9 @@ class SchemaReflectionTest extends TestCase {
 		};
 	}
 
-	public function test_schema_setter_synthesizes_the_verb_handler(): void {
+	public function test_schema_setter_synthesizes_the_command_handler(): void {
 		// The string twin of `toggle`. Without it every plugin hand-rolls the
-		// same trim-and-assign closure per target verb, and the matching
+		// same trim-and-assign closure per target command, and the matching
 		// `dump_config` line with it.
 		$node = $this->setter_node();
 		$node->name( 'setter-probe' );
@@ -635,20 +635,20 @@ class SchemaReflectionTest extends TestCase {
 		$commands['set_relay_target']( $foreign, [ 'target' => 'binnacle:partition' ] );
 	}
 
-	// ── declarative list verbs: one declaration, an add, a remove and a dump ──
+	// ── declarative list commands: one declaration, an add, a remove and a dump ──
 
-	public function test_list_verbs_declare_an_add_and_a_remove_taking_one_arg(): void {
-		$verbs = Command_Interpreter_Node::declared_verbs( List_Subject_Node::class );
+	public function test_list_commands_declare_an_add_and_a_remove_taking_one_arg(): void {
+		$commands = Command_Interpreter_Node::declared_commands( List_Subject_Node::class );
 
-		$this->assertSame( 'perches', $verbs['add_perch']['list'] ?? null );
-		$this->assertSame( 'perches', $verbs['remove_perch']['unlist'] ?? null );
-		$this->assertSame( 'perch', $verbs['remove_perch']['noun'] ?? null );
-		$this->assertSame( $verbs['add_perch']['args'], $verbs['remove_perch']['args'] );
-		$this->assertSame( [ [ 'name' => 'perch', 'type' => 'string', 'required' => true ] ], $verbs['remove_perch']['args'] );
-		$this->assertTrue( $verbs['add_perch']['multiple'] ?? false );
-		$this->assertTrue( $verbs['remove_perch']['action'] ?? false );
-		$this->assertArrayNotHasKey( 'multiple', $verbs['remove_perch'] );
-		$this->assertStringContainsString( 'add_perch', Core::as_string( $verbs['remove_perch']['description'] ?? '' ) );
+		$this->assertSame( 'perches', $commands['add_perch']['list'] ?? null );
+		$this->assertSame( 'perches', $commands['remove_perch']['unlist'] ?? null );
+		$this->assertSame( 'perch', $commands['remove_perch']['noun'] ?? null );
+		$this->assertSame( $commands['add_perch']['args'], $commands['remove_perch']['args'] );
+		$this->assertSame( [ [ 'name' => 'perch', 'type' => 'string', 'required' => true ] ], $commands['remove_perch']['args'] );
+		$this->assertTrue( $commands['add_perch']['multiple'] ?? false );
+		$this->assertTrue( $commands['remove_perch']['action'] ?? false );
+		$this->assertArrayNotHasKey( 'multiple', $commands['remove_perch'] );
+		$this->assertStringContainsString( 'add_perch', Core::as_string( $commands['remove_perch']['description'] ?? '' ) );
 	}
 
 	public function test_a_list_add_appends_trimmed_entries_in_order_and_an_identical_repeat_is_a_no_op(): void {
@@ -727,9 +727,9 @@ class SchemaReflectionTest extends TestCase {
 	 * @param class-string<Node> $fixture The node declaring the broken `unlist`.
 	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'unlist_without_noun' )]
-	public function test_an_unlist_verb_declared_without_a_noun_fails_wiring_naming_it( string $fixture ): void {
+	public function test_an_unlist_command_declared_without_a_noun_fails_wiring_naming_it( string $fixture ): void {
 		$this->expectException( \LogicException::class );
-		$this->expectExceptionMessage( 'drop_wren: an unlist verb declares no noun' );
+		$this->expectExceptionMessage( 'drop_wren: an unlist command declares no noun' );
 
 		new $fixture();
 	}
@@ -742,7 +742,7 @@ class SchemaReflectionTest extends TestCase {
 		];
 	}
 
-	public function test_a_list_verb_aimed_at_a_foreign_node_refuses(): void {
+	public function test_a_list_command_aimed_at_a_foreign_node_refuses(): void {
 		$node     = $this->list_node();
 		$commands = $node->interpreter()->commands();
 		$foreign  = new Command_Interpreter_Node();
@@ -771,7 +771,7 @@ class SchemaReflectionTest extends TestCase {
 		$this->fail( 'nothing was refused' );
 	}
 
-	/** A node whose only verb is a declarative string setter. */
+	/** A node whose only command is a declarative string setter. */
 	private function setter_node(): object {
 		return new class extends Node {
 			use Schema_Reflection;
@@ -882,7 +882,7 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertFalse( $this->read_private( $node, 'loud' ) );
 	}
 
-	/** A node whose setter verb names its third positional and has no `set_` method. */
+	/** A node whose setter command names its third positional and has no `set_` method. */
 	private function positional_setter_node(): object {
 		return new class extends Node {
 			use Schema_Reflection;
@@ -934,26 +934,26 @@ class SchemaReflectionTest extends TestCase {
 	}
 
 	/**
-	 * A verb table built for another class reads THAT class's positionals,
+	 * A command table built for another class reads THAT class's positionals,
 	 * as `Vault_Group_Node` builds its child class's: the host declares none,
 	 * so a setter naming the subject's positional replays the subject's
 	 * arguments rather than calling a `set_` method.
 	 */
-	public function test_a_verb_table_for_another_class_reads_its_positionals(): void {
+	public function test_a_command_table_for_another_class_reads_its_positionals(): void {
 		$subject = new Setter_Subject_Node();
 		$subject->name( 'subject-6083' );
 		$subject->arguments( [ 'plover-31' ] );
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( $subject );
 
-		$verbs = Setter_Host_Node::verbs_for( Setter_Subject_Node::class );
-		$this->assertSame( "ok\n", $verbs['set_reach']( $interpreter, [ 'reach' => '5521' ] ) );
+		$commands = Setter_Host_Node::commands_for( Setter_Subject_Node::class );
+		$this->assertSame( "ok\n", $commands['set_reach']( $interpreter, [ 'reach' => '5521' ] ) );
 
 		$this->assertSame( [ 'plover-31', '5521' ], $subject->arguments() );
 		$this->assertSame( 5521, $this->read_private( $subject, 'reach' ) );
 	}
 
-	public function test_schema_toggle_synthesizes_the_verb_handler(): void {
+	public function test_schema_toggle_synthesizes_the_command_handler(): void {
 		$node = $this->toggle_node();
 		$node->name( 'toggle-probe' );
 		$node->wire();
@@ -983,7 +983,7 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( "command_node toggle-probe:config set_turbo_mode true\n", $node->dump() );
 	}
 
-	/** The value rides the verb's one declared arg; with none, nothing carries it. */
+	/** The value rides the command's one declared arg; with none, nothing carries it. */
 	public function test_a_toggle_declaring_no_arg_refuses_at_wiring(): void {
 		$node = new class extends Node {
 			use Schema_Reflection;
@@ -1000,7 +1000,7 @@ class SchemaReflectionTest extends TestCase {
 		};
 
 		$this->expectException( \LogicException::class );
-		$this->expectExceptionMessage( 'set_moa_mode: the verb declares no arg to carry its value' );
+		$this->expectExceptionMessage( 'set_moa_mode: the command declares no arg to carry its value' );
 		$node->wire();
 	}
 
@@ -1051,7 +1051,7 @@ class SchemaReflectionTest extends TestCase {
 		return $message;
 	}
 
-	public function test_a_declared_request_handler_answers_its_verb(): void {
+	public function test_a_declared_request_handler_answers_its_command(): void {
 		$node    = $this->request_node();
 		$capture = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$node->name( 'kea-probe' );
@@ -1139,18 +1139,18 @@ class Private_Span_Node extends Node {
 	}
 }
 
-/** A trait user declaring no positionals, building verb tables for others. */
+/** A trait user declaring no positionals, building command tables for others. */
 class Setter_Host_Node extends Node {
 	use Schema_Reflection;
 
 	/**
-	 * The `{name}:config` verb table `$class` declares.
+	 * The `{name}:config` command table `$class` declares.
 	 *
-	 * @param class-string<Node> $class Class whose schema declares the verbs.
+	 * @param class-string<Node> $class Class whose schema declares the commands.
 	 * @return array<string,callable>
 	 */
-	public static function verbs_for( string $class ): array {
-		return self::verbs_with_handlers( $class );
+	public static function commands_for( string $class ): array {
+		return self::commands_with_handlers( $class );
 	}
 
 	public static function node_schema(): array {
@@ -1263,8 +1263,8 @@ class List_Subject_Node extends List_Host_Node {
 		return [
 			'category' => 'Test',
 			'commands' => [
-				...self::list_verbs( 'perch', 'perches', [ 'name' => 'perch', 'type' => 'string', 'required' => true ], 'Add a perch: <perch>.' ),
-				...self::list_verbs( 'motto', 'mottos', [ 'name' => 'text', 'type' => 'string', 'required' => true, 'variadic' => true ], 'Add a motto: <text>.' ),
+				...self::list_commands( 'perch', 'perches', [ 'name' => 'perch', 'type' => 'string', 'required' => true ], 'Add a perch: <perch>.' ),
+				...self::list_commands( 'motto', 'mottos', [ 'name' => 'text', 'type' => 'string', 'required' => true, 'variadic' => true ], 'Add a motto: <text>.' ),
 			],
 		];
 	}

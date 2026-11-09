@@ -33,7 +33,7 @@ class Community_Source_Demo_Node extends Node {
 	 * Answers a TM_REQUEST and ignores every other type.
 	 *
 	 * TICK is a runtime trigger, so it arrives as a TM_REQUEST, never as a
-	 * TM_COMMAND verb — that flag carries startup and administration.
+	 * TM_COMMAND — that flag carries startup and administration.
 	 * `answer_request()` answers it from the schema. A source mints messages
 	 * and consumes none, so anything that is not a request is dropped rather
 	 * than forwarded.
@@ -92,7 +92,7 @@ class Community_Source_Demo_Node extends Node {
 	 * TICK button and the REQUESTS row of `help Community_Source_Demo`.
 	 * `accepts_fill` stays true because the request itself arrives at `fill()`,
 	 * and the node declares no `commands` entry, since a runtime trigger never
-	 * becomes a TM_COMMAND verb.
+	 * becomes a TM_COMMAND.
 	 *
 	 * @return array<string,mixed> The base schema with this node's entries merged over it.
 	 */

@@ -138,7 +138,7 @@ class SpawnFleetTest extends TestCase {
 	public function test_spawn_fleet_refuses_a_conflicting_fleet(): void {
 		// Two topologies that WRITE the same partition log. With both in the
 		// active set, spawn_fleet must refuse rather than put a second fleet on a
-		// log a peer already owns (defense-in-depth behind the activate verb).
+		// log a peer already owns (defense-in-depth behind the activate command).
 		// find_conflicts/write_set read real .tsl from disk, so the conflicting
 		// set must be backed by a stock dir, not synthetic with_topology() descriptors.
 		$stock     = $this->make_temp_dir( 'spawn-fleet-conflict-stock-' );

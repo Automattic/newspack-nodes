@@ -75,7 +75,7 @@ class Tee_Node extends Node {
 	 * Console-palette entry: a routing primitive with no positional arguments.
 	 *
 	 * Targets arrive through `connect_node`, so an operator types none of them,
-	 * and Tee declares no verbs or requests — a message reaching it fans out
+	 * and Tee declares no commands or requests — a message reaching it fans out
 	 * whatever its TYPE.
 	 *
 	 * @return array<string,mixed>

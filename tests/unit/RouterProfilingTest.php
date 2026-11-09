@@ -12,7 +12,7 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Port of Tachikoma Router profiling (Router.pm push_profile/pop_profile/
  * trim_profiles + CommandInterpreter.pm list_profiles). The enable/disable
- * pair is collapsed into a single `profile [on|off]` verb (debug_state-
+ * pair is collapsed into a single `profile [on|off]` command (debug_state-
  * precedent) — a deliberate divergence. Self-time accounting: a nested
  * router dispatch subtracts the child's elapsed from the parent's open frame.
  */
@@ -139,7 +139,7 @@ class RouterProfilingTest extends TestCase {
 		$this->assertArrayHasKey( 'fresh', $profiles );
 	}
 
-	public function test_profile_verb_bare_toggles_both_directions(): void {
+	public function test_profile_command_bare_toggles_both_directions(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$interpreter = new Command_Interpreter_Node();

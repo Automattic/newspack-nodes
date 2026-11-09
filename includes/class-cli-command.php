@@ -55,7 +55,7 @@ class CLI_Command {
 	/**
 	 * stdout seam. Lazily-defaulted to the real STDOUT where `build_repl_graph()`
 	 * constructs `_stdout`. Tests reassign to a `php://memory` stream so a REPL
-	 * fixture that runs a real verb renders into the fixture instead of the
+	 * fixture that runs a real command renders into the fixture instead of the
 	 * phpunit runner's terminal.
 	 *
 	 * Signature: `function (): resource`.

@@ -4,7 +4,7 @@
  *
  * Proves that every substrate interpreter mounted by the substrate plugin's
  * `newspack_nodes/request_graph_ready` listener (Classes_CI, Layouts_CI,
- * Topologies_CI) responds end-to-end to a representative verb when
+ * Topologies_CI) responds end-to-end to a representative command when
  * driven through the production `HTTP_In` endpoint. The
  * path under test:
  *
@@ -15,14 +15,14 @@
  *                                       (mount hook installs each substrate interpreter
  *                                       via $base_interpreter->make_node())
  *                                    →  Router (peels TO head)
- *                                    →  substrate interpreter (interpret + run verb)
+ *                                    →  substrate interpreter (interpret + run command)
  *                                    →  interpreter sink → base interpreter → Router
  *                                    →  HTTP_In (writes packed Message)
  *                                    →  ob_get_clean captures the body
  *
  * Mirrors the application-side M2CommandDispatchE2ETest in
  * newspack-event-logger-nodes — same test pattern, same uniform path,
- * different interpreters. Layouts_CI checks `manage_options` per-verb, so
+ * different interpreters. Layouts_CI checks `manage_options` per command, so
  * setUp seeds `_wp_test_current_user_can`.
  *
  * @package Newspack_Nodes
@@ -49,7 +49,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 		$GLOBALS['_wp_actions'] = [];
 		\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
 
-		// Layouts_CI verbs check `current_user_can( 'manage_options' )`.
+		// Layouts_CI commands check `current_user_can( 'manage_options' )`.
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 
 		// Seed Config::load_config()['base_directory'] so Layouts_CI's
@@ -68,29 +68,29 @@ class M3CommandDispatchE2ETest extends TestCase {
 	}
 
 	/**
-	 * @dataProvider verb_provider
+	 * @dataProvider command_provider
 	 */
-	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload, array $args = [] ): void {
+	public function test_each_substrate_ci_responds_to_a_representative_command( string $to, string $verb, mixed $payload, array $args = [] ): void {
 		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $this->build_request( $to, $verb, $payload, $args ) );
 		$body = (string) \ob_get_clean();
 
-		$this->assertNotEmpty( $body, "verb '{$verb}' on '{$to}' produced no response" );
+		$this->assertNotEmpty( $body, "command '{$verb}' on '{$to}' produced no response" );
 		$message            = Message::unpacked( $body );
 		$response_flags = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$this->assertSame(
 			"e2e-{$verb}",
 			$message[ Message::ID ],
-			"verb '{$verb}' returned wrong correlation id"
+			"command '{$verb}' returned wrong correlation id"
 		);
 		$this->assertSame(
 			$response_flags,
 			$message[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
 			// VALUE is a live array — json-encode it for the failure
 			// message so the diagnostic is readable, not "Array".
-			"verb '{$verb}' returned TM_ERROR or wrong type. VALUE was: " . (string) \wp_json_encode( $message[ Message::VALUE ] )
+			"command '{$verb}' returned TM_ERROR or wrong type. VALUE was: " . (string) \wp_json_encode( $message[ Message::VALUE ] )
 		);
 	}
 
@@ -123,15 +123,15 @@ class M3CommandDispatchE2ETest extends TestCase {
 	}
 
 	/**
-	 * Representative verb per substrate interpreter. Each verb is read-only and
-	 * takes either no payload or a minimal safe one. Verbs that mutate
+	 * Representative command per substrate interpreter. Each command is read-only and
+	 * takes either no payload or a minimal safe one. Commands that mutate
 	 * (save / delete) trigger side effects like `restart_fleet` and are
-	 * covered by per-verb tests — this test proves the dispatch path,
-	 * not that every verb is implemented correctly.
+	 * covered by per-command tests — this test proves the dispatch path,
+	 * not that every command is implemented correctly.
 	 *
 	 * @return array<string,array{string,string,mixed}>
 	 */
-	public static function verb_provider(): array {
+	public static function command_provider(): array {
 		return [
 			'classes.dump'    => [ 'classes',    'dump', null ],
 			'layouts.get'     => [ 'layouts',    'get',  null, [ 'fresh' ] ],

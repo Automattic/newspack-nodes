@@ -59,7 +59,7 @@ class HttpSourceNodeTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 		\Newspack_Nodes\Topology_Registry::reset();
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		\Newspack_Nodes\Tests\Helpers\VerbHarness::reset();
+		\Newspack_Nodes\Tests\Helpers\CommandHarness::reset();
 		parent::tearDown();
 	}
 
@@ -1600,10 +1600,10 @@ class HttpSourceNodeTest extends TestCase {
 		$reader->fill( $refusal );
 
 		$node->fire();
-		// The verb harness builds a graph of its own, _router included.
+		// The command harness builds a graph of its own, _router included.
 		Core::node( '_router' )->remove_node();
 
-		$summary = \Newspack_Nodes\Tests\Helpers\VerbHarness::fire( new \Newspack_Nodes\Rest\Aggregator_CI_Node(), 'aggregator', 'summary' );
+		$summary = \Newspack_Nodes\Tests\Helpers\CommandHarness::fire( new \Newspack_Nodes\Rest\Aggregator_CI_Node(), 'aggregator', 'summary' );
 		$this->assertSame( 1, $summary['total'] );
 		$this->assertSame( 0, $summary['idle'], 'a refusal is not an end-of-log wait' );
 		$this->assertSame( 0, $summary['connected'] );
@@ -1660,7 +1660,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'pull-aspen:http-out' ) );
 	}
 
-	public function test_its_schema_is_remote_sources_arguments_and_verbs_and_retry_ms(): void {
+	public function test_its_schema_is_remote_sources_arguments_and_commands_and_retry_ms(): void {
 		$http = HTTP_Source_Node::node_schema();
 		$sse  = Remote_Source_Node::node_schema();
 

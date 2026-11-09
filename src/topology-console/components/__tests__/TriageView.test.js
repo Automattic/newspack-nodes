@@ -1,7 +1,7 @@
 /**
  * TriageView tests — the selected consumer/tail/remote-source node's dead-letter
  * queue as a table with requeue + purge actions. It arms a one-shot reply capture
- * on the `_output` Dumper, then dispatches the `dl_*` :config verbs via onAction;
+ * on the `_output` Dumper, then dispatches the `dl_*` :config commands via onAction;
  * the `dl_list` page is read defensively into the table.
  */
 
@@ -207,7 +207,7 @@ test( 'Remove on a quarantined row dispatches dl_remove', () => {
 	} );
 } );
 
-test( 'Requeue and Remove both wait while either verb is in flight', () => {
+test( 'Requeue and Remove both wait while either command is in flight', () => {
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
@@ -283,7 +283,7 @@ test( 'the row action stays disabled until the refetched dl_list lands', () => {
 	expect( getByText( 'Remove' ).disabled ).toBe( false );
 } );
 
-test( 'Refresh frees the row action when a verb reply never comes', () => {
+test( 'Refresh frees the row action when a command reply never comes', () => {
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
@@ -427,7 +427,7 @@ test( 'Purge is a two-click confirm before it dispatches dl_purge', () => {
 	);
 	reply( 'dl_list', listPage( { rows: [], total: 0 } ) );
 	onAction.mockClear();
-	// First click arms the confirm; no verb fires yet.
+	// First click arms the confirm; no command fires yet.
 	fireEvent.click( getByText( 'Purge' ) );
 	expect( onAction ).not.toHaveBeenCalled();
 	// Second click dispatches dl_purge; the reply surfaces + refetches.
@@ -494,7 +494,7 @@ test( 'a new onAction identity (a metadata poll) does not re-dispatch dl_list', 
 	expect( onAction2 ).not.toHaveBeenCalled();
 } );
 
-test( 'a verb reply that lands after unmount fires no stray refetch', () => {
+test( 'a command reply that lands after unmount fires no stray refetch', () => {
 	const onAction = jest.fn();
 	const { getByText, unmount } = render(
 		<TriageView node={ node } onAction={ onAction } />
@@ -561,7 +561,7 @@ test( 'Refresh re-dispatches dl_list', () => {
 describe( 'TriageView reply addressing', () => {
 	it( 'gives each verb its own reply node instead of one shared slot', () => {
 		// `_output`'s capture slot is a SINGLE field matched by command name,
-		// so a second verb overwrote the first's callback — which is why the
+		// so a second command overwrote the first's callback — which is why the
 		// view carried a `viewPending` guard forbidding a concurrent dl_show.
 		// A reply must land on the node that minted it (ADR-7).
 		const onAction = jest.fn();
@@ -678,9 +678,9 @@ test( 'scrolls only the records, keeping the count and the actions in view', () 
 	expect( records.contains( getByText( '1 quarantined' ) ) ).toBe( false );
 } );
 
-test( 'paints the queue verbs as the rows paint theirs', () => {
+test( 'paints the queue commands as the rows paint theirs', () => {
 	// Refresh and Purge act on the queue as Requeue acts on a record, so
-	// all three take the compact verb role rather than a dialog's role.
+	// all three take the compact command role rather than a dialog's role.
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);

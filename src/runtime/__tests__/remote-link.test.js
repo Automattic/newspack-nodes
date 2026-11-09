@@ -1789,7 +1789,7 @@ describe( 'sources — the routes one link carries', () => {
 			);
 			let answer;
 			try {
-				// The link answers its two source verbs alone.
+				// The link answers its two source commands alone.
 				for ( const [ verb, tokens ] of commands.filter( ( [ v ] ) =>
 					[ 'add_source', 'remove_source' ].includes( v )
 				) ) {
@@ -1824,11 +1824,11 @@ describe( 'sources — the routes one link carries', () => {
 	} );
 
 	it( 'declares add_source and remove_source as the PHP broker does', () => {
-		const shape = ( verb ) => ( {
-			name: verb.name,
-			multiple: verb.multiple,
-			action: verb.action,
-			args: verb.args.map( ( { name, type, required } ) => ( {
+		const shape = ( command ) => ( {
+			name: command.name,
+			multiple: command.multiple,
+			action: command.action,
+			args: command.args.map( ( { name, type, required } ) => ( {
 				name,
 				type,
 				required,

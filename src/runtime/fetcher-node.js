@@ -58,7 +58,7 @@ const ASK_EXPIRY_S = 120;
  * return coerces to []. A static token array is sent as it stands.
  *
  * A trigger mints ONE ask, and mints nothing while any ask still stands — so a
- * one-second refresh on a four-second verb asks once and waits, instead of
+ * one-second refresh on a four-second command asks once and waits, instead of
  * queueing four identical commands the server is still working through. An ask
  * goes into the `outbox` when it is sent and leaves when its reply settles it
  * or it stands past `ASK_EXPIRY_S`; either way, leaving notifies `settled`.
@@ -349,7 +349,7 @@ export class FetcherNode extends Node {
 	/**
 	 * Take the answered ask out of the outbox and notify `settled`.
 	 *
-	 * A transport refusal is not an answer: the batch never reached the verb,
+	 * A transport refusal is not an answer: the batch never reached the command,
 	 * so an ask that may be asked again is re-armed for the next trigger rather
 	 * than left to wait out its window. One that may not — a write — settles,
 	 * because the caller waiting on it needs the refusal.

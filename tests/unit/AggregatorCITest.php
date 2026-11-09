@@ -3,7 +3,7 @@
  * AggregatorCITest: unit tests for Aggregator_CI, the hub-side aggregator
  * service-CI.
  *
- * Three verbs:
+ * Three commands:
  *   summary      — connected/idle/total counts, the snapshot clock, and each
  *                  unreadable topology by name.
  *   list_servers — the status snapshot as a sequential array, each broker
@@ -20,7 +20,7 @@ use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Rest\Aggregator_CI_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
-use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\Helpers\CommandHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
@@ -62,7 +62,7 @@ class AggregatorCITest extends TestCase {
 		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::forget_session( $spoke );
 		}
-		VerbHarness::reset();
+		CommandHarness::reset();
 		Topology_Registry::reset();
 		$GLOBALS['_wp_options']       = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
@@ -121,7 +121,7 @@ class AggregatorCITest extends TestCase {
 
 	/** @return list<array<string, mixed>> The `list_servers` slice. */
 	private static function list_servers(): array {
-		return VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' );
+		return CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' );
 	}
 
 	// ---------------------------------------------------------------------
@@ -243,7 +243,7 @@ class AggregatorCITest extends TestCase {
 		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote:tw9:firehose.p0', 5, 8813, null );
 		self::list_servers();
 		$memd = Core::$memd;
-		VerbHarness::reset();
+		CommandHarness::reset();
 		Core::$memd                           = $memd;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$this->seed_probe( 'aggregator.firehose:tw9:sources:php.p0', 'remote:tw9:sources:php', null, 61027, null );
@@ -262,9 +262,9 @@ class AggregatorCITest extends TestCase {
 			return \scandir( $dir );
 		};
 		try {
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+			CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 			$by_summary = $scanned;
-			VerbHarness::reset();
+			CommandHarness::reset();
 			$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 			self::list_servers();
 		} finally {
@@ -283,10 +283,10 @@ class AggregatorCITest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 
 		$this->assertSame( [ 'firehose:tw0' ], \array_column( self::list_servers(), 'id' ) );
-		VerbHarness::reset();
+		CommandHarness::reset();
 		Core::$memd                           = new InMemoryMemcached();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		$summary                              = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+		$summary                              = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 		$this->assertSame( 1, $summary['total'] );
 		$this->assertSame( [ 'marmot-hub', 'vole-unregistered' ], \array_keys( $summary['unreadable'] ) );
 		$this->assertStringContainsString( 'orphaned-topology-2291', $summary['unreadable']['marmot-hub'] );
@@ -305,21 +305,21 @@ class AggregatorCITest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// summary verb (de-god slice: cheap header derivation, server-computed)
+	// summary command (de-god slice: cheap header derivation, server-computed)
 	//
 	// The de-god split replaced the single `status` god-view with two slice
-	// views, each fed by its own slice verb. `summary` is the header slice:
+	// views, each fed by its own slice command. `summary` is the header slice:
 	// connected/total counts + the snapshot clock — computed server-side from
 	// the SAME per-node partition snapshot `status` builds, so the dashboard
 	// header reads a tiny struct instead of recomputing the count from the
 	// full partition payload. The handler answers the struct unencoded.
 	// ---------------------------------------------------------------------
 
-	public function test_summary_verb_returns_zero_counts_when_no_remote_sources_wired(): void {
+	public function test_summary_command_returns_zero_counts_when_no_remote_sources_wired(): void {
 		$this->seed_group_topology( [] );
 
 		$interpreter = new Aggregator_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
+		$result      = CommandHarness::fire( $interpreter, 'aggregator', 'summary' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 0, $result['connected'] );
@@ -327,7 +327,7 @@ class AggregatorCITest extends TestCase {
 		$this->assertIsInt( $result['server_now'] );
 	}
 
-	public function test_summary_verb_counts_servers_with_at_least_one_connected_partition(): void {
+	public function test_summary_command_counts_servers_with_at_least_one_connected_partition(): void {
 		// tw0 has one connected partition (p0) → counts as 1 connected;
 		// tw9 has no connected partitions → counts toward total only.
 		$this->seed_group_topology( [ 'tw0', 'tw9' ], 2 );
@@ -335,13 +335,13 @@ class AggregatorCITest extends TestCase {
 		self::seed_status( 'tw0', 1, [ 'connected' => false ] );
 
 		$interpreter = new Aggregator_CI_Node();
-		$decoded     = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
+		$decoded     = CommandHarness::fire( $interpreter, 'aggregator', 'summary' );
 
 		$this->assertSame( 1, $decoded['connected'] );
 		$this->assertSame( 2, $decoded['total'] );
 	}
 
-	public function test_summary_verb_counts_a_spoke_idle_at_eof_as_up_not_missing(): void {
+	public function test_summary_command_counts_a_spoke_idle_at_eof_as_up_not_missing(): void {
 		// tw0 is streaming; tw5 closed at EOF and is due back. Both are up — a
 		// header that read tw5 as missing would alarm an operator about a
 		// fleet where nothing is wrong.
@@ -351,34 +351,34 @@ class AggregatorCITest extends TestCase {
 		self::seed_status( 'tw9', 0, [ 'connected' => false, 'last_error' => 'connection refused 8531' ] );
 
 		$interpreter = new Aggregator_CI_Node();
-		$decoded     = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
+		$decoded     = CommandHarness::fire( $interpreter, 'aggregator', 'summary' );
 
 		$this->assertSame( 1, $decoded['connected'] );
 		$this->assertSame( 1, $decoded['idle'], 'a stream closed at EOF is idle, not down' );
 		$this->assertSame( 3, $decoded['total'] );
 	}
 
-	public function test_summary_verb_stamps_a_wall_clock_server_now(): void {
+	public function test_summary_command_stamps_a_wall_clock_server_now(): void {
 		$this->seed_group_topology( [ 'tw9' ] );
 
 		$before  = \time();
-		$decoded = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+		$decoded = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 		$after   = \time();
 
 		$this->assertGreaterThanOrEqual( $before, $decoded['server_now'] );
 		$this->assertLessThanOrEqual( $after, $decoded['server_now'] );
 	}
 
-	public function test_summary_verb_rejects_unauthorized(): void {
+	public function test_summary_command_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result                               = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+		$result                               = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
 	// ---------------------------------------------------------------------
-	// list_servers verb (de-god slice: the heavy per-server partition data)
+	// list_servers command (de-god slice: the heavy per-server partition data)
 	//
 	// The servers slice carries the full per-server partition snapshot the
 	// server cards render. Same discovery + memcache read as `status`, but
@@ -389,19 +389,19 @@ class AggregatorCITest extends TestCase {
 	public function test_servers_status_is_refused_as_an_unknown_command(): void {
 		$this->seed_group_topology( [] );
 
-		$result = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' );
+		$result = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'unknown command: servers_status', $result );
 	}
 
-	public function test_list_servers_verb_returns_empty_array_when_no_remote_sources_wired(): void {
+	public function test_list_servers_command_returns_empty_array_when_no_remote_sources_wired(): void {
 		$this->seed_group_topology( [] );
 
 		$this->assertSame( [], self::list_servers() );
 	}
 
-	public function test_list_servers_verb_returns_sequential_array_of_server_snapshots(): void {
+	public function test_list_servers_command_returns_sequential_array_of_server_snapshots(): void {
 		$this->seed_group_topology( [ 'tw9' ] );
 		self::seed_status( 'tw9', 0, [ 'connected' => true, 'last_http_code' => 200 ] );
 
@@ -417,21 +417,21 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 200, $decoded[0]['partitions'][0]['last_http_code'] );
 	}
 
-	public function test_list_servers_verb_rejects_unauthorized(): void {
+	public function test_list_servers_command_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result                               = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' );
+		$result                               = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
-	public function test_slice_verbs_agree_on_the_same_snapshot(): void {
+	public function test_slice_commands_agree_on_the_same_snapshot(): void {
 		// summary and list_servers both derive from build_snapshot(), so the
 		// header counts must match the server-card list they summarize.
 		$this->seed_group_topology( [ 'tw0', 'tw9' ] );
-		// Each VerbHarness::fire builds a fresh request-scope graph and Core::reset
+		// Each CommandHarness::fire builds a fresh request-scope graph and Core::reset
 		// (which clears Core::$memd) clears its node registry between fires. Re-seed
-		// the memcache snapshot + auth before each fire so both verbs read the same
+		// the memcache snapshot + auth before each fire so both commands read the same
 		// snapshot; the seeded topology lives in Topology_Registry and survives.
 		$reseed = function (): void {
 			Core::$memd = new InMemoryMemcached();
@@ -441,9 +441,9 @@ class AggregatorCITest extends TestCase {
 
 		$reseed();
 		$servers_slice = self::list_servers();
-		VerbHarness::reset();
+		CommandHarness::reset();
 		$reseed();
-		$summary = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+		$summary = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 
 		// summary's total matches the server-card count; connected matches the rollup.
 		$this->assertSame( \count( $servers_slice ), $summary['total'] );
@@ -459,33 +459,33 @@ class AggregatorCITest extends TestCase {
 	// actually read the option store, not a fresh/empty view.
 	// ---------------------------------------------------------------------
 
-	public function test_node_schema_lists_all_verbs_with_handlers(): void {
-		$verbs = [];
-		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $verb ) {
-			$verbs[ $verb['name'] ] = $verb;
+	public function test_node_schema_lists_all_commands_with_handlers(): void {
+		$commands = [];
+		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
 		}
 
 		foreach ( [ 'summary', 'list_servers' ] as $name ) {
-			$this->assertArrayHasKey( $name, $verbs, "node_schema must list the '{$name}' verb" );
-			$this->assertIsCallable( $verbs[ $name ]['handler'] );
+			$this->assertArrayHasKey( $name, $commands, "node_schema must list the '{$name}' command" );
+			$this->assertIsCallable( $commands[ $name ]['handler'] );
 		}
-		// No `status`, `servers` or `health` verb — the slices `summary` and
+		// No `status`, `servers` or `health` command — the slices `summary` and
 		// `list_servers` are the read surface.
 		foreach ( [ 'status', 'health', 'servers' ] as $removed ) {
-			$this->assertArrayNotHasKey( $removed, $verbs, "removed verb '{$removed}' must not be listed" );
+			$this->assertArrayNotHasKey( $removed, $commands, "removed command '{$removed}' must not be listed" );
 		}
 	}
 
-	public function test_all_verbs_declare_no_args(): void {
+	public function test_all_commands_declare_no_args(): void {
 		// summary/list_servers do not read $payload or $args — neither handler
 		// even declares a $payload param, so each stays args => [].
-		$verbs = [];
-		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $verb ) {
-			$verbs[ $verb['name'] ] = $verb;
+		$commands = [];
+		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $command ) {
+			$commands[ $command['name'] ] = $command;
 		}
 
 		foreach ( [ 'summary', 'list_servers' ] as $name ) {
-			$this->assertSame( [], $verbs[ $name ]['args'], "'{$name}' must declare no args" );
+			$this->assertSame( [], $commands[ $name ]['args'], "'{$name}' must declare no args" );
 		}
 	}
 
@@ -493,7 +493,7 @@ class AggregatorCITest extends TestCase {
 	 * Tachikoma uniform-construction parity: the substrate `make_node` calls
 	 * a no-arg ctor. Aggregator_CI reads the Vault singleton directly (no
 	 * injected object dep), so a bare `new Aggregator_CI_Node()` dispatches
-	 * its verbs against the seeded Vault with no further wiring — the member's
+	 * its commands against the seeded Vault with no further wiring — the member's
 	 * URL proves the handler read the option store.
 	 */
 	public function test_constructible_via_no_arg_ctor(): void {
@@ -513,7 +513,7 @@ class AggregatorCITest extends TestCase {
 	 * the CI surfaces under 'Service'.
 	 */
 	public function test_appears_in_class_catalog_as_service(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$result = CommandHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertArrayHasKey( 'classes', $result );
 		// A stale classmap (no composer dump-autoload -o) yields zero classes and
@@ -536,7 +536,7 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 'Service', $by_shell['Aggregator_CI'] );
 	}
 
-	// ── probe verb — on-demand per-spoke fleet roll-up ──────────────────────
+	// ── probe command — on-demand per-spoke fleet roll-up ───────────────────
 
 	/**
 	 * Stub the shared probe seam to return a spoke `workers/dump_graph` reply.
@@ -552,7 +552,7 @@ class AggregatorCITest extends TestCase {
 		};
 	}
 
-	public function test_probe_verb_rolls_up_a_spoke_dump_graph(): void {
+	public function test_probe_command_rolls_up_a_spoke_dump_graph(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 		$this->stub_probe_reply(
@@ -572,7 +572,7 @@ class AggregatorCITest extends TestCase {
 			]
 		);
 
-		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+		$out = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
 
 		$this->assertSame( 'spoke1', $out['id'] );
 		$this->assertSame( [ 'total' => 5, 'live' => 2, 'stale' => 1, 'held' => 0, 'idle' => 1, 'down' => 1 ], $out['workers'] );
@@ -580,7 +580,7 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 6, $out['deadletter_segments'] );
 	}
 
-	public function test_probe_verb_reports_an_unknown_worst_distance_when_no_reader_is_measurable(): void {
+	public function test_probe_command_reports_an_unknown_worst_distance_when_no_reader_is_measurable(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 		$this->stub_probe_reply(
@@ -594,13 +594,13 @@ class AggregatorCITest extends TestCase {
 			]
 		);
 
-		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+		$out = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
 
 		$this->assertArrayHasKey( 'worst_distance', $out );
 		$this->assertNull( $out['worst_distance'], 'unknown, not caught up' );
 	}
 
-	public function test_probe_verb_refuses_a_worker_state_outside_the_vocabulary(): void {
+	public function test_probe_command_refuses_a_worker_state_outside_the_vocabulary(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 		$this->stub_probe_reply(
@@ -611,32 +611,32 @@ class AggregatorCITest extends TestCase {
 			]
 		);
 
-		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+		$out = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( "spoke1 reported worker a.p0 in state ''", $out );
 	}
 
-	public function test_probe_verb_requires_a_known_server(): void {
-		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'ghost' );
+	public function test_probe_command_requires_a_known_server(): void {
+		$out = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'ghost' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'server not found', $out );
 	}
 
-	public function test_probe_verb_requires_an_id(): void {
-		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe' );
+	public function test_probe_command_requires_an_id(): void {
+		$out = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'missing required argument: id', $out );
 	}
 
-	public function test_probe_verb_rejects_unauthorized(): void {
+	public function test_probe_command_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 
-		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+		$out = CommandHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
 
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'permission denied', $out );

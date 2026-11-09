@@ -46,7 +46,7 @@ describe( 'consoleGraph', () => {
 		);
 	} );
 
-	it( 'ignores a token in a verb that is not a target setter', () => {
+	it( 'ignores a token in a command that is not a target setter', () => {
 		// Broader, the guard fires on ordinary `<config:…>` arguments, which a
 		// runtime never resolves into an edge, so a missing list hides no edge.
 		const parsed = graphFromTsl(
@@ -95,7 +95,7 @@ describe( 'consoleGraph', () => {
 			} );
 		} );
 
-		it( 'adds the reserved _repl:input Consumer, whose quarantine the dl_* verbs reach', () => {
+		it( 'adds the reserved _repl:input Consumer, whose quarantine the dl_* commands reach', () => {
 			const next = withReplAnchor( empty );
 			expect(
 				next.nodes.find( ( n ) => n.id === '_repl:input' )

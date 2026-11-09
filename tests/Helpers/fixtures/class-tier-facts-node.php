@@ -1,6 +1,6 @@
 <?php
 /**
- * A node whose graph row carries a fact read off its arguments and the verbs
+ * A node whose graph row carries a fact read off its arguments and the commands
  * sent to its `:config`, for pinning `Node::graph_facts()`.
  *
  * @package Newspack_Nodes
@@ -13,10 +13,10 @@ namespace Newspack_Nodes\Tests\Fixtures;
 class Tier_Facts_Node extends \Newspack_Nodes\Node {
 
 	/**
-	 * The last `set_tier`, else the first argument, beside every verb seen.
+	 * The last `set_tier`, else the first argument, beside every command seen.
 	 *
 	 * @param list<string>                         $args     The `make_node` arguments.
-	 * @param list<array{0:string,1:list<string>}> $commands The verbs sent to its `:config`.
+	 * @param list<array{0:string,1:list<string>}> $commands The commands sent to its `:config`.
 	 * @return array<string,mixed>
 	 */
 	public static function graph_facts( array $args, array $commands ): array {

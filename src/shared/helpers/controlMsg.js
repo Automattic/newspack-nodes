@@ -47,7 +47,7 @@ export function isControl( view, message ) {
  * reads that flag rather than the VALUE's runtime type.
  *
  * @param {{name?: string, controlFrom?: string}} view  The view node the control is filled into.
- * @param {Object}                                value The control payload; `action` picks the verb.
+ * @param {Object}                                value The control payload; `action` picks the control.
  * @return {Array} The 7-field TM_STRUCT message.
  * @throws {Error} When the view declares no `controlFrom`.
  */

@@ -22,7 +22,7 @@ use Newspack_Nodes\Config;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Publisher Insights service interpreter: one slice verb per dashboard panel.
+ * Publisher Insights service interpreter: one slice command per dashboard panel.
  *
  * `counts`, `top` and `accumulated` each return a single slice rather than one
  * blob, so the dashboard runs one Fetcher per panel. Each Fetcher stamps FROM with
@@ -37,7 +37,7 @@ use Newspack_Nodes\Config;
  */
 class Insights_CI_Demo_Node extends Service_CI_Node {
 
-	/** How many items the `top` verb returns, highest score first. */
+	/** How many items the `top` command returns, highest score first. */
 	private const TOP_N = 10;
 
 	/**
@@ -45,7 +45,7 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	 * It defaults lazily because a closure is not a constant expression. Tests reassign
 	 * it to count reads while still invoking that default, so the real glob and merge
 	 * run. The memoized items() resolves and invokes it once, on the request's first
-	 * slice verb.
+	 * slice command.
 	 *
 	 * Signature: `function ( string $offsets_dir ): array<int,array<array-key,mixed>>`.
 	 *
@@ -62,7 +62,7 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 
 	/**
 	 * Read the offsetlog snapshot ONCE per request and memoize the flattened items, so the
-	 * three slice verbs of one batch share a single read rather than each globbing and
+	 * three slice commands of one batch share a single read rather than each globbing and
 	 * unpacking the offsetlogs again.
 	 *
 	 * The array filter guards the seam: `read_snapshot_items()` returns array-shaped items
@@ -148,16 +148,16 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Palette entry plus the three slice verbs the dashboard polls.
+	 * Palette entry plus the three slice commands the dashboard polls.
 	 *
 	 * Each handler is a shape closure: dispatch hands it the interpreter — for a
-	 * Service_CI verb that IS this node — and its array is the reply's struct. Every
-	 * shape reads `items()`, so the three verbs of one batch share a single offsetlog
+	 * Service_CI command that IS this node — and its array is the reply's struct. Every
+	 * shape reads `items()`, so the three commands of one batch share a single offsetlog
 	 * read.
 	 *
 	 * Authorization belongs to `dispatch()`, which refuses a caller below the role each
-	 * verb's schema declares (ADR-26). These three declare none, so all of them require
-	 * MANAGE, and a per-verb gate here would only stack a second check.
+	 * command's schema declares (ADR-26). These three declare none, so all of them require
+	 * MANAGE, and a per-command gate here would only stack a second check.
 	 *
 	 * @return array<string,mixed>
 	 */

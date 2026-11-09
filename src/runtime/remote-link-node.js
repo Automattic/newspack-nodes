@@ -491,7 +491,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * refuse of the stamp's source aimed at its Tee: a stamp a source
 	 * declared to another target, one a spoke cannot stream and one whose Tee
 	 * would take a slot the link keeps. So is a seek on a stamp another view
-	 * claims, a paused one included, or a source a verb declared: one stream
+	 * claims, a paused one included, or a source a command declared: one stream
 	 * holds one place per stamp, so the seek would move that one too.
 	 *
 	 * @param {string}     stamp     A stamp or glob.
@@ -966,13 +966,13 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 					: argument
 			),
 			commands: [
-				sourceVerb(
+				sourceCommand(
 					ADD_SOURCE,
 					'Route a stamp or glob to a local node. A repeat is a no-op; a second target for the stamp is refused.',
 					{ multiple: true },
 					( link, stamp, target ) => link.addSource( stamp, target )
 				),
-				sourceVerb(
+				sourceCommand(
 					REMOVE_SOURCE,
 					'Stop routing a source add_source gave, named as add_source took it.',
 					{ action: true },
@@ -985,7 +985,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 }
 
 /**
- * One of the two source verbs, declared as PHP's broker declares it, its
+ * One of the two source commands, declared as PHP's broker declares it, its
  * bound args handed to `apply` with the link.
  *
  * @param {string}                                                name        `add_source` or `remove_source`.
@@ -994,7 +994,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
  * @param {(link: Object, stamp: string, target: string) => void} apply       The link's own `addSource()` or `removeSource()` call.
  * @return {Object} The schema's command entry.
  */
-function sourceVerb( name, description, flags, apply ) {
+function sourceCommand( name, description, flags, apply ) {
 	return {
 		name,
 		description,

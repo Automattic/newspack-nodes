@@ -12,12 +12,12 @@
  *   **TSL edits one thing per line; an editor holds the whole map.**
  *
  * `command_node` only ever appends and has no removal spelling, so "these are
- * the verbs" needs `replaceVerbs`. `secure` sets a level and a bare
+ * the commands" needs `replaceCommands`. `secure` sets a level and a bare
  * `secure` means 1, while `insecure` declares a third state rather than
  * removing the line, so "undeclared" needs `clearSecure`. `replaceFrontmatter`
  * is the weaker case: `var <name> =` DOES delete, so it is expressible as a
  * diff — it stays because the settings panel holds the whole map already.
- * `load` replaces a whole document, which is why loading is not a verb either.
+ * `load` replaces a whole document, which is why loading is not a command either.
  *
  * This module IS that editor face. Nothing outside it touches the interpreter:
  * a consumer that reached past these operations would be inventing a second,
@@ -63,7 +63,7 @@ const DraftContext = createContext( null );
  * Own a draft document and expose its editor surface.
  *
  * @return {Object} `{ graph, refusals, isDirty, markSaved, run, load, reseed,
- *                     dump, replaceVerbs, replaceFrontmatter, clearSecure,
+ *                     dump, replaceCommands, replaceFrontmatter, clearSecure,
  *                     setCatalog, assertResolved, revertIncludes }`.
  */
 export function useDraftInterpreter() {
@@ -193,14 +193,14 @@ export function useDraftInterpreter() {
 	);
 
 	/**
-	 * Declare a node's whole verb set. `command_node` only appends, so a removal
+	 * Declare a node's whole command set. `command_node` only appends, so a removal
 	 * has no line to write.
 	 *
 	 * @param {string}       name        Node name.
 	 * @param {Invocation[]} invocations Its whole declared set.
 	 * @return {Object} The new graph.
 	 */
-	const replaceVerbs = useCallback(
+	const replaceCommands = useCallback(
 		( name, invocations ) => {
 			ref.current.replaceInvocations( name, invocations );
 			return commit();
@@ -235,7 +235,7 @@ export function useDraftInterpreter() {
 
 	/**
 	 * Hand the interpreter its class catalog: which classes fan out, and which
-	 * verb arguments are node references.
+	 * command arguments are node references.
 	 *
 	 * @param {?Array} classes Class records, as `classes dump` returns them.
 	 */
@@ -294,7 +294,7 @@ export function useDraftInterpreter() {
 			load,
 			reseed,
 			dump,
-			replaceVerbs,
+			replaceCommands,
 			replaceFrontmatter,
 			clearSecure,
 			setCatalog,
@@ -310,7 +310,7 @@ export function useDraftInterpreter() {
 			load,
 			reseed,
 			dump,
-			replaceVerbs,
+			replaceCommands,
 			replaceFrontmatter,
 			clearSecure,
 			setCatalog,

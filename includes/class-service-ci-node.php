@@ -3,16 +3,16 @@
  * Service_CI_Node: the base every substrate and application service interpreter
  * extends.
  *
- * A service interpreter declares each verb ONCE, in `node_schema()`, and this
+ * A service interpreter declares each command ONCE, in `node_schema()`, and this
  * base turns that declaration into a working command surface: a dispatch table
- * derived from the schema, and the helper the verbs share
+ * derived from the schema, and the helper the commands share
  * (`require_valid_name`). `Command_Interpreter_Node::dispatch()`
- * refuses each verb against the role its schema names (ADR-26) and binds its
+ * refuses each command against the role its schema names (ADR-26) and binds its
  * declared `args` before the handler runs, so a handler neither checks a role
- * nor parses. A hand-built verb table beside the schema names every verb
+ * nor parses. A hand-built command table beside the schema names every command
  * twice, and the two drift.
  *
- * The helper is `protected static` so a verb-table closure reaches it as
+ * The helper is `protected static` so a command-table closure reaches it as
  * `self::require_valid_name()`. `self::` resolves at compile time inside the
  * closure's containing method, so a STATIC closure — which cannot
  * `use ( $this )` — still finds it.
@@ -21,7 +21,7 @@
  * `includes/rest/` because application interpreters outside REST inherit it
  * too.
  *
- * Service_CI_Node is inheritance-only: it declares no verbs, and `make_node`
+ * Service_CI_Node is inheritance-only: it declares no commands, and `make_node`
  * skips abstract classes while resolving a type against the registered
  * namespace prefixes, so only the concrete `*_CI_Node` subclasses construct.
  *
@@ -33,13 +33,13 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Schema-derived verb dispatch for service interpreters.
+ * Schema-derived command dispatch for service interpreters.
  */
 abstract class Service_CI_Node extends Command_Interpreter_Node {
 
 	/**
 	 * Derive the dispatch table from the concrete subclass's `node_schema()`, so
-	 * each verb is declared ONCE. Late static binding reads the SUBCLASS schema;
+	 * each command is declared ONCE. Late static binding reads the SUBCLASS schema;
 	 * `parent::__construct()` reaches `Node`, which seeds the registrations.
 	 */
 	public function __construct() {
@@ -49,14 +49,14 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 
 	/**
 	 * Build the dispatch table (verb name => handler) from the concrete class's
-	 * declared verbs. Only `commands[]` entries carry handlers; `requests[]` are
+	 * declared commands. Only `commands[]` entries carry handlers; `requests[]` are
 	 * answered by the addressed node's own `fill()`, so they contribute no
 	 * dispatch entry.
 	 *
-	 * A named verb without a callable handler is a schema bug: it lists in the
+	 * A named command without a callable handler is a schema bug: it lists in the
 	 * catalog and in `help`, then dispatches to nothing ("unknown command") at
 	 * runtime. Emit one rate-limited warning naming the verb and the concrete
-	 * class, then skip it, so the table holds only verbs that dispatch.
+	 * class, then skip it, so the table holds only commands that dispatch.
 	 * `is_callable` rather than an `instanceof Closure` test is deliberate:
 	 * string and array callables dispatch as well as closures do.
 	 *
@@ -67,8 +67,8 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 */
 	private static function commands_from_schema(): array {
 		$table = [];
-		foreach ( self::declared_verbs( static::class ) as $name => $verb ) {
-			$handler = $verb['handler'] ?? null;
+		foreach ( self::declared_commands( static::class ) as $name => $command ) {
+			$handler = $command['handler'] ?? null;
 			if ( ! \is_callable( $handler ) ) {
 				Core::print_less_often(
 					'Service_CI: verb "',

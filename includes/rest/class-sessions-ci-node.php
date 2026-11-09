@@ -20,7 +20,7 @@
  * whether or not the grant holds a live session, and revokes a connection by
  * its grant id as it revokes a session by its handle.
  *
- * Every verb is `manage`: issuing a session hands out access, the same
+ * Every command is `manage`: issuing a session hands out access, the same
  * boundary that keeps the vault at manage.
  *
  * @package Newspack_Nodes
@@ -39,13 +39,13 @@ use Newspack_Nodes\Sessions;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The `list`, `create` and `revoke` verbs over `Sessions`, `Oauth_Store` and `Command_Auth`,
+ * The `list`, `create` and `revoke` commands over `Sessions`, `Oauth_Store` and `Command_Auth`,
  * each declared once in `node_schema()` and gated there by `Service_CI_Node`.
  */
 class Sessions_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `list` verb handler — `Sessions::listing()` and the OAuth connections,
+	 * `list` command handler — `Sessions::listing()` and the OAuth connections,
 	 * `Oauth_Store::grants()`, each newest first, never a key or a token. A
 	 * connection lists whether or not it holds a live session.
 	 *
@@ -67,7 +67,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `create` verb handler — `create [<label>] [<scope>] [<ttl>]`, each by
+	 * `create` command handler — `create [<label>] [<scope>] [<ttl>]`, each by
 	 * position or by name.
 	 *
 	 * The response is the ONLY place the key is ever disclosed.
@@ -84,7 +84,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 * declines to list it: the automatic `/auth` mints are unlabelled, and
 	 * listing those buries the sessions an operator issued on purpose.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: label, scope, ttl.
+	 * @param array<array-key,mixed> $args Bound command arguments: label, scope, ttl.
 	 * @return array<string,mixed> The mint — handle, secret, scope, expires_in, now — plus the label.
 	 * @throws \RuntimeException On a scope outside `Capabilities::LABELLED_SCOPES`, or a user holding none of the three roles.
 	 * @throws \Newspack_Nodes\Session_Store_Unavailable When the store cannot hold the session; the reply names why.
@@ -104,11 +104,11 @@ class Sessions_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `revoke` verb handler — `revoke <id>`, a session handle or a
+	 * `revoke` command handler — `revoke <id>`, a session handle or a
 	 * connection's grant id, through `Sessions::revoke()`, which refuses when
 	 * the store did not answer or the id named neither.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: id.
+	 * @param array<array-key,mixed> $args Bound command arguments: id.
 	 * @return array<string,mixed> The id, and `revoked`.
 	 * @throws \RuntimeException When the store did not answer, or the id named
 	 *                           neither a session nor a connection.
@@ -123,10 +123,10 @@ class Sessions_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Canvas and command metadata: the three verbs, each declared once.
+	 * Canvas and command metadata: the three commands, each declared once.
 	 *
 	 * `Service_CI_Node` builds both the dispatch table and the capability gate
-	 * from this array, so declaring a verb here registers it, documents it in
+	 * from this array, so declaring a command here registers it, documents it in
 	 * `help` and gates it in one place. Every `capability` is MANAGE, because
 	 * issuing a session hands out access. `Service` replaces the interpreter's
 	 * inherited `Hidden` category, which is what lists the class in the console

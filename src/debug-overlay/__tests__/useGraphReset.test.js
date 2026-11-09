@@ -178,7 +178,7 @@ describe( 'useGraphReset', () => {
 		expect( result.current.canResetGraph ).toBe( false );
 	} );
 
-	it( 'judges the verb a reply_to carries, and records the node it makes', () => {
+	it( 'judges the command a reply_to carries, and records the node it makes', () => {
 		const gate = makeGate();
 		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
 			initialProps: opts( gate ),
@@ -198,7 +198,7 @@ describe( 'useGraphReset', () => {
 		expect( result.current.canResetGraph ).toBe( true );
 	} );
 
-	it( 'leaves a reply_to of a reading verb clean', () => {
+	it( 'leaves a reply_to of a reading command clean', () => {
 		const gate = makeGate();
 		const { result } = renderHook( () => useGraphReset( opts( gate ) ) );
 		act( () =>

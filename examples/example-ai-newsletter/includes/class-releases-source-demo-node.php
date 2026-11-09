@@ -32,7 +32,7 @@ class Releases_Source_Demo_Node extends Node {
 	 * Answer a TM_REQUEST and ignore every other type.
 	 *
 	 * TICK drives an already-running graph, so it arrives as a TM_REQUEST
-	 * rather than as a TM_COMMAND verb on a sibling interpreter; TM_COMMAND is
+	 * rather than as a TM_COMMAND on a sibling interpreter; TM_COMMAND is
 	 * the startup and administration plane. `answer_request()` answers it from
 	 * the schema. A source mints messages and consumes none, so anything that
 	 * is not a request is dropped.
@@ -93,7 +93,7 @@ class Releases_Source_Demo_Node extends Node {
 	 * the REPL types as `request_node releases TICK`. `accepts_fill` stays true
 	 * because the node acts on a message arriving at `fill()` — the request
 	 * itself — though it only ever mints items. It declares no `commands`, since
-	 * a runtime trigger never becomes a TM_COMMAND verb.
+	 * a runtime trigger never becomes a TM_COMMAND.
 	 *
 	 * @return array<string,mixed> The base schema with this node's entries merged over it.
 	 */

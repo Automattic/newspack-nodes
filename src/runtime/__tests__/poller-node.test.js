@@ -1,5 +1,5 @@
 /**
- * Poller tests — the self-timed verb poller and its two console subclasses.
+ * Poller tests — the self-timed command poller and its two console subclasses.
  * `_router` delivers each poll reply (a POSITIONAL Message) back to the node
  * that minted it, which publishes it as node state. Never touches the
  * transcript.

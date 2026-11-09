@@ -107,7 +107,7 @@ class Core {
 	 * interpreter, so it has no policy to declare and is never warned about one.
 	 * Naming an interpreter arms it to 0: a surface exists and nobody has said
 	 * what policy it is under. `insecure` declares -1; `secure` climbs 1..3,
-	 * each level removing management verbs. Tachikoma's 0 means something else:
+	 * each level removing management commands. Tachikoma's 0 means something else:
 	 * there `Command::sign()` returns unsigned and `Socket::accept_connection()`
 	 * refuses every inbound connection. Here 0 is only the undeclared state.
 	 */
@@ -144,7 +144,7 @@ class Core {
 	/** Memoized `home_url()` host for the log midfix; cleared by reset(). */
 	private static string $log_host = '';
 
-	/** Process start time, stamped each Core::reset(); log_midfix() and the `uptime` verb subtract it from $now. */
+	/** Process start time, stamped each Core::reset(); log_midfix() and the `uptime` command subtract it from $now. */
 	public static float $init_time = 0.0;
 
 	/** @var float Seconds before a rate-limiter entry is eligible for pruning. */
@@ -178,7 +178,7 @@ class Core {
 	 * Contract: `right_now()` writes it, so every caller re-pins it, in a
 	 * worker and in a request alike. Loading this class pins it first,
 	 * because the file ends in `reset()`, which stamps `$init_time` through
-	 * `right_now()`, so request scope has a tick before any verb runs. A
+	 * `right_now()`, so request scope has a tick before any command runs. A
 	 * reader wanting one instant reads it once and passes it down. Tests pin
 	 * it directly.
 	 *
@@ -976,7 +976,7 @@ class Core {
 	 * The other families all resolve to a number, so a typo picks one silently:
 	 * `as_int('abc')` and `num_int('abc')` both return 0, naming partition 0.
 	 * Null is a refusal the caller reports — `WP_CLI::error()` on a flag, a throw
-	 * in a verb — so `--partition=2m` says so instead of restarting p2.
+	 * in a command — so `--partition=2m` says so instead of restarting p2.
 	 *
 	 * @param mixed $value      Raw token.
 	 * @param bool  $allow_zero Whether '0' is acceptable.
@@ -1052,7 +1052,7 @@ class Core {
 	 * reverses; a message thrown as plain text, as `refuse_angle_partition()`
 	 * throws one, carries no entities and comes back as it was, unless it
 	 * spells one out literally. A database driver's is shaped first
-	 * (`Driver_Error::of()`), because a verb's reply can leave the site.
+	 * (`Driver_Error::of()`), because a command's reply can leave the site.
 	 *
 	 * @param \Throwable $e What was thrown.
 	 */
@@ -1286,7 +1286,7 @@ class Core {
 
 	/**
 	 * The node bound to $name, or null — the lookup behind the interpreter's
-	 * verbs, Timer_Node finding `_router`, and every node that addresses a peer
+	 * commands, Timer_Node finding `_router`, and every node that addresses a peer
 	 * by name. Router_Node reads `$nodes_by_name` directly on the dispatch path.
 	 */
 	public static function node( string $name ): ?Node {

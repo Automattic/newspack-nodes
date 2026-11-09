@@ -25,7 +25,7 @@ namespace Newspack_Nodes;
  * deactivate and spawn primitives every surface shares.
  *
  * Static because registration happens at plugin load, before any graph exists,
- * and because the callers — a REST verb, a WP-CLI command, the spawn
+ * and because the callers — a REST command, a WP-CLI command, the spawn
  * endpoint's action — reach it from unrelated request scopes with no instance
  * to hand around.
  */
@@ -144,8 +144,8 @@ class Topology_Registry {
 	/**
 	 * Add a topology to the persisted active set and spawn its fleet now.
 	 *
-	 * The one activation primitive behind both the `topologies activate` CI verb
-	 * and the `wp nodes activate` CLI verb: write the option, invalidate the
+	 * The one activation primitive behind both the `topologies activate` CI command
+	 * and the `wp nodes activate` CLI command: write the option, invalidate the
 	 * config cache, spawn, then ask every live worker to reload. It
 	 * materializes the effective active set from
 	 * `Bootstrap::get_topologies()` rather than the raw option, so config-file
@@ -342,8 +342,8 @@ class Topology_Registry {
 	 * Remove a topology from the persisted active set and drain its fleet now.
 	 *
 	 * Symmetric with `activate()`: the one deactivation primitive behind both
-	 * the `topologies deactivate` CI verb and the `wp nodes deactivate` CLI
-	 * verb. It removes the name from the effective active set, writes,
+	 * the `topologies deactivate` CI command and the `wp nodes deactivate` CLI
+	 * command. It removes the name from the effective active set, writes,
 	 * invalidates the config cache, drops a restart flag on every live worker's
 	 * lock dir through `Spawn_Coordinator::kill_readers()`, then asks every
 	 * live worker left to reload. Nothing is killed here: each worker reads its
@@ -375,7 +375,7 @@ class Topology_Registry {
 	 * for the rest of its lifetime, a reader that a write of the set added.
 	 *
 	 * The writers of the set call it last — `activate()`, `deactivate()` and the
-	 * `Topologies_CI` delete verb — so a failed flag costs no spawn, kill or
+	 * `Topologies_CI` delete command — so a failed flag costs no spawn, kill or
 	 * restart. A worker acting on a watermark calls `invalidate_config_cache()`
 	 * alone, or every reload would signal another. A subsite signals nothing:
 	 * the fleet is network-global and runs on the main site.
@@ -398,7 +398,7 @@ class Topology_Registry {
 	 *
 	 * Public because every path that mutates the active set shares this one
 	 * definition — `activate()`, `deactivate()`, the `Topologies_CI` delete
-	 * verb, and `Fleet_Node::refresh_active_set()` on a reload watermark. A
+	 * command, and `Fleet_Node::refresh_active_set()` on a reload watermark. A
 	 * hand-rolled subset drops one of the four steps and leaves a memo stale.
 	 */
 	public static function invalidate_config_cache(): void {

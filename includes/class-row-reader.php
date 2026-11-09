@@ -34,7 +34,7 @@ final class Row_Reader {
 	 * INTEGER, a null as NULL, anything else as TEXT, so a `LIMIT ?` or a
 	 * comparison against an INTEGER column reads as written.
 	 *
-	 * @api The row tables' read path, for a verb answering from them.
+	 * @api The row tables' read path, for a command answering from them.
 	 * @param string                 $sql   The statement, naming `aliases()`.
 	 * @param list<scalar|null>      $binds One value per `?`, in order.
 	 * @return list<list<mixed>>
@@ -57,7 +57,7 @@ final class Row_Reader {
 	 * The schema names of the attached files, `p{N}`, in partition order;
 	 * none until a partition has written a file.
 	 *
-	 * @api The row tables' read path, for a verb answering from them.
+	 * @api The row tables' read path, for a command answering from them.
 	 * @return list<string>
 	 */
 	public function aliases(): array {

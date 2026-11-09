@@ -3,7 +3,7 @@
  * Malformed_Schema_Node: a discoverable fixture whose node_schema()'s
  * commands[] and requests[] each mix malformed entries with a well-formed one.
  * Used by ClassesCITest to prove the catalog `dump` strip tolerates a
- * malformed verb (skips it) instead of fatal-ing the whole palette with a
+ * malformed command (skips it) instead of fatal-ing the whole palette with a
  * TypeError.
  *
  * It lives in a separate file (not inline in the test) so the suite can register
@@ -25,10 +25,10 @@ class Malformed_Schema_Node extends Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Service',
-			'description' => 'Fixture: a malformed verb entry coexists with a well-formed one.',
+			'description' => 'Fixture: a malformed command entry coexists with a well-formed one.',
 			'arguments'        => [],
 			'commands'       => [
-				[ 'name' => 'good', 'description' => 'Well-formed verb.', 'args' => [] ],
+				[ 'name' => 'good', 'description' => 'Well-formed command.', 'args' => [] ],
 				'i-am-not-an-array',
 			],
 			'requests'       => [

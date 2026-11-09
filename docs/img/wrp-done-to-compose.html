@@ -59,10 +59,10 @@
   </div>
   <div class="callout">
     <h4>Nothing computes the 3</h4>
-    <p>The <span class="mono">.tsl</span> literal has to match the sources the topology TICKs, which <span class="mono">Insights_CI_Node</span> keeps in one private <span class="mono">SOURCE_NODES</span> list, <span class="mono">github</span>, <span class="mono">linear</span>, <span class="mono">feed</span>, that its Collect verb both counts and iterates. Add a fourth connector and both the list and the literal move.</p>
+    <p>The <span class="mono">.tsl</span> literal has to match the sources the topology TICKs, which <span class="mono">Insights_CI_Node</span> keeps in one private <span class="mono">SOURCE_NODES</span> list, <span class="mono">github</span>, <span class="mono">linear</span>, <span class="mono">feed</span>, that its Collect command both counts and iterates. Add a fourth connector and both the list and the literal move.</p>
   </div>
   <div class="card">
-    <h3>Two more verbs, and an empty cycle</h3>
+    <h3>Two more commands, and an empty cycle</h3>
     <p><span class="mono">REGENERATE</span> recomposes a draft from the items already collected, with no re-fetch; it is the only manual compose. A source that fetches nothing still reports DONE, so a cycle where every source comes back empty composes an empty draft rather than hanging: the <span class="mono">finally</span> in the base guarantees it.</p>
   </div>
 </div>

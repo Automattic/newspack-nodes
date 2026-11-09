@@ -14,5 +14,5 @@
   ["nothing at all", [], { "refused": "missing required argument: remote_log" }],
   ["a bare flag", ["heron.p6", "--local_node"], { "refused": "--local_node needs a value: write --local_node=<value>" }],
   ["a surplus positional", ["marmot.p5", "marmot-sink", "marmot-extra"], { "refused": "too many arguments: 3 given, 2 accepted" }],
-  ["an option the verb does not declare", ["vole.p8", "vole-sink", "--slot=4"], { "refused": "unknown option --slot; this verb takes --remote_log, --local_node" }]
+  ["an option the command does not declare", ["vole.p8", "vole-sink", "--slot=4"], { "refused": "unknown option --slot; this command takes --remote_log, --local_node" }]
 ]

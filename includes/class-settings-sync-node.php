@@ -306,13 +306,13 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * The `add_setting` verb handler: register the mapping on the patron node.
+	 * The `add_setting` command handler: register the mapping on the patron node.
 	 *
-	 * The verb table links this method instead of carrying the body inline, so
+	 * The command table links this method instead of carrying the body inline, so
 	 * `node_schema()` stays a declaration.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: local_option, to, remote_option.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: local_option, to, remote_option.
 	 * @return string Result line.
 	 */
 	public static function cmd_add_setting( Command_Interpreter_Node $interpreter, array $args ): string {
@@ -322,10 +322,10 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * The `remove_setting` verb handler: drop the mapping from the patron node.
+	 * The `remove_setting` command handler: drop the mapping from the patron node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Bound verb arguments: local_option, to, remote_option.
+	 * @param array<array-key,mixed>   $args        Bound command arguments: local_option, to, remote_option.
 	 * @return string Result line.
 	 * @throws \InvalidArgumentException What `remove_setting()` refused.
 	 */
@@ -337,7 +337,7 @@ class Settings_Sync_Node extends Timer_Node {
 
 	/**
 	 * Topology-console manifest: the palette entry, the constructor argument and
-	 * the `add_setting` and `remove_setting` verb forms, merged over Timer_Node's.
+	 * the `add_setting` and `remove_setting` command forms, merged over Timer_Node's.
 	 *
 	 * @return array<string,mixed>
 	 */

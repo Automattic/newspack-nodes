@@ -2,7 +2,7 @@
  * The "By source" card on the Publisher Insights page.
  *
  * The card reads one slice and nothing else. `usePublisherInsightsGraph` polls
- * the `counts` verb into the `source-counts:view` node, and this component
+ * the `counts` command into the `source-counts:view` node, and this component
  * subscribes to that node alone — the one-slice-per-view rule from
  * `docs/writing-a-view-node.md`. A failed `counts` read therefore costs this
  * card alone, and the two sibling cards keep showing their own data.
@@ -13,8 +13,8 @@ import { useNodeField } from '@newspack-nodes/runtime';
 
 /**
  * Render the per-source breakdown: one labeled proportion bar per source, each
- * sized by its share of the total, in the order the `counts` verb returned
- * them. A bar labeled `?` is that verb's bucket for items whose `source` is
+ * sized by its share of the total, in the order the `counts` command returned
+ * them. A bar labeled `?` is that command's bucket for items whose `source` is
  * missing or not a string.
  *
  * `useNodeField` returns undefined until `source-counts:view` is registered,
@@ -29,7 +29,7 @@ import { useNodeField } from '@newspack-nodes/runtime';
  *
  * The bar itself is `aria-hidden`: the name and count above it already carry
  * the number, so the fill would announce nothing. Its width guard keeps counts
- * summing to zero from sizing every fill `NaN%` — a slice the `counts` verb
+ * summing to zero from sizing every fill `NaN%` — a slice the `counts` command
  * never produces, since each bucket starts at one.
  *
  * @return {import('react').ReactElement} Rendered component.
