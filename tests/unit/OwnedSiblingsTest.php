@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Node;
@@ -406,7 +407,7 @@ class OwnedSiblingsTest extends TestCase {
 	 * useful collision to report, and the pre-check walks siblings in order.
 	 */
 	public function test_the_config_interpreter_ranks_last_among_siblings(): void {
-		$config_squatter = new Echo_Node();
+		$config_squatter = new Command_Interpreter_Node();
 		$config_squatter->name( 'harbourmaster:config' );
 		$escort_squatter = new Echo_Node();
 		$escort_squatter->name( 'harbourmaster:escort' );

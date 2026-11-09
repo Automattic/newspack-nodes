@@ -794,9 +794,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * and a Tee fan it out, and only an interpreter answers it. A `:config`
 	 * command named for a read base command declares READ too, so a `read`
 	 * caller reaches nothing a higher role guards; `ReadVerbRolesTest` holds
-	 * that. A `:config` name is a convention, not a type: a node a topology
-	 * names `x:config` outright passes the path rule whatever its class. The
-	 * command goes TO the
+	 * that, and `Node::check_name_availability()` lets only a config
+	 * interpreter take a `:config` name. The command goes TO the
 	 * worker, or TO `path` inside it, through `CLI::ask_workers()`, which
 	 * wakes a sleeping on-demand worker.
 	 *

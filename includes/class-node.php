@@ -260,6 +260,11 @@ class Node {
 		if ( \str_contains( $name, '/' ) ) {
 			throw new \RuntimeException( \esc_html( "node name {$name} holds a /, which the Router reads as a path separator" ) );
 		}
+		// `workers inspect` trusts a `:config` name to address an interpreter.
+		$config = self::sibling_name_of( '', self::CONFIG_KIND );
+		if ( \str_ends_with( $name, $config ) && ! $this instanceof Command_Interpreter_Node ) {
+			throw new \RuntimeException( \esc_html( "node name {$name} ends {$config}, which only a config interpreter takes" ) );
+		}
 		$deferred = $this->siblings[ self::CONFIG_KIND ] ?? null;
 		foreach ( $this->siblings as $kind => $sibling ) {
 			if ( $sibling !== $deferred ) {

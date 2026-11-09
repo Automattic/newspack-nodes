@@ -1681,18 +1681,18 @@ The MANAGE gate stands for everything else: a request still reaches a worker onl
 `connect_worker_input`, an application's MANAGE command, the attached cli or an
 application's WP-CLI command.
 
-Two things the bound rests on are conventions the path rule cannot see from outside the
-worker. `ReadVerbRolesTest` holds the first: every command a schema declares under a READ base
-command's name declares READ, and a sibling class the substrate's suite cannot boot is named
-in that test rather than skipped unseen. Nothing holds the second: a `:config` name is a
-convention, not a type, so a node a topology names `x:config` outright passes the path rule
-whatever its class. No shipped topology names one.
+Two things the bound rests on are invisible to the path rule from outside the worker, and
+each is held where it is decided. `ReadVerbRolesTest` holds the first: every command a
+schema declares under a READ base command's name declares READ, and a sibling class the
+substrate's suite cannot boot is named in that test rather than skipped unseen.
+`Node::check_name_availability()` holds the second: only a `Command_Interpreter_Node` takes a
+name ending `:config`, so a path that passes the rule names an interpreter.
 
 Reopen it if `inspect` sends anything but one READ base command to an interpreter, if a
 patron's schema declares a command under a READ base command's name at a higher role
 (`inspect` reads the base role, so it would send that command, and the worker would run it
-at the site key's MANAGE), or if a topology names a node that is not an interpreter
-`<name>:config`.
+at the site key's MANAGE), or if anything but a config interpreter can take a `:config`
+name.
 
 ---
 

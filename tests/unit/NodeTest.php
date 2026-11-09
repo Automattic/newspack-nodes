@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
@@ -1504,6 +1505,28 @@ class NodeTest extends TestCase {
 		$this->assertSame( '', $n->name() );
 	}
 
+	/** A `:config` name addresses an interpreter, so `workers inspect` may send there. */
+	public function test_a_node_that_is_not_an_interpreter_cannot_take_a_config_name(): void {
+		$n = new Capture_Sink_Node();
+
+		try {
+			$n->name( 'audit-5523:config' );
+			$this->fail( 'a non-interpreter took a :config name' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'node name audit-5523:config ends :config, which only a config interpreter takes', $e->getMessage() );
+		}
+		$this->assertNull( Core::node( 'audit-5523:config' ) );
+	}
+
+	/** A node's own config interpreter still takes its `:config` name. */
+	public function test_a_patrons_config_interpreter_keeps_its_config_name(): void {
+		$patron = new Capture_Sink_Node();
+		$patron->name( 'kea-6618' );
+		( new \ReflectionMethod( Node::class, 'publish_sibling' ) )->invoke( $patron, Node::CONFIG_KIND, new Command_Interpreter_Node() );
+
+		$this->assertInstanceOf( Command_Interpreter_Node::class, Core::node( 'kea-6618:config' ) );
+	}
+
 	/** A sibling's name is checked before its patron registers, so the pair stays whole. */
 	public function test_a_sibling_name_holding_a_slash_throws_before_the_patron_registers(): void {
 		$publish = static fn ( Node $patron, string $kind ): mixed => ( new \ReflectionMethod( Node::class, 'publish_sibling' ) )->invoke( $patron, $kind, new Capture_Sink_Node() );
@@ -1586,7 +1609,7 @@ class NodeTest extends TestCase {
 
 	public function test_name_config_sibling_collision_throws(): void {
 		// An interpreter-bearing node naming against an occupied {name}:config throws.
-		$squatter = new Capture_Sink_Node();
+		$squatter = new Command_Interpreter_Node();
 		$squatter->name( 'taken:config' );
 
 		$node = new Config_Sibling_Node();
