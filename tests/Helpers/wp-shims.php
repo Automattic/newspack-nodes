@@ -1078,6 +1078,101 @@ if ( ! function_exists( 'wp_style_add_data' ) ) {
 		return true;
 	}
 }
+// @longform The block-editor half of the WP API, for `Block_Editor_Bootstrap`.
+// Each recorder writes a global that `wp_shim_reset_block_editor()` clears;
+// `wp_add_inline_script()` keeps every call as `[ handle, data, position ]`.
+if ( ! function_exists( '__return_true' ) ) {
+	function __return_true(): bool {
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_add_inline_script' ) ) {
+	function wp_add_inline_script( string $handle, string $data, string $position = 'after' ): bool {
+		$GLOBALS['_inline_scripts'][] = [ $handle, $data, $position ];
+		return true;
+	}
+}
+if ( ! class_exists( 'WP_Block_Editor_Context' ) ) {
+	class WP_Block_Editor_Context {
+		public string $name;
+
+		public function __construct( array $settings = [] ) {
+			$this->name = $settings['name'];
+		}
+	}
+}
+if ( ! function_exists( 'get_block_categories' ) ) {
+	// As core: the categories pass through `block_categories_all`.
+	function get_block_categories( WP_Block_Editor_Context $context ): array {
+		return apply_filters( 'block_categories_all', [ [ 'slug' => 'for-' . $context->name ] ], $context );
+	}
+}
+if ( ! function_exists( 'get_block_editor_server_block_settings' ) ) {
+	function get_block_editor_server_block_settings(): array {
+		return $GLOBALS['_wp_test_server_block_settings'];
+	}
+}
+if ( ! function_exists( 'wp_tinymce_inline_scripts' ) ) {
+	// As core: `wpEditorL10n`, inline before `wp-block-library`.
+	function wp_tinymce_inline_scripts(): void {
+		wp_add_inline_script( 'wp-block-library', 'window.wpEditorL10n = {};', 'before' );
+	}
+}
+if ( ! function_exists( 'wp_editor' ) ) {
+	// @longform As core: it loads `_WP_Editors` itself and marks `dashicons`
+	// done. It throws what a test seeds.
+	function wp_editor( string $content, string $editor_id, array $settings = [] ): void {
+		if ( ! class_exists( '_WP_Editors', false ) ) {
+			// phpcs:ignore Generic.Files.OneObjectStructurePerFile
+			class _WP_Editors {
+				public static function enqueue_default_editor(): void {
+					$GLOBALS['_wp_test_default_editor'] = true;
+				}
+			}
+		}
+		$GLOBALS['_wp_test_wp_editor'][] = $editor_id;
+		$GLOBALS['wp_styles']->done[]    = 'dashicons';
+		echo '<textarea id="' . $editor_id . '"></textarea>';
+		if ( null !== $GLOBALS['_wp_test_wp_editor_throws'] ) {
+			throw $GLOBALS['_wp_test_wp_editor_throws'];
+		}
+	}
+}
+if ( ! class_exists( 'WP_Styles' ) ) {
+	class WP_Styles {
+		/** @var string[] */
+		public $done = [];
+	}
+}
+if ( ! class_exists( 'WP_Block_Type_Registry' ) ) {
+	class WP_Block_Type_Registry {
+		public static function get_instance(): self {
+			return new self();
+		}
+
+		public function get_all_registered(): array {
+			return $GLOBALS['_wp_test_block_types'];
+		}
+	}
+}
+if ( ! function_exists( 'wp_shim_reset_block_editor' ) ) {
+	/**
+	 * Clear every block-editor recorder: no inline scripts, no `wp_editor()`
+	 * call or seeded throw, no server block settings or block types, and a
+	 * fresh `$wp_styles` with nothing done.
+	 */
+	function wp_shim_reset_block_editor(): void {
+		$GLOBALS['_inline_scripts']                 = [];
+		$GLOBALS['_wp_test_wp_editor']              = [];
+		$GLOBALS['_wp_test_wp_editor_throws']       = null;
+		$GLOBALS['_wp_test_default_editor']         = false;
+		$GLOBALS['_wp_test_server_block_settings']  = [];
+		$GLOBALS['_wp_test_block_types']            = [];
+		$GLOBALS['wp_styles']                       = new WP_Styles();
+	}
+}
+wp_shim_reset_block_editor();
+
 if ( ! function_exists( 'wp_create_nonce' ) ) {
 	function wp_create_nonce( string $action ): string {
 		return 'nonce_' . \substr( \md5( $action ), 0, 10 );

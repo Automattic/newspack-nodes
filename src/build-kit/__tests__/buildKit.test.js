@@ -36,6 +36,13 @@ describe( 'build-kit pure exports', () => {
 		} );
 	} );
 
+	test( 'WP_EXTERNALS maps @wordpress/block-editor to the wp-block-editor handle', () => {
+		expect( kit.WP_EXTERNALS[ '@wordpress/block-editor' ] ).toEqual( {
+			global: 'window.wp.blockEditor',
+			handle: 'wp-block-editor',
+		} );
+	} );
+
 	test( 'emitAssetPhp emits a sorted, deduped, quoted dependency manifest', () => {
 		const php = kit.emitAssetPhp(
 			new Set( [ 'wp-element', 'wp-api-fetch', 'wp-element' ] ),

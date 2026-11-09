@@ -106,6 +106,11 @@ export const WP_EXTERNALS = {
 		global: 'window.wp.blocks',
 		handle: 'wp-blocks',
 	},
+	// The block canvas; Block_Editor_Bootstrap::load_canvas() enqueues it.
+	'@wordpress/block-editor': {
+		global: 'window.wp.blockEditor',
+		handle: 'wp-block-editor',
+	},
 	// Core block registry: externalize so WP enqueues it (no duplicate).
 	'@wordpress/block-library': {
 		global: 'window.wp.blockLibrary',
