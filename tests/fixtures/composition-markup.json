@@ -1,0 +1,53 @@
+[
+  {
+    "name": "a value ending in a backslash",
+    "blocks": [
+      {
+        "name": "acme-desk/tally",
+        "attributes": {
+          "label": "harbor\\"
+        },
+        "innerBlocks": []
+      }
+    ],
+    "markup": "<!-- wp:acme-desk/tally {\"label\":\"harbor\\u005c\"} /-->"
+  },
+  {
+    "name": "a backslash, a quote and a backslash",
+    "blocks": [
+      {
+        "name": "acme-desk/tally",
+        "attributes": {
+          "label": "\\\"\\"
+        },
+        "innerBlocks": []
+      }
+    ],
+    "markup": "<!-- wp:acme-desk/tally {\"label\":\"\\u005c\\u0022\\u005c\"} /-->"
+  },
+  {
+    "name": "a container holding a value that would end a comment, then a bare block",
+    "blocks": [
+      {
+        "name": "acme-desk/column",
+        "attributes": {},
+        "innerBlocks": [
+          {
+            "name": "acme-desk/tally",
+            "attributes": {
+              "label": "a --> <i>&",
+              "max": 7
+            },
+            "innerBlocks": []
+          }
+        ]
+      },
+      {
+        "name": "acme-desk/tally",
+        "attributes": {},
+        "innerBlocks": []
+      }
+    ],
+    "markup": "<!-- wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {\"label\":\"a \\u002d\\u002d\\u003e \\u003ci\\u003e\\u0026\",\"max\":7} /-->\n<!-- /wp:acme-desk/column --><!-- wp:acme-desk/tally /-->"
+  }
+]

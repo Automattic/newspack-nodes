@@ -89,6 +89,30 @@ describe( 'BlockCanvas', () => {
 		);
 	} );
 
+	it( 'hands the provider the selection it is given, and none without one', () => {
+		const selection = {
+			selectionStart: { clientId: 'harbor-1' },
+			selectionEnd: { clientId: 'harbor-1' },
+		};
+		const { rerender } = render(
+			<BlockCanvas
+				blocks={ [] }
+				onInput={ () => {} }
+				onChange={ () => {} }
+				selection={ selection }
+			/>
+		);
+		expect( mockProviderProps[ 0 ].selection ).toBe( selection );
+		rerender(
+			<BlockCanvas
+				blocks={ [] }
+				onInput={ () => {} }
+				onChange={ () => {} }
+			/>
+		);
+		expect( mockProviderProps[ 1 ].selection ).toBeUndefined();
+	} );
+
 	it( 'renders the list, the popover slot and its children inside the provider', () => {
 		render(
 			<BlockCanvas

@@ -1155,6 +1155,25 @@ registered bundle `$handle` and localizes `Composition::schemas( $context )` on
 it as `NewspackNodesComposition`; for any other caller it does none of it and
 answers false.
 
+The browser half lives in `@newspack-nodes/shared/composition/`, split so a
+reader's page loads no editor script. The reader half imports neither
+`@wordpress/block-editor` nor `@wordpress/blocks`: `<CompositionView blocks
+views renderError />` renders a tree by each block's registered `View`, every
+node inside its own error boundary, a container's View handed its children;
+`useComposition( group, context, onWritten )` reads the context fresh and
+answers `{ answer, error, loading, save( markup ), restore(), refusal,
+writing }`; and `<CompositionEditSlot context … />` renders whatever editor
+the context registered through `registerCompositionEditor( context,
+Component )`, a registry on the `__newspackNodesCompositionEditors` window
+key, and nothing before. The editor half, which a consumer builds as the
+second entry `Composition::editor()` enqueues, is `registerCompositionBlocks(
+schemas, views )`, registering each localized schema as a dynamic block whose
+edit is `CompositionBlockEdit`, and `<CompositionEditor group context heading
+schemas preview onDone />`, the canvas over a fresh `get`, which saves
+`serializeLayout( blocks )` and calls `onDone( answer, verb )`: `save` or
+`restore` after a write, null after Cancel or Back. The page shows the
+"Layout saved." snackbar, because the editor is gone by then.
+
 Every `Command_Interpreter_Node` separately exposes `dump_metadata` for the
 per-node canvas snapshot the topology console renders, keyed by node name:
 

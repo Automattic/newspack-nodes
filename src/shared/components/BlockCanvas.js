@@ -23,12 +23,14 @@ const NO_SETTINGS = Object.freeze( {} );
 
 /**
  * @param {Object}                    props
- * @param {Object[]}                  props.blocks     The block list edited.
- * @param {Function}                  props.onInput    Takes each transient edit's block list.
- * @param {Function}                  props.onChange   Takes each committed edit's block list.
- * @param {Object}                    [props.settings] The block-editor settings, `allowedBlockTypes` among them;
- *                                                     none hands the provider one frozen empty object.
- * @param {import('react').ReactNode} [props.children] Rendered inside the provider, beside the list.
+ * @param {Object[]}                  props.blocks      The block list edited.
+ * @param {Function}                  props.onInput     Takes each transient edit's block list.
+ * @param {Function}                  props.onChange    Takes each committed edit's block list.
+ * @param {Object}                    [props.settings]  The block-editor settings, `allowedBlockTypes` among them;
+ *                                                      none hands the provider one frozen empty object.
+ * @param {Object}                    [props.selection] `{ selectionStart, selectionEnd }`, each `{ clientId }`, which the
+ *                                                      provider applies when it next takes `blocks` from outside.
+ * @param {import('react').ReactNode} [props.children]  Rendered inside the provider, beside the list.
  * @return {import('react').ReactElement} The canvas.
  */
 export default function BlockCanvas( {
@@ -36,6 +38,7 @@ export default function BlockCanvas( {
 	onInput,
 	onChange,
 	settings = NO_SETTINGS,
+	selection,
 	children,
 } ) {
 	return (
@@ -45,6 +48,7 @@ export default function BlockCanvas( {
 				onInput={ onInput }
 				onChange={ onChange }
 				settings={ settings }
+				selection={ selection }
 			>
 				<BlockTools>
 					<WritingFlow>

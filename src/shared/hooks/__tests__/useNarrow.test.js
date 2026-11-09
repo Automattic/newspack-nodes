@@ -5,7 +5,12 @@
 
 import { renderHook, act } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
-import useNarrow, { NARROW_PX, resetNarrow } from '../useNarrow';
+import useNarrow, {
+	NARROW_PX,
+	isWidthBelow,
+	resetNarrow,
+	useWidthBelow,
+} from '../useNarrow';
 import { installViewport } from '../../test-utils/viewportWidth';
 
 describe( 'useNarrow', () => {
@@ -99,6 +104,58 @@ describe( 'useNarrow', () => {
 	it( 'renders wide on the server, whatever the browser would answer', () => {
 		viewport = installViewport( true );
 		const Probe = () => ( useNarrow() ? 'narrow' : 'wide' );
+		expect( renderToString( <Probe /> ) ).toBe( 'wide' );
+	} );
+} );
+
+describe( 'useWidthBelow', () => {
+	let viewport;
+	afterEach( () => viewport?.restore() );
+
+	it( 'asks for a viewport narrower than the width it is given', () => {
+		viewport = installViewport( true );
+		const { result } = renderHook( () => useWidthBelow( 960 ) );
+		expect( result.current ).toBe( true );
+		expect( viewport.queries ).toEqual( [ '(width < 960px)' ] );
+	} );
+
+	it( 'keeps one list and one listener per width', () => {
+		viewport = installViewport( false );
+		renderHook( () => useWidthBelow( 960 ) );
+		renderHook( () => useWidthBelow( 960 ) );
+		renderHook( () => useNarrow() );
+		expect( viewport.queries ).toEqual( [
+			'(width < 960px)',
+			'(width < 600px)',
+		] );
+		expect( viewport.lists ).toBe( 2 );
+		expect( viewport.listeners.size ).toBe( 2 );
+	} );
+
+	it( 'answers outside React from the same list', () => {
+		viewport = installViewport( true );
+		renderHook( () => useWidthBelow( 960 ) );
+		expect( isWidthBelow( 960 ) ).toBe( true );
+		expect( viewport.lists ).toBe( 1 );
+	} );
+
+	it( 'drops every width on a reset', () => {
+		viewport = installViewport( true );
+		renderHook( () => useWidthBelow( 960 ) ).unmount();
+		renderHook( () => useNarrow() ).unmount();
+		resetNarrow();
+		viewport.queries.length = 0;
+		isWidthBelow( 960 );
+		isWidthBelow( 600 );
+		expect( viewport.queries ).toEqual( [
+			'(width < 960px)',
+			'(width < 600px)',
+		] );
+	} );
+
+	it( 'renders wide on the server, whatever the browser would answer', () => {
+		viewport = installViewport( true );
+		const Probe = () => ( useWidthBelow( 960 ) ? 'narrow' : 'wide' );
 		expect( renderToString( <Probe /> ) ).toBe( 'wide' );
 	} );
 } );

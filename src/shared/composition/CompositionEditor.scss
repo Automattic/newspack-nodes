@@ -1,0 +1,34 @@
+@use "../styles/tokens" as *;
+
+// The editor's layout: the heading row, then the canvas beside a 320 px
+// inspector, the inserter under the canvas.
+.newspack-nodes-composition-editor {
+	&__header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: $space-sm;
+		margin-block-end: $space-lg;
+	}
+
+	&__heading {
+		margin: 0;
+		margin-inline-end: auto;
+	}
+
+	&__canvas {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 320px;
+		gap: $space-lg;
+		align-items: start;
+
+		> * {
+			grid-column: 1;
+		}
+	}
+
+	&__inspector {
+		grid-column: 2;
+		grid-row: 1 / span 2;
+	}
+}
