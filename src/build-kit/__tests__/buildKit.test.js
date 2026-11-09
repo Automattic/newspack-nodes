@@ -36,6 +36,13 @@ describe( 'build-kit pure exports', () => {
 		} );
 	} );
 
+	test( 'WP_EXTERNALS maps @wordpress/a11y to the wp-a11y handle', () => {
+		expect( kit.WP_EXTERNALS[ '@wordpress/a11y' ] ).toEqual( {
+			global: 'window.wp.a11y',
+			handle: 'wp-a11y',
+		} );
+	} );
+
 	test( 'WP_EXTERNALS maps @wordpress/block-editor to the wp-block-editor handle', () => {
 		expect( kit.WP_EXTERNALS[ '@wordpress/block-editor' ] ).toEqual( {
 			global: 'window.wp.blockEditor',

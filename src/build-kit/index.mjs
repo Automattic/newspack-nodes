@@ -93,6 +93,10 @@ export const WP_EXTERNALS = {
 		global: 'window.wp.element',
 		handle: 'wp-element',
 	},
+	'@wordpress/a11y': {
+		global: 'window.wp.a11y',
+		handle: 'wp-a11y',
+	},
 	'@wordpress/api-fetch': {
 		global: 'window.wp.apiFetch',
 		handle: 'wp-api-fetch',
