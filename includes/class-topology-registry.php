@@ -68,6 +68,14 @@ class Topology_Registry {
 	private static string $user_dir = '';
 
 	/**
+	 * Each registered dir's entries as read, with the mtime and inode they
+	 * were read under; kept until either moves.
+	 *
+	 * @var array<string,array{mtime: int, ino: int, names: array<array-key,true>}>
+	 */
+	private static array $listings = [];
+
+	/**
 	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
 	 * `.tsl` that `list()` finds, across the user dir and every registered stock
 	 * dir, so the catalog reflects what exists on disk rather than a per-plugin
@@ -81,6 +89,8 @@ class Topology_Registry {
 	 *
 	 * @param array<string,array<string,mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
 	 * @return array<string,array<string,mixed>>
+	 * @throws \RuntimeException As `list()`: a catalog short of a dir's
+	 *                           topologies is never published.
 	 */
 	public static function publish_catalog( array $topologies ): array {
 		$default_np   = \Newspack_Nodes\Bootstrap::global_num_partitions();
@@ -223,27 +233,65 @@ class Topology_Registry {
 	 * in `scan_dir()`, because a console save writes the bare name; the
 	 * guarded name answers when the bare one is absent.
 	 *
-	 * `is_file`, not `file_exists`: a directory of that name is not the file,
-	 * and resolving one would hand the reader a path it cannot read. An
-	 * unreadable file still resolves, so its reader fails loud rather than a
-	 * lower dir's copy silently standing in for it.
+	 * Each dir answers from its `listing()`, so a lookup stats no file the dir
+	 * does not hold: on a network mount a failed stat costs far more than a
+	 * found one, and every topology name is tried in every dir.
+	 *
+	 * A listed name is confirmed with `is_file`, not `file_exists`: a directory
+	 * of that name is not the file, and resolving one would hand the reader a
+	 * path it cannot read. An unreadable file still resolves, so its reader
+	 * fails loud rather than a lower dir's copy silently standing in for it.
 	 *
 	 * @param string $filename A bare file name, extension included.
+	 * @throws \RuntimeException When a registered dir will not list.
 	 */
 	public static function resolve_file( string $filename ): ?string {
 		if ( \preg_match( '{[/\\\\]|\.\.}', $filename ) ) {
 			return null;
 		}
-		// Order is load-bearing: a shadowing user .tsl is code execution.
-		foreach ( [ ...self::$stock_dirs, ...( '' === self::$user_dir ? [] : [ self::$user_dir ] ) ] as $dir ) {
+		foreach ( self::dirs() as $dir ) {
+			$names = self::listing( $dir )['names'];
 			foreach ( [ $filename, $filename . self::GUARD_SUFFIX ] as $name ) {
-				$path = $dir . '/' . $name;
-				if ( \is_file( $path ) ) {
-					return $path;
+				if ( isset( $names[ $name ] ) && \is_file( $dir . '/' . $name ) ) {
+					return $dir . '/' . $name;
 				}
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Every registered dir in resolution order, stock then user, as
+	 * `mtime:inode`, then each topology `scan_dir()` finds there as
+	 * `mtime:size:inode`: what changes when a topology a lookup could resolve
+	 * is added, removed, replaced, edited or shadowed. Each dir is read once
+	 * and each topology stat'ed once, and nothing a dir does not list is.
+	 *
+	 * @api `Bootstrap::row_table()` keys its shared cache on it.
+	 *
+	 * @return array<string,string> Path => its stat.
+	 * @throws \RuntimeException As `listing()`.
+	 */
+	public static function stats(): array {
+		$out = [];
+		foreach ( self::dirs() as $dir ) {
+			$listing     = self::listing( $dir );
+			$out[ $dir ] = "{$listing['mtime']}:{$listing['ino']}";
+			foreach ( self::scan_dir( $dir, $listing ) as [ $path, $stat ] ) {
+				$out[ $path ] = "{$stat['mtime']}:{$stat['size']}:{$stat['ino']}";
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The registered dirs in resolution order.
+	 *
+	 * @return list<string>
+	 */
+	private static function dirs(): array {
+		// Order is load-bearing: a shadowing user .tsl is code execution.
+		return [ ...self::$stock_dirs, ...( '' === self::$user_dir ? [] : [ self::$user_dir ] ) ];
 	}
 
 	/**
@@ -334,6 +382,7 @@ class Topology_Registry {
 	 * the dir registrations. Wired to Config::RESET_ACTION.
 	 */
 	public static function reset_basename_cache(): void {
+		self::$listings = [];
 		Topology_Analyzer::reset_caches();
 		\Newspack_Nodes\Bootstrap::forget_node_tables();
 	}
@@ -414,6 +463,7 @@ class Topology_Registry {
 	 * Every topology name across the user dir and every stock dir, deduplicated.
 	 *
 	 * @return array<int,string>
+	 * @throws \RuntimeException When a registered dir will not list.
 	 */
 	public static function list(): array {
 		return \array_keys( self::scan_dirs() );
@@ -424,6 +474,7 @@ class Topology_Registry {
 	 * the REST list `source` field.
 	 *
 	 * @return array<string,array{user:?string,stock:array<int,string>}>
+	 * @throws \RuntimeException As `list()`.
 	 */
 	public static function describe(): array {
 		return self::scan_dirs();
@@ -439,14 +490,15 @@ class Topology_Registry {
 	 * copy wins.
 	 *
 	 * @return array<string,array{user:?string,stock:array<int,string>}>
+	 * @throws \RuntimeException As `listing()`.
 	 */
 	private static function scan_dirs(): array {
 		$out = [];
-		foreach ( self::scan_dir( self::$user_dir ) as $name => $path ) {
+		foreach ( self::scan_dir( self::$user_dir ) as $name => [ $path ] ) {
 			$out[ $name ] = [ 'user' => $path, 'stock' => [] ];
 		}
 		foreach ( self::$stock_dirs as $dir ) {
-			foreach ( self::scan_dir( $dir ) as $name => $path ) {
+			foreach ( self::scan_dir( $dir ) as $name => [ $path ] ) {
 				$out[ $name ]          ??= [ 'user' => null, 'stock' => [] ];
 				$out[ $name ]['stock'][] = $path;
 			}
@@ -455,25 +507,76 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Every `.tsl` and `.tsl.php` in one dir as `name => path`, the bare file
-	 * winning; empty when it is not a dir. `glob()` sorts, so a bare file
-	 * lands first and its guarded twin finds the name taken.
+	 * Every `.tsl` and `.tsl.php` in one dir's `listing()` as `name => [ path,
+	 * stat ]`, the bare file winning; empty when it is not a dir. The listing
+	 * is sorted, so a bare file lands first and its guarded twin finds the
+	 * name taken. A dotfile is not a topology, as a `*` glob would not match
+	 * it. The stat is the one `is_file()` took, answered from the stat cache.
 	 *
-	 * @param string $dir Absolute directory path, or '' for none.
-	 * @return array<string,string>
+	 * @param string                                                   $dir     Absolute directory path, or '' for none.
+	 * @param array{mtime: int, ino: int, names: array<array-key,true>}|null $listing Its listing, when the caller already read it.
+	 * @return array<string,array{0: string, 1: array<array-key,int>}>
+	 * @throws \RuntimeException As `listing()`.
 	 */
-	private static function scan_dir( string $dir ): array {
-		if ( '' === $dir || ! \is_dir( $dir ) ) {
+	private static function scan_dir( string $dir, ?array $listing = null ): array {
+		if ( '' === $dir ) {
 			return [];
 		}
 		$found = [];
-		foreach ( \glob( $dir . '/*.tsl*' ) ?: [] as $path ) {
-			$stem = \basename( $path, self::GUARD_SUFFIX );
-			if ( \str_ends_with( $stem, '.tsl' ) && \is_file( $path ) ) {
-				$found[ \basename( $stem, '.tsl' ) ] ??= $path;
+		foreach ( \array_keys( ( $listing ?? self::listing( $dir ) )['names'] ) as $entry ) {
+			$entry = (string) $entry;
+			$stem  = \basename( $entry, self::GUARD_SUFFIX );
+			$path  = $dir . '/' . $entry;
+			if ( \str_starts_with( $entry, '.' ) || ! \str_ends_with( $stem, '.tsl' ) || isset( $found[ \basename( $stem, '.tsl' ) ] ) || ! \is_file( $path ) ) {
+				continue;
+			}
+			$stat = \stat( $path );
+			if ( false !== $stat ) {
+				$found[ \basename( $stem, '.tsl' ) ] = [ $path, $stat ];
 			}
 		}
 		return $found;
+	}
+
+	/**
+	 * One dir's entries in sorted order, with its mtime and inode; none, at 0
+	 * and 0, when it is not a dir. The entries are read again once either
+	 * moves, as when the dir is replaced, and a listing is kept only when its
+	 * mtime is more than two seconds old: the clock stamping the dir and the
+	 * one reading it may differ, and a change within the same second leaves
+	 * the mtime unmoved.
+	 *
+	 * @param string $dir Absolute directory path.
+	 * @return array{mtime: int, ino: int, names: array<array-key,true>}
+	 * @throws \RuntimeException When the dir will not list; nothing is kept.
+	 */
+	private static function listing( string $dir ): array {
+		// A cached stat would hand back the dir from before a change.
+		\clearstatcache();
+		$stat = \is_dir( $dir ) ? \stat( $dir ) : false;
+		if ( false === $stat ) {
+			unset( self::$listings[ $dir ] );
+			return [ 'mtime' => 0, 'ino' => 0, 'names' => [] ];
+		}
+		$held = self::$listings[ $dir ] ?? null;
+		if ( null !== $held && $stat['mtime'] === $held['mtime'] && $stat['ino'] === $held['ino'] ) {
+			return $held;
+		}
+		unset( self::$listings[ $dir ] );
+		$now     = \time();
+		$entries = @\scandir( $dir );
+		if ( false === $entries ) {
+			throw new \RuntimeException( \esc_html( "topology dir {$dir} will not list" ) );
+		}
+		$listing = [
+			'mtime' => $stat['mtime'],
+			'ino'   => $stat['ino'],
+			'names' => \array_fill_keys( \array_diff( $entries, [ '.', '..' ] ), true ),
+		];
+		if ( $stat['mtime'] < $now - 2 ) {
+			self::$listings[ $dir ] = $listing;
+		}
+		return $listing;
 	}
 
 	/**

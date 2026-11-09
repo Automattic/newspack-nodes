@@ -154,6 +154,21 @@ class Bootstrap {
 	/** Seconds a wake map survives an edited `.tsl`; a changed active set keys elsewhere. */
 	private const ON_DEMAND_WAKE_TTL_S = 60;
 
+	/** Row_Table key prefix; the schema word and its inputs' digest complete it. */
+	private const ROW_TABLE_KEY = 'row_table:';
+
+	/** Seconds a resolved Row_Table survives a change its key cannot see. */
+	private const ROW_TABLE_TTL_S = 300;
+
+	/**
+	 * Substrate-version seam for `row_table()`'s cache key. Replaces the read
+	 * of `NEWSPACK_NODES_VERSION`; tests answer another release to prove an
+	 * upgrade misses the cache. Signature: `function (): string`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $substrate_version = null;
+
 	/**
 	 * `readable_wake_map()`'s map, strict: an active topology whose graph will
 	 * not read throws, after every other was read.
@@ -561,6 +576,15 @@ class Bootstrap {
 	 * One read of the active set serves the lookup, and a schema resolves
 	 * once until `forget_node_tables()`.
 	 *
+	 * The answer's name and partition count are cached across processes in
+	 * `shared_first()` for `ROW_TABLE_TTL_S`, under a key covering every
+	 * input the resolution reads that the substrate owns: the schema, the
+	 * substrate version, the `topologies` config, the global partition count
+	 * and `Topology_Registry::stats()`, so a cold process parses no topology
+	 * until one of them changes. A salt rotation moves the key with every
+	 * other. The files are never cached, but derived from the base in force,
+	 * and a refusal is never cached, so it is raised afresh each time.
+	 *
 	 * @api The row tables' read path, `Row_Table_Node::read()`.
 	 *
 	 * @param class-string<Row_Schema> $schema The schema the table holds.
@@ -568,18 +592,80 @@ class Bootstrap {
 	 * @throws Table_Unavailable When the active topologies do not declare one.
 	 * @throws \RuntimeException When the readable topologies do not declare one
 	 *                           and an active `.tsl` will not read; when they
-	 *                           declare several, naming each; or when two
-	 *                           declare its name differently.
+	 *                           declare several, naming each; when two
+	 *                           declare its name differently; or when a
+	 *                           registered topology dir will not list,
+	 *                           naming it.
 	 * @throws \InvalidArgumentException As row_tables_of().
 	 */
 	public static function row_table( string $schema ): array {
 		if ( isset( self::$row_tables[ $schema ] ) ) {
 			return self::$row_tables[ $schema ];
 		}
+		$word  = self::schema_word( $schema );
+		$cache = Cache_Backend::shared_first();
+		$key   = null === $cache ? '' : self::row_table_key( $schema, $word );
+		$hit   = null === $cache ? null : $cache->get( $key );
+		if ( \is_array( $hit ) && \is_string( $hit['name'] ?? null ) && '' !== $hit['name']
+			&& \is_int( $hit['partitions'] ?? null ) && 0 < $hit['partitions']
+			&& Spawn_Coordinator::MAX_PARTITIONS >= $hit['partitions'] ) {
+			return self::$row_tables[ $schema ] = self::row_table_files( $hit['name'], $hit['partitions'] );
+		}
+		return self::resolved_row_table( $schema, $word, $cache, $key );
+	}
+
+	/**
+	 * `row_table()` resolved from the active topologies, never from the
+	 * shared cache or the process memo, for a path that writes or deletes the
+	 * table's files and so must not act on an answer up to `ROW_TABLE_TTL_S`
+	 * old. What it resolves replaces both, so a read after it agrees.
+	 *
+	 * @api The row tables' write paths: `Row_Table_Node::build()`, and
+	 *      newspack-intelligence's `ontology reproject`, cross-repo.
+	 *
+	 * @param class-string<Row_Schema> $schema The schema the table holds.
+	 * @return array{name: string, files: array<int,string>} Files by partition.
+	 * @throws Table_Unavailable As `row_table()`.
+	 * @throws \RuntimeException As `row_table()`.
+	 * @throws \InvalidArgumentException As `row_table()`.
+	 */
+	public static function resolve_row_table( string $schema ): array {
+		$word  = self::schema_word( $schema );
+		$cache = Cache_Backend::shared_first();
+		return self::resolved_row_table( $schema, $word, $cache, null === $cache ? '' : self::row_table_key( $schema, $word ) );
+	}
+
+	/**
+	 * `row_table()`'s shared-cache key, built from what the resolution reads
+	 * without reading a topology: the user dir it covers is registered first.
+	 *
+	 * @param string $schema The schema class.
+	 * @param string $word   Its schema word.
+	 */
+	private static function row_table_key( string $schema, string $word ): string {
+		self::ensure_runtime_wired();
+		$version = self::$substrate_version ?? static fn (): string => NEWSPACK_NODES_VERSION;
+		$inputs  = [ $schema, $version(), Config::value( 'topologies' ), self::global_num_partitions(), Topology_Registry::stats() ];
+		return Cache_Backend::site_key( self::ROW_TABLE_KEY . $word . ':' . \md5( (string) \wp_json_encode( $inputs ) ) );
+	}
+
+	/**
+	 * Resolve `$schema`'s Row_Table from the active topologies, then store it
+	 * in the process memo and, under `$key`, the shared cache.
+	 *
+	 * @param class-string<Row_Schema> $schema The schema the table holds.
+	 * @param string                   $word   Its schema word.
+	 * @param Cache_Backend|null       $cache  The shared cache, or null.
+	 * @param string                   $key    `row_table_key()`, or '' with no cache.
+	 * @return array{name: string, files: array<int,string>}
+	 * @throws Table_Unavailable When the active topologies do not declare one.
+	 * @throws \RuntimeException As `row_table()`.
+	 * @throws \InvalidArgumentException As row_tables_of().
+	 */
+	private static function resolved_row_table( string $schema, string $word, ?Cache_Backend $cache, string $key ): array {
 		$active                    = self::active_topologies();
 		[ $readable, $unreadable ] = $active;
 		$names                     = self::row_tables_of( $schema, ...\array_map( 'strval', \array_keys( $readable ) ) );
-		$word                      = self::schema_word( $schema );
 		if ( [] === $names ) {
 			Worker_Should_Stop::raise( self::may_declare( $unreadable ) );
 			throw new Table_Unavailable( \esc_html( "no active topology declares a Row_Table of schema {$word}" ) );
@@ -587,12 +673,25 @@ class Bootstrap {
 		if ( 1 < \count( $names ) ) {
 			throw new \RuntimeException( \esc_html( 'the active topologies declare ' . \count( $names ) . " Row_Tables of schema {$word}: " . \implode( ', ', $names ) ) );
 		}
+		$partitions = \count( self::resolve_table( $names[0], $active ) );
+		$cache?->set( $key, [ 'name' => $names[0], 'partitions' => $partitions ], self::ROW_TABLE_TTL_S );
+		return self::$row_tables[ $schema ] = self::row_table_files( $names[0], $partitions );
+	}
+
+	/**
+	 * A Row_Table's name and its file per partition.
+	 *
+	 * @param string $name       Table name.
+	 * @param int    $partitions Partition count.
+	 * @return array{name: string, files: array<int,string>}
+	 */
+	private static function row_table_files( string $name, int $partitions ): array {
 		$files = [];
-		foreach ( \array_keys( self::resolve_table( $names[0], $active ) ) as $p ) {
-			$files[ $p ] = Table_Node::file( $names[0], $p );
+		for ( $p = 0; $p < $partitions; ++$p ) {
+			$files[ $p ] = Table_Node::file( $name, $p );
 		}
-		return self::$row_tables[ $schema ] = [
-			'name'  => $names[0],
+		return [
+			'name'  => $name,
 			'files' => $files,
 		];
 	}

@@ -10,6 +10,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Failures;
@@ -20,6 +21,7 @@ use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Table_Unavailable;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\Lab_Row_Schema;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Wombat_Row_Schema;
@@ -72,6 +74,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		Bootstrap::$substrate_version = null;
 		if ( null !== $this->counter ) {
 			\remove_action( 'newspack_nodes/topologies', $this->counter );
 		}
@@ -689,6 +692,234 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->write_tsl( 'quoll-a', "make_node Row_Table quoll-moved-3194 Wombat\n" );
 		Topology_Registry::reset_basename_cache();
 		$this->assertSame( 'quoll-moved-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'], 'a saved topology drops the memo' );
+	}
+
+	/** Count each read of the topology catalog, which every resolution starts from. */
+	private function count_catalog_reads( int &$reads ): void {
+		$this->counter = static function ( array $topologies ) use ( &$reads ): array {
+			++$reads;
+			return $topologies;
+		};
+		\add_filter( 'newspack_nodes/topologies', $this->counter );
+	}
+
+	/**
+	 * Resolve Wombat's Row_Table once into a fresh shared cache, then drop
+	 * every memo this process holds, as a new process starts without them.
+	 */
+	private function cache_wombat_then_go_cold(): InMemoryMemcached {
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+		Topology_Registry::reset_basename_cache();
+		return $memd;
+	}
+
+	/** @return list<string> The shared cache's row_table keys. */
+	private static function row_table_keys( InMemoryMemcached $memd ): array {
+		return \array_values( \array_filter( $memd->keys(), static fn ( string $key ): bool => \str_contains( $key, ':row_table:' ) ) );
+	}
+
+	public function test_a_cold_process_answers_a_cached_row_table_without_reading_a_topology(): void {
+		$this->activate( 'quoll-a' );
+		$memd  = $this->cache_wombat_then_go_cold();
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame(
+			[
+				'name'  => 'quoll-ledger-3194',
+				'files' => [
+					0 => $this->base . '/tables/quoll-ledger-3194.p0.sqlite',
+					1 => $this->base . '/tables/quoll-ledger-3194.p1.sqlite',
+				],
+			],
+			Bootstrap::row_table( Wombat_Row_Schema::class )
+		);
+		$this->assertSame( 0, $reads, 'the hit parses no topology' );
+		$keys = self::row_table_keys( $memd );
+		$this->assertCount( 1, $keys );
+		$this->assertSame( [ 'name' => 'quoll-ledger-3194', 'partitions' => 2 ], $memd->get( $keys[0] ), 'the cache holds no path' );
+		$this->assertSame( [ 300 ], \array_column( \array_filter( $memd->sets, static fn ( array $set ): bool => $set['key'] === $keys[0] ), 'ttl' ) );
+	}
+
+	/** A hit derives each file under the base in force, never one it cached. */
+	public function test_a_cached_row_table_names_its_files_under_the_current_base(): void {
+		$this->activate( 'quoll-a' );
+		$this->cache_wombat_then_go_cold();
+		$moved = $this->make_temp_dir( 'node-tables-moved-' );
+		$this->use_base_dir( $moved );
+		\update_option( 'newspack_nodes_topologies', [ 'quoll-a' ] );
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame( $moved . '/tables/quoll-ledger-3194.p1.sqlite', Bootstrap::row_table( Wombat_Row_Schema::class )['files'][1] );
+		$this->assertSame( 0, $reads );
+		$this->rmdir_recursive( $moved );
+	}
+
+	public function test_an_edited_topology_misses_the_cache(): void {
+		$this->activate( 'quoll-a' );
+		$this->cache_wombat_then_go_cold();
+		$this->write_tsl( 'quoll-a', "make_node Row_Table quoll-moved-3194 Wombat\n" );
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame( 'quoll-moved-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'] );
+		$this->assertSame( 1, $reads );
+	}
+
+	public function test_a_topology_added_to_a_registered_dir_misses_the_cache(): void {
+		$this->activate( 'quoll-a' );
+		$this->cache_wombat_then_go_cold();
+		$this->write_tsl( 'petrel-7741', "make_node Echo petrel\n" );
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+		$this->assertSame( 1, $reads );
+	}
+
+	public function test_an_activation_misses_the_cache(): void {
+		$this->activate( 'quoll-a' );
+		$this->cache_wombat_then_go_cold();
+		$this->activate( 'quoll-a', 'kea-a' );
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+		$this->assertSame( 1, $reads );
+	}
+
+	public function test_a_global_partition_count_change_misses_the_cache(): void {
+		$this->activate( 'quoll-b' );
+		$this->cache_wombat_then_go_cold();
+		\update_option( 'newspack_nodes_num_partitions', 3 );
+		Config::reset();
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame( [ 0, 1, 2 ], \array_keys( Bootstrap::row_table( Wombat_Row_Schema::class )['files'] ) );
+		$this->assertSame( 1, $reads );
+	}
+
+	public function test_a_substrate_version_change_misses_the_cache(): void {
+		$this->activate( 'quoll-a' );
+		$this->cache_wombat_then_go_cold();
+		Bootstrap::$substrate_version = static fn (): string => '0.0.7-kea';
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+		$this->assertSame( 1, $reads );
+	}
+
+	public function test_a_salt_rotation_misses_the_cache(): void {
+		$this->activate( 'quoll-a' );
+		$this->cache_wombat_then_go_cold();
+		Cache_Backend::rotate_salt();
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+		$this->assertSame( 1, $reads );
+	}
+
+	public function test_a_cached_value_of_another_shape_misses_the_cache(): void {
+		$this->activate( 'quoll-a' );
+		$memd = $this->cache_wombat_then_go_cold();
+		foreach ( self::row_table_keys( $memd ) as $key ) {
+			$memd->set( $key, [ 'name' => 'quoll-ledger-3194', 'partitions' => 0 ] );
+		}
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame( [ 0, 1 ], \array_keys( Bootstrap::row_table( Wombat_Row_Schema::class )['files'] ) );
+		$this->assertSame( 1, $reads );
+	}
+
+	public function test_a_cached_partition_count_past_the_cap_misses_the_cache(): void {
+		$this->activate( 'quoll-a' );
+		$memd = $this->cache_wombat_then_go_cold();
+		foreach ( self::row_table_keys( $memd ) as $key ) {
+			$memd->set( $key, [ 'name' => 'quoll-ledger-3194', 'partitions' => 100000000 ] );
+		}
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame( [ 0, 1 ], \array_keys( Bootstrap::row_table( Wombat_Row_Schema::class )['files'] ) );
+		$this->assertSame( 1, $reads );
+	}
+
+	/**
+	 * A write path resolves past the shared cache and the process memo, and
+	 * what it resolves replaces both, so a read after it sees the same table.
+	 */
+	public function test_resolve_row_table_reads_past_a_stale_cache_and_replaces_it(): void {
+		$this->activate( 'quoll-a' );
+		$memd = $this->cache_wombat_then_go_cold();
+		foreach ( self::row_table_keys( $memd ) as $key ) {
+			$memd->set( $key, [ 'name' => 'quoll-stale-0042', 'partitions' => 1 ] );
+		}
+		$this->assertSame( 'quoll-stale-0042', Bootstrap::row_table( Wombat_Row_Schema::class )['name'], 'a read takes the cached answer' );
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame(
+			[
+				'name'  => 'quoll-ledger-3194',
+				'files' => [
+					0 => $this->base . '/tables/quoll-ledger-3194.p0.sqlite',
+					1 => $this->base . '/tables/quoll-ledger-3194.p1.sqlite',
+				],
+			],
+			Bootstrap::resolve_row_table( Wombat_Row_Schema::class )
+		);
+		$this->assertSame( 1, $reads );
+		$this->assertSame( 'quoll-ledger-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'] );
+		$this->assertSame( [ 'name' => 'quoll-ledger-3194', 'partitions' => 2 ], $memd->get( self::row_table_keys( $memd )[0] ) );
+	}
+
+	public function test_resolve_row_table_caches_no_refusal(): void {
+		$this->activate( 'kea-a' );
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		$this->caught( static fn () => Bootstrap::resolve_row_table( Wombat_Row_Schema::class ), 'no topology declares it' );
+
+		$this->assertSame( [], self::row_table_keys( $memd ) );
+	}
+
+	/**
+	 * A registered dir that will not list fails the fresh resolution naming
+	 * the dir, and neither the shared cache nor the process memo keeps
+	 * anything: once the dir lists again, the next read resolves afresh.
+	 */
+	public function test_resolve_row_table_fails_naming_a_dir_that_will_not_list_and_caches_nothing(): void {
+		$this->activate( 'quoll-a' );
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		\chmod( $this->stock, 0311 );
+		try {
+			$e = $this->caught( static fn () => Bootstrap::resolve_row_table( Wombat_Row_Schema::class ), 'an unlistable dir answered' );
+			$this->assertStringContainsString( "topology dir {$this->stock} will not list", $e->getMessage() );
+			$this->assertSame( [], self::row_table_keys( $memd ), 'the shared cache keeps nothing' );
+		} finally {
+			\chmod( $this->stock, 0755 );
+		}
+		$reads = 0;
+		$this->count_catalog_reads( $reads );
+
+		$this->assertSame( 'quoll-ledger-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'] );
+		$this->assertSame( 1, $reads, 'the memo kept nothing' );
+	}
+
+	public function test_a_refused_row_table_is_not_cached(): void {
+		$this->activate( 'kea-a' );
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		$this->caught( static fn () => Bootstrap::row_table( Wombat_Row_Schema::class ), 'no topology declares it' );
+
+		$this->assertSame( [], self::row_table_keys( $memd ) );
 	}
 
 	public function test_row_tables_of_reads_the_named_topologies_whether_or_not_they_run(): void {

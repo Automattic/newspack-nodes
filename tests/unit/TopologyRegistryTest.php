@@ -6,10 +6,13 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Rest\Settings_CI_Node;
+use Newspack_Nodes\Tests\Stat_Recording_Wrapper;
+use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Base;
-use Newspack_Nodes\Tests\TestCase;
+
+require_once \dirname( __DIR__ ) . '/Helpers/StatRecordingWrapper.php';
 
 class TopologyRegistryTest extends TestCase {
 
@@ -120,7 +123,7 @@ class TopologyRegistryTest extends TestCase {
 		try {
 			$this->assertSame( "{$dir}/lantern.tsl", Topology_Registry::resolve( 'lantern' ) );
 			$paths = ( new \ReflectionMethod( Topology_Registry::class, 'scan_dir' ) )->invoke( null, $dir );
-			$this->assertSame( [ 'lantern' => "{$dir}/lantern.tsl" ], $paths );
+			$this->assertSame( [ 'lantern' => "{$dir}/lantern.tsl" ], \array_map( static fn ( array $found ): string => $found[0], $paths ) );
 		} finally {
 			foreach ( \glob( "{$dir}/*" ) ?: [] as $file ) {
 				\unlink( $file );
@@ -298,6 +301,213 @@ class TopologyRegistryTest extends TestCase {
 		Topology_Registry::register_stock_dir( "{$this->stock}/inner" );
 
 		$this->assertNull( Topology_Registry::resolve_file( $name ) );
+	}
+
+	/**
+	 * A name resolves from each dir's listing: no lookup stats a file the dir
+	 * does not hold, whichever dir and spelling the name is found under.
+	 */
+	public function test_resolve_stats_no_file_a_dir_does_not_list(): void {
+		$first  = $this->make_temp_dir( 'tsl-probe-a-' );
+		$second = $this->make_temp_dir( 'tsl-probe-b-' );
+		\file_put_contents( "{$first}/kiwi-3307.tsl.php", '' );
+		\file_put_contents( "{$second}/moa-5521.tsl.php", '' );
+		\file_put_contents( "{$this->user}/weka-1188.tsl", '' );
+		Stat_Recording_Wrapper::reset();
+		Topology_Registry::register_stock_dir( Stat_Recording_Wrapper::wrap( $second ) );
+		Topology_Registry::register_stock_dir( Stat_Recording_Wrapper::wrap( $first ) );
+		Topology_Registry::register_user_dir( Stat_Recording_Wrapper::wrap( $this->user ) );
+		try {
+			$this->assertSame( Stat_Recording_Wrapper::wrap( "{$second}/moa-5521.tsl.php" ), Topology_Registry::resolve( 'moa-5521' ) );
+			$this->assertSame( Stat_Recording_Wrapper::wrap( "{$first}/kiwi-3307.tsl.php" ), Topology_Registry::resolve( 'kiwi-3307' ) );
+			$this->assertSame( Stat_Recording_Wrapper::wrap( "{$this->user}/weka-1188.tsl" ), Topology_Registry::resolve( 'weka-1188' ) );
+			$this->assertNull( Topology_Registry::resolve( 'absent-9071' ) );
+			$this->assertSame( [], Stat_Recording_Wrapper::$misses );
+		} finally {
+			Stat_Recording_Wrapper::unregister();
+			$this->rmdir_recursive( $first );
+			$this->rmdir_recursive( $second );
+		}
+	}
+
+	/** A dir is read once while its mtime holds, and read again once it moves. */
+	public function test_a_dir_is_listed_once_until_its_mtime_moves(): void {
+		$dir = $this->make_temp_dir( 'tsl-listing-' );
+		\file_put_contents( "{$dir}/kiwi-3307.tsl.php", '' );
+		\touch( $dir, \time() - 90 );
+		Stat_Recording_Wrapper::reset();
+		Topology_Registry::register_stock_dir( Stat_Recording_Wrapper::wrap( $dir ) );
+		try {
+			$this->assertNotNull( Topology_Registry::resolve( 'kiwi-3307' ) );
+			$this->assertNull( Topology_Registry::resolve( 'weka-1188' ) );
+			$this->assertNull( Topology_Registry::resolve( 'weka-1188' ) );
+			$this->assertSame( 1, Stat_Recording_Wrapper::$listings, 'an unmoved dir is not read again' );
+
+			\file_put_contents( "{$dir}/weka-1188.tsl", '' );
+			\touch( $dir, \time() - 45 );
+			$this->assertSame( Stat_Recording_Wrapper::wrap( "{$dir}/weka-1188.tsl" ), Topology_Registry::resolve( 'weka-1188' ) );
+			$this->assertSame( 2, Stat_Recording_Wrapper::$listings );
+		} finally {
+			Stat_Recording_Wrapper::unregister();
+			$this->rmdir_recursive( $dir );
+		}
+	}
+
+	/**
+	 * Another process's change to a dir is seen when the only stat since was
+	 * of the dir itself, which PHP's one-entry stat cache would answer stale.
+	 * A plain dir, because a wrapper's own stat replaces the cached entry, and
+	 * a `proc_open` child, because PHP's own `touch()` and `exec()` clear it.
+	 */
+	public function test_a_dir_another_process_changes_is_listed_again(): void {
+		$dir = $this->make_temp_dir( 'tsl-elsewhere-' );
+		\touch( $dir, \time() - 90 );
+		Topology_Registry::register_stock_dir( $dir );
+		$before = Topology_Registry::resolve( 'weka-1188' );
+		$child  = \proc_open( [ 'sh', '-c', 'echo > "$1/weka-1188.tsl" && touch -m -d "@$2" "$1"', 'sh', $dir, (string) ( \time() - 45 ) ], [], $pipes );
+		$status = \is_resource( $child ) ? \proc_close( $child ) : -1;
+		$after  = Topology_Registry::resolve( 'weka-1188' );
+
+		$this->assertNull( $before );
+		$this->assertSame( 0, $status );
+		$this->assertSame( "{$dir}/weka-1188.tsl", $after );
+		$this->rmdir_recursive( $dir );
+	}
+
+	/**
+	 * A dir whose mtime is not yet in the past could change again under the
+	 * same mtime, so its listing is never kept.
+	 */
+	public function test_a_dir_whose_mtime_is_not_past_is_listed_on_every_lookup(): void {
+		$dir    = $this->make_temp_dir( 'tsl-racy-' );
+		$future = \time() + 30;
+		\file_put_contents( "{$dir}/kiwi-3307.tsl.php", '' );
+		\touch( $dir, $future );
+		Stat_Recording_Wrapper::reset();
+		Topology_Registry::register_stock_dir( Stat_Recording_Wrapper::wrap( $dir ) );
+		try {
+			$this->assertNull( Topology_Registry::resolve( 'weka-1188' ) );
+			\file_put_contents( "{$dir}/weka-1188.tsl", '' );
+			\touch( $dir, $future );
+			$this->assertSame( Stat_Recording_Wrapper::wrap( "{$dir}/weka-1188.tsl" ), Topology_Registry::resolve( 'weka-1188' ) );
+		} finally {
+			Stat_Recording_Wrapper::unregister();
+			$this->rmdir_recursive( $dir );
+		}
+	}
+
+	/**
+	 * Every registered dir in resolution order, then each topology it lists
+	 * with its mtime, size and inode; a `.tsl`-named dir and a non-topology
+	 * file are not topologies.
+	 */
+	public function test_stats_names_every_dir_then_its_topologies(): void {
+		\file_put_contents( "{$this->stock}/kiwi-3307.tsl.php", 'make_node Echo kiwi' );
+		\file_put_contents( "{$this->stock}/notes-4410.json", '{}' );
+		\mkdir( "{$this->stock}/folder-2290.tsl" );
+		\touch( "{$this->stock}/kiwi-3307.tsl.php", 1700000123 );
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_user_dir( $this->user );
+
+		$stats = Topology_Registry::stats();
+
+		$this->assertSame(
+			[ $this->stock, "{$this->stock}/firehose-workers.tsl", "{$this->stock}/kiwi-3307.tsl.php", "{$this->stock}/only-stock.tsl", $this->user, "{$this->user}/firehose-workers.tsl" ],
+			\array_keys( $stats )
+		);
+		$this->assertSame( '1700000123:19:' . \fileinode( "{$this->stock}/kiwi-3307.tsl.php" ), $stats[ "{$this->stock}/kiwi-3307.tsl.php" ] );
+		$this->assertSame( \filemtime( $this->stock ) . ':' . \fileinode( $this->stock ), $stats[ $this->stock ] );
+	}
+
+	/** Stats reads each dir once and stats each topology in it once. */
+	public function test_stats_reads_each_dir_once_and_stats_each_file_once(): void {
+		$dir = $this->make_temp_dir( 'tsl-stats-once-' );
+		\file_put_contents( "{$dir}/kiwi-3307.tsl.php", '' );
+		\file_put_contents( "{$dir}/moa-5521.tsl", '' );
+		\touch( $dir, \time() + 30 );
+		Stat_Recording_Wrapper::reset();
+		Topology_Registry::register_stock_dir( Stat_Recording_Wrapper::wrap( $dir ) );
+		try {
+			Topology_Registry::stats();
+			$this->assertSame( 1, Stat_Recording_Wrapper::$listings );
+			$this->assertSame( 1, Stat_Recording_Wrapper::$stats[ Stat_Recording_Wrapper::wrap( "{$dir}/kiwi-3307.tsl.php" ) ] );
+			$this->assertSame( 1, Stat_Recording_Wrapper::$stats[ Stat_Recording_Wrapper::wrap( "{$dir}/moa-5521.tsl" ) ] );
+		} finally {
+			Stat_Recording_Wrapper::unregister();
+			$this->rmdir_recursive( $dir );
+		}
+	}
+
+	/**
+	 * A dir that cannot be read fails the lookup naming it, and the failure is
+	 * not kept: the dir lists once it reads again.
+	 */
+	public function test_a_dir_that_will_not_list_fails_loud_and_is_not_kept(): void {
+		$dir = $this->make_temp_dir( 'tsl-unlisted-' );
+		\file_put_contents( "{$dir}/kiwi-3307.tsl", '' );
+		\touch( $dir, \time() - 90 );
+		\chmod( $dir, 0311 );
+		Topology_Registry::register_stock_dir( $dir );
+		try {
+			$e = $this->caught( static fn () => Topology_Registry::resolve( 'kiwi-3307' ), 'an unreadable dir answered' );
+			$this->assertStringContainsString( $dir, $e->getMessage() );
+			\chmod( $dir, 0755 );
+			$this->assertSame( "{$dir}/kiwi-3307.tsl", Topology_Registry::resolve( 'kiwi-3307' ) );
+		} finally {
+			\chmod( $dir, 0755 );
+			$this->rmdir_recursive( $dir );
+		}
+	}
+
+	/**
+	 * The `newspack_nodes/topologies` catalog raises a dir that will not list,
+	 * naming it, rather than publishing a catalog short of its topologies.
+	 */
+	public function test_publish_catalog_raises_a_dir_that_will_not_list_naming_it(): void {
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_user_dir( $this->user );
+		\chmod( $this->user, 0311 );
+		try {
+			$e = $this->caught( static fn () => Topology_Registry::publish_catalog( [] ), 'an unlistable dir published' );
+			$this->assertSame( "topology dir {$this->user} will not list", $e->getMessage() );
+		} finally {
+			\chmod( $this->user, 0755 );
+		}
+	}
+
+	/** A dir replaced by another of the same mtime is listed afresh. */
+	public function test_a_dir_replaced_under_the_same_mtime_is_listed_again(): void {
+		$parent = $this->make_temp_dir( 'tsl-replaced-' );
+		$dir    = "{$parent}/topologies";
+		$stamp  = \time() - 90;
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/kiwi-3307.tsl", '' );
+		\touch( $dir, $stamp );
+		Topology_Registry::register_stock_dir( $dir );
+		$this->assertNull( Topology_Registry::resolve( 'weka-1188' ) );
+
+		\rename( $dir, "{$parent}/old" );
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/weka-1188.tsl", '' );
+		\touch( $dir, $stamp );
+		$this->assertSame( "{$dir}/weka-1188.tsl", Topology_Registry::resolve( 'weka-1188' ) );
+		$this->rmdir_recursive( $parent );
+	}
+
+	/**
+	 * A dir stamped by a clock one second behind this one can change again
+	 * under the same mtime, so its listing is not kept either.
+	 */
+	public function test_a_dir_stamped_one_second_ago_is_listed_on_every_lookup(): void {
+		$dir = $this->make_temp_dir( 'tsl-skew-' );
+		Topology_Registry::register_stock_dir( $dir );
+		\touch( $dir, \time() - 1 );
+		$this->assertNull( Topology_Registry::resolve( 'weka-1188' ) );
+
+		\file_put_contents( "{$dir}/weka-1188.tsl", '' );
+		\touch( $dir, \time() - 1 );
+		$this->assertSame( "{$dir}/weka-1188.tsl", Topology_Registry::resolve( 'weka-1188' ) );
+		$this->rmdir_recursive( $dir );
 	}
 
 	public function test_resolve_refuses_a_topology_name_that_walks_out_of_the_dir(): void {

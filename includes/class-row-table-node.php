@@ -382,13 +382,14 @@ class Row_Table_Node extends Table_Node {
 	 * @throws \InvalidArgumentException As `snapshot_file()`.
 	 * @throws Table_Unavailable As `read()`, or when the build file will not
 	 *                           open.
-	 * @throws \RuntimeException As `Bootstrap::row_table()`, when the process
-	 *                           runs as root, the temporary directory will not
-	 *                           resolve, or the sync or the rename fails.
+	 * @throws \RuntimeException As `Bootstrap::resolve_row_table()`, when the
+	 *                           process runs as root, the temporary directory
+	 *                           will not resolve, or the sync or the rename
+	 *                           fails.
 	 */
 	public static function build( string $schema, string $name, \Closure $build ): mixed {
 		$file  = self::snapshot_file( $name );
-		$table = Bootstrap::row_table( $schema );
+		$table = Bootstrap::resolve_row_table( $schema );
 		if ( ! \is_dir( \dirname( $file ) ) ) {
 			return false;
 		}

@@ -8,6 +8,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
@@ -17,6 +18,7 @@ use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Table_Unavailable;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\Lab_Row_Schema;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Wombat_Row_Schema;
@@ -798,6 +800,22 @@ final class RowTableNodeTest extends TestCase {
 
 		$this->assertSame( [ [ 'rid-5511' ], [ 'rid-5513' ] ], $this->heron( 'heron-snap-7101' ) );
 		$this->assertSame( [ 'heron-snap-7101.sqlite', 'wombats-6620.p1.sqlite', 'wombats-6620.p3.sqlite' ], $this->tables_dir(), 'the build file is gone' );
+	}
+
+	/** A build resolves its table afresh, never from a stale shared cache. */
+	public function test_build_reads_past_a_stale_cached_table(): void {
+		$this->seed_partitions( 'rid-5531', 'rid-5533' );
+		$this->activate( 'wombat-fleet' );
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+		foreach ( \array_filter( $memd->keys(), static fn ( string $key ): bool => \str_contains( $key, ':row_table:' ) ) as $key ) {
+			$memd->set( $key, [ 'name' => 'wombats-stale-0042', 'partitions' => 4 ] );
+		}
+		Topology_Registry::reset_basename_cache();
+
+		$this->assertSame( 'kea-7101', self::build_heron( 'heron-snap-7105' ) );
+		$this->assertSame( [ [ 'rid-5531' ], [ 'rid-5533' ] ], $this->heron( 'heron-snap-7105' ) );
 	}
 
 	public function test_build_hands_its_builder_every_attached_partition(): void {

@@ -752,9 +752,12 @@ mount is named `{table}.p{N}` and serves one read alone, `GET`
 [Other Node Primitives](architecture-guide.md#other-node-primitives) carries the
 Table protocol. A Row_Table mounts nowhere: `mount_tables` leaves it out, because only its
 worker answers `ROWS`, and a reader opens its files through `Row_Table_Node::read( $schema, … )`,
-naming the schema, which `Bootstrap::row_table()` resolves to the one table declaring it.
-`Row_Table_Node::build( $schema, $name, … )` attaches the same files read-only into a
-connection writing a build file beside `{base}/tables/<name>.sqlite`, and renames it over
+naming the schema, which `Bootstrap::row_table()` resolves to the one table declaring it,
+an answer cached across processes for up to 300 seconds.
+`Row_Table_Node::build( $schema, $name, … )` resolves the table afresh through
+`Bootstrap::resolve_row_table()`, as every path writing or deleting its files
+does, attaches the same files read-only into a connection writing a build file
+beside `{base}/tables/<name>.sqlite`, and renames it over
 that snapshot when the build answers anything but `false`, for a job publishing a derived
 file; `Row_Table_Node::open_snapshot( $name )` reads the published one, `immutable`, and
 `remove_snapshot( $name )` deletes it with any build a crash left
@@ -1995,7 +1998,8 @@ dir holding the same name.
 | Method | What it does |
 |---|---|
 | `resolve( string $name ): ?string` | The path of `<name>.tsl` or `<name>.tsl.php`, through `resolve_file()`. |
-| `resolve_file( string $filename ): ?string` | The path of the first file of that name, or of that name plus `.php`, in those dirs, or null when neither file exists in any of them. Within a dir the exact name wins. A directory of that name is skipped; an unreadable file still answers, so its reader fails loud. A name carrying `/`, `\` or `..` answers null, since it could reach outside the dir. |
+| `resolve_file( string $filename ): ?string` | The path of the first file of that name, or of that name plus `.php`, in those dirs, or null when neither file exists in any of them. Within a dir the exact name wins. Each dir answers from one listing, read again when its mtime or inode moves, so a lookup stats no file a dir does not hold, and a dir that will not list throws naming it. A directory of that name is skipped; an unreadable file still answers, so its reader fails loud. A name carrying `/`, `\` or `..` answers null, since it could reach outside the dir. |
+| `stats(): array<string,string>` | Every registered dir in resolution order as `mtime:inode`, then each topology in it as `mtime:size:inode`, reading each dir once and stat'ing only what it lists. `Bootstrap::row_table()` keys its shared cache on it. |
 
 ## Extensibility hooks
 
@@ -2049,7 +2053,7 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 
 | Hook | Filtered value | Applied from |
 |---|---|---|
-| `newspack_nodes/topologies` | `array $topologies` — name => entry | [`Bootstrap::get_topology_catalog()`](../includes/class-bootstrap.php) and `Topologies_CI_Node`. [`Topology_Registry::publish_catalog`](../includes/class-topology-registry.php) populates it from every registered `.tsl` dir. It runs at the default priority 10 and skips any name already in the array, so a consumer pinning a topology's `num_partitions`, `stale_timeout`, `on_demand_idle` or `max_runtime` must hook BELOW 10 for its entry to stand; above 10 it receives the synthesized entry and replaces it. Never return `[]` transiently — see below. |
+| `newspack_nodes/topologies` | `array $topologies` — name => entry | [`Bootstrap::get_topology_catalog()`](../includes/class-bootstrap.php) and `Topologies_CI_Node`. [`Topology_Registry::publish_catalog`](../includes/class-topology-registry.php) populates it from every registered `.tsl` dir, and raises a dir that will not list, naming it, rather than publish a catalog short of its topologies. It runs at the default priority 10 and skips any name already in the array, so a consumer pinning a topology's `num_partitions`, `stale_timeout`, `on_demand_idle` or `max_runtime` must hook BELOW 10 for its entry to stand; above 10 it receives the synthesized entry and replaces it. Never return `[]` transiently — see below. |
 | `newspack_nodes/job_handlers` | `array $handlers` — name => callable | [`Job_Worker_Node::load_handlers_from_filters()`](../includes/class-job-worker-node.php). A name failing `HANDLER_NAME_PATTERN` or a non-callable value is skipped, never refused, so one bad registration cannot cost a worker every other handler. |
 | `newspack_nodes/remote_job_handlers` | `array $handlers` | The same, for entries whose `k` selects the remote map. |
 | `newspack_nodes/job_worker/before_job` | `bool $run, string $handler, string $id, array $message` | `Job_Worker_Node`. Return `false` to DECLINE the job. |
