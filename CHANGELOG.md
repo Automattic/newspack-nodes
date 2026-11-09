@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.150.3] - 2026-11-09
+
 ### Changed
 
 - **A tab switch on the Nodes station pushes a history entry, so Back returns to the tab before.** `TabHost` with `syncUrl` pushes one entry per switch through `setQueryParams( …, { push: true } )`, written before the new tab mounts, and that entry drops the param of the tab left behind as the replaced write did. Back or Forward shows the tab the landed entry names. The load, a deep link included, and a deep-linked tab that registers late still replace the entry, so opening the page adds nothing to history. Without `syncUrl`, which the debug overlay leaves off, nothing changes.
