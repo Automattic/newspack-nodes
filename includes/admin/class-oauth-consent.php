@@ -87,7 +87,7 @@ final class Oauth_Consent {
 			if ( \is_string( $request ) ) {
 				self::banner( 'newspack-nodes-error-banner', $request );
 			} else {
-				self::form( $request, self::REFUSED_NAME === self::field( $query, self::REFUSED ) );
+				self::form( $request, self::REFUSED_NAME === self::field( $query, self::REFUSED ), self::field( $query, 'scope' ) );
 			}
 			?>
 		</div>
@@ -100,10 +100,12 @@ final class Oauth_Consent {
 	 * @param Request $request      The request.
 	 * @param bool    $refused_name Whether an approval came back without a
 	 *                              connection name.
+	 * @param string  $requested    The request's own `scope`, space-separated.
 	 */
-	private static function form( array $request, bool $refused_name ): void {
-		$host   = Core::str( \wp_parse_url( $request['params']['redirect_uri'], \PHP_URL_HOST ) );
-		$scopes = \array_reverse( $request['scopes'] );
+	private static function form( array $request, bool $refused_name, string $requested ): void {
+		$host    = Core::str( \wp_parse_url( $request['params']['redirect_uri'], \PHP_URL_HOST ) );
+		$scopes  = \array_reverse( $request['scopes'] );
+		$checked = self::checked_scope( $scopes, $requested );
 		?>
 		<p>
 			<?php
@@ -131,7 +133,7 @@ final class Oauth_Consent {
 				<legend><?php \esc_html_e( 'Access', 'newspack-nodes' ); ?></legend>
 				<?php foreach ( $scopes as $scope ) : ?>
 					<label>
-						<input type="radio" name="scope" value="<?php echo \esc_attr( $scope ); ?>"<?php \checked( $scope, $scopes[0] ); ?>>
+						<input type="radio" name="scope" value="<?php echo \esc_attr( $scope ); ?>"<?php \checked( $scope, $checked ); ?>>
 						<code><?php echo \esc_html( $scope ); ?></code> <?php echo \esc_html( Capabilities::label( $scope ) ); ?>
 					</label><br>
 				<?php endforeach; ?>
@@ -157,6 +159,22 @@ final class Oauth_Consent {
 	 */
 	private static function banner( string $classes, string $text ): void {
 		echo '<div class="' . \esc_attr( $classes ) . '">' . \esc_html( $text ) . '</div>';
+	}
+
+	/**
+	 * The scope the form checks: the broadest the request asked for that the
+	 * user can grant, else tune, else the narrowest offered. A broader grant
+	 * than the client asked for takes a deliberate choice.
+	 *
+	 * @param list<string> $offered   The grantable scopes, broadest first.
+	 * @param string       $requested The request's `scope`, space-separated.
+	 */
+	private static function checked_scope( array $offered, string $requested ): string {
+		$asked = \array_values( \array_intersect( $offered, \preg_split( '/\s+/', $requested, -1, \PREG_SPLIT_NO_EMPTY ) ?: [] ) );
+		if ( [] !== $asked ) {
+			return $asked[0];
+		}
+		return \in_array( Capabilities::TUNE, $offered, true ) ? Capabilities::TUNE : (string) \end( $offered );
 	}
 
 	/**

@@ -793,6 +793,11 @@ class McpDoorTest extends TestCase {
 		);
 	}
 
+	/** A command declaring a secret arg is never a tool: the credential would ride the transcript. */
+	public function test_declared_tools_leave_out_a_command_declaring_a_secret_arg(): void {
+		$this->assertArrayNotHasKey( 'kestrel_stash', self::declared_tools() );
+	}
+
 	/** A verb's text overrides its name, its summary and its args, each alone. */
 	public function test_declared_tools_take_text_overrides(): void {
 		$tools = self::declared_tools(

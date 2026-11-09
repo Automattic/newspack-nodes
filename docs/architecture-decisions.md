@@ -2876,8 +2876,9 @@ user can read, `wp-config.php` and its salts included, into a log that `raw_logs
 reads back, and a `Curl` node makes requests to any host the site can reach. Revoking the
 grant ends its sessions and does not recall what it already read: a salt read out stays valid
 until the site rotates it. This is the trade-off of granting `manage`, not a defect a check
-closes; whether the cockpit keeps `topologies_save` is Chris's decision. The approval page
-checks the broadest scope it offers, which for a user who holds `manage` is `manage`.
+closes, and Chris chose to keep `topologies_save` in the cockpit. The approval page checks
+the scope the client asked for when the user can grant it, and `tune` otherwise, so a
+`manage` grant takes a deliberate choice.
 
 ---
 
@@ -2936,12 +2937,14 @@ six things:
 Three doors declare on it: event-logger-nodes' at `/newspack-event-logger-nodes/v1/mcp`,
 newspack-intelligence's at `/newspack-intelligence/v1/mcp`, and the substrate's own
 [`Nodes_Mcp_Door`](../includes/class-nodes-mcp-door.php) at `/newspack-nodes/v1/mcp`,
-which fronts the ten service CIs `Bootstrap::SUBSTRATE_CIS` names, every command but the
-seven `Nodes_Mcp_Door::NOT_TOOLS` lists.
+which fronts the ten service CIs `Bootstrap::SUBSTRATE_CIS` names, every command but
+`vault add` and `vault update`, which declare a secret, and the five
+`Nodes_Mcp_Door::NOT_TOOLS` lists.
 
 `Mcp_Door::declared_tools( $node, $class, $prefix, $except, $text )` is how a door builds
 `tools()` from what a class declares: one tool per command the class declares but the
-`$except` verbs, named `<prefix>_<verb>`, summarized by the command's own `description`,
+`$except` verbs and any command declaring a `secret` arg, whose credential would pass
+through the agent's transcript, named `<prefix>_<verb>`, summarized by the command's own `description`,
 offering every arg it declares as `{declared}`, with `$text` overriding a tool's name,
 summary or args by verb. An `$except` or `$text` entry naming a verb the class does not
 declare throws, so the door cannot drift from the commands. A command added to one of the

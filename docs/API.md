@@ -662,15 +662,16 @@ its approver's whole authority over the fleet: `topologies_save` and
 PHP user can read, `wp-config.php` and its salts included, into a log
 `raw_logs_dump_log` reads back, and a `Curl` node can make requests to any
 host the site reaches. Revoking the grant ends its sessions and does not
-recall what it already read. The approval page checks the broadest scope it
-offers, which is `manage` for a user who holds it
-([ADR-36](architecture-decisions.md#adr-36-oauth-issues-command-sessions)). `Nodes_Mcp_Door::NOT_TOOLS` keeps seven commands off the
-list, and calling one answers `-32601` `Unknown tool: <name>`:
+recall what it already read. The approval page checks the scope the client
+asked for when the user can grant it, and `tune` otherwise
+([ADR-36](architecture-decisions.md#adr-36-oauth-issues-command-sessions)). `declared_tools()` leaves out every command declaring a
+`secret` arg, and `Nodes_Mcp_Door::NOT_TOOLS` five more; calling one answers
+`-32601` `Unknown tool: <name>`:
 
 | Command | Why it is not a tool |
 |---|---|
 | `sessions create` | It mints a bearer key |
-| `vault add`, `vault update` | Each takes a `password`, which would pass through the agent's transcript |
+| `vault add`, `vault update` | Each declares its `password` secret, which would pass through the agent's transcript |
 | `topologies connect_worker_input`, `topologies mount_tables` | Each mounts nodes into the request's graph, and an MCP call is one request that ends with its reply |
 | `workers heartbeat` | It refreshes a session's SSE slot, and an MCP session holds none |
 | `raw-logs read_block` | It answers through the envelope's FROM, and a door hands it no envelope; `dump_log` and `read_message` read logs |

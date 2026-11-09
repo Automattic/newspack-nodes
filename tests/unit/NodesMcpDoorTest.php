@@ -128,7 +128,7 @@ class NodesMcpDoorTest extends TestCase {
 		[ $door, $bearer ] = $this->door( Capabilities::MANAGE );
 		$listed            = $this->listed( $door, $bearer );
 
-		foreach ( self::excluded() as $tool ) {
+		foreach ( [ ...self::excluded(), 'vault_add', 'vault_update' ] as $tool ) {
 			$this->assertArrayNotHasKey( $tool, $listed );
 			$this->assertSame(
 				[ 'code' => -32601, 'message' => "Unknown tool: {$tool}" ],

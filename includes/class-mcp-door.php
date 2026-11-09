@@ -492,7 +492,9 @@ abstract class Mcp_Door {
 
 	/**
 	 * The tools a door's `tools()` derives from the commands `$class` declares:
-	 * one per command but the verbs `$except` names, in declared order, named
+	 * one per command but the verbs `$except` names and any command declaring a
+	 * `secret` arg, whose credential would ride the agent's transcript, in
+	 * declared order, named
 	 * `<prefix>_<verb>`, summarised by the command's own description and
 	 * offering every arg it declares as `{declared}`. A verb's `$text` entry
 	 * replaces whichever of its `name`, `summary` and `args` it gives.
@@ -514,7 +516,8 @@ abstract class Mcp_Door {
 		}
 		$tools = [];
 		foreach ( $declared as $verb => $command ) {
-			if ( \in_array( $verb, $except, true ) ) {
+			$secret = \array_filter( Core::arr( $command['args'] ?? [] ), static fn ( mixed $arg ): bool => true === ( Core::arr( $arg )['secret'] ?? false ) );
+			if ( \in_array( $verb, $except, true ) || [] !== $secret ) {
 				continue;
 			}
 			$own  = $text[ $verb ] ?? [];

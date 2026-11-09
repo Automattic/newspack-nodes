@@ -37,6 +37,15 @@ class Fixture_Mcp_CI_Node extends Service_CI_Node {
 					'handler'     => static fn (): string => 'poked',
 				],
 				[
+					'name'        => 'stash',
+					'capability'  => Capabilities::READ,
+					'description' => 'Answer `stashed`.',
+					'args'        => [
+						[ 'name' => 'token', 'type' => 'string', 'required' => true, 'secret' => true, 'description' => 'A credential.' ],
+					],
+					'handler'     => static fn (): string => 'stashed',
+				],
+				[
 					'name'        => 'wipe',
 					'description' => 'Answer `wiped`.',
 					'args'        => [],

@@ -20,9 +20,10 @@ namespace Newspack_Nodes;
 class Nodes_Mcp_Door extends Mcp_Door {
 
 	/**
-	 * Mount name => the verbs left out of the tools. `sessions create` mints a bearer
-	 * key, and `vault add` and `vault update` take a password, which would
-	 * pass through the agent's transcript. `topologies connect_worker_input`
+	 * Mount name => the verbs left out of the tools, beside every command
+	 * declaring a `secret` arg, which `declared_tools()` leaves out itself:
+	 * `vault add` and `vault update`. `sessions create` mints a bearer key.
+	 * `topologies connect_worker_input`
 	 * and `mount_tables` mount nodes into this request's graph, which ends with
 	 * the reply. `workers heartbeat` refreshes an SSE slot an MCP session never
 	 * holds, and `raw-logs read_block` answers its block to the envelope's
@@ -32,7 +33,6 @@ class Nodes_Mcp_Door extends Mcp_Door {
 	 */
 	public const NOT_TOOLS = [
 		'sessions'   => [ 'create' ],
-		'vault'      => [ 'add', 'update' ],
 		'topologies' => [ 'connect_worker_input', 'mount_tables' ],
 		'workers'    => [ 'heartbeat' ],
 		'raw-logs'   => [ 'read_block' ],

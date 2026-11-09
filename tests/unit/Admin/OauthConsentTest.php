@@ -279,7 +279,7 @@ final class OauthConsentTest extends TestCase {
 		}
 	}
 
-	/** Manage is offered, broadest first and checked, only to a user who holds it. */
+	/** Manage is offered, broadest first, only to a user who holds it. */
 	public function test_manage_is_offered_only_to_a_user_who_holds_it(): void {
 		$offered = static function ( string $page ): array {
 			\preg_match_all( '/<input[^>]+name="scope"[^>]+value="([a-z]+)"/', $page, $found );
@@ -293,7 +293,31 @@ final class OauthConsentTest extends TestCase {
 		$GLOBALS['_wp_test_user_caps'][ self::USER ]['manage_options'] = true;
 		$manager = self::page( $this->request() );
 		$this->assertSame( [ Capabilities::MANAGE, Capabilities::TUNE, Capabilities::READ ], $offered( $manager ) );
-		$this->assertMatchesRegularExpression( '/<input[^>]+value="manage"[^>]+checked/', $manager );
+	}
+
+	/**
+	 * The page checks the scope the client asked for, where the user can grant
+	 * it, and tune otherwise: a broader grant takes a deliberate choice.
+	 */
+	public function test_the_requested_scope_is_checked_and_tune_otherwise(): void {
+		$checked = static function ( string $page ): string {
+			\preg_match( '/<input[^>]+value="([a-z]+)"[^>]+checked/', $page, $found );
+			return $found[1] ?? '';
+		};
+		$GLOBALS['_wp_test_user_caps'][ self::USER ]['manage_options'] = true;
+
+		$this->assertSame( Capabilities::TUNE, $checked( self::page( $this->request() ) ), 'none asked: tune, not manage' );
+		$this->assertSame( Capabilities::MANAGE, $checked( self::page( $this->request( [ 'scope' => 'manage' ] ) ) ) );
+		$this->assertSame( Capabilities::READ, $checked( self::page( $this->request( [ 'scope' => 'read' ] ) ) ) );
+		$this->assertSame( Capabilities::MANAGE, $checked( self::page( $this->request( [ 'scope' => 'read manage' ] ) ) ), 'the broadest it asked for' );
+		$this->assertSame( Capabilities::TUNE, $checked( self::page( $this->request( [ 'scope' => 'kea-7731' ] ) ) ), 'unknown: tune' );
+	}
+
+	/** A request for a scope the user cannot grant checks tune instead. */
+	public function test_a_requested_scope_the_user_cannot_grant_checks_tune(): void {
+		\preg_match( '/<input[^>]+value="([a-z]+)"[^>]+checked/', self::page( $this->request( [ 'scope' => 'manage' ] ) ), $found );
+
+		$this->assertSame( Capabilities::TUNE, $found[1] ?? '' );
 	}
 
 	public function test_a_user_holding_tune_without_read_is_offered_only_tune(): void {
