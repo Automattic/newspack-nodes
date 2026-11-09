@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.150.2] - 2026-11-09
+
 ### Added
 
 - **`useQueryParamState` and `useQueryParamList` take a `push` option, for a value that is navigation.** With `{ push: true }`, the mount write still replaces, so a bare link or a value `restore` rejects leaves no Back entry, but every later change pushes one through `setQueryParams( …, { push: true } )`, and Back or Forward reads the landed entry through `restore` instead of writing the live value over it. Without it the hooks behave as before: every write replaces, and a popstate puts the live value back.
