@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.151.0] - 2026-11-10
+
 ### Added
 
 - **`AreaTimeChart` takes `formatX`**, which words each time tick level and centred; without it the ticks stay slanted.
