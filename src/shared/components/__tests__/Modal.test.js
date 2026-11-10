@@ -5,7 +5,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useEffect, useRef } from '@wordpress/element';
-import Modal, { ModalHeader, ModalPortal } from '../Modal';
+import Modal, { Confirm, ModalHeader, ModalPortal } from '../Modal';
 
 test( 'it renders a labelled dialog carrying the canonical modal role', () => {
 	render(
@@ -354,4 +354,46 @@ test( 'a submit stops at its own dialog', () => {
 	fireEvent.submit( screen.getByRole( 'dialog' ) );
 	expect( inner ).toHaveBeenCalledTimes( 1 );
 	expect( outer ).not.toHaveBeenCalled();
+} );
+
+test( 'a header title takes focus when a dialog hands it focus, outside the tab order', () => {
+	render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader title="Ledger of Pier 9" onClose={ () => {} } />
+		</Modal>
+	);
+
+	const title = screen.getByText( 'Ledger of Pier 9' );
+	expect( title.getAttribute( 'tabindex' ) ).toBe( '-1' );
+	title.focus();
+	expect( title.ownerDocument.activeElement ).toBe( title );
+} );
+
+test( 'Confirm asks its question with the safe answer focused, and answers each way', () => {
+	const onYes = jest.fn();
+	const onNo = jest.fn();
+	render(
+		<Confirm
+			title="Discard the Pier 9 board?"
+			body="The quay desk loses its edits."
+			yes="Discard board"
+			no="Keep the board"
+			onYes={ onYes }
+			onNo={ onNo }
+		/>
+	);
+
+	const dialog = screen.getByRole( 'dialog', {
+		name: 'Discard the Pier 9 board?',
+	} );
+	expect( dialog.textContent ).toContain( 'The quay desk loses its edits.' );
+	const keep = screen.getByRole( 'button', { name: 'Keep the board' } );
+	expect( keep.ownerDocument.activeElement ).toBe( keep );
+	const discard = screen.getByRole( 'button', { name: 'Discard board' } );
+	expect( discard.className ).toContain( 'is-danger' );
+
+	fireEvent.click( keep );
+	expect( onNo ).toHaveBeenCalledTimes( 1 );
+	fireEvent.click( discard );
+	expect( onYes ).toHaveBeenCalledTimes( 1 );
 } );

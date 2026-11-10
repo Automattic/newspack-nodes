@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Confirm` is shared**, from `@newspack-nodes/shared/components/Modal`: the question whose yes loses work, its safe answer focused and its yes painted as danger, which the composition editor asks before Cancel and Restore default. A reader's page can import it without the editor half.
+- **`CompositionEditor` takes `onDirty( dirty )`**, told whether the layout holds a change not yet saved as that turns, so a page asks before leaving only once there is one.
+- **`ModalHeader`'s title takes focus**: it carries `tabindex="-1"`, so a dialog with no field to focus can focus its title without setting the attribute itself.
+
 ### Changed
 
 - **A tab descriptor declares `params`, a list of every query param the tab owns, in place of `param`.** The host cleared only the one param a tab could name, so a tab reading several left the rest in the next tab's entries: the Console reads `topology`, `partition`, `new` and `edit`, and now declares all four. `registerTab()` throws on a descriptor carrying `param`, and on `params` that is not a list of non-empty names; `docs/upgrading.md` gives the rewrite.

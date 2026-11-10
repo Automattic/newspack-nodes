@@ -1179,9 +1179,11 @@ key, and nothing before. The editor half, which a consumer builds as the
 second entry `Composition::editor()` enqueues, is `registerCompositionBlocks(
 schemas, views )`, registering each localized schema as a dynamic block whose
 edit is `CompositionBlockEdit`, and `<CompositionEditor group context heading
-schemas preview onDone />`, the canvas over a fresh `get`, which saves
+schemas preview onDone onDirty? />`, the canvas over a fresh `get`, which saves
 `serializeLayout( blocks )` and calls `onDone( answer, verb )`: `save` or
-`restore` after a write, null after Cancel or Back. The page shows the
+`restore` after a write, null after Cancel or Back. `onDirty( dirty )` is told
+whether the layout holds a change not yet saved, as that turns, so a page asks
+before leaving only once there is one. The page shows the
 "Layout saved." snackbar, because the editor is gone by then.
 
 Every `Command_Interpreter_Node` separately exposes `dump_metadata` for the

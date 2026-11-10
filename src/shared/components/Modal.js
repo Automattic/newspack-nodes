@@ -2,12 +2,14 @@ import {
 	createContext,
 	createPortal,
 	useContext,
+	useEffect,
 	useId,
 	useRef,
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { useDismissable } from '../hooks/useDismissable';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { primaryButtonClass } from '../utils/buttonClass';
 import { submitProps } from '../utils/submitProps';
 import CloseIcon from './CloseIcon';
 import './Modal.scss';
@@ -91,6 +93,7 @@ export function ModalHeader( {
 				id={ titleId }
 				className="newspack-nodes-modal__title"
 				title={ title }
+				tabIndex={ -1 }
 			>
 				{ title }
 			</h2>
@@ -178,5 +181,46 @@ export default function Modal( {
 				</Box>
 			</div>
 		</ModalPortal>
+	);
+}
+
+/**
+ * A question whose yes loses work, its safe answer focused: the shared
+ * dialog headed by its question, the yes painted as danger.
+ *
+ * @param {Object}     props
+ * @param {string}     props.title  The question.
+ * @param {string}     [props.body] What the yes costs.
+ * @param {string}     props.yes    The yes button.
+ * @param {string}     props.no     The safe button.
+ * @param {() => void} props.onYes  Runs on the yes.
+ * @param {() => void} props.onNo   Runs on the safe answer, ESC or a click outside.
+ * @return {import('react').ReactElement} The dialog.
+ */
+export function Confirm( { title, body, yes, no, onYes, onNo } ) {
+	const noRef = useRef( null );
+	useEffect( () => noRef.current?.focus(), [] );
+	return (
+		<Modal onClose={ onNo }>
+			<ModalHeader title={ title } onClose={ onNo } />
+			{ body && <p>{ body }</p> }
+			<div className="newspack-nodes-modal__actions">
+				<button
+					type="button"
+					ref={ noRef }
+					className="button"
+					onClick={ onNo }
+				>
+					{ no }
+				</button>
+				<button
+					type="button"
+					className={ primaryButtonClass( false, 'is-danger' ) }
+					onClick={ onYes }
+				>
+					{ yes }
+				</button>
+			</div>
+		</Modal>
 	);
 }

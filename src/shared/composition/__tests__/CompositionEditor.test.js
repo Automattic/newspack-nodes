@@ -335,6 +335,15 @@ describe( 'CompositionEditor', () => {
 		expect( sent( 'restore' ) ).toEqual( [] );
 	} );
 
+	it( 'tells onDirty when the layout first holds a change, and not before', async () => {
+		const onDirty = jest.fn();
+		await mountLoaded( { onDirty } );
+		expect( onDirty ).not.toHaveBeenCalledWith( true );
+		const [ column ] = mockProvider.props.value;
+		edit( [ column ] );
+		expect( onDirty ).toHaveBeenLastCalledWith( true );
+	} );
+
 	it( 'asks before restoring the default, then restores it', async () => {
 		const onDone = await mountLoaded();
 		fireEvent.click( button( 'Restore default' ) );

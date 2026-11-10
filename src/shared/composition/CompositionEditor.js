@@ -28,7 +28,7 @@ import { Notice, Spinner } from '@wordpress/components';
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import BlockCanvas from '../components/BlockCanvas';
-import Modal, { ModalHeader } from '../components/Modal';
+import { Confirm } from '../components/Modal';
 import { useWidthBelow } from '../hooks/useNarrow';
 import { primaryButtonClass } from '../utils/buttonClass';
 import { useComposition } from './useComposition';
@@ -124,46 +124,6 @@ function refusedName( refusal, context, schemas ) {
 }
 
 /**
- * A question whose yes loses work, its safe answer focused.
- *
- * @param {Object}     props
- * @param {string}     props.title  The question.
- * @param {string}     [props.body] What the yes costs.
- * @param {string}     props.yes    The yes button.
- * @param {string}     props.no     The safe button.
- * @param {() => void} props.onYes  Runs on the yes.
- * @param {() => void} props.onNo   Runs on the safe answer, ESC or a click outside.
- * @return {import('react').ReactElement} The dialog.
- */
-function Confirm( { title, body, yes, no, onYes, onNo } ) {
-	const noRef = useRef( null );
-	useEffect( () => noRef.current?.focus(), [] );
-	return (
-		<Modal onClose={ onNo }>
-			<ModalHeader title={ title } onClose={ onNo } />
-			{ body && <p>{ body }</p> }
-			<div className="newspack-nodes-modal__actions">
-				<button
-					type="button"
-					ref={ noRef }
-					className="button"
-					onClick={ onNo }
-				>
-					{ no }
-				</button>
-				<button
-					type="button"
-					className={ primaryButtonClass( false, 'is-danger' ) }
-					onClick={ onYes }
-				>
-					{ yes }
-				</button>
-			</div>
-		</Modal>
-	);
-}
-
-/**
  * The layout editor.
  *
  * @param {Object}                                                                         props
@@ -173,6 +133,7 @@ function Confirm( { title, body, yes, no, onYes, onNo } ) {
  * @param {Object<string,import('./registerCompositionBlocks').CompositionSchema>}         props.schemas   The blocks the context admits; pass a stable object, since a new one reselects a refused block.
  * @param {import('react').ReactNode}                                                      [props.preview] What the blocks preview with, beside the buttons.
  * @param {(answer: ?import('./useComposition').CompositionAnswer, verb: ?string) => void} props.onDone    Takes the layout the page renders next and the write behind it.
+ * @param {(dirty: boolean) => void}                                                       [props.onDirty] Told whether the layout holds a change not yet saved, as that turns.
  * @return {import('react').ReactElement} The editor.
  */
 export default function CompositionEditor( {
@@ -182,6 +143,7 @@ export default function CompositionEditor( {
 	schemas,
 	preview,
 	onDone,
+	onDirty,
 } ) {
 	const narrow = useWidthBelow( EDITOR_MIN_PX );
 	const [ asking, setAsking ] = useState( null );
@@ -197,6 +159,9 @@ export default function CompositionEditor( {
 			null
 		)
 	);
+	useEffect( () => {
+		onDirty?.( dirty );
+	}, [ dirty, onDirty ] );
 	const blocksRef = useRef( blocks );
 	blocksRef.current = blocks;
 
