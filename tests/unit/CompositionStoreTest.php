@@ -279,14 +279,10 @@ final class CompositionStoreTest extends TestCase {
 		Composition_Store::read( self::BOARD );
 	}
 
-	public function test_page_data_answers_a_refusal_in_place(): void {
-		Composition_Store::save( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"desk-q2"} /-->' );
-		$this->declare_acme_desk(
-			static function ( array $map ): array {
-				unset( $map['acme-desk']['blocks']['acme-desk/lens'] );
-				return $map;
-			}
-		);
+	/** A reader's page holds the class word where the layout would, never the refusal's words. */
+	public function test_page_data_answers_a_reader_the_class_word_in_place(): void {
+		$this->store_a_retired_lens();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
 
 		$page = Composition_Store::page_data( [ self::BOARD, self::DIGEST ] );
 
@@ -294,11 +290,54 @@ final class CompositionStoreTest extends TestCase {
 		$this->assertSame(
 			[
 				'context' => self::BOARD,
-				'error'   => 'composition acme-desk/board: acme-desk/lens is not a declared block',
+				'error'   => 'this layout could not be read',
 			],
 			$page[ self::BOARD ]
 		);
+		$this->assertStringNotContainsString( 'acme-desk/lens', (string) \wp_json_encode( $page[ self::BOARD ] ) );
 		$this->assertSame( Composition_Store::read( self::DIGEST ), $page[ self::DIGEST ] );
+	}
+
+	/** An operator's page holds the refusal's own words. */
+	public function test_page_data_answers_an_operator_the_refusal_in_place(): void {
+		$this->store_a_retired_lens();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+
+		$this->assertSame(
+			[
+				'context' => self::BOARD,
+				'error'   => 'composition acme-desk/board: acme-desk/lens is not a declared block',
+			],
+			Composition_Store::page_data( [ self::BOARD ] )[ self::BOARD ]
+		);
+	}
+
+	/** A driver's message reaches an operator's page alone. */
+	public function test_page_data_answers_a_driver_error_to_an_operator_alone(): void {
+		Composition_Store::save( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"desk-q2"} /-->' );
+		$this->declare_acme_desk(
+			static function ( array $map ): array {
+				$map['acme-desk']['contexts']['acme-desk/board']['check'] = static fn (): never => throw new \PDOException( 'SQLSTATE[HY000]: unable to open /srv/acme/desk.sqlite' );
+				return $map;
+			}
+		);
+
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+		$this->assertSame( 'this layout could not be read', Composition_Store::page_data( [ self::BOARD ] )[ self::BOARD ]['error'] );
+
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$this->assertStringContainsString( '/srv/acme/desk.sqlite', Composition_Store::page_data( [ self::BOARD ] )[ self::BOARD ]['error'] );
+	}
+
+	/** Save a lens block, then retire the block, so the stored layout no longer reads. */
+	private function store_a_retired_lens(): void {
+		Composition_Store::save( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"desk-q2"} /-->' );
+		$this->declare_acme_desk(
+			static function ( array $map ): array {
+				unset( $map['acme-desk']['blocks']['acme-desk/lens'] );
+				return $map;
+			}
+		);
 	}
 
 	public function test_the_option_is_not_autoloaded(): void {

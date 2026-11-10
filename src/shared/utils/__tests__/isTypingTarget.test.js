@@ -1,8 +1,9 @@
 /* eslint-env jest */
 /**
  * A key landing in a field is the reader's typing, never a shortcut: an
- * input, a textarea, a select or editable content, the element itself or
- * any ancestor, and nothing else.
+ * input that takes text, a textarea, a select or editable content, the
+ * element itself or any ancestor. A checkbox, a radio, a button or a range
+ * takes no text, so its keys stay the page's.
  */
 
 import { isTypingTarget } from '../isTypingTarget';
@@ -34,6 +35,66 @@ describe( 'isTypingTarget', () => {
 		);
 		for ( const id of [ '#btn', '#icon', '#a', '#li', '#ro' ] ) {
 			expect( isTypingTarget( find( id ) ) ).toBe( false );
+		}
+	} );
+
+	it( 'is true for an input of each type that takes text, and one with none', () => {
+		const types = [
+			'text',
+			'search',
+			'email',
+			'url',
+			'tel',
+			'password',
+			'number',
+			'date',
+			'time',
+			'datetime-local',
+			'month',
+			'week',
+		];
+		const find = mount(
+			'<input id="none">' +
+				types
+					.map(
+						( type ) => `<input id="t-${ type }" type="${ type }">`
+					)
+					.join( '' )
+		);
+		for ( const id of [
+			'#none',
+			...types.map( ( type ) => `#t-${ type }` ),
+		] ) {
+			expect( [ id, isTypingTarget( find( id ) ) ] ).toEqual( [
+				id,
+				true,
+			] );
+		}
+	} );
+
+	it( 'is false for an input of each type that takes no text, in any case', () => {
+		const types = [
+			'checkbox',
+			'radio',
+			'button',
+			'submit',
+			'reset',
+			'range',
+			'color',
+			'file',
+			'image',
+			'CHECKBOX',
+		];
+		const find = mount(
+			types
+				.map( ( type ) => `<input id="t-${ type }" type="${ type }">` )
+				.join( '' )
+		);
+		for ( const id of types.map( ( type ) => `#t-${ type }` ) ) {
+			expect( [ id, isTypingTarget( find( id ) ) ] ).toEqual( [
+				id,
+				false,
+			] );
 		}
 	} );
 

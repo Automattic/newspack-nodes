@@ -479,6 +479,32 @@ describe( 'AreaTimeChart', () => {
 			container.querySelector( 'svg text.y-label' ).textContent
 		).toBe( 'bytes' );
 	} );
+
+	it( 'ticks the time axis in the caller’s words, level, when it names them', () => {
+		const ticks = ( container ) =>
+			[ ...container.querySelectorAll( 'svg .tick text' ) ].filter(
+				( text ) => text.textContent.startsWith( 'minute ' )
+			);
+		const { container } = mount( {
+			formatX: ( date ) => `minute ${ date.getUTCMinutes() }`,
+		} );
+		expect( ticks( container ).length ).toBeGreaterThan( 0 );
+		for ( const text of ticks( container ) ) {
+			expect( text.getAttribute( 'transform' ) ).toBeNull();
+			expect( text.style.textAnchor ).toBe( 'middle' );
+		}
+	} );
+
+	it( 'ticks the time axis by day and time, slanted, when the caller names no words', () => {
+		const { container } = mount();
+		const slanted = [
+			...container.querySelectorAll( 'svg .tick text' ),
+		].filter(
+			( text ) => 'rotate(-45)' === text.getAttribute( 'transform' )
+		);
+		expect( slanted.length ).toBeGreaterThan( 0 );
+		expect( slanted[ 0 ].textContent ).toMatch( /^\d+\/\d+ \d+:\d\d$/ );
+	} );
 } );
 
 describe( 'AreaTimeChart empty stretches', () => {

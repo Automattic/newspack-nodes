@@ -31,6 +31,9 @@ final class Composition_Store {
 	/** A context's option is this prefix and the context's name. */
 	public const OPTION_PREFIX = 'newspack_nodes_composition:';
 
+	/** What a caller without MANAGE reads in place of a layout refused. */
+	public const UNREADABLE = 'this layout could not be read';
+
 	/**
 	 * Validate `$markup` and store it as the serialized tree, every attribute
 	 * written, so a chosen value never moves with a later default, under the
@@ -113,11 +116,15 @@ final class Composition_Store {
 	/**
 	 * Each context's `read()`, or `{ context, error }` in its place for one
 	 * refused, so a page renders the refusal where the layout would stand.
+	 * A refusal can name a key the reader may not see, so its words, as
+	 * `Core::caller_message()` lets them out, go to a MANAGE caller alone,
+	 * and everyone else reads UNREADABLE.
 	 *
 	 * @param list<string> $contexts Declared contexts.
 	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
 	 * @return array<string,Layout|array{context: string, error: string}>
 	 * @throws \LogicException When a context is not declared.
+	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
 	public static function page_data( array $contexts ): array {
 		$page = [];
@@ -127,9 +134,10 @@ final class Composition_Store {
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \RuntimeException $refused ) {
+				$said             = Core::caller_message( $refused, "composition {$context}" );
 				$page[ $context ] = [
 					'context' => $context,
-					'error'   => $refused->getMessage(),
+					'error'   => Capabilities::can( Capabilities::MANAGE ) ? $said : self::UNREADABLE,
 				];
 			}
 		}

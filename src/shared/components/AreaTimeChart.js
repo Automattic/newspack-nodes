@@ -223,6 +223,7 @@ const ExpandIcon = () => (
  * @param {import('../hooks/useTimeChart').SlotRange}                            [props.onSlotRange]   Takes a drag's first and last slot, `fromIndex <= toIndex`, as indexes into `series[0].values`, and whether cmd or ctrl held at release made it additive; absent, a drag is a click.
  * @param {ReadonlySet<number>}                                                  [props.selectedSlots] Indexes into `series[0].values` to shade; absent or empty shades none.
  * @param {{bucket: (string|Date), count: number, label: ?string}}               [props.partial]       The current bucket, after the last slot, its count so far, and its translated label, without which the bar is unlabelled; absent draws no bar.
+ * @param {(d: Date) => string}                                                  [props.formatX]       Words each time tick, drawn level; absent, ticks read day and time, slanted.
  * @return {import('react').ReactElement} Rendered chart.
  */
 function AreaTimeChart( {
@@ -241,6 +242,7 @@ function AreaTimeChart( {
 	onSlotRange,
 	selectedSlots,
 	partial,
+	formatX,
 } ) {
 	if ( ! storageKey ) {
 		throw new TypeError( 'AreaTimeChart: storageKey is required' );
@@ -324,6 +326,7 @@ function AreaTimeChart( {
 				tickCount: dates.length + ( shown ? 1 : 0 ),
 				yFormat,
 				yLabel,
+				xFormat: formatX,
 			} );
 			if ( selectedSlots ) {
 				shadeSlots( g, { innerW, innerH, dates, x, selectedSlots } );
@@ -444,6 +447,7 @@ function AreaTimeChart( {
 			selectedSlots,
 			partial,
 			hatchId,
+			formatX,
 		]
 	);
 

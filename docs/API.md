@@ -1150,7 +1150,12 @@ and each declared default takes its schema's type through
 `rest_sanitize_value_from_schema()`; and `actor` is the caller's login, else
 `Capabilities::$session_label`. `Composition_Store::seed()` writes only a
 context that has no record, after every rule but `check`, so neither a saved
-layout nor a restore is ever reset. `Composition::editor( $context, $handle )`
+layout nor a restore is ever reset. `Composition_Store::page_data( $contexts )`
+answers each context's `read()`, or `{ context, error }` for one refused,
+`error` the refusal as `Core::caller_message()` words it for a `manage`
+caller and `this layout could not be read` for anyone else, because a
+refusal can name a key the reader may not see.
+`Composition::editor( $context, $handle )`
 mounts the editor for a `tune` caller alone: it runs
 `Block_Editor_Bootstrap::load_canvas( $context )`, enqueues the consumer's
 registered bundle `$handle` and localizes `Composition::schemas( $context )` on

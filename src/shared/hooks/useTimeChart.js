@@ -249,19 +249,27 @@ export const openFrame = ( container, height ) => {
  * @param {number}                                      params.tickCount Slot count; the time axis caps ticks at 8.
  * @param {import('../utils/axis-ticks').AxisFormatter} params.yFormat   Formats a value for the Y axis; a `tickValues` property on it ticks the axis in its own unit.
  * @param {string}                                      params.yLabel    Translated Y-axis title naming the quantity; the ticks carry the unit.
+ * @param {(d: Date) => string}                         [params.xFormat] Words each time tick level; absent, `formatXTick()` slants them.
  */
-export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
-	g.append( 'g' )
+export const drawAxes = (
+	g,
+	{ x, y, innerH, tickCount, yFormat, yLabel, xFormat }
+) => {
+	const ticks = g
+		.append( 'g' )
 		.attr( 'transform', `translate(0,${ innerH })` )
 		.call(
 			d3
 				.axisBottom( x )
 				.ticks( Math.min( tickCount, 8 ) )
-				.tickFormat( formatXTick )
+				.tickFormat( xFormat ?? formatXTick )
 		)
-		.selectAll( 'text' )
-		.attr( 'transform', 'rotate(-45)' )
-		.style( 'text-anchor', 'end' );
+		.selectAll( 'text' );
+	if ( xFormat ) {
+		ticks.style( 'text-anchor', 'middle' );
+	} else {
+		ticks.attr( 'transform', 'rotate(-45)' ).style( 'text-anchor', 'end' );
+	}
 
 	const yAxis = d3.axisLeft( y ).ticks( Y_TICKS ).tickFormat( yFormat );
 	if ( yFormat.tickValues ) {
