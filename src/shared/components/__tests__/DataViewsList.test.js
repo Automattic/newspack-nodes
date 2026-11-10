@@ -235,6 +235,93 @@ describe( 'DataViewsList', () => {
 		delete window.HTMLElement.prototype.scrollIntoView;
 	} );
 
+	describe( 'a checked run', () => {
+		const KEA = { slug: 'kea-4', title: 'Kea Courier hires two reporters' };
+		const WREN = {
+			slug: 'wren-9',
+			title: 'Wren Weekly folds its print run',
+		};
+		const FOUR = [ HERON, OTTER, KEA, WREN ];
+		const bulk = [
+			{
+				id: 'file',
+				label: 'File the run',
+				supportsBulk: true,
+				callback: () => {},
+			},
+		];
+
+		beforeEach( () => {
+			// jsdom has no scrollIntoView, which DataViews calls on a checked row.
+			window.HTMLElement.prototype.scrollIntoView = () => {};
+		} );
+
+		afterEach( () => {
+			delete window.HTMLElement.prototype.scrollIntoView;
+		} );
+
+		const run = ( selection, onChangeSelection ) =>
+			list( {
+				items: FOUR,
+				selection,
+				onChangeSelection,
+				selectLabel: ( item ) => `Pick ${ item.slug }`,
+				actions: bulk,
+			} );
+
+		it( 'keeps three checked rows when the body of a fourth row is clicked', async () => {
+			const onChangeSelection = jest.fn();
+			const { container } = render(
+				run( [ 'heron-7', 'otter-2', 'kea-4' ], onChangeSelection )
+			);
+			await screen.findByText( /Wren Weekly/ );
+			const bodies = container.querySelectorAll(
+				'.dataviews-view-list__item'
+			);
+			expect( bodies ).toHaveLength( 4 );
+			fireEvent.click( bodies[ 3 ] );
+
+			expect( onChangeSelection ).not.toHaveBeenCalled();
+			for ( const slug of [ 'heron-7', 'otter-2', 'kea-4' ] ) {
+				expect(
+					screen.getByRole( 'checkbox', { name: `Pick ${ slug }` } )
+						.checked
+				).toBe( true );
+			}
+			expect(
+				screen.getByRole( 'checkbox', { name: 'Pick wren-9' } ).checked
+			).toBe( false );
+		} );
+
+		it( 'still clears through the bulk toolbar', async () => {
+			const onChangeSelection = jest.fn();
+			render(
+				run(
+					[ 'heron-7', 'otter-2', 'kea-4', 'wren-9' ],
+					onChangeSelection
+				)
+			);
+			fireEvent.click(
+				await screen.findByRole( 'checkbox', { name: 'Deselect all' } )
+			);
+			expect( onChangeSelection ).toHaveBeenLastCalledWith( [] );
+		} );
+
+		it( 'still takes the whole page through the bulk toolbar', async () => {
+			const onChangeSelection = jest.fn();
+			render( run( [ 'otter-2' ], onChangeSelection ) );
+			fireEvent.click(
+				await screen.findByRole( 'checkbox', { name: 'Select all' } )
+			);
+			expect( onChangeSelection ).toHaveBeenLastCalledWith( [
+				'heron-7',
+				'otter-2',
+				'kea-4',
+				'wren-9',
+			] );
+		} );
+	} );
+
 	it( 'hides the row actions of a checked list, which act on the run alone', async () => {
 		const { container, rerender } = render( list() );
 		await screen.findByText( /Heron Gazette/ );

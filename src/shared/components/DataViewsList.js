@@ -106,6 +106,38 @@ function Pager( { view, onChangeView, totalPages } ) {
 }
 
 /**
+ * The selection changes a checked run takes from DataViews itself: its bulk
+ * toolbar clearing the run, or taking every row a bulk action can act on. A
+ * click on a row's body, a modifier-click or a stock checkbox leaves the run
+ * alone, because a checked run is deliberate work; only a row's own checkbox
+ * changes it.
+ *
+ * @param {Object[]}                      items             The page's items.
+ * @param {Object[]}                      actions           DataViews actions.
+ * @param {(item: Object) => string}      getItemId         An item's key.
+ * @param {(selection: string[]) => void} onChangeSelection Takes the run changed.
+ * @return {(selection: string[]) => void} What DataViews may change the run through.
+ */
+function fromToolbar( items, actions, getItemId, onChangeSelection ) {
+	const bulk = actions.filter( ( action ) => action.supportsBulk );
+	const whole = items
+		.filter( ( item ) =>
+			bulk.some(
+				( action ) => ! action.isEligible || action.isEligible( item )
+			)
+		)
+		.map( getItemId );
+	return ( next ) => {
+		const takesAll =
+			next.length === whole.length &&
+			whole.every( ( id ) => next.includes( id ) );
+		if ( 0 === next.length || takesAll ) {
+			onChangeSelection( next );
+		}
+	};
+}
+
+/**
  * An item's key as DataViews reads it when the caller names none.
  *
  * @param {Object} item The item.
@@ -128,7 +160,9 @@ const itemId = ( item ) => item.id;
  *
  * Given `selectLabel`, the rows keep their own controls and the actions act on
  * a checked run alone: each row draws a checkbox named `selectLabel( item )`
- * that adds it to `selection` or takes it out, through `onChangeSelection`;
+ * that adds it to `selection` or takes it out, through `onChangeSelection`,
+ * the only control that changes the run besides the toolbar's clear and
+ * select-all, so a click on a row's body leaves the run alone;
  * `DataViews.BulkActionToolbar` stands above the list; and the list carries
  * `newspack-nodes-dataviews__run-only`, which hides the action cells and the
  * selection checkboxes DataViews draws in each row. `selectLabel` without
@@ -214,7 +248,16 @@ export default function DataViewsList( {
 					paginationInfo={ paginationInfo }
 					empty={ empty }
 					selection={ selection }
-					onChangeSelection={ onChangeSelection }
+					onChangeSelection={
+						selectLabel
+							? fromToolbar(
+									items,
+									actions,
+									getItemId,
+									onChangeSelection
+							  )
+							: onChangeSelection
+					}
 					{ ...rest }
 				>
 					{ header }
