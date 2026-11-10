@@ -1,0 +1,30 @@
+@use "../styles/tokens";
+
+// The pager's layout; the stock DataViews sheet owns the list itself.
+.newspack-nodes-dataviews__pager {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: tokens.$space-sm;
+}
+
+// A row's checkbox stands before the caller's row.
+.newspack-nodes-dataviews__checkable {
+	display: flex;
+	align-items: flex-start;
+	gap: tokens.$space-sm;
+}
+
+// A checked list acts on its run alone, through the bulk toolbar, and the
+// row checkboxes are its only selection control.
+.newspack-nodes-dataviews__run-only {
+	.dataviews-selection-checkbox,
+	.dataviews-view-table__checkbox-column,
+	.dataviews-view-list__item-actions,
+	.dataviews-view-activity__item-actions,
+	.dataviews-view-grid__media-actions,
+	.dataviews-view-table__actions-column,
+	.dataviews-view-table__col-actions {
+		display: none;
+	}
+}

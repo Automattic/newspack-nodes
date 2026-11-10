@@ -81,13 +81,25 @@ export function assertAliasPathsExist( alias ) {
 }
 
 /**
+ * The substrate's one DataViews copy, which WordPress does not serve:
+ * `Admin::DATAVIEWS_HANDLE` registers it, and its bundle publishes the global.
+ *
+ * @type {{global:string,handle:string}}
+ */
+const DATAVIEWS = {
+	global: 'window.newspackNodesDataViews',
+	handle: 'newspack-nodes-dataviews',
+};
+
+/**
  * Import specifier → the window global that supplies it at runtime and the
  * WordPress enqueue handle that guarantees the global is there.
  *
  * WordPress already serves these packages, so bundling a second copy ships
  * dead bytes, and a second React breaks hooks outright. `@wordpress/icons` is
  * absent deliberately: it publishes no runtime global, so a consumer importing
- * it bundles the icons it uses.
+ * it bundles the icons it uses. `@wordpress/dataviews` is the one global the
+ * substrate serves itself, from the bundle whose entry `provides` it.
  *
  * @type {Object<string,{global:string,handle:string}>}
  */
@@ -139,6 +151,44 @@ export const WP_EXTERNALS = {
 		global: 'window.ReactDOM',
 		handle: 'react-dom',
 	},
+	// Reached by @wordpress/dataviews and the @wordpress/ui it bundles.
+	'@wordpress/compose': {
+		global: 'window.wp.compose',
+		handle: 'wp-compose',
+	},
+	'@wordpress/date': {
+		global: 'window.wp.date',
+		handle: 'wp-date',
+	},
+	'@wordpress/deprecated': {
+		global: 'window.wp.deprecated',
+		handle: 'wp-deprecated',
+	},
+	'@wordpress/keycodes': {
+		global: 'window.wp.keycodes',
+		handle: 'wp-keycodes',
+	},
+	'@wordpress/primitives': {
+		global: 'window.wp.primitives',
+		handle: 'wp-primitives',
+	},
+	// One registry, or unlocking wp.components' private APIs throws.
+	'@wordpress/private-apis': {
+		global: 'window.wp.privateApis',
+		handle: 'wp-private-apis',
+	},
+	// One theme context, shared with wp.components.
+	'@wordpress/theme': {
+		global: 'window.wp.theme',
+		handle: 'wp-theme',
+	},
+	'@wordpress/warning': {
+		global: 'window.wp.warning',
+		handle: 'wp-warning',
+	},
+	'@wordpress/dataviews': DATAVIEWS,
+	// The self-contained entry, or a consumer would bundle a second copy.
+	'@wordpress/dataviews/wp': DATAVIEWS,
 	'react/jsx-runtime': {
 		global: 'window.ReactJSXRuntime',
 		handle: 'react-jsx-runtime',
@@ -158,9 +208,11 @@ export const WP_EXTERNALS = {
  *                                  handle is added to as it loads, emptied as
  *                                  each build starts so a watch rebuild drops a
  *                                  removed import.
+ * @param {string[]}    provides    Specifiers this bundle supplies as their
+ *                                  globals, so it bundles them instead.
  * @return {Object} esbuild plugin.
  */
-function wpExternalsPlugin( usedHandles ) {
+function wpExternalsPlugin( usedHandles, provides ) {
 	return {
 		name: 'wp-externals',
 		setup( build ) {
@@ -168,6 +220,7 @@ function wpExternalsPlugin( usedHandles ) {
 			const filter = new RegExp(
 				'^(' +
 					Object.keys( WP_EXTERNALS )
+						.filter( ( k ) => ! provides.includes( k ) )
 						.map( ( k ) =>
 							k.replace( /[.*+?^${}()|[\]\\]/g, '\\$&' )
 						)
@@ -331,7 +384,7 @@ function postBuildPlugin( entry, outDir, base, usedHandles, root, rtlcss ) {
  * @param {Object}                              opts.sass        The consumer's sass module (namespace import).
  * @param {Object}                              opts.rtlcss      The consumer's rtlcss module (default import).
  * @param {string}                              opts.root        Absolute ROOT dir of the consumer plugin; every entry path resolves from it.
- * @param {Array<{entry:string,outDir:string}>} opts.entries     One bundle per element; `outDir` is created if missing.
+ * @param {Array<{entry:string,outDir:string,provides?:string[]}>} opts.entries One bundle per element; `outDir` is created if missing, and `provides` names the `WP_EXTERNALS` specifiers the bundle publishes as their globals.
  * @param {Object<string,string>}               opts.alias       esbuild alias map, as `alias-map.cjs` projects it from the substrate `src`.
  * @param {string[]}                            [opts.nodePaths] esbuild resolve nodePaths, pinning a bare import like `d3` to the consumer's own copy.
  * @param {boolean}                             [opts.watch]     Stay alive rebuilding on change.
@@ -352,7 +405,7 @@ export async function buildDashboards( {
 	assertAliasPathsExist( alias );
 	const banner = { js: `/* @newspack-nodes ${ substrateVersion() } */` };
 	// Output basename mirrors the entry filename; WP enqueue paths need it.
-	const makeContext = ( entry, outDir ) => {
+	const makeContext = ( entry, outDir, provides ) => {
 		const usedHandles = new Set();
 		const base = path.basename( entry, '.js' );
 		return esbuild.context( {
@@ -376,7 +429,7 @@ export async function buildDashboards( {
 			},
 			alias,
 			plugins: [
-				wpExternalsPlugin( usedHandles ),
+				wpExternalsPlugin( usedHandles, provides ),
 				scssPlugin( sass, alias ),
 				postBuildPlugin(
 					entry,
@@ -395,7 +448,9 @@ export async function buildDashboards( {
 		await mkdir( e.outDir, { recursive: true } );
 	}
 	const contexts = await Promise.all(
-		entries.map( ( e ) => makeContext( e.entry, e.outDir ) )
+		entries.map( ( e ) =>
+			makeContext( e.entry, e.outDir, e.provides ?? [] )
+		)
 	);
 	if ( watch ) {
 		await Promise.all( contexts.map( ( c ) => c.watch() ) );

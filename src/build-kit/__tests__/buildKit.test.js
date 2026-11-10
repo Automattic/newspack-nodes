@@ -50,6 +50,58 @@ describe( 'build-kit pure exports', () => {
 		} );
 	} );
 
+	test.each( [
+		[ '@wordpress/compose', 'window.wp.compose', 'wp-compose' ],
+		[ '@wordpress/date', 'window.wp.date', 'wp-date' ],
+		[ '@wordpress/deprecated', 'window.wp.deprecated', 'wp-deprecated' ],
+		[ '@wordpress/keycodes', 'window.wp.keycodes', 'wp-keycodes' ],
+		[ '@wordpress/primitives', 'window.wp.primitives', 'wp-primitives' ],
+		[
+			'@wordpress/private-apis',
+			'window.wp.privateApis',
+			'wp-private-apis',
+		],
+		[ '@wordpress/theme', 'window.wp.theme', 'wp-theme' ],
+		[ '@wordpress/warning', 'window.wp.warning', 'wp-warning' ],
+	] )(
+		'WP_EXTERNALS maps %s, which DataViews reaches, to its WordPress global',
+		( specifier, global, handle ) => {
+			expect( kit.WP_EXTERNALS[ specifier ] ).toEqual( {
+				global,
+				handle,
+			} );
+		}
+	);
+
+	test( 'WP_EXTERNALS maps @wordpress/dataviews to the substrate handle', () => {
+		expect( kit.WP_EXTERNALS[ '@wordpress/dataviews' ] ).toEqual( {
+			global: 'window.newspackNodesDataViews',
+			handle: 'newspack-nodes-dataviews',
+		} );
+	} );
+
+	test( 'WP_EXTERNALS reads the self-contained /wp entry from the same global', () => {
+		expect( kit.WP_EXTERNALS[ '@wordpress/dataviews/wp' ] ).toEqual(
+			kit.WP_EXTERNALS[ '@wordpress/dataviews' ]
+		);
+	} );
+
+	test( 'the DataViews handle is the one Admin::DATAVIEWS_HANDLE registers', () => {
+		const php = require( 'node:fs' ).readFileSync(
+			require( 'node:path' ).join(
+				__dirname,
+				'../../../includes/admin/class-admin.php'
+			),
+			'utf8'
+		);
+		const declared = php.match(
+			/const DATAVIEWS_HANDLE = '([^']+)';/
+		)?.[ 1 ];
+		expect( declared ).toBe(
+			kit.WP_EXTERNALS[ '@wordpress/dataviews' ].handle
+		);
+	} );
+
 	test( 'emitAssetPhp emits a sorted, deduped, quoted dependency manifest', () => {
 		const php = kit.emitAssetPhp(
 			new Set( [ 'wp-element', 'wp-api-fetch', 'wp-element' ] ),
@@ -221,6 +273,88 @@ describe( 'buildDashboards (integration, real esbuild)', () => {
 			'utf8'
 		);
 		expect( rtl ).toContain( 'margin-right' );
+	} );
+} );
+
+// A package the substrate ships as a global: every bundle reads the global,
+// except the one bundle that `provides` it, which carries the code.
+describe( 'buildDashboards substrate-provided globals (integration)', () => {
+	const fs = require( 'node:fs/promises' );
+	const os = require( 'node:os' );
+	const path = require( 'node:path' );
+
+	let root;
+	let consumerDir;
+	let providerDir;
+
+	const read = ( dir, file ) => fs.readFile( path.join( dir, file ), 'utf8' );
+
+	beforeAll( async () => {
+		const kit = await import( '../index.mjs' );
+		const esbuild = ( await import( 'esbuild' ) ).default;
+		const sass = await import( 'sass' );
+		const rtlcss = ( await import( 'rtlcss' ) ).default;
+
+		root = await fs.mkdtemp( path.join( os.tmpdir(), 'buildkit-dv-' ) );
+		const pkg = path.join( root, 'fake_modules/@wordpress/dataviews' );
+		await fs.mkdir( pkg, { recursive: true } );
+		await fs.writeFile(
+			path.join( pkg, 'package.json' ),
+			'{ "name": "@wordpress/dataviews", "main": "index.js" }'
+		);
+		await fs.writeFile(
+			path.join( pkg, 'index.js' ),
+			"export const DataViews = 'kea-dataviews-8812';\n"
+		);
+		await fs.writeFile(
+			path.join( root, 'consumer.js' ),
+			"import { DataViews } from '@wordpress/dataviews';\nexport const x = DataViews;\n"
+		);
+		await fs.writeFile(
+			path.join( root, 'provider.js' ),
+			"import * as dataviews from '@wordpress/dataviews';\nwindow.newspackNodesDataViews = dataviews;\n"
+		);
+
+		consumerDir = path.join( root, 'build/consumer' );
+		providerDir = path.join( root, 'build/provider' );
+		await kit.buildDashboards( {
+			esbuild,
+			sass,
+			rtlcss,
+			root,
+			entries: [
+				{ entry: 'consumer.js', outDir: consumerDir },
+				{
+					entry: 'provider.js',
+					outDir: providerDir,
+					provides: [ '@wordpress/dataviews' ],
+				},
+			],
+			alias: {},
+			nodePaths: [ path.join( root, 'fake_modules' ) ],
+		} );
+	}, 30000 );
+
+	afterAll( async () => {
+		await fs.rm( root, { recursive: true, force: true } );
+	} );
+
+	test( 'a consumer reads the global and depends on its handle', async () => {
+		const js = await read( consumerDir, 'consumer.js' );
+		expect( js ).toContain( 'window.newspackNodesDataViews' );
+		expect( js ).not.toContain( 'kea-dataviews-8812' );
+		expect( await read( consumerDir, 'consumer.asset.php' ) ).toContain(
+			"'newspack-nodes-dataviews'"
+		);
+	} );
+
+	test( 'the providing bundle carries the code and does not depend on itself', async () => {
+		expect( await read( providerDir, 'provider.js' ) ).toContain(
+			'kea-dataviews-8812'
+		);
+		expect( await read( providerDir, 'provider.asset.php' ) ).not.toContain(
+			'newspack-nodes-dataviews'
+		);
 	} );
 } );
 

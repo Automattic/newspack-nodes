@@ -135,6 +135,43 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertSame( (string) \filemtime( "{$this->tree_dir}/index.js" ), $enq['version'] );
 		}
 
+		// ---- the DataViews stylesheet follows its script --------------------
+
+		public function test_enqueues_the_dataviews_style_when_the_bundle_reads_dataviews(): void {
+			$GLOBALS['_registered_scripts'][ Admin::DATAVIEWS_HANDLE ] = [ 'src' => 'x', 'deps' => [], 'version' => 'x' ];
+			\file_put_contents( "{$this->tree_dir}/index.js", "console.log('x');" );
+			\file_put_contents(
+				"{$this->tree_dir}/index.asset.php",
+				"<?php return array('dependencies' => array('newspack-nodes-dataviews', 'wp-element'), 'version' => 'c0ffee');"
+			);
+			$_GET = [ 'page' => 'my-page' ];
+			Admin::enqueue_react_page( $this->args() );
+
+			$this->assertArrayHasKey( Admin::DATAVIEWS_HANDLE, $GLOBALS['_enqueued_styles'] );
+		}
+
+		public function test_a_bundle_reading_dataviews_without_the_handle_registered_throws(): void {
+			unset( $GLOBALS['_registered_scripts'][ Admin::DATAVIEWS_HANDLE ] );
+			\file_put_contents( "{$this->tree_dir}/index.js", "console.log('x');" );
+			\file_put_contents(
+				"{$this->tree_dir}/index.asset.php",
+				"<?php return array('dependencies' => array('newspack-nodes-dataviews'), 'version' => 'c0ffee');"
+			);
+			$_GET = [ 'page' => 'my-page' ];
+
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessageMatches( '/newspack-nodes-dataviews.*admin_enqueue_scripts.*priority 3.*build\/dataviews/' );
+			Admin::enqueue_react_page( $this->args() );
+		}
+
+		public function test_enqueues_no_dataviews_style_for_a_bundle_without_it(): void {
+			$this->seed_tree( manifest: true, css: true );
+			$_GET = [ 'page' => 'my-page' ];
+			Admin::enqueue_react_page( $this->args() );
+
+			$this->assertArrayNotHasKey( Admin::DATAVIEWS_HANDLE, $GLOBALS['_enqueued_styles'] );
+		}
+
 		// ---- CSS sidecar ------------------------------------------------------
 
 		public function test_enqueues_index_css_when_present(): void {

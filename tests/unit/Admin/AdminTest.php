@@ -1588,6 +1588,43 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		}
 	}
 
+	public function test_registers_the_dataviews_script_and_style_from_its_build(): void {
+		$dir = \NEWSPACK_NODES_DIR . 'build/dataviews';
+		$this->assertFileExists( "{$dir}/index.js", 'dataviews build missing — run `npm run build`' );
+		$asset = require "{$dir}/index.asset.php";
+
+		$GLOBALS['_registered_scripts'] = [];
+		( new Admin() )->register_dataviews();
+
+		$script = $GLOBALS['_registered_scripts'][ Admin::DATAVIEWS_HANDLE ] ?? null;
+		$this->assertNotNull( $script );
+		$this->assertStringEndsWith( 'build/dataviews/index.js', $script['src'] );
+		$this->assertSame( $asset['dependencies'], $script['deps'] );
+		$this->assertContains( 'wp-private-apis', $script['deps'] );
+		$this->assertSame( $asset['version'], $script['version'] );
+
+		$style = $GLOBALS['_registered_styles'][ Admin::DATAVIEWS_HANDLE ] ?? null;
+		$this->assertNotNull( $style );
+		$this->assertSame( [ 'wp-components' ], $style['deps'] );
+		$this->assertSame( \md5_file( "{$dir}/index.css" ), $style['version'] );
+		$this->assertSame( 'replace', $GLOBALS['_style_data'][ Admin::DATAVIEWS_HANDLE ]['rtl'] ?? null );
+	}
+
+	public function test_dataviews_registration_leaves_a_registered_handle_alone(): void {
+		$GLOBALS['_registered_scripts'] = [
+			Admin::DATAVIEWS_HANDLE => [
+				'src'     => 'kea-dataviews-4471.js',
+				'deps'    => [],
+				'version' => 'kea',
+			],
+		];
+		( new Admin() )->register_dataviews();
+		$this->assertSame(
+			'kea-dataviews-4471.js',
+			$GLOBALS['_registered_scripts'][ Admin::DATAVIEWS_HANDLE ]['src']
+		);
+	}
+
 	public function test_style_registration_is_idempotent(): void {
 		$this->assertTrue(
 			\method_exists( Admin::class, 'register_ui_style' ),
@@ -1635,6 +1672,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 				'register_theme_style'  => 1,
 				'register_ui_style'     => 2,
 				'register_graph_style'  => 3,
+				'register_dataviews'    => 3,
 				'enqueue_settings_assets' => 4,
 			],
 			\array_intersect_key(
@@ -1644,6 +1682,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 						'register_theme_style',
 						'register_ui_style',
 						'register_graph_style',
+						'register_dataviews',
 						'enqueue_settings_assets',
 					]
 				)

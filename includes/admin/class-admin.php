@@ -58,6 +58,12 @@ class Admin {
 	/** Menu page slug for add_options_page() (the `?page=` fragment). */
 	public const MENU_SLUG = 'newspack-nodes';
 
+	/**
+	 * The script and style handle of the one `@wordpress/dataviews` copy, which
+	 * the build kit externalizes every consumer's import to.
+	 */
+	public const DATAVIEWS_HANDLE = 'newspack-nodes-dataviews';
+
 	/** Settings group for register_setting() / options.php. */
 	public const OPTIONS_GROUP = 'newspack_nodes';
 
@@ -105,6 +111,7 @@ class Admin {
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_ui_style' ], 2 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_graph_style' ], 3 );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'register_dataviews' ], 3 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_settings_assets' ], 4 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_station_assets' ] );
@@ -219,7 +226,12 @@ class Admin {
 
 			// A `lazy` bundle ships on tab-click, not up front.
 			if ( ! empty( $bundle['lazy'] ) ) {
-				$entry = self::lazy_tab_script( (string) $bundle['dir'], (string) $bundle['url'], $localize );
+				try {
+					$entry = self::lazy_tab_script( (string) $bundle['dir'], (string) $bundle['url'], $localize );
+				} catch ( \LogicException $refused ) {
+					Core::print_less_often( 'skipped station tab bundle ' . (string) $bundle['handle'] . ': ' . $refused->getMessage() );
+					continue;
+				}
 				if ( null !== $entry ) {
 					$lazy[ (string) $bundle['handle'] ] = $entry;
 				}
@@ -235,7 +247,7 @@ class Admin {
 						'localize' => $localize,
 					]
 				);
-			} catch ( \InvalidArgumentException $refused ) {
+			} catch ( \InvalidArgumentException | \LogicException $refused ) {
 				Core::print_less_often( 'skipped station tab bundle ' . (string) $bundle['handle'] . ': ' . $refused->getMessage() );
 			}
 		}
@@ -266,6 +278,7 @@ class Admin {
 	 *   fallback and stylesheet dependencies.
 	 * @return string|null Enqueued script handle, or null when nothing was enqueued.
 	 * @throws \InvalidArgumentException When a localize extra is a non-string scalar.
+	 * @throws \LogicException When the bundle reads DataViews and its handle is not registered.
 	 */
 	public static function enqueue_react_page( array $args ): ?string {
 		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
@@ -302,6 +315,8 @@ class Admin {
 				\wp_style_add_data( $handle, 'rtl', 'replace' );
 			}
 		}
+
+		self::enqueue_dataviews_for( $deps );
 
 		\wp_localize_script( $handle, 'NewspackNodesData', $data );
 
@@ -356,8 +371,12 @@ class Admin {
 	 * @param string              $dir      Filesystem path to the build subdirectory.
 	 * @param string              $url      Public URL of the build subdirectory.
 	 * @param array<string,mixed> $localize Per-tab localize payload (string keys only).
+	 * A bundle reading DataViews gets the handle enqueued up front, because the
+	 * station injects the tab's script alone.
+	 *
 	 * @return array{src:string, data:array<string,mixed>, style?:string}|null Load
 	 *   recipe for the station shell, or null when the bundle has no build.
+	 * @throws \LogicException When the bundle reads DataViews and its handle is not registered.
 	 */
 	private static function lazy_tab_script( string $dir, string $url, array $localize ): ?array {
 		$dir = \rtrim( $dir, '/' );
@@ -367,8 +386,9 @@ class Admin {
 			return null;
 		}
 
-		[ , $version ] = self::bundle_manifest( $dir, $js, \NEWSPACK_NODES_VERSION );
-		$entry         = [
+		[ $deps, $version ] = self::bundle_manifest( $dir, $js, \NEWSPACK_NODES_VERSION );
+		self::enqueue_dataviews_for( $deps );
+		$entry = [
 			'src'  => "{$url}/index.js?ver=" . \rawurlencode( $version ),
 			'data' => $localize,
 		];
@@ -383,36 +403,26 @@ class Admin {
 	}
 
 	/**
-	 * Resolve a built bundle's script dependencies and cache-busting version.
+	 * Enqueue the DataViews script and its stylesheet for a bundle whose
+	 * dependencies name `DATAVIEWS_HANDLE`. WordPress has no way for a script to
+	 * pull in a stylesheet, and the station injects a lazy tab's script alone,
+	 * so both go on the page here.
 	 *
-	 * Reads the wp-scripts `index.asset.php` manifest when the build wrote one.
-	 * Without it, falls back to the four `wp-*` globals every dashboard imports
-	 * and to the bundle's mtime, so a hand-built or partially-built tree still
-	 * loads with a version that changes when the file does.
-	 *
-	 * The ONE resolver behind both the eager enqueue and the lazy tab recipe: a
-	 * second copy would let the two disagree on a version and serve one host a
-	 * cached bundle the other had already busted.
-	 *
-	 * @param string $dir      Filesystem path to the build subdirectory.
-	 * @param string $js_path  Path to the bundle's index.js.
-	 * @param string $fallback Version when neither manifest nor mtime resolve.
-	 * @return array{0:list<string>, 1:string} Dependencies, then version.
+	 * @param list<string> $deps The bundle's script dependencies.
+	 * @throws \LogicException When the bundle reads DataViews and the handle is
+	 *   not registered, which WordPress would answer by dropping the bundle.
 	 */
-	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
-		$asset_path = "{$dir}/index.asset.php";
-		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
-		if ( \is_array( $asset ) ) {
-			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
-			return [
-				\array_values( \array_filter( $manifest_deps, '\is_string' ) ),
-				\is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback,
-			];
+	private static function enqueue_dataviews_for( array $deps ): void {
+		if ( ! \in_array( self::DATAVIEWS_HANDLE, $deps, true ) ) {
+			return;
 		}
-		return [
-			[ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ],
-			(string) ( \filemtime( $js_path ) ?: $fallback ),
-		];
+		if ( ! \wp_script_is( self::DATAVIEWS_HANDLE, 'registered' ) ) {
+			throw new \LogicException(
+				self::DATAVIEWS_HANDLE . ' is not registered: enqueue the bundle on admin_enqueue_scripts after priority 3, where Admin::register_dataviews() runs, and check that newspack-nodes was built with its build/dataviews/'
+			);
+		}
+		\wp_enqueue_script( self::DATAVIEWS_HANDLE );
+		\wp_enqueue_style( self::DATAVIEWS_HANDLE );
 	}
 
 	/** How many parallel log partitions the fleet runs. */
@@ -722,6 +732,38 @@ class Admin {
 	}
 
 	/**
+	 * Register the one `@wordpress/dataviews` copy as a script and a style under
+	 * `DATAVIEWS_HANDLE`. A bundle reading DataViews names the script in its
+	 * manifest, and `enqueue_react_page()` enqueues the style beside it, since
+	 * WordPress has no way for a script to pull in a stylesheet. An
+	 * already-registered handle is left exactly as it is.
+	 */
+	public function register_dataviews(): void {
+		if (
+			! \function_exists( 'wp_register_script' )
+			|| \wp_script_is( self::DATAVIEWS_HANDLE, 'registered' )
+		) {
+			return;
+		}
+
+		$dir = self::build_dir( 'dataviews' );
+		$js  = "{$dir}/index.js";
+		if ( ! \file_exists( $js ) ) {
+			return;
+		}
+
+		[ $deps, $version ] = self::bundle_manifest( $dir, $js, \NEWSPACK_NODES_VERSION );
+		\wp_register_script(
+			self::DATAVIEWS_HANDLE,
+			self::build_url( 'dataviews' ) . '/index.js',
+			$deps,
+			$version,
+			true
+		);
+		$this->register_built_style( self::DATAVIEWS_HANDLE, 'dataviews', [ 'wp-components' ] );
+	}
+
+	/**
 	 * Register one built stylesheet and its RTL replacement, versioned on the
 	 * file's own content hash. Registers rather than enqueues, so a page opts in by
 	 * naming the handle; an already-registered handle is left exactly as it is.
@@ -786,6 +828,39 @@ class Admin {
 	/** Filesystem path to a build subdirectory ('vault' → '{plugin}/build/vault'). */
 	private static function build_dir( string $subdir ): string {
 		return \NEWSPACK_NODES_DIR . 'build/' . $subdir;
+	}
+
+	/**
+	 * Resolve a built bundle's script dependencies and cache-busting version.
+	 *
+	 * Reads the wp-scripts `index.asset.php` manifest when the build wrote one.
+	 * Without it, falls back to the four `wp-*` globals every dashboard imports
+	 * and to the bundle's mtime, so a hand-built or partially-built tree still
+	 * loads with a version that changes when the file does.
+	 *
+	 * The ONE resolver behind both the eager enqueue and the lazy tab recipe: a
+	 * second copy would let the two disagree on a version and serve one host a
+	 * cached bundle the other had already busted.
+	 *
+	 * @param string $dir      Filesystem path to the build subdirectory.
+	 * @param string $js_path  Path to the bundle's index.js.
+	 * @param string $fallback Version when neither manifest nor mtime resolve.
+	 * @return array{0:list<string>, 1:string} Dependencies, then version.
+	 */
+	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
+		$asset_path = "{$dir}/index.asset.php";
+		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
+		if ( \is_array( $asset ) ) {
+			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
+			return [
+				\array_values( \array_filter( $manifest_deps, '\is_string' ) ),
+				\is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback,
+			];
+		}
+		return [
+			[ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ],
+			(string) ( \filemtime( $js_path ) ?: $fallback ),
+		];
 	}
 
 	/**

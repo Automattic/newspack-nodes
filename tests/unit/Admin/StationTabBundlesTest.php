@@ -171,6 +171,62 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertSame( [ 'quux' => 'zonk' ], $entry['data'] );
 		}
 
+		public function test_a_lazy_bundle_reading_dataviews_loads_the_handle_up_front(): void {
+			// The station injects a lazy tab's src alone, so the global it reads
+			// must already be on the page.
+			$dir = $this->tree_dir;
+			\file_put_contents(
+				"{$dir}/index.asset.php",
+				"<?php return array('dependencies' => array('newspack-nodes-dataviews', 'wp-element'), 'version' => 'f00d');"
+			);
+			$GLOBALS['_registered_scripts'][ Admin::DATAVIEWS_HANDLE ] = [ 'src' => 'x', 'deps' => [], 'version' => 'x' ];
+			\add_filter(
+				self::HOOK,
+				static fn ( array $b ) => \array_merge(
+					$b,
+					[ [ 'handle' => 'lazy-heron-tab', 'dir' => $dir, 'url' => 'http://x/heron', 'lazy' => true ] ]
+				)
+			);
+			$_GET['page'] = Admin::STATION_MENU_SLUG;
+			( new Admin() )->enqueue_station_tab_bundles();
+
+			$this->assertArrayNotHasKey( 'lazy-heron-tab', $GLOBALS['_enqueued_scripts'] );
+			$this->assertArrayHasKey( Admin::DATAVIEWS_HANDLE, $GLOBALS['_enqueued_scripts'] );
+			$this->assertArrayHasKey( Admin::DATAVIEWS_HANDLE, $GLOBALS['_enqueued_styles'] );
+		}
+
+		public function test_a_bundle_reading_an_unregistered_dataviews_is_skipped_and_its_neighbour_still_loads(): void {
+			unset( $GLOBALS['_registered_scripts'][ Admin::DATAVIEWS_HANDLE ] );
+			$broken = $this->make_temp_dir( 'station-broken-' );
+			\file_put_contents( "{$broken}/index.js", 'x' );
+			\file_put_contents(
+				"{$broken}/index.asset.php",
+				"<?php return array('dependencies' => array('newspack-nodes-dataviews'), 'version' => 'bad1');"
+			);
+			$dir = $this->tree_dir;
+			\add_filter(
+				self::HOOK,
+				static fn ( array $b ) => \array_merge(
+					$b,
+					[
+						[ 'handle' => 'lazy-kea-tab', 'dir' => $broken, 'url' => 'http://x/kea', 'lazy' => true ],
+						[ 'handle' => 'eager-kea-tab', 'dir' => $broken, 'url' => 'http://x/kea2' ],
+						[ 'handle' => 'lazy-otter-tab', 'dir' => $dir, 'url' => 'http://x/otter', 'lazy' => true ],
+					]
+				)
+			);
+			$_GET['page'] = Admin::STATION_MENU_SLUG;
+			try {
+				( new Admin() )->enqueue_station_tab_bundles();
+			} finally {
+				$this->rmdir_recursive( $broken );
+			}
+
+			$lazy = $GLOBALS['_localized_scripts']['newspack-nodes-station']['data'] ?? [];
+			$this->assertArrayNotHasKey( 'lazy-kea-tab', $lazy );
+			$this->assertArrayHasKey( 'lazy-otter-tab', $lazy );
+		}
+
 		public function test_lazy_bundle_does_no_work_on_an_unrelated_page(): void {
 			// admin_enqueue_scripts fires on EVERY wp-admin page; the lazy branch
 			// does filesystem work (file_exists/filemtime/md5_file) that must be

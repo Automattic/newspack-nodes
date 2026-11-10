@@ -68,7 +68,9 @@ const alias = esbuildAlias( path.resolve( ROOT, 'src' ) );
  * bundle is empty. `event-dashboards` and `station` load with the Nodes
  * station page; `topology-console`, `vault`, `sessions` and `event-aggregator` are
  * tabs the station shell fetches on first activation; `admin-field-reset`
- * is the settings-page module `Field_Reset_Assets` enqueues.
+ * is the settings-page module `Field_Reset_Assets` enqueues; `dataviews` is
+ * the one copy of `@wordpress/dataviews`, which it `provides` to every bundle
+ * as a global.
  */
 const ENTRIES = [
 	{
@@ -110,6 +112,11 @@ const ENTRIES = [
 	{
 		entry: 'src/event-aggregator/index.js',
 		outDir: path.resolve( ROOT, 'build/event-aggregator' ),
+	},
+	{
+		entry: 'src/dataviews/index.js',
+		outDir: path.resolve( ROOT, 'build/dataviews' ),
+		provides: [ '@wordpress/dataviews' ],
 	},
 ];
 
