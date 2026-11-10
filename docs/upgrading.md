@@ -6,6 +6,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A tab descriptor declares `params`, a list, in place of `param`.**
+  `registerTab( { …, param: 'log' } )` is `registerTab( { …, params: [ 'log' ]
+  } )`; list every query param the tab reads, because the host clears only the
+  ones named. The old key is gone with no alias: a descriptor carrying `param`
+  throws at registration, as does `params` that is not a list of non-empty
+  names.
 - **Renamed: every identifier naming a whole command says `command`.** A verb
   is a command's name alone. Rename each caller; the old names are gone, with
   no alias, and a consumer calling a new name raises its floor to this release.

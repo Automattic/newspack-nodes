@@ -9,8 +9,8 @@
  */
 
 /**
- * One registered tab. `getTabs()` returns these with `order` and `slug`
- * already resolved, so a reader never repeats the defaulting.
+ * One registered tab. `getTabs()` returns these with `order`, `slug` and
+ * `params` already resolved, so a reader never repeats the defaulting.
  *
  * @typedef {Object} TabDescriptor
  * @property {string}                             id          Unique key; registering it again shadows whatever held it.
@@ -19,7 +19,7 @@
  * @property {import('react').ComponentType<any>} component   Panel body, mounted with the host's `tabProps` plus `host`.
  * @property {number}                             [order]     Sort weight, ties broken alphabetically by label.
  * @property {string}                             [slug]      Deep-link slug (`?tab=<slug>`); defaults to the id.
- * @property {string}                             [param]     Query param the tab owns, such as `topology` or `log`; the host clears it while another tab is active.
+ * @property {string[]}                           [params]    Every query param the tab owns, such as `topology` and `partition`, or `log`; the host clears them while another tab is active. None unless named.
  * @property {() => boolean}                      [gate]      Excludes the tab while it returns false.
  * @property {import('react').ReactNode}          [icon]      Rendered before the label in the tab bar.
  * @property {boolean}                            [fullBleed] The tab owns a full-height canvas, so the host gives it the bare pane instead of the default scroll container.
@@ -102,8 +102,24 @@ export function registerTab( descriptor ) {
 	const order = Number.isFinite( descriptor.order ) ? descriptor.order : 0;
 	// Slug defaults to the id (normalize-at-write) so reads never fall back.
 	const slug = descriptor.slug || id;
+	if ( 'param' in descriptor ) {
+		throw new Error(
+			`registerTab: '${ id }' declares param; declare params, a list of every query param the tab owns`
+		);
+	}
+	const params = descriptor.params ?? [];
+	if (
+		! Array.isArray( params ) ||
+		! params.every( ( one ) => 'string' === typeof one && '' !== one )
+	) {
+		throw new Error(
+			`registerTab: params must be a list of query param names, got ${ JSON.stringify(
+				params
+			) } for '${ id }'`
+		);
+	}
 	const s = store();
-	s.tabs.set( id, { ...descriptor, order, slug } );
+	s.tabs.set( id, { ...descriptor, order, slug, params } );
 	s.sorted = null;
 	notify( s );
 }

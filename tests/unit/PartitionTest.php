@@ -4096,6 +4096,28 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ 'gamma', 'beta', 'alpha' ], $collected, 'JSONL reverse mode must walk entries newest-first' );
 	}
 
+	/** An index line led by the NULs an unclean stop leaves reads without them, both directions. */
+	public function test_scan_index_reads_a_nul_led_line_without_its_nuls(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
+		$p->with_index( static fn ( array $message, array $pos ): string => 'real-entry' );
+		$this->produce_into( $p, 'seed' );
+		\file_put_contents( "{$this->tmp}.p0/0.idx", "entry-osprey\n\0\0\0\0entry-plover\n" );
+
+		$forward = [];
+		$p->scan_index( static function ( string $line ) use ( &$forward ): void {
+			$forward[] = $line;
+		} );
+		$backward = [];
+		$p->scan_index( static function ( string $line ) use ( &$backward ): void {
+			$backward[] = $line;
+		}, true );
+
+		$this->assertSame( [ 'entry-osprey', 'entry-plover' ], $forward );
+		$this->assertSame( [ 'entry-plover', 'entry-osprey' ], $backward );
+	}
+
 	public function test_scan_index_jsonl_skips_empty_lines(): void {
 		// rtrim($idx,"\n") + explode() can produce empty string entries on
 		// double-newlines or blank lines mid-stream. The `if ( '' === $line )
@@ -5430,6 +5452,45 @@ class PartitionTest extends TestCase {
 		$records  = $p->read_many( [ 'k7' => $locators['k7'] ] );
 
 		$this->assertSame( 'current frame', $records['k7'][ Message::VALUE ] );
+	}
+
+	/** A key whose index line follows NULs still locates, and reads its own record. */
+	public function test_locate_by_reads_a_key_behind_nul_bytes(): void {
+		$p   = $this->indexed_partition( 'nulled', 2 );
+		$idx = "{$this->tmp}.nulled/0.idx";
+		$this->assert_nuls_lead_the_last_line( $idx );
+
+		$locators = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ), [ 'k2' ] );
+
+		$this->assertSame( 'value 2', $p->read_many( [ 'k2' => $locators['k2'] ] )['k2'][ Message::VALUE ] );
+	}
+
+	/** A NUL-led line appended after the memo was built still locates its key. */
+	public function test_locate_by_absorbs_a_nul_led_append(): void {
+		$p     = $this->indexed_partition( 'nulgrow', 1 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$this->assertSame( [ 'k1' ], \array_keys( $p->locate_by( $parse, [ 'k1', 'k2' ] ) ) );
+
+		$this->write_keyed( $p, 'k2', 'later 7713' );
+		$p->flush();
+		$this->assert_nuls_lead_the_last_line( "{$this->tmp}.nulgrow/0.idx" );
+
+		$locators = $p->locate_by( $parse, [ 'k1', 'k2' ] );
+
+		$this->assertSame( 'later 7713', $p->read_many( [ 'k2' => $locators['k2'] ] )['k2'][ Message::VALUE ] );
+	}
+
+	/** Rewrite an index in place, NULs before its last line, as an unclean stop leaves them. */
+	private function assert_nuls_lead_the_last_line( string $idx ): void {
+		$lines = \explode( "\n", \rtrim( (string) \file_get_contents( $idx ), "\n" ) );
+		$last  = \array_pop( $lines );
+		$inode = \fileinode( $idx );
+		$fh    = \fopen( $idx, 'r+b' );
+		\ftruncate( $fh, 0 );
+		\fwrite( $fh, ( [] === $lines ? '' : \implode( "\n", $lines ) . "\n" ) . "\0\0\0\0\0" . $last . "\n" );
+		\fclose( $fh );
+		\clearstatcache( true, $idx );
+		$this->assertSame( $inode, \fileinode( $idx ), 'the index stays the same file' );
 	}
 
 	public function test_locate_by_rebuilds_when_the_partition_grows(): void {

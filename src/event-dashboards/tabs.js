@@ -58,7 +58,7 @@ registerTab( {
 	label: __( 'Log Viewer', 'newspack-nodes' ),
 	host: 'station',
 	slug: 'log-viewer',
-	param: 'log',
+	params: [ 'log' ],
 	order: 20,
 	fullBleed: true,
 	component: LogViewer,

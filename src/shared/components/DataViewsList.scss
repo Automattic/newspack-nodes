@@ -20,8 +20,23 @@
 	}
 }
 
-// A checked list acts on its run alone, through the bulk toolbar, and the
-// row checkboxes are its only selection control.
+// The run's toolbar, laid out as DataViews' bulk footer lays out its own.
+.newspack-nodes-dataviews__run-toolbar,
+.newspack-nodes-dataviews__run-actions {
+	display: flex;
+	align-items: center;
+}
+
+.newspack-nodes-dataviews__run-toolbar {
+	gap: tokens.$space-md;
+}
+
+.newspack-nodes-dataviews__run-actions {
+	gap: tokens.$space-xs;
+}
+
+// A checked list acts on its run through the list's own toolbar, and DataViews'
+// own selection checkboxes and row actions stay hidden.
 .newspack-nodes-dataviews__run-only {
 	.dataviews-selection-checkbox,
 	.dataviews-view-table__checkbox-column,

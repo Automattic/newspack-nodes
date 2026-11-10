@@ -692,6 +692,17 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( [ '2:0:10' => 'quarantined', '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
 	}
 
+	/** A record whose index line follows the NULs an unclean stop leaves still lists. */
+	public function test_a_record_behind_nul_bytes_still_lists(): void {
+		$d     = $this->two_quarantined();
+		$idx   = \glob( "{$this->tmp}/dlq.p0/*.idx" )[0];
+		$lines = \explode( "\n", \rtrim( (string) \file_get_contents( $idx ), "\n" ) );
+		$last  = \array_pop( $lines );
+		\file_put_contents( $idx, \implode( "\n", $lines ) . "\n\0\0\0\0" . $last . "\n" );
+
+		$this->assertSame( [ '2:0:10' => 'quarantined', '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
+	}
+
 	public function test_a_requeue_that_returned_lists_the_record_as_requeued(): void {
 		$d   = $this->two_quarantined();
 		$loc = $d->list_deadletter( 50 )['rows'][1]['locator'];

@@ -302,6 +302,7 @@ class Admin {
 
 		$fallback           = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
 		[ $deps, $version ] = self::bundle_manifest( $dir, $js_path, $fallback );
+		self::enqueue_dataviews_for( $deps );
 
 		$handle = $args['handle'];
 		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
@@ -315,8 +316,6 @@ class Admin {
 				\wp_style_add_data( $handle, 'rtl', 'replace' );
 			}
 		}
-
-		self::enqueue_dataviews_for( $deps );
 
 		\wp_localize_script( $handle, 'NewspackNodesData', $data );
 

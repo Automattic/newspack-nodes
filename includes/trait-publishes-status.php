@@ -141,12 +141,19 @@ trait Publishes_Status {
 	}
 
 	/**
-	 * A failure's text as a snapshot carries it: terminal-safe, then cut to
-	 * STATUS_TEXT_BYTES on a character boundary.
+	 * A failure's text as a snapshot carries it, one line: invalid UTF-8
+	 * scrubbed, each run of whitespace one space, trimmed, terminal-safe,
+	 * then cut to STATUS_TEXT_BYTES on a character boundary.
 	 *
 	 * @param string $text The failure's text.
+	 * @throws \RuntimeException When the regex engine fails on the text.
 	 */
 	protected static function status_text( string $text ): string {
-		return \mb_strcut( Core::terminal_safe( $text ), 0, self::STATUS_TEXT_BYTES, 'UTF-8' );
+		$line = \preg_replace( '/\s+/u', ' ', \mb_scrub( $text, 'UTF-8' ) );
+		if ( null === $line ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \RuntimeException( 'status_text: collapsing the line failed: ' . \preg_last_error_msg() );
+		}
+		return \mb_strcut( Core::terminal_safe( \trim( $line ) ), 0, self::STATUS_TEXT_BYTES, 'UTF-8' );
 	}
 }

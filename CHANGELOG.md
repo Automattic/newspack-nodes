@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A tab descriptor declares `params`, a list of every query param the tab owns, in place of `param`.** The host cleared only the one param a tab could name, so a tab reading several left the rest in the next tab's entries: the Console reads `topology`, `partition`, `new` and `edit`, and now declares all four. `registerTab()` throws on a descriptor carrying `param`, and on `params` that is not a list of non-empty names; `docs/upgrading.md` gives the rewrite.
+- **`Publishes_Status::status_text()` writes a failure as one line**: it scrubs invalid UTF-8 and collapses each run of whitespace to one space before it makes the text terminal-safe and cuts it, so a consumer needs no line-collapsing copy of its own.
+
+### Fixed
+
+- **`DataViewsList` owns a checked run instead of guessing at it.** It inferred intent from the selection DataViews proposed, so a click on the body of a one-page, one-row list passed as select-all, a modifier-click uncheck in the table layout cleared the whole run, and the toolbar's select-all dropped the rows checked on other pages. The list also handed the run to DataViews as its selection, so the list layout pressed the last checked row and scrolled it into view. Given `selectLabel`, DataViews now gets an empty selection and changes nothing, and the list draws its own toolbar in DataViews' bulk-footer classes: a select-all over this page's bulk-eligible rows that adds them to the run, or takes every row of the page out, and keeps every other page's keys; the run's count, which says how many are on this page when some are not, because the actions take this page's rows alone; a button per bulk action some checked row is eligible for; and a clear button. A bulk action's callback gets every checked row of the page that a bulk action takes, as the stock toolbar hands them, and an action carrying `RenderModal` opens its modal over the checked rows it is eligible for. The callback gets no second argument: the stock toolbar passes `{ registry }`, which would take a dependency on `@wordpress/data`.
+- **A dead letter written behind an unclean stop's zeros lists again.** 2.151.0 taught the line decoders to skip a line's leading NUL bytes, but the partition's index readers and the segment-head timestamp probe still read them, so `dl_list` lost the record and `locate_by()` missed its key. `Partition_Node`'s index line readers and `Message::packed_head_timestamp()` now skip them too. A head led by more zeros than the 64-byte probe reads still answers no timestamp.
+- **`Admin::enqueue_react_page()` enqueues nothing when the DataViews handle is missing.** It enqueued the bundle's script and style before the check threw, which left the bundle on the page without its dependency.
+
+### Security
+
+- **A refused layout's words reach the operator alone, through `compositions get` as well as the page.** The 2.151.0 entry below overstated its fix: it redacted `Composition_Store::page_data()` alone, and the `compositions get` read command answered `read()`'s refusal, which can name a restricted key, to every caller. `read()` now holds the one rule both paths share: a caller who `Core::speaks_for_operator()`, a logged-in `manage` user or a worker command under a `manage` session, reads the refusal as thrown, and everyone else reads `this layout could not be read`. `speaks_for_operator()` is the test `Core::caller_message()` already applied to an engine error, so a worker under a `manage` session now reads a page's refusal too, and an anonymous request with a `manage` scope but no user no longer does. The refusal a reader is spared stays chained beneath the one they read, so a driver or engine error is still logged, and a reader's page names it as `internal error; the reason is in the server's log`.
+
 ## [2.151.1] - 2026-11-10
 
 ### Fixed

@@ -299,7 +299,7 @@ The routing `host` is applied *after* `tabProps` spreads, so a caller cannot han
 
 The bar itself is **`TabBar`** ([`src/shared/tabs/TabBar.js`](../src/shared/tabs/TabBar.js)), the WAI-ARIA tablist with arrow, Home and End keys. Under `NARROW_PX` (600 px, from `@newspack-nodes/shared/hooks/useNarrow`) it renders one select labelled "View" instead, in the same `.nodes-tab-host__tabbar` wrapper, and focus inside the bar follows it across the breakpoint. A page that holds its own view state, as the Intelligence page does, renders `TabBar` directly beside one panel of its own, and spreads `useTabPanelProps( scope, activeId, shown )` onto it: a shown, wide bar's panel is a `tabpanel` labelled by the selected tab, and otherwise the panel carries only its `id`, which the select's `aria-controls` names.
 
-A tab is a descriptor in the registry ([`src/shared/tabs/tabRegistry.js`](../src/shared/tabs/tabRegistry.js)). `id`, `label`, `host` and `component` are required; `order`, `slug`, `param`, `gate`, `icon` and `fullBleed` are optional:
+A tab is a descriptor in the registry ([`src/shared/tabs/tabRegistry.js`](../src/shared/tabs/tabRegistry.js)). `id`, `label`, `host` and `component` are required; `order`, `slug`, `params`, `gate`, `icon` and `fullBleed` are optional:
 
 | Field | Contract |
 |---|---|
@@ -307,14 +307,14 @@ A tab is a descriptor in the registry ([`src/shared/tabs/tabRegistry.js`](../src
 | `host` | `overlay`, `station` or `both`. A read asks for `overlay` or `station` and gets the `both` tabs as well. |
 | `order` | Sort weight, ties broken alphabetically by label. |
 | `slug` | Deep-link slug (`?tab=<slug>`); defaults to the id. |
-| `param` | A query param the tab owns, such as `topology` or `log`; the host clears it while another tab is active. |
+| `params` | Every query param the tab owns, such as the Log Viewer's `[ 'log' ]`; none unless named. The host clears them all while another tab is active, from the entry a switch pushes and, once the landed tab renders, from the entry Back or Forward lands on, which a departing tab's own popstate write-back may have refilled. Anything but a list of non-empty names throws at registration, and so does a `param` key. |
 | `gate` | A predicate that excludes the tab while it returns false, run per read rather than at registration, so a tab gated on live state appears and disappears without re-registering. |
 | `icon` | A node the tab bar renders ahead of the label. |
 | `fullBleed` | The tab owns a full-height canvas, so the host adds `.is-full-bleed` to the `.nodes-tab-host__tab-content` pane, opting it out of that container's default vertical scroll. |
 
 That `fullBleed` flag is exactly why §3's console-in-the-station needs the measured ceiling: it fills the frame, and the default container would wrap its self-scrolling canvas in a second outer scrollbar.
 
-The Console is the worked example of an owned `param`, and it reads three more the registry knows nothing about. `initialTopologyFromUrl()` seeds the picker from `?topology=`, falling back to the first registered topology when the URL names one this install has never registered rather than stranding the console on it, and rewrites the param as the open topology changes; `?partition=` picks that worker's partition, and anything but a non-negative integer opens p0. `?new=1` and `?edit=1` are one-shot deep links from the Topologies tab: a mount-only effect opens the editor, on a fresh draft or on the current topology, and then deletes both params through `replaceState`, so a reload lands in view mode instead of reopening the editor. A tab reading its own params owes the same cleanup — the host clears only the one the descriptor declares.
+The Console is the worked example, and it declares four: `params: [ 'topology', 'partition', 'new', 'edit' ]`. `topologyFromParam()` seeds the picker from `?topology=`, falling back to the first registered topology when the URL names one this install has never registered rather than stranding the console on it, and `useQueryParamState` rewrites the param as the open topology changes; `?partition=` picks that worker's partition, and anything but a non-negative integer opens p0. `?new=1` and `?edit=1` are one-shot deep links from the Topologies tab: a mount-only effect opens the editor, on a fresh draft or on the current topology, and then deletes both params through `replaceState`, so a reload lands in view mode instead of reopening the editor. Declare every param a tab reads: the host clears only the ones its descriptor names, and one left out rides into the next tab's entries.
 
 The two hosts are thin wrappers around it:
 

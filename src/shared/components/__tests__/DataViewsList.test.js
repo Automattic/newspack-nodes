@@ -5,7 +5,7 @@
  * "Page %1$d of %2$d" only when there is a second page.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from '@wordpress/element';
 import DataViewsList from '../DataViewsList';
 
@@ -242,6 +242,7 @@ describe( 'DataViewsList', () => {
 			title: 'Wren Weekly folds its print run',
 		};
 		const FOUR = [ HERON, OTTER, KEA, WREN ];
+		const ELSEWHERE = 'other-page-id';
 		const bulk = [
 			{
 				id: 'file',
@@ -251,22 +252,39 @@ describe( 'DataViewsList', () => {
 			},
 		];
 
+		let scrolled;
+
 		beforeEach( () => {
-			// jsdom has no scrollIntoView, which DataViews calls on a checked row.
-			window.HTMLElement.prototype.scrollIntoView = () => {};
+			// jsdom has no scrollIntoView; record any call DataViews makes.
+			scrolled = jest.fn();
+			window.HTMLElement.prototype.scrollIntoView = scrolled;
 		} );
 
 		afterEach( () => {
 			delete window.HTMLElement.prototype.scrollIntoView;
 		} );
 
-		const run = ( selection, onChangeSelection ) =>
+		const run = ( selection, onChangeSelection, over = {} ) =>
 			list( {
 				items: FOUR,
 				selection,
 				onChangeSelection,
 				selectLabel: ( item ) => `Pick ${ item.slug }`,
 				actions: bulk,
+				...over,
+			} );
+
+		/**
+		 * A one-row page whose run holds a row checked on another page.
+		 *
+		 * @param {string[]}  selection         The run.
+		 * @param {jest.Mock} onChangeSelection Takes the run changed.
+		 * @return {import('react').ReactElement} The list.
+		 */
+		const lone = ( selection, onChangeSelection ) =>
+			run( selection, onChangeSelection, {
+				items: [ HERON ],
+				paginationInfo: { totalItems: 2, totalPages: 2 },
 			} );
 
 		it( 'keeps three checked rows when the body of a fourth row is clicked', async () => {
@@ -293,32 +311,248 @@ describe( 'DataViewsList', () => {
 			).toBe( false );
 		} );
 
-		it( 'still clears through the bulk toolbar', async () => {
+		it( "leaves the run alone when a one-row page's row body is clicked", async () => {
+			const onChangeSelection = jest.fn();
+			const { container } = render(
+				lone( [ ELSEWHERE ], onChangeSelection )
+			);
+			await screen.findByText( /Heron Gazette/ );
+			fireEvent.click(
+				container.querySelector( '.dataviews-view-list__item' )
+			);
+			expect( onChangeSelection ).not.toHaveBeenCalled();
+		} );
+
+		it( "adds this page's rows to the run through select-all, keeping the rest", async () => {
+			const onChangeSelection = jest.fn();
+			render( lone( [ ELSEWHERE ], onChangeSelection ) );
+			fireEvent.click(
+				await screen.findByRole( 'checkbox', { name: 'Select all' } )
+			);
+			expect( onChangeSelection ).toHaveBeenLastCalledWith( [
+				ELSEWHERE,
+				'heron-7',
+			] );
+		} );
+
+		it( "takes only this page's rows out through deselect-all", async () => {
+			const onChangeSelection = jest.fn();
+			render( lone( [ ELSEWHERE, 'heron-7' ], onChangeSelection ) );
+			fireEvent.click(
+				await screen.findByRole( 'checkbox', { name: 'Deselect all' } )
+			);
+			expect( onChangeSelection ).toHaveBeenLastCalledWith( [
+				ELSEWHERE,
+			] );
+		} );
+
+		it( 'counts a run held on this page alone without naming the page', async () => {
+			render( run( [ 'otter-2', 'kea-4' ], () => {} ) );
+			expect(
+				await screen.findByText( '2 Items selected' )
+			).toBeTruthy();
+		} );
+
+		it( 'takes every row of this page out through deselect-all, one no bulk action takes included', async () => {
 			const onChangeSelection = jest.fn();
 			render(
 				run(
-					[ 'heron-7', 'otter-2', 'kea-4', 'wren-9' ],
-					onChangeSelection
+					[ 'heron-7', 'otter-2', 'wren-9', 'kea-4', ELSEWHERE ],
+					onChangeSelection,
+					{
+						actions: [
+							{
+								...bulk[ 0 ],
+								isEligible: ( item ) => 'kea-4' !== item.slug,
+							},
+						],
+					}
 				)
 			);
 			fireEvent.click(
 				await screen.findByRole( 'checkbox', { name: 'Deselect all' } )
 			);
-			expect( onChangeSelection ).toHaveBeenLastCalledWith( [] );
+			expect( onChangeSelection ).toHaveBeenLastCalledWith( [
+				ELSEWHERE,
+			] );
 		} );
 
-		it( 'still takes the whole page through the bulk toolbar', async () => {
+		it( 'opens a bulk action that renders a modal over the checked rows it is eligible for', async () => {
+			render(
+				run( [ 'kea-4', 'heron-7', ELSEWHERE ], () => {}, {
+					actions: [
+						{
+							id: 'confirm',
+							label: 'Confirm the run',
+							supportsBulk: true,
+							isEligible: ( item ) => 'kea-4' === item.slug,
+							RenderModal: ( { items, closeModal } ) => (
+								<button type="button" onClick={ closeModal }>
+									{ `Confirm ${ items
+										.map( ( item ) => item.slug )
+										.join( ' ' ) }` }
+								</button>
+							),
+						},
+					],
+				} )
+			);
+			fireEvent.click(
+				await screen.findByRole( 'button', { name: 'Confirm the run' } )
+			);
+			const inside = await screen.findByRole( 'button', {
+				name: 'Confirm kea-4',
+			} );
+			fireEvent.click( inside );
+			expect(
+				screen.queryByRole( 'button', { name: 'Confirm kea-4' } )
+			).toBeNull();
+		} );
+
+		it( 'marks select-all indeterminate while only some of the page is in the run', async () => {
+			render( run( [ 'otter-2', ELSEWHERE ], () => {} ) );
+			const all = await screen.findByRole( 'checkbox', {
+				name: 'Select all',
+			} );
+			expect( all.checked ).toBe( false );
+			expect( all.indeterminate ).toBe( true );
+		} );
+
+		it( 'offers select-all over the rows a bulk action can act on alone', async () => {
 			const onChangeSelection = jest.fn();
-			render( run( [ 'otter-2' ], onChangeSelection ) );
+			render(
+				run( [], onChangeSelection, {
+					actions: [
+						{
+							...bulk[ 0 ],
+							isEligible: ( item ) => 'kea-4' !== item.slug,
+						},
+					],
+				} )
+			);
 			fireEvent.click(
 				await screen.findByRole( 'checkbox', { name: 'Select all' } )
 			);
 			expect( onChangeSelection ).toHaveBeenLastCalledWith( [
 				'heron-7',
 				'otter-2',
-				'kea-4',
 				'wren-9',
 			] );
+		} );
+
+		it( 'presses no row and scrolls to none while a run is checked', async () => {
+			const { container } = render(
+				run( [ 'heron-7', 'kea-4' ], () => {} )
+			);
+			await screen.findByText( /Wren Weekly/ );
+			expect(
+				container.querySelector( '[aria-pressed="true"]' )
+			).toBeNull();
+			expect( scrolled ).not.toHaveBeenCalled();
+		} );
+
+		it( 'counts the whole run, rows on other pages included', async () => {
+			render( run( [ 'otter-2', ELSEWHERE, 'kea-4' ], () => {} ) );
+			expect(
+				await screen.findByText( '3 Items selected, 2 on this page' )
+			).toBeTruthy();
+		} );
+
+		it( "hands a bulk action this page's checked rows", async () => {
+			const callback = jest.fn();
+			render(
+				run( [ 'kea-4', ELSEWHERE, 'heron-7' ], () => {}, {
+					actions: [ { ...bulk[ 0 ], callback } ],
+				} )
+			);
+			const button = await screen.findByRole( 'button', {
+				name: 'File the run',
+			} );
+			await act( async () => fireEvent.click( button ) );
+			expect( callback ).toHaveBeenCalledWith( [ HERON, KEA ] );
+		} );
+
+		it( 'hands every bulk action the checked rows any bulk action takes, as the stock toolbar does', async () => {
+			const callback = jest.fn();
+			render(
+				run( [ 'kea-4', 'heron-7' ], () => {}, {
+					actions: [
+						{ ...bulk[ 0 ], callback: () => {} },
+						{
+							id: 'pin',
+							label: ( items ) => `Pin ${ items.length } rows`,
+							supportsBulk: true,
+							isEligible: ( item ) => 'kea-4' === item.slug,
+							callback,
+						},
+					],
+				} )
+			);
+			const button = await screen.findByRole( 'button', {
+				name: 'Pin 1 rows',
+			} );
+			await act( async () => fireEvent.click( button ) );
+			expect( callback ).toHaveBeenCalledWith( [ HERON, KEA ] );
+		} );
+
+		it( 'offers only the bulk actions some checked row is eligible for, named by their rows', async () => {
+			render(
+				run( [ 'otter-2' ], () => {}, {
+					actions: [
+						{
+							id: 'archive',
+							label: ( items ) =>
+								`Archive ${ items.length } rows`,
+							supportsBulk: true,
+							callback: () => {},
+						},
+						{
+							id: 'pin',
+							label: 'Pin the kea',
+							supportsBulk: true,
+							isEligible: ( item ) => 'kea-4' === item.slug,
+							callback: () => {},
+						},
+					],
+				} )
+			);
+			expect(
+				await screen.findByRole( 'button', { name: 'Archive 1 rows' } )
+			).toBeTruthy();
+			expect(
+				screen.queryByRole( 'button', { name: 'Pin the kea' } )
+			).toBeNull();
+		} );
+
+		it( 'shows a bulk action busy until its callback settles', async () => {
+			let settle;
+			const callback = () =>
+				new Promise( ( resolve ) => {
+					settle = resolve;
+				} );
+			render(
+				run( [ 'wren-9' ], () => {}, {
+					actions: [ { ...bulk[ 0 ], callback } ],
+				} )
+			);
+			const button = await screen.findByRole( 'button', {
+				name: 'File the run',
+			} );
+			fireEvent.click( button );
+			expect( button.classList.contains( 'is-busy' ) ).toBe( true );
+			await act( async () => settle() );
+			expect( button.classList.contains( 'is-busy' ) ).toBe( false );
+		} );
+
+		it( 'clears the whole run through the clear button', async () => {
+			const onChangeSelection = jest.fn();
+			render( lone( [ ELSEWHERE, 'heron-7' ], onChangeSelection ) );
+			fireEvent.click(
+				await screen.findByRole( 'button', {
+					name: 'Clear selection',
+				} )
+			);
+			expect( onChangeSelection ).toHaveBeenLastCalledWith( [] );
 		} );
 	} );
 

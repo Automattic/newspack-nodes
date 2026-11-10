@@ -19,9 +19,12 @@
  * With `syncUrl` the host also owns the page's query string: the initial tab
  * comes from `?tab=<slug>`, the load canonicalizes it through `replaceState`,
  * each tab switch pushes one Back entry, and Back or Forward shows the tab the
- * landed entry names. A tab's declared `param` survives only while that tab is
- * showing, so the pushed entry drops the param of the tab left behind. The
- * overlay and every other consumer stay URL-free.
+ * landed entry names. A tab's declared `params` survive only while that tab is
+ * showing, so the pushed entry drops every param of the tab left behind, and
+ * when Back or Forward lands on another tab's entry, that entry is
+ * canonicalized once the landed tab has rendered, after every popstate
+ * listener, the departing tab's own write-back included, has run. The overlay
+ * and every other consumer stay URL-free.
  *
  * Canonical in newspack-nodes; consumed via the `@newspack-nodes/shared` alias.
  */
@@ -192,7 +195,7 @@ export default function TabHost( {
 }
 
 /**
- * The query a tab's entry carries: its slug, and every other tab's param gone.
+ * The query a tab's entry carries: its slug, and every other tab's params gone.
  *
  * @param {'overlay'|'station'} host Which registry scope is showing.
  * @param {string}              slug The active tab's slug.
@@ -201,8 +204,10 @@ export default function TabHost( {
 function tabQuery( host, slug ) {
 	const query = { tab: slug };
 	for ( const t of getTabs( host ) ) {
-		if ( t.param && t.slug !== slug ) {
-			query[ t.param ] = null;
+		if ( t.slug !== slug ) {
+			for ( const param of t.params ) {
+				query[ param ] = null;
+			}
 		}
 	}
 	return query;

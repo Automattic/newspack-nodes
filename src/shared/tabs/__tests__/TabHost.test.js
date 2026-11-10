@@ -2,6 +2,7 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import TabHost from '../TabHost';
 import { registerTab, resetTabs } from '../tabRegistry';
+import { useQueryParamState } from '../../hooks/useQueryParamState';
 import { installViewport } from '../../test-utils/viewportWidth';
 import fs from 'fs';
 import path from 'path';
@@ -199,7 +200,7 @@ describe( 'TabHost', () => {
 				label: 'Console',
 				host: 'station',
 				slug: 'console',
-				param: 'topology',
+				params: [ 'topology' ],
 				order: 0,
 				component: ConsoleTab,
 			} );
@@ -216,7 +217,7 @@ describe( 'TabHost', () => {
 				label: 'Raw Logs',
 				host: 'station',
 				slug: 'raw-logs',
-				param: 'log',
+				params: [ 'log' ],
 				order: 20,
 				component: RawLogsTab,
 			} );
@@ -295,7 +296,7 @@ describe( 'TabHost', () => {
 						label: 'Topologies',
 						host: 'station',
 						slug: 'topologies',
-						param: 'topology',
+						params: [ 'topology' ],
 						order: 10,
 						component: () => <div data-testid="manager" />,
 					} );
@@ -550,6 +551,91 @@ describe( 'TabHost', () => {
 							'topology'
 						)
 					).toBe( 'alpha' );
+				} );
+
+				describe( 'a tab owning several params through the bar', () => {
+					/**
+					 * A console tab that owns `topology` and `partition` the way
+					 * TopologyConsole does: replace-mode state it writes back
+					 * over every entry Back or Forward lands on.
+					 *
+					 * @return {import('react').ReactElement} The tab.
+					 */
+					const OwningConsole = () => {
+						const [ topology ] = useQueryParamState(
+							'topology',
+							( raw ) => raw ?? 'kestrel-hub',
+							( name ) => name
+						);
+						const [ partition ] = useQueryParamState(
+							'partition',
+							( raw ) => raw ?? '6',
+							( p ) => p
+						);
+						return (
+							<div data-testid="console">{ `${ topology }.p${ partition }` }</div>
+						);
+					};
+
+					const registerOwning = () => {
+						registerTab( {
+							id: 'overview',
+							label: 'Overview',
+							host: 'station',
+							slug: 'overview',
+							order: 0,
+							component: () => <div data-testid="overview" />,
+						} );
+						registerTab( {
+							id: 'topology-console',
+							label: 'Console',
+							host: 'station',
+							slug: 'console',
+							params: [ 'topology', 'partition' ],
+							order: 15,
+							component: OwningConsole,
+						} );
+					};
+
+					it( 'lands Back on an entry carrying no param of the tab it left', () => {
+						window.history.replaceState( {}, '', '/?tab=console' );
+						registerOwning();
+						const { queryByTestId } = render(
+							<TabHost host="station" syncUrl />
+						);
+						expect( window.location.search ).toBe(
+							'?tab=console&topology=kestrel-hub&partition=6'
+						);
+
+						back( '/?tab=overview' );
+						expect( queryByTestId( 'overview' ) ).not.toBeNull();
+						expect( window.location.search ).toBe(
+							'?tab=overview'
+						);
+					} );
+
+					it( 'clears every param the left tab owns from the pushed entry', () => {
+						registerOwning();
+						const { getByRole } = render(
+							<TabHost host="station" syncUrl />
+						);
+						fireEvent.click(
+							getByRole( 'tab', { name: 'Console' } )
+						);
+						expect( window.location.search ).toBe(
+							'?tab=console&topology=kestrel-hub&partition=6'
+						);
+
+						fireEvent.click(
+							getByRole( 'tab', { name: 'Overview' } )
+						);
+						expect( pushSpy.mock.calls[ 1 ][ 2 ] ).toBe(
+							'/?tab=overview'
+						);
+						expect( window.location.search ).toBe(
+							'?tab=overview'
+						);
+					} );
 				} );
 
 				it( 'answers no popstate without syncUrl', () => {

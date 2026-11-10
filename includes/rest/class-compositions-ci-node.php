@@ -8,7 +8,8 @@
  * answers it: `{ context, source, blocks, saved_ts, actor }`.
  *
  * Commands:
- *   get     — args `{context}`, at READ.
+ *   get     — args `{context}`, at READ; a refusal reads as `read()` lets
+ *             this caller read it.
  *   save    — args `{context, markup}`, at TUNE: validates the markup, the
  *             context's `check` included, and stores it.
  *   restore — args `{context}`, at TUNE: stores the tombstone, so the

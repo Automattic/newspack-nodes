@@ -129,6 +129,10 @@ class MessageTest extends TestCase {
 		$this->assertSame( 1700004418.0, Message::packed_head_timestamp( \substr( Message::packed( $m ), 0, 64 ) ) );
 	}
 
+	public function test_packed_head_timestamp_reads_past_leading_nuls(): void {
+		$this->assertSame( 123.5, Message::packed_head_timestamp( "\0\0\0[1,123.5,\"\",\"\"" ) );
+	}
+
 	public function test_packed_head_timestamp_is_null_for_what_is_not_a_packed_head(): void {
 		$this->assertNull( Message::packed_head_timestamp( '' ) );
 		$this->assertNull( Message::packed_head_timestamp( 'plain log line 6113' ) );

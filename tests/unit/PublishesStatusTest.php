@@ -189,6 +189,29 @@ class PublishesStatusTest extends TestCase {
 		$this->assertTrue( \mb_check_encoding( $cut, 'UTF-8' ) );
 	}
 
+	public function test_status_text_is_one_scrubbed_line(): void {
+		$cut = Status_Fixture_Node::text( "  relay\r\n  refused:\t\xC3( lens\n\nheron-4471  " );
+
+		$this->assertSame( 'relay refused: ?( lens heron-4471', $cut );
+		$this->assertTrue( \mb_check_encoding( $cut, 'UTF-8' ) );
+	}
+
+	/** A collapse the regex engine gives up on fails loud rather than publishing ''. */
+	public function test_status_text_refuses_a_collapse_the_engine_gives_up_on(): void {
+		$jit   = \ini_get( 'pcre.jit' );
+		$limit = \ini_get( 'pcre.backtrack_limit' );
+		\ini_set( 'pcre.jit', '0' );
+		\ini_set( 'pcre.backtrack_limit', '0' );
+		try {
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessage( 'status_text: collapsing the line failed' );
+			Status_Fixture_Node::text( "relay  refused heron-4471" );
+		} finally {
+			\ini_set( 'pcre.jit', (string) $jit );
+			\ini_set( 'pcre.backtrack_limit', (string) $limit );
+		}
+	}
+
 	public function test_no_shared_cache_publishes_nothing_and_reads_null(): void {
 		Core::$memd = null;
 

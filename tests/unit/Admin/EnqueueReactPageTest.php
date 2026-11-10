@@ -157,11 +157,17 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 				"{$this->tree_dir}/index.asset.php",
 				"<?php return array('dependencies' => array('newspack-nodes-dataviews'), 'version' => 'c0ffee');"
 			);
+			\file_put_contents( "{$this->tree_dir}/index.css", '.x{}' );
 			$_GET = [ 'page' => 'my-page' ];
 
-			$this->expectException( \LogicException::class );
-			$this->expectExceptionMessageMatches( '/newspack-nodes-dataviews.*admin_enqueue_scripts.*priority 3.*build\/dataviews/' );
-			Admin::enqueue_react_page( $this->args() );
+			try {
+				Admin::enqueue_react_page( $this->args() );
+				$this->fail( 'a bundle reading DataViews enqueued without its handle' );
+			} catch ( \LogicException $refused ) {
+				$this->assertMatchesRegularExpression( '/newspack-nodes-dataviews.*admin_enqueue_scripts.*priority 3.*build\/dataviews/', $refused->getMessage() );
+			}
+			$this->assertArrayNotHasKey( 'test-handle', $GLOBALS['_enqueued_scripts'], 'the bundle is not left enqueued without its dependency' );
+			$this->assertArrayNotHasKey( 'test-handle', $GLOBALS['_enqueued_styles'], 'nor is its stylesheet' );
 		}
 
 		public function test_enqueues_no_dataviews_style_for_a_bundle_without_it(): void {

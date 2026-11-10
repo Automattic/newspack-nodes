@@ -828,11 +828,8 @@ class Core {
 	 * `\Exception`, reads as `message_of()` to everyone. An engine `\Error`
 	 * or a driver's exception, anywhere down the `getPrevious()` chain or
 	 * among a `Failures`' members, names files, lines and database paths, so
-	 * its words go back only to a caller who may run a MANAGE command
-	 * (`Capabilities::command_holds()`, under the session scope in force):
-	 * a logged-in user who holds it, or a worker's command whose session
-	 * allows it. An anonymous request outside a worker holds nothing, and
-	 * it and everyone else read
+	 * its words go back only to a caller who `speaks_for_operator()`, and
+	 * everyone else reads
 	 * `<what>: internal error; the reason is in the server's log`. Either
 	 * way the class, message, file and line go to stderr — a worker's log,
 	 * or PHP's error log in a request — once per `$what` while
@@ -849,10 +846,23 @@ class Core {
 			return $said;
 		}
 		self::print_less_often( "{$what}: internal error: ", self::described_chain( $e ) );
-		// With no user, only a worker speaks for the site.
-		$operator = ( 0 !== self::current_user_id() || null !== self::bound_topology() )
+		return self::speaks_for_operator() ? $said : "{$what}: internal error; the reason is in the server's log";
+	}
+
+	/**
+	 * Whether the caller may read what only the site's operator reads: a
+	 * logged-in user who may run a MANAGE command, or a worker's command
+	 * whose session allows MANAGE (`Capabilities::command_holds()`, under
+	 * the session scope in force). With no user logged in, only a worker
+	 * speaks for the site, so an anonymous request outside one never does.
+	 * `caller_message()` asks it before it lets an engine error's words go
+	 * back, and `Composition_Store::read()` before it lets a refusal's.
+	 *
+	 * @throws \InvalidArgumentException Through `cap_for()`, on a broken capability map.
+	 */
+	public static function speaks_for_operator(): bool {
+		return ( 0 !== self::current_user_id() || null !== self::bound_topology() )
 			&& Capabilities::command_holds( Capabilities::MANAGE );
-		return $operator ? $said : "{$what}: internal error; the reason is in the server's log";
 	}
 
 	/**

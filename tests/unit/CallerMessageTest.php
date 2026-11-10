@@ -157,4 +157,32 @@ final class CallerMessageTest extends TestCase {
 			Core::caller_messages( [ 'hihi-1101' => new \RuntimeException( 'unknown topology hihi-1101' ), 'kaka-2202' => $this->type_error() ] )
 		);
 	}
+
+	public function test_a_logged_in_manage_user_speaks_for_the_operator(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 4419;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$this->assertTrue( Core::speaks_for_operator() );
+	}
+
+	public function test_a_worker_under_a_manage_session_speaks_for_the_operator(): void {
+		$this->in_a_worker();
+		Capabilities::$session_scope = Capabilities::MANAGE;
+		$this->assertTrue( Core::speaks_for_operator() );
+	}
+
+	public function test_a_worker_under_a_read_session_does_not_speak_for_the_operator(): void {
+		$this->as_read_session();
+		$this->assertFalse( Core::speaks_for_operator() );
+	}
+
+	public function test_an_anonymous_request_outside_a_worker_does_not_speak_for_the_operator(): void {
+		$this->assertNull( Core::bound_topology() );
+		$this->assertFalse( Core::speaks_for_operator() );
+	}
+
+	public function test_a_logged_in_user_without_manage_does_not_speak_for_the_operator(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 4420;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+		$this->assertFalse( Core::speaks_for_operator() );
+	}
 }

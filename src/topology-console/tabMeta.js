@@ -18,9 +18,11 @@ import { __ } from '@wordpress/i18n';
  *
  * `id` is the registry key, so the bundle's own `registerTab` shadows
  * the lazy placeholder rather than adding a second tab beside it. `slug` is
- * shorter than that id, keeping the deep link at `?tab=console`. `param` claims
- * `?topology=<name>`, which the Console reads on mount and rewrites as the open
- * topology changes; the host drops it from the URL while another tab shows.
+ * shorter than that id, keeping the deep link at `?tab=console`. `params` claims
+ * every param the Console reads: `?topology=<name>` and `?partition=<n>`, which
+ * it reads on mount and rewrites as the open worker changes, and the one-shot
+ * `?new=1` and `?edit=1`, which it consumes on mount; the host drops all four
+ * from the URL while another tab shows.
  * Order 15 seats the tab between Jobs (10) and the Log Viewer (20).
  *
  * `fullBleed` hands the Console the bare tab pane — a flex column with
@@ -36,7 +38,7 @@ export default {
 	label: __( 'Console', 'newspack-nodes' ),
 	host: 'station',
 	slug: 'console',
-	param: 'topology',
+	params: [ 'topology', 'partition', 'new', 'edit' ],
 	order: 15,
 	fullBleed: true,
 	handle: 'newspack-nodes-topology-console',

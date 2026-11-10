@@ -31,7 +31,7 @@ final class Composition_Store {
 	/** A context's option is this prefix and the context's name. */
 	public const OPTION_PREFIX = 'newspack_nodes_composition:';
 
-	/** What a caller without MANAGE reads in place of a layout refused. */
+	/** What a caller who does not speak for the operator reads of a refusal. */
 	public const UNREADABLE = 'this layout could not be read';
 
 	/**
@@ -115,10 +115,8 @@ final class Composition_Store {
 
 	/**
 	 * Each context's `read()`, or `{ context, error }` in its place for one
-	 * refused, so a page renders the refusal where the layout would stand.
-	 * A refusal can name a key the reader may not see, so its words, as
-	 * `Core::caller_message()` lets them out, go to a MANAGE caller alone,
-	 * and everyone else reads UNREADABLE.
+	 * refused, so a page renders the refusal where the layout would stand,
+	 * worded as `Core::caller_message()` lets this caller read it.
 	 *
 	 * @param list<string> $contexts Declared contexts.
 	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
@@ -134,10 +132,9 @@ final class Composition_Store {
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \RuntimeException $refused ) {
-				$said             = Core::caller_message( $refused, "composition {$context}" );
 				$page[ $context ] = [
 					'context' => $context,
-					'error'   => Capabilities::can( Capabilities::MANAGE ) ? $said : self::UNREADABLE,
+					'error'   => Core::caller_message( $refused, "composition {$context}" ),
 				];
 			}
 		}
@@ -147,13 +144,39 @@ final class Composition_Store {
 	/**
 	 * The layout `$context` reads: the saved one, else the default, with
 	 * when its record was written and by whom, both null for no record.
+	 * A refusal can name a key the reader may not see, so it reaches a
+	 * caller who `Core::speaks_for_operator()` as thrown, and everyone else
+	 * as a RuntimeException reading UNREADABLE that chains it, so
+	 * `Core::caller_message()` still logs an engine or driver error beneath;
+	 * a stop passes as thrown.
 	 *
 	 * @param string $context A declared context.
 	 * @return Layout
 	 * @throws \LogicException When the context is not declared.
 	 * @throws \RuntimeException When the record is malformed or no longer validates.
+	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
 	public static function read( string $context ): array {
+		try {
+			return self::read_layout( $context );
+		} catch ( Worker_Should_Stop $stop ) {
+			throw $stop;
+		} catch ( \RuntimeException $refused ) {
+			if ( Core::speaks_for_operator() ) {
+				throw $refused;
+			}
+			throw new \RuntimeException( self::UNREADABLE, 0, $refused );
+		}
+	}
+
+	/**
+	 * The layout `read()` answers, every refusal in its own words.
+	 *
+	 * @return Layout
+	 * @throws \LogicException When the context is not declared.
+	 * @throws \RuntimeException When the record is malformed or no longer validates.
+	 */
+	private static function read_layout( string $context ): array {
 		Composition::context_of( $context );
 		$record = \get_option( self::OPTION_PREFIX . $context, null );
 		if ( null === $record ) {

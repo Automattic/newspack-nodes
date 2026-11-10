@@ -1658,12 +1658,13 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param resource $fh           Open index handle.
 	 * @param bool     $newest_first Walk from the end when true.
-	 * @return \Generator<int,string> Lines, without their terminator.
+	 * @return \Generator<int,string> Lines, without their terminator or the
+	 *                                NULs an unclean stop leaves before one.
 	 */
 	private static function index_lines( $fh, bool $newest_first ): \Generator {
 		if ( ! $newest_first ) {
 			while ( false !== ( $line = \fgets( $fh ) ) ) {
-				yield \rtrim( $line, "\n" );
+				yield \ltrim( \rtrim( $line, "\n" ), "\0" );
 			}
 			return;
 		}
@@ -1797,7 +1798,8 @@ class Partition_Node extends Timer_Node {
 	 * @param resource $fh   Open index handle.
 	 * @param int      $from First byte to read, a line start.
 	 * @param int      $to   One past the last byte to read.
-	 * @return \Generator<int,string> Lines, without their terminator.
+	 * @return \Generator<int,string> Lines, without their terminator or the
+	 *                                NULs an unclean stop leaves before one.
 	 */
 	private static function index_lines_between( $fh, int $from, int $to ): \Generator {
 		$pos  = $to;
@@ -1816,14 +1818,11 @@ class Partition_Node extends Timer_Node {
 				throw new \RuntimeException( 'short index read at ' . $pos );
 			}
 			$lines = \explode( "\n", $buf . $tail );
-			// The head is a fragment an earlier chunk completes.
-			$tail  = \array_shift( $lines );
+			// Above $from, the head is a fragment an earlier chunk completes.
+			$tail = $pos > $from ? \array_shift( $lines ) : '';
 			for ( $i = \count( $lines ) - 1; $i >= 0; $i-- ) {
-				yield $lines[ $i ];
+				yield \ltrim( $lines[ $i ], "\0" );
 			}
-		}
-		if ( '' !== $tail ) {
-			yield $tail;
 		}
 	}
 

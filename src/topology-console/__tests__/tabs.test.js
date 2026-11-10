@@ -22,3 +22,13 @@ test( 'importing tabs registers the topology-console tab on the station host at 
 	expect( tab.label ).toBe( __( 'Console', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
 } );
+
+test( 'the topology-console tab owns every query param the Console reads', () => {
+	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
+	resetTabs();
+	jest.isolateModules( () => require( '../tabs' ) );
+	const tab = getTabs( 'station' ).find(
+		( t ) => t.id === 'topology-console'
+	);
+	expect( tab.params ).toEqual( [ 'topology', 'partition', 'new', 'edit' ] );
+} );

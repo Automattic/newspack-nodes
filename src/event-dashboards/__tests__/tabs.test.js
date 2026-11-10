@@ -66,7 +66,7 @@ test( 'importing tabs registers the log-viewer tab on the station host at order 
 	expect( tab ).toBeTruthy();
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'log-viewer' );
-	expect( tab.param ).toBe( 'log' );
+	expect( tab.params ).toEqual( [ 'log' ] );
 	expect( tab.order ).toBe( 20 );
 	expect( tab.fullBleed ).toBe( true );
 	expect( tab.label ).toBe( __( 'Log Viewer', 'newspack-nodes' ) );

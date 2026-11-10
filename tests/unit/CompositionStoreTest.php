@@ -12,6 +12,7 @@ use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Composition;
 use Newspack_Nodes\Composition_Store;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Helpers\Composes_Acme_Desk;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -247,6 +248,7 @@ final class CompositionStoreTest extends TestCase {
 				return $map;
 			}
 		);
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'acme-desk/lens is not a declared block' );
@@ -273,6 +275,7 @@ final class CompositionStoreTest extends TestCase {
 	#[DataProvider( 'malformed_records' )]
 	public function test_a_malformed_record_is_refused_on_read( mixed $record ): void {
 		\update_option( Composition_Store::OPTION_PREFIX . self::BOARD, $record, false );
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'composition acme-desk/board: the stored layout is malformed' );
@@ -312,7 +315,7 @@ final class CompositionStoreTest extends TestCase {
 		);
 	}
 
-	/** A driver's message reaches an operator's page alone. */
+	/** A driver's message reaches an operator's page alone; a reader's page says it is logged. */
 	public function test_page_data_answers_a_driver_error_to_an_operator_alone(): void {
 		Composition_Store::save( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"desk-q2"} /-->' );
 		$this->declare_acme_desk(
@@ -323,10 +326,91 @@ final class CompositionStoreTest extends TestCase {
 		);
 
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
-		$this->assertSame( 'this layout could not be read', Composition_Store::page_data( [ self::BOARD ] )[ self::BOARD ]['error'] );
+		$this->assertSame( "composition acme-desk/board: internal error; the reason is in the server's log", Composition_Store::page_data( [ self::BOARD ] )[ self::BOARD ]['error'] );
 
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$this->assertStringContainsString( '/srv/acme/desk.sqlite', Composition_Store::page_data( [ self::BOARD ] )[ self::BOARD ]['error'] );
+	}
+
+	/** A reader's `read()` refusal carries the class word, never the refusal's words. */
+	public function test_read_refuses_a_reader_with_the_class_word(): void {
+		$this->store_a_retired_lens();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+
+		$this->assertSame( Composition_Store::UNREADABLE, $this->read_refusal()->getMessage() );
+	}
+
+	/**
+	 * A reader's refusal chains the one it stands for, so `caller_message()`
+	 * still logs a driver or engine error beneath it, while the reader reads
+	 * only the class word.
+	 */
+	public function test_read_chains_the_refusal_a_reader_does_not_read(): void {
+		$this->store_a_retired_lens();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+
+		$refused = $this->read_refusal();
+		$this->assertSame( 'composition acme-desk/board: acme-desk/lens is not a declared block', $refused->getPrevious()?->getMessage() );
+		$this->assertSame( Composition_Store::UNREADABLE, Core::caller_message( $refused, 'composition acme-desk/board' ) );
+	}
+
+	/** A logged-in operator's `read()` refusal reads as thrown. */
+	public function test_read_refuses_an_operator_as_thrown(): void {
+		$this->store_a_retired_lens();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+
+		$this->assertSame( 'composition acme-desk/board: acme-desk/lens is not a declared block', $this->read_refusal()->getMessage() );
+	}
+
+	/** A worker under a manage session speaks for the operator, with no user logged in. */
+	public function test_read_refuses_a_manage_worker_as_thrown(): void {
+		$this->store_a_retired_lens();
+		$GLOBALS['_wp_test_current_user_id'] = 0;
+		Core::$var['topology']               = 'kestrel-3318';
+		Capabilities::$session_scope         = Capabilities::MANAGE;
+
+		$this->assertSame( 'composition acme-desk/board: acme-desk/lens is not a declared block', $this->read_refusal()->getMessage() );
+
+		Capabilities::$session_scope = Capabilities::READ;
+		$this->assertSame( Composition_Store::UNREADABLE, $this->read_refusal()->getMessage() );
+	}
+
+	/** A cooperative stop raised under `read()` reaches its caller as thrown. */
+	public function test_read_passes_a_stop_through(): void {
+		Composition_Store::save( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"desk-q2"} /-->' );
+		$stop = new Worker_Should_Stop( 'harrier-6640 stopping' );
+		$this->declare_acme_desk(
+			static function ( array $map ) use ( $stop ): array {
+				$map['acme-desk']['contexts']['acme-desk/board']['check'] = static fn (): never => throw $stop;
+				return $map;
+			}
+		);
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+
+		$this->assertSame( $stop, $this->read_refusal() );
+	}
+
+	/** A manage worker's page holds the refusal's own words. */
+	public function test_page_data_answers_a_manage_worker_the_refusal_in_place(): void {
+		$this->store_a_retired_lens();
+		$GLOBALS['_wp_test_current_user_id'] = 0;
+		Core::$var['topology']               = 'kestrel-3318';
+		Capabilities::$session_scope         = Capabilities::MANAGE;
+
+		$this->assertSame(
+			'composition acme-desk/board: acme-desk/lens is not a declared block',
+			Composition_Store::page_data( [ self::BOARD ] )[ self::BOARD ]['error']
+		);
+	}
+
+	/** What the board's `read()` threw. */
+	private function read_refusal(): \RuntimeException {
+		try {
+			Composition_Store::read( self::BOARD );
+		} catch ( \RuntimeException $refused ) {
+			return $refused;
+		}
+		$this->fail( 'read() answered a layout' );
 	}
 
 	/** Save a lens block, then retire the block, so the stored layout no longer reads. */

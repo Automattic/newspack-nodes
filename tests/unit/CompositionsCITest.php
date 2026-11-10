@@ -27,6 +27,9 @@ final class CompositionsCITest extends TestCase {
 
 	private const LENS = '<!-- wp:acme-desk/lens {"lens":"desk-q2"} /-->';
 
+	/** A check refusal naming a key a reader may not see. */
+	private const REFUSAL = 'lens desk-q2 reads vault key heron-ledger-5528';
+
 	private float $saved_now;
 
 	protected function setUp(): void {
@@ -96,5 +99,47 @@ final class CompositionsCITest extends TestCase {
 
 		$this->assertIsString( $reply );
 		$this->assertStringContainsString( 'acme-desk/ghost is not a declared block', $reply );
+	}
+
+	/** A reader's `get` over a refused layout answers the class word, never the key it names. */
+	public function test_get_answers_a_reader_the_class_word_for_a_refused_layout(): void {
+		$this->store_a_refused_lens();
+		Capabilities::$session_scope = Capabilities::READ;
+
+		$reply = $this->fire( 'get', self::BOARD );
+
+		$this->assertSame( Composition_Store::UNREADABLE . "\n", $reply );
+	}
+
+	/** A logged-in operator's `get` over a refused layout answers the refusal. */
+	public function test_get_answers_an_operator_the_refusal(): void {
+		$this->store_a_refused_lens();
+
+		$this->assertStringContainsString( self::REFUSAL, $this->fire( 'get', self::BOARD ) );
+	}
+
+	/** A worker's `get` under a manage session answers the refusal, with no user logged in. */
+	public function test_get_answers_a_manage_worker_the_refusal(): void {
+		$this->store_a_refused_lens();
+		CommandHarness::reset();
+		$GLOBALS['_wp_test_current_user_id']  = 0;
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		Core::$var['topology']                = 'kestrel-3318';
+		Capabilities::$session_scope          = Capabilities::MANAGE;
+
+		$reply = CommandHarness::fire( new Compositions_CI_Node(), 'compositions', 'get', [ self::BOARD ] );
+
+		$this->assertStringContainsString( self::REFUSAL, $reply );
+	}
+
+	/** Save the lens, then have the board's check refuse it naming a key. */
+	private function store_a_refused_lens(): void {
+		Composition_Store::save( self::BOARD, self::LENS );
+		$this->declare_acme_desk(
+			static function ( array $map ): array {
+				$map['acme-desk']['contexts']['acme-desk/board']['check'] = static fn (): never => throw new \RuntimeException( self::REFUSAL );
+				return $map;
+			}
+		);
 	}
 }

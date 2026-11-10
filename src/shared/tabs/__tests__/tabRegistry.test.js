@@ -184,6 +184,54 @@ describe( 'tab registry', () => {
 		expect( getTabs( 'station' )[ 0 ].slug ).toBe( 'console' );
 	} );
 
+	it( 'defaults params to none when the tab owns no query param', () => {
+		registerTab( {
+			id: 'jobs',
+			label: 'Jobs',
+			host: 'station',
+			component: Comp,
+		} );
+		expect( getTabs( 'station' )[ 0 ].params ).toEqual( [] );
+	} );
+
+	it( 'keeps every query param a tab declares it owns', () => {
+		registerTab( {
+			id: 'topology-console',
+			label: 'Console',
+			host: 'station',
+			params: [ 'topology', 'partition' ],
+			component: Comp,
+		} );
+		expect( getTabs( 'station' )[ 0 ].params ).toEqual( [
+			'topology',
+			'partition',
+		] );
+	} );
+
+	it( 'refuses params that are not a list of names', () => {
+		expect( () =>
+			registerTab( {
+				id: 'topology-console',
+				label: 'Console',
+				host: 'station',
+				params: 'topology',
+				component: Comp,
+			} )
+		).toThrow( /params must be a list of query param names/ );
+	} );
+
+	it( 'refuses a single param, which names no list the host reads', () => {
+		expect( () =>
+			registerTab( {
+				id: 'log-viewer',
+				label: 'Log Viewer',
+				host: 'station',
+				param: 'log',
+				component: Comp,
+			} )
+		).toThrow( /'log-viewer' declares param; declare params/ );
+	} );
+
 	it( 'throws on a bad host', () => {
 		expect( () =>
 			registerTab( {
