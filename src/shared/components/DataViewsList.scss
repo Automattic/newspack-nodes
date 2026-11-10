@@ -8,11 +8,16 @@
 	gap: tokens.$space-sm;
 }
 
-// A row's checkbox stands before the caller's row.
+// A row's checkbox stands before the caller's row, which fills the line.
 .newspack-nodes-dataviews__checkable {
 	display: flex;
 	align-items: flex-start;
 	gap: tokens.$space-sm;
+
+	> :last-child {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
 }
 
 // A checked list acts on its run alone, through the bulk toolbar, and the

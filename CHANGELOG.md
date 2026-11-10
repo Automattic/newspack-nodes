@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A checked `DataViewsList` row fills its line.** The caller's row, beside its checkbox, now grows to the width the list gives it and may shrink below its content's width, so a long title wraps instead of pushing the row wider. Intelligence carried this rule in its own stylesheet and can drop it once it raises its floor past this release.
+
 ## [2.151.0] - 2026-11-10
 
 ### Added
