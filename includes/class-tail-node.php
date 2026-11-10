@@ -89,8 +89,9 @@ class Tail_Node extends Consumer_Node {
 
 	/**
 	 * One line of a Tail's log as the record it is: a TM_BYTESTREAM carrying
-	 * the line, newline restored. A hub splitting a source's raw block builds
-	 * its records here too.
+	 * the line, newline restored, and without the zeros an unclean stop can
+	 * leave ahead of it (see `Message::unpacked()`). A hub splitting a
+	 * source's raw block builds its records here too.
 	 *
 	 * @param string $line The line, without its newline.
 	 * @return array<int,mixed>
@@ -98,7 +99,7 @@ class Tail_Node extends Consumer_Node {
 	public static function text_record( string $line ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = $line . "\n";
+		$message[ Message::VALUE ] = \ltrim( $line, "\0" ) . "\n";
 		return $message;
 	}
 

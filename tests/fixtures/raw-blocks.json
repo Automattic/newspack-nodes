@@ -196,6 +196,50 @@
         "torn": 1,
         "position": "9:104"
       }
+    ],
+    [
+      "a line behind an unclean stop's zeros is read, its place counting them",
+      "firehose.p0",
+      [
+        {
+          "at": "53:4000",
+          "bytes": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000[1,0,\"\",\"\",\"\",\"\",\"zeroed-5521\"]\n"
+        }
+      ],
+      {
+        "records": [
+          [
+            1,
+            "firehose.p0",
+            "53:4000:39",
+            "zeroed-5521"
+          ]
+        ],
+        "torn": 0,
+        "position": "53:4039"
+      }
+    ],
+    [
+      "a text line behind an unclean stop's zeros is read without them",
+      "sources:php",
+      [
+        {
+          "at": "900:0",
+          "bytes": "\u0000\u0000\u0000PHP Notice 8812\n"
+        }
+      ],
+      {
+        "records": [
+          [
+            1,
+            "sources:php",
+            "900:0:19",
+            "PHP Notice 8812\n"
+          ]
+        ],
+        "torn": 0,
+        "position": "900:19"
+      }
     ]
   ]
 }

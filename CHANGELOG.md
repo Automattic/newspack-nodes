@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A log line behind an unclean stop's zeros is read, not skipped.** When the host stops without flushing, a segment's last page can reach disk with its size but not its data, so the appends it lost read back as NUL bytes, and the first record written after the restart lands on the same line behind them. Every reader skipped that line or dead-lettered it, losing an intact record, and the Overview's Topics charts reported it as a line that would not parse. `Message::unpacked()` and `Tail_Node::text_record()` now skip a line's leading NUL bytes, and so do their JS twins `unpacked()` and `textRecord()` through `withoutZeros()`; `tests/fixtures/raw-blocks.json` holds the two block splitters to it. A line's place still counts the zeros, so a breadcrumb reads the line back whole. The appends the stop lost stay lost.
+
 ## [2.150.3] - 2026-11-09
 
 ### Changed

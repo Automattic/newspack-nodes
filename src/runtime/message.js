@@ -250,16 +250,33 @@ export function unpack( s ) {
 }
 
 /**
+ * A log line without the NUL bytes an unclean stop can leave ahead of it, as
+ * PHP's `Message::unpacked()` and `Tail_Node::text_record()` skip them: the
+ * appends a stop lost read back as zeros, and the first record written after
+ * the restart follows them on the same line.
+ *
+ * @param {string} line One line of a log, without its newline.
+ * @return {string} The line from its first byte that is not NUL.
+ */
+export function withoutZeros( line ) {
+	let start = 0;
+	while ( 0 === line.charCodeAt( start ) ) {
+		start++;
+	}
+	return 0 === start ? line : line.slice( start );
+}
+
+/**
  * Parse a wire line as PHP's `Message::unpacked()` does: exactly seven
- * positional fields, or null. The block split's torn test, held to PHP's by
- * `tests/fixtures/raw-blocks.json`.
+ * positional fields, or null, leading zeros skipped. The block split's torn
+ * test, held to PHP's by `tests/fixtures/raw-blocks.json`.
  *
  * @param {string} s One packed line.
  * @return {?Array} The message, or null when the line will not unpack.
  */
 export function unpacked( s ) {
 	try {
-		const d = JSON.parse( s );
+		const d = JSON.parse( withoutZeros( s ) );
 		return Array.isArray( d ) && 7 === d.length ? d : null;
 	} catch ( e ) {
 		return null;

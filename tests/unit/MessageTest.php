@@ -166,6 +166,22 @@ class MessageTest extends TestCase {
 		$this->assertSame( 'alice', $decoded[ Message::FROM ] );
 	}
 
+	/**
+	 * A segment an unclean stop left zeros in reads them back ahead of the
+	 * next record appended after the restart: the zeros are not part of it.
+	 */
+	public function test_unpacked_reads_the_record_behind_an_unclean_stops_zeros(): void {
+		$decoded = Message::unpacked( \str_repeat( "\0", 3482 ) . '[16,1794295392.5,"hub.p0/topicprobe","","","","zeroed-7702"]' );
+
+		$this->assertSame( 'hub.p0/topicprobe', $decoded[ Message::FROM ] );
+		$this->assertSame( 'zeroed-7702', $decoded[ Message::VALUE ] );
+	}
+
+	public function test_unpacked_still_throws_on_zeros_alone(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		Message::unpacked( \str_repeat( "\0", 64 ) );
+	}
+
 	public function test_unpacked_throws_on_malformed_json(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		Message::unpacked( 'not valid json' );

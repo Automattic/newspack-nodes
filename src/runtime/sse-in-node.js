@@ -51,6 +51,7 @@ import {
 	newMessage,
 	unpack,
 	unpacked,
+	withoutZeros,
 } from './message';
 import { anyCarries, isGlob, sourceName, splitStamp } from './log-stamp';
 import { formatPosition, parseCrumb, parsePosition } from './log-position';
@@ -99,7 +100,7 @@ function pairsOf( token ) {
 function textRecord( line ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;
-	m[ VALUE ] = `${ line }\n`;
+	m[ VALUE ] = `${ withoutZeros( line ) }\n`;
 	return m;
 }
 

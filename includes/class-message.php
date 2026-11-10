@@ -208,12 +208,17 @@ class Message {
 	 * fields of a longer one. Callers reading off disk catch it and quarantine
 	 * the line to the `:deadletter` sibling rather than abandoning the read.
 	 *
+	 * Leading NUL bytes are skipped. An unclean stop can leave a segment's
+	 * last page with its size on disk but its data not, so the appends lost
+	 * read back as zeros, and the first record written after the restart
+	 * follows them on the same line.
+	 *
 	 * @param string $data One packed frame, without its trailing newline.
 	 * @throws \InvalidArgumentException When the frame is not valid JSON, or not a 7-element positional array.
 	 * @return array<int,mixed> The 7-field positional message array.
 	 */
 	public static function unpacked( string $data ): array {
-		$decoded = \json_decode( $data, true );
+		$decoded = \json_decode( \ltrim( $data, "\0" ), true );
 		if ( null === $decoded && \JSON_ERROR_NONE !== \json_last_error() ) {
 			$reason = 'Message::unpacked(): not valid JSON (' . \json_last_error_msg() . '): ' . self::excerpt( $data );
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
