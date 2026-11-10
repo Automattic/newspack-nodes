@@ -379,16 +379,16 @@ function postBuildPlugin( entry, outDir, base, usedHandles, root, rtlcss ) {
  * a watch build keeps them, and esbuild's watcher is what holds the process
  * open afterwards.
  *
- * @param {Object}                              opts
- * @param {Object}                              opts.esbuild     The consumer's esbuild module (default import).
- * @param {Object}                              opts.sass        The consumer's sass module (namespace import).
- * @param {Object}                              opts.rtlcss      The consumer's rtlcss module (default import).
- * @param {string}                              opts.root        Absolute ROOT dir of the consumer plugin; every entry path resolves from it.
- * @param {Array<{entry:string,outDir:string,provides?:string[]}>} opts.entries One bundle per element; `outDir` is created if missing, and `provides` names the `WP_EXTERNALS` specifiers the bundle publishes as their globals.
- * @param {Object<string,string>}               opts.alias       esbuild alias map, as `alias-map.cjs` projects it from the substrate `src`.
- * @param {string[]}                            [opts.nodePaths] esbuild resolve nodePaths, pinning a bare import like `d3` to the consumer's own copy.
- * @param {boolean}                             [opts.watch]     Stay alive rebuilding on change.
- * @param {string}                              [opts.logLevel]  esbuild log level.
+ * @param {Object}                                                 opts
+ * @param {Object}                                                 opts.esbuild     The consumer's esbuild module (default import).
+ * @param {Object}                                                 opts.sass        The consumer's sass module (namespace import).
+ * @param {Object}                                                 opts.rtlcss      The consumer's rtlcss module (default import).
+ * @param {string}                                                 opts.root        Absolute ROOT dir of the consumer plugin; every entry path resolves from it.
+ * @param {Array<{entry:string,outDir:string,provides?:string[]}>} opts.entries     One bundle per element; `outDir` is created if missing, and `provides` names the `WP_EXTERNALS` specifiers the bundle publishes as their globals.
+ * @param {Object<string,string>}                                  opts.alias       esbuild alias map, as `alias-map.cjs` projects it from the substrate `src`.
+ * @param {string[]}                                               [opts.nodePaths] esbuild resolve nodePaths, pinning a bare import like `d3` to the consumer's own copy.
+ * @param {boolean}                                                [opts.watch]     Stay alive rebuilding on change.
+ * @param {string}                                                 [opts.logLevel]  esbuild log level.
  * @return {Promise<void>} Resolves once every entry is built, or, in watch mode, once every watcher is running.
  */
 export async function buildDashboards( {
