@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.152.0] - 2026-11-10
+
 ### Added
 
 - **`Confirm` is shared**, from `@newspack-nodes/shared/components/Modal`: the question whose yes loses work, its safe answer focused and its yes painted as danger, which the composition editor asks before Cancel and Restore default. A reader's page can import it without the editor half.
