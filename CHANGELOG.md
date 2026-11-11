@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.152.1] - 2026-11-11
+
+### Changed
+
+- **The prose gate exempts newspack-foundation's verbatim corpus copies where they now live**, under `foundation-templates/Validation/` and `foundation-templates/AllDone/`. The old `foundation-blocks/Blocks/Validation/` path, which no plugin holds now, is linted again, and `foundation-templates/Blocks/` stays linted.
+
 ## [2.152.0] - 2026-11-10
 
 ### Added
