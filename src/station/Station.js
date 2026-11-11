@@ -18,6 +18,7 @@
  * skin/UI provider, and the live skin is the single `theme-<slug>` class on
  * `<html>` (see shared/theme.js).
  */
+import { Popover, SlotFillProvider } from '@wordpress/components';
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import TabHost from '@newspack-nodes/shared/tabs/TabHost';
@@ -61,55 +62,59 @@ export default function Station() {
 			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
 			style={ { display: 'contents' } }
 		>
-			<div
-				className="nodes-station newspack-nodes-page-surface"
-				style={
-					/** @type {import('react').CSSProperties} */ ( {
-						position: 'fixed',
-						top: '32px',
-						left: `${ menuWidth }px`,
-						right: '0',
-						bottom: '0',
-						zIndex: 99,
-						'--nodes-tab-host-fg': 'var(--ink)',
-						transition: 'left 0.1s ease-in-out',
-						margin: 0,
-						padding: 0,
-						boxSizing: 'border-box',
-						display: 'flex',
-						flexDirection: 'column',
-						overflow: 'hidden',
-					} )
-				}
-			>
-				{ /* ONE shared header — brand left, controls slot right. */ }
-				<Header
-					subtitle={ __( 'Station', 'newspack-nodes' ) }
-					controlsSlotRef={ setControlsSlot }
-				/>
-				<TabHost
-					host="station"
-					syncUrl
-					onActiveTabChange={ setActiveTabId }
-					tabProps={ {
-						headerControlsSlot: controlsSlot,
-					} }
-					emptyState={
-						<p className="newspack-nodes-empty-state nodes-station__empty">
-							{ __(
-								'No tools registered yet.',
-								'newspack-nodes'
-							) }
-						</p>
+			<SlotFillProvider>
+				<div
+					className="nodes-station newspack-nodes-page-surface"
+					style={
+						/** @type {import('react').CSSProperties} */ ( {
+							position: 'fixed',
+							top: '32px',
+							left: `${ menuWidth }px`,
+							right: '0',
+							bottom: '0',
+							zIndex: 99,
+							'--nodes-tab-host-fg': 'var(--ink)',
+							transition: 'left 0.1s ease-in-out',
+							margin: 0,
+							padding: 0,
+							boxSizing: 'border-box',
+							display: 'flex',
+							flexDirection: 'column',
+							overflow: 'hidden',
+						} )
 					}
-				/>
-				{ activeTabId && (
-					<DebugOverlay
-						storageKey={ `newspack-nodes:debug:station:${ activeTabId }` }
-						buildRepl={ CONSOLE_TAB_ID !== activeTabId }
+				>
+					{ /* ONE shared header — brand left, controls slot right. */ }
+					<Header
+						subtitle={ __( 'Station', 'newspack-nodes' ) }
+						controlsSlotRef={ setControlsSlot }
 					/>
-				) }
-			</div>
+					<TabHost
+						host="station"
+						syncUrl
+						onActiveTabChange={ setActiveTabId }
+						tabProps={ {
+							headerControlsSlot: controlsSlot,
+						} }
+						emptyState={
+							<p className="newspack-nodes-empty-state nodes-station__empty">
+								{ __(
+									'No tools registered yet.',
+									'newspack-nodes'
+								) }
+							</p>
+						}
+					/>
+					{ activeTabId && (
+						<DebugOverlay
+							storageKey={ `newspack-nodes:debug:station:${ activeTabId }` }
+							buildRepl={ CONSOLE_TAB_ID !== activeTabId }
+						/>
+					) }
+				</div>
+				{ /* Popovers mount here: skinned, above the fixed station's z-index. */ }
+				<Popover.Slot />
+			</SlotFillProvider>
 		</div>
 	);
 }

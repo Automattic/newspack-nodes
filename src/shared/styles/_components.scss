@@ -978,6 +978,43 @@
 			var(--paper-2, var(--np-surface-subtle))
 		);
 	}
+
+	// Stock popovers, panels and toolbars paint white; here the skin's paper.
+	.components-popover__content,
+	.components-panel,
+	.components-toolbar,
+	.components-toolbar-group {
+		background: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+	}
+
+	.components-popover__content {
+		box-shadow: 0 0 0 1px var(--paper-shadow, var(--np-border-strong));
+	}
+}
+
+// The block editor's toolbar, inserter and inspector paint white and fixed
+// greys; each rule is the stock selector under the root, one class heavier.
+.newspack-nodes-ui {
+	.block-editor-block-contextual-toolbar,
+	.block-editor-block-inspector__no-blocks,
+	.block-editor-block-inspector__no-block-tools {
+		background-color: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+	}
+
+	.block-editor-block-card,
+	.block-editor-block-inspector h2,
+	.block-editor-block-inspector h3,
+	.block-editor-block-types-list__item-icon,
+	.components-button.block-editor-block-types-list__item {
+		color: var(--ink, var(--np-text));
+	}
+
+	.block-editor-inserter__panel-title,
+	.block-editor-inserter__panel-title button {
+		color: var(--ink-3, var(--np-text-secondary));
+	}
 }
 
 // @longform Picker mode. `!important` because every askable row sets its own

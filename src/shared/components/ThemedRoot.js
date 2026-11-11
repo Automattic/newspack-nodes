@@ -1,3 +1,4 @@
+import { Popover, SlotFillProvider } from '@wordpress/components';
 import { useEffect, useRef } from '@wordpress/element';
 import { SKIN_EVENT, initSkin } from '../theme';
 
@@ -13,6 +14,10 @@ import { SKIN_EVENT, initSkin } from '../theme';
  * `--paper-*`/`--ink-*` token under, and `newspack-nodes-ui` opts into the
  * shared component appearance. Dropping `topology-app` is what keeps the graph
  * layout out.
+ *
+ * A stock Popover renders through a slot at the end of the wrapper rather
+ * than the fallback container on `<body>`, so a dropdown, menu or popover
+ * opened in the dashboard sits inside the skin root and takes its tokens.
  *
  * `display: contents` drops this wrapper's own box, but inheritance still
  * passes through, so the skin's `font-family: var(--font-mono)` cascades into
@@ -89,7 +94,10 @@ export default function ThemedRoot( { children } ) {
 			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
 			style={ { display: 'contents' } }
 		>
-			{ children }
+			<SlotFillProvider>
+				{ children }
+				<Popover.Slot />
+			</SlotFillProvider>
 		</div>
 	);
 }

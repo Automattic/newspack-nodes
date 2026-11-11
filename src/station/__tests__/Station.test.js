@@ -1,4 +1,5 @@
-import { render, fireEvent } from '@testing-library/react';
+import { act, render, fireEvent } from '@testing-library/react';
+import { Popover } from '@wordpress/components';
 import Station from '../Station';
 import {
 	registerTab,
@@ -83,6 +84,22 @@ describe( 'Station', () => {
 		expect(
 			station.querySelectorAll( '.newspack-nodes-theme' )
 		).toHaveLength( 0 );
+	} );
+
+	it( 'mounts a tab’s popover in the skin root, outside the fixed station', async () => {
+		registerTab( {
+			id: 'demo',
+			label: 'Demo',
+			host: 'station',
+			component: () => <Popover>menu-5519</Popover>,
+		} );
+		render( <Station /> );
+		// The popover positions itself in a later microtask.
+		await act( () => Promise.resolve() );
+		const popover = document.querySelector( '.components-popover' );
+		expect( popover.textContent ).toContain( 'menu-5519' );
+		expect( popover.closest( '.newspack-nodes-skin-root' ) ).not.toBeNull();
+		expect( popover.closest( '.nodes-station' ) ).toBeNull();
 	} );
 
 	it( 'renders the console first and topologies second when both are registered', () => {

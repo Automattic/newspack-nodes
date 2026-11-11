@@ -8,6 +8,7 @@
 
 import { createElement } from 'react';
 import { render } from '@testing-library/react';
+import { Popover } from '@wordpress/components';
 import ThemedRoot from '../ThemedRoot';
 import { THEME_STORAGE_KEY } from '@newspack-nodes/shared/theme';
 
@@ -34,6 +35,20 @@ describe( 'ThemedRoot', () => {
 		expect(
 			wrapper.querySelector( '[data-testid="child"]' )
 		).not.toBeNull();
+		unmount();
+	} );
+
+	it( 'mounts a popover inside the skin root, where the skin colours apply', () => {
+		const { unmount } = render(
+			createElement(
+				ThemedRoot,
+				null,
+				createElement( Popover, null, 'menu-7731' )
+			)
+		);
+		const popover = document.querySelector( '.components-popover' );
+		expect( popover.textContent ).toContain( 'menu-7731' );
+		expect( popover.closest( '.newspack-nodes-skin-root' ) ).not.toBeNull();
 		unmount();
 	} );
 
