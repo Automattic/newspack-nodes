@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A stock Notice and the DataViews list take the skin.** Under a dark skin such as CRT, a Notice painted a white box and `DataViewsList` painted the stock sheet's white background under the skin's pale text, which made it unreadable. A Notice now takes the skin's paper and ink, tinted by its status from the skin's own error, warning and success colours, and keeps WordPress's coloured left border. `DataViewsList` sets the `--wp-dataviews-color-background` property DataViews reads, and gives its titles, fields and headers the skin's ink. The DataViews rules compile into each consumer's bundle, so a consumer picks them up when it is next built.
+- **A stock Notice and the DataViews list take the skin.** Under a dark skin such as CRT, a Notice painted a white box and `DataViewsList` painted the stock sheet's white background under the skin's pale text, which made it unreadable. A Notice now takes the skin's paper and ink, tinted by its status from the skin's own error, warning and success colours, and keeps WordPress's coloured left border. `DataViewsList` sets the `--wp-dataviews-color-background` property DataViews reads, gives its titles, fields and headers the skin's ink, and paints the activity layout's type icons, bullets and connecting lines and every layout's media box in the skin's paper. The DataViews rules compile into each consumer's bundle, so a consumer picks them up when it is next built.
 
 ## [2.152.1] - 2026-11-11
 

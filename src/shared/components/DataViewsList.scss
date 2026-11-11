@@ -15,6 +15,19 @@
 	.dataviews-view-table {
 		color: var(--ink-3, var(--np-text-secondary));
 	}
+
+	.dataviews-view-activity__item-type-icon,
+	.dataviews-view-list__media-wrapper,
+	.dataviews-view-grid__media,
+	.dataviews-column-primary__media {
+		background-color: var(--paper-2, var(--np-surface-subtle));
+	}
+
+	.dataviews-view-activity__item-bullet,
+	.dataviews-view-activity__item-type::before,
+	.dataviews-view-activity__item-type::after {
+		background-color: var(--paper-shadow, var(--np-border-strong));
+	}
 }
 
 // The pager's layout.
