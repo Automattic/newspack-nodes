@@ -48,7 +48,7 @@ const GITHUB_MARK = '‹github›';
  * on its own, but lint-staged names files directly.
  */
 const EXEMPT =
-	/(^|\/)(node_modules|vendor|build|dist|release|coverage|\.phpstan|\.git|fixtures|__fixtures__|templates-fixtures)\/|(^|\/)docs\/.*\/mocks\/|(^|\/)foundation-blocks\/Blocks\/Validation\/|(^|\/)tests\/(templates\/|INVENTORY\.md$)|(^|\/)(CHANGELOG|LICENSE)\.md$|\.min\.(js|css)$/;
+	/(^|\/)(node_modules|vendor|build|dist|release|coverage|\.phpstan|\.git|fixtures|__fixtures__|templates-fixtures)\/|(^|\/)docs\/.*\/mocks\/|(^|\/)foundation-templates\/(Validation|AllDone)\/|(^|\/)tests\/(templates\/|INVENTORY\.md$)|(^|\/)(CHANGELOG|LICENSE)\.md$|\.min\.(js|css)$/;
 
 /**
  * Community's specs and plans, which another repo's `docs/superpowers` is not.

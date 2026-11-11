@@ -100,18 +100,26 @@ dir="$tmp/tree"
 mkdir -p "$dir/includes" "$dir/vendor/lib" "$dir/node_modules/lib" \
 	"$dir/build" "$dir/release" "$dir/coverage/report" "$dir/.phpstan/cache" \
 	"$dir/tests/fixtures" "$dir/src/__fixtures__" "$dir/tests/templates" \
-	"$dir/docs/specs/mocks" "$dir/foundation-blocks/Blocks/Validation/Includes"
+	"$dir/docs/specs/mocks" "$dir/foundation-templates/Validation/Includes" \
+	"$dir/foundation-templates/AllDone" "$dir/foundation-templates/Blocks" \
+	"$dir/foundation-blocks/Blocks/Validation/Includes"
 printf 'A row is no reader.\n' > "$dir/includes/hit.md"
 for f in vendor/lib/a.md node_modules/lib/a.md build/a.md release/a.md \
 	coverage/report/a.md .phpstan/cache/a.md tests/fixtures/a.md \
 	src/__fixtures__/a.md tests/templates/a.html CHANGELOG.md LICENSE.md \
 	tests/INVENTORY.md docs/specs/mocks/a.html \
+	foundation-templates/Validation/Includes/a.html \
+	foundation-templates/AllDone/a.html foundation-templates/Blocks/a.html \
 	foundation-blocks/Blocks/Validation/Includes/a.html; do
 	printf 'A row is no reader.\n' > "$dir/$f"
 done
 run_gate "$dir"
 hits="$( printf '%s\n' "$out" | grep -c '\[is-no\]' )"
-if [[ $status -eq 1 && "$hits" -eq 1 && "$out" == *'includes/hit.md'* ]]; then
+if [[ $status -eq 1 && "$hits" -eq 3 && "$out" == *'includes/hit.md'* \
+	&& "$out" == *'foundation-templates/Blocks/a.html'* \
+	&& "$out" == *'foundation-blocks/Blocks/Validation/Includes/a.html'* \
+	&& "$out" != *'foundation-templates/Validation/'* \
+	&& "$out" != *'foundation-templates/AllDone/'* ]]; then
 	echo "✓ a directory walk reads prose and prunes generated trees"
 else
 	echo "✗ a directory walk prunes generated trees: $hits hits: $out"
