@@ -12,12 +12,30 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	--wp-components-color-foreground: var(--ink, var(--np-text));
 	--wp-components-color-foreground-inverted: var(--paper, var(--np-surface));
 	--wp-components-color-background: var(--paper, var(--np-surface));
+	--wp-components-color-gray-300: var(
+		--paper-shadow,
+		var(--np-border-strong)
+	);
+	--wp-components-color-accent: var(--cyan, var(--np-primary));
+	--wp-components-color-accent-darker-10: var(
+		--cyan-dark,
+		var(--np-primary-hover)
+	);
+	// The skins name one darker step; pressed takes a step past it.
+	--wp-components-color-accent-darker-20: color-mix(
+		in srgb,
+		var(--cyan-dark, var(--np-primary-hover)) 85%,
+		black
+	);
+	--wp-components-color-accent-inverted: var(--on-cyan, var(--np-on-primary));
 
 	input:not([type="checkbox"]):not([type="radio"]):not(
 			.components-input-control__input
 		):not(.topology-repl__input):not(
 			.newspack-nodes-token-field__entry
-		):not(.components-form-token-field__input):not(#{scope.$not-a-field}),
+		):not(.components-form-token-field__input):not(
+			.dataviews-filters__search-widget-filter-combobox__input
+		):not(#{scope.$not-a-field}),
 	select:not(.components-input-control__input),
 	textarea {
 		appearance: none;
@@ -74,6 +92,17 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		background-color: var(--np-field-surface);
 		border: 1px solid var(--np-field-border);
 		border-radius: var(--field-radius, 0);
+	}
+
+	// A stock token and its remove button paint light grey.
+	.components-form-token-field__token {
+		color: var(--np-field-ink);
+	}
+
+	.components-form-token-field__token-text,
+	.components-form-token-field__remove-token.components-button {
+		background: var(--paper-3, var(--np-surface-muted));
+		color: var(--np-field-ink);
 	}
 
 	.components-form-token-field__input {

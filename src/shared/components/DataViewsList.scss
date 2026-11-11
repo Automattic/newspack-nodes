@@ -61,6 +61,57 @@
 		color: var(--ink, var(--np-text));
 	}
 
+	// The filter popover: its search field, its list, and each option's box.
+	.dataviews-filters__search-widget-filter-combobox__wrapper
+		.dataviews-filters__search-widget-filter-combobox__input {
+		background-color: var(--paper, var(--np-surface));
+		border-color: var(--paper-shadow, var(--np-border-strong));
+		color: var(--ink, var(--np-text));
+
+		&::placeholder {
+			color: var(--ink-3, var(--np-text-secondary));
+		}
+
+		&:focus {
+			background: var(--paper, var(--np-surface));
+		}
+	}
+
+	.dataviews-filters__search-widget-filter-combobox__wrapper svg {
+		fill: currentcolor;
+	}
+
+	.dataviews-filters__search-widget-filter-combobox-list {
+		border-top-color: var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.dataviews-filters__search-widget-listitem:hover,
+	.dataviews-filters__search-widget-listitem[data-active-item] {
+		background: var(--hover, var(--np-surface-muted));
+		color: var(--ink, var(--np-text));
+	}
+
+	.dataviews-filters__search-widget-listitem
+		.dataviews-filters__search-widget-listitem-description,
+	.dataviews-filters__search-widget-listitem:hover
+		.dataviews-filters__search-widget-listitem-description,
+	.dataviews-filters__search-widget-listitem[data-active-item]
+		.dataviews-filters__search-widget-listitem-description {
+		color: var(--ink-3, var(--np-text-secondary));
+	}
+
+	.dataviews-filters__search-widget-listitem
+		.dataviews-filters__search-widget-listitem-multi-selection,
+	.dataviews-filters__search-widget-listitem
+		.dataviews-filters__search-widget-listitem-single-selection,
+	.dataviews-filters__search-widget-listitem:hover
+		.dataviews-filters__search-widget-listitem-single-selection,
+	.dataviews-filters__search-widget-listitem[data-active-item]
+		.dataviews-filters__search-widget-listitem-single-selection {
+		background: var(--paper, var(--np-surface));
+		border-color: var(--paper-shadow, var(--np-border-strong));
+	}
+
 	// A column's menu is a tertiary button that reads as header text.
 	.dataviews-view-table-header-button {
 		--button-secondary-background: transparent;
@@ -74,6 +125,11 @@
 		.dataviews-view-activity__item-bullet {
 		background-color: var(--paper-shadow, var(--np-border-strong));
 	}
+}
+
+// The header rows, the list and the pager stand apart.
+.newspack-nodes-dataviews > .dataviews-wrapper {
+	gap: tokens.$space-md;
 }
 
 // The pager's layout.

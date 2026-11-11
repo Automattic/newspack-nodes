@@ -3,6 +3,21 @@ import { useEffect, useRef } from '@wordpress/element';
 import { SKIN_EVENT, initSkin } from '../theme';
 
 /**
+ * The colours WordPress components paint from, which the skin root sets.
+ * A menu WordPress portals straight to `<body>` reads them there.
+ */
+const COMPONENT_COLORS = [
+	'--wp-components-color-background',
+	'--wp-components-color-foreground',
+	'--wp-components-color-foreground-inverted',
+	'--wp-components-color-gray-300',
+	'--wp-components-color-accent',
+	'--wp-components-color-accent-darker-10',
+	'--wp-components-color-accent-darker-20',
+	'--wp-components-color-accent-inverted',
+];
+
+/**
  * No-box themed token-provider for standalone dashboard pages. It applies the
  * console-selected skin (persisted in localStorage) to `<html>` at mount and
  * wraps its children in a `display:contents` skinned non-graph provider,
@@ -59,14 +74,23 @@ export default function ThemedRoot( { children } ) {
 		 * untouched rather than paint it see-through. The first successful
 		 * paint captures the pre-paint background, so an unmount that never
 		 * painted restores nothing.
+		 *
+		 * The same probe reads the component colours the skin root sets, and
+		 * `<body>` takes them, so a menu portalled there takes the skin too.
 		 */
 		const paintGutters = () => {
 			const probe = document.createElement( 'span' );
 			host.appendChild( probe );
 			let paper;
+			let colors;
 			try {
 				probe.style.background = 'var(--paper-3)';
-				paper = window.getComputedStyle( probe ).backgroundColor;
+				const style = window.getComputedStyle( probe );
+				paper = style.backgroundColor;
+				colors = COMPONENT_COLORS.map( ( name ) => [
+					name,
+					style.getPropertyValue( name ).trim(),
+				] );
 			} finally {
 				probe.remove();
 			}
@@ -77,6 +101,13 @@ export default function ThemedRoot( { children } ) {
 				previous = document.body.style.background;
 			}
 			document.body.style.background = paper;
+			for ( const [ name, value ] of colors ) {
+				if ( value ) {
+					document.body.style.setProperty( name, value );
+				} else {
+					document.body.style.removeProperty( name );
+				}
+			}
 		};
 		paintGutters();
 		window.addEventListener( SKIN_EVENT, paintGutters );
@@ -84,6 +115,9 @@ export default function ThemedRoot( { children } ) {
 			window.removeEventListener( SKIN_EVENT, paintGutters );
 			if ( null !== previous ) {
 				document.body.style.background = previous;
+				for ( const name of COMPONENT_COLORS ) {
+					document.body.style.removeProperty( name );
+				}
 			}
 		};
 	}, [] );

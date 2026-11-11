@@ -2763,6 +2763,67 @@ describe( 'shared field chrome', () => {
 		expect( hide?.display ).toBe( 'none' );
 	} );
 
+	it( 'spaces a DataViewsList\u2019s header rows, list and pager apart', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		const wrapper = mergedDeclarationsForSelectors( sheet, ( selector ) =>
+			/\.newspack-nodes-dataviews > \.dataviews-wrapper$/.test( selector )
+		);
+		expect( wrapper?.gap ).toBe( '12px' );
+	} );
+
+	it( 'draws the DataViews filter popover in the skin', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		const of = ( test ) => mergedDeclarationsForSelectors( sheet, test );
+		expect(
+			of( ( selector ) => /combobox-list$/.test( selector ) )?.[
+				'border-top-color'
+			]
+		).toBe( 'var(--paper-shadow, var(--np-border-strong))' );
+		expect(
+			of( ( selector ) => /combobox__input$/.test( selector ) )?.[
+				'background-color'
+			]
+		).toBe( 'var(--paper, var(--np-surface))' );
+		expect(
+			of( ( selector ) => /combobox__wrapper svg$/.test( selector ) )
+				?.fill
+		).toBe( 'currentcolor' );
+		expect(
+			of( ( selector ) => /listitem-multi-selection$/.test( selector ) )
+				?.background
+		).toBe( 'var(--paper, var(--np-surface))' );
+		expect(
+			of( ( selector ) => /listitem:hover$/.test( selector ) )?.background
+		).toBe( 'var(--hover, var(--np-surface-muted))' );
+
+		let fieldRule = null;
+		uiStylesheet.walkRules( ( rule ) => {
+			if (
+				null === fieldRule &&
+				rule.selector.includes( 'input:not([type=checkbox])' )
+			) {
+				fieldRule = rule;
+			}
+		} );
+		expect( fieldRule.selector ).toContain(
+			':not(.dataviews-filters__search-widget-filter-combobox__input)'
+		);
+	} );
+
 	it( 'gives bare fields border-box, so width:100% cannot overflow', () => {
 		let fieldRule = null;
 		uiStylesheet.walkRules( ( rule ) => {

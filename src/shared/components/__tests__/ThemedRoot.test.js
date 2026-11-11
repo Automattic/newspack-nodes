@@ -10,7 +10,7 @@ import { createElement } from 'react';
 import { render } from '@testing-library/react';
 import { Popover } from '@wordpress/components';
 import ThemedRoot from '../ThemedRoot';
-import { THEME_STORAGE_KEY } from '@newspack-nodes/shared/theme';
+import { SKIN_EVENT, THEME_STORAGE_KEY } from '@newspack-nodes/shared/theme';
 
 describe( 'ThemedRoot', () => {
 	afterEach( () => window.localStorage.clear() );
@@ -69,6 +69,66 @@ describe( 'ThemedRoot', () => {
 		unmount();
 	} );
 
+	it( 'lends <body> the skin\u2019s component colours, for menus portalled there', () => {
+		const colours = {
+			'--wp-components-color-background': 'rgb(4, 31, 13)',
+			'--wp-components-color-foreground': 'rgb(124, 254, 159)',
+			'--wp-components-color-foreground-inverted': 'rgb(4, 31, 13)',
+			'--wp-components-color-gray-300': 'rgb(28, 73, 43)',
+			'--wp-components-color-accent': 'rgb(117, 251, 155)',
+			'--wp-components-color-accent-darker-10': 'rgb(97, 231, 135)',
+			'--wp-components-color-accent-darker-20': 'rgb(77, 211, 115)',
+			'--wp-components-color-accent-inverted': 'rgb(3, 19, 8)',
+		};
+		const real = window.getComputedStyle.bind( window );
+		const spy = jest
+			.spyOn( window, 'getComputedStyle' )
+			.mockImplementation( ( el, pseudo ) =>
+				el?.tagName === 'SPAN'
+					? {
+							backgroundColor: 'rgb(2, 10, 5)',
+							getPropertyValue: ( name ) => colours[ name ] ?? '',
+					  }
+					: real( el, pseudo )
+			);
+		const { unmount } = render( createElement( ThemedRoot, null, 'x' ) );
+		for ( const [ name, value ] of Object.entries( colours ) ) {
+			expect( document.body.style.getPropertyValue( name ) ).toBe(
+				value
+			);
+		}
+		unmount();
+		for ( const name of Object.keys( colours ) ) {
+			expect( document.body.style.getPropertyValue( name ) ).toBe( '' );
+		}
+		spy.mockRestore();
+	} );
+
+	it( 'drops a component colour from <body> once a new skin leaves it unset', () => {
+		let colours = { '--wp-components-color-accent': 'rgb(117, 251, 155)' };
+		const real = window.getComputedStyle.bind( window );
+		const spy = jest
+			.spyOn( window, 'getComputedStyle' )
+			.mockImplementation( ( el, pseudo ) =>
+				el?.tagName === 'SPAN'
+					? {
+							backgroundColor: 'rgb(2, 10, 5)',
+							getPropertyValue: ( name ) => colours[ name ] ?? '',
+					  }
+					: real( el, pseudo )
+			);
+		const { unmount } = render( createElement( ThemedRoot, null, 'x' ) );
+		colours = {};
+		window.dispatchEvent( new Event( SKIN_EVENT ) );
+		expect(
+			document.body.style.getPropertyValue(
+				'--wp-components-color-accent'
+			)
+		).toBe( '' );
+		unmount();
+		spy.mockRestore();
+	} );
+
 	it( 'paints the WP-admin body with the resolved skin surface, restored on unmount', () => {
 		// jsdom resolves no CSS, so mock the probe span's computed colour.
 		const real = window.getComputedStyle.bind( window );
@@ -76,7 +136,10 @@ describe( 'ThemedRoot', () => {
 			.spyOn( window, 'getComputedStyle' )
 			.mockImplementation( ( el, pseudo ) =>
 				el?.tagName === 'SPAN'
-					? { backgroundColor: 'rgb(2, 10, 5)' }
+					? {
+							backgroundColor: 'rgb(2, 10, 5)',
+							getPropertyValue: () => '',
+					  }
 					: real( el, pseudo )
 			);
 		const { unmount } = render( createElement( ThemedRoot, null, 'x' ) );
