@@ -2745,6 +2745,24 @@ describe( 'shared field chrome', () => {
 		expect( link?.color ).toBe( 'var(--ink, var(--np-text))' );
 	} );
 
+	it( 'hides a run-only list row\u2019s actions past the stock rule that shows them', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		// Stock shows it at (0,3,1): `.dataviews-view-list div[role=row] …`.
+		const hide = mergedDeclarationsForSelectors( sheet, ( selector ) =>
+			/\.newspack-nodes-dataviews__run-only\.dataviews-view-list div\[role=row\] \.dataviews-view-list__item-actions$/.test(
+				selector
+			)
+		);
+		expect( hide?.display ).toBe( 'none' );
+	} );
+
 	it( 'gives bare fields border-box, so width:100% cannot overflow', () => {
 		let fieldRule = null;
 		uiStylesheet.walkRules( ( rule ) => {

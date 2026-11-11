@@ -123,4 +123,12 @@
 	.dataviews-view-table__col-actions {
 		display: none;
 	}
+
+	// Stock shows a list row's actions at (0,3,1); this outweighs it.
+	&.dataviews-view-list div[role="row"] .dataviews-view-list__item-actions,
+	&.dataviews-view-list
+		div[role="article"]
+		.dataviews-view-list__item-actions {
+		display: none;
+	}
 }
