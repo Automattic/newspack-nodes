@@ -17,7 +17,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			.components-input-control__input
 		):not(.topology-repl__input):not(
 			.newspack-nodes-token-field__entry
-		):not(#{scope.$not-a-field}),
+		):not(.components-form-token-field__input):not(#{scope.$not-a-field}),
 	select:not(.components-input-control__input),
 	textarea {
 		appearance: none;
@@ -56,6 +56,22 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		border: 1px solid var(--np-field-border);
 		border-radius: var(--field-radius, 0);
 		cursor: text;
+	}
+
+	// A stock token field or combobox: the same split, on stock classes.
+	.components-form-token-field__input-container,
+	.components-combobox-control__suggestions-container {
+		background-color: var(--np-field-surface);
+		border: 1px solid var(--np-field-border);
+		border-radius: var(--field-radius, 0);
+	}
+
+	.components-form-token-field__input {
+		background-color: transparent;
+		border: 0;
+		box-shadow: none;
+		color: var(--np-field-ink);
+		-webkit-text-fill-color: var(--np-field-ink);
 	}
 
 	.newspack-nodes-token-field__entry {

@@ -6,9 +6,15 @@
 	--wp-dataviews-color-background: var(--paper-2, var(--np-surface-subtle));
 
 	.dataviews-title-field,
+	.dataviews-title-field a,
+	.dataviews-title-field--clickable,
 	.dataviews-view-list__group-header,
 	.dataviews-view-table th {
 		color: var(--ink, var(--np-text));
+	}
+
+	.dataviews-view-table tr {
+		border-top-color: var(--paper-shadow, var(--np-border-strong));
 	}
 
 	.dataviews-view-table,
@@ -21,6 +27,12 @@
 	.dataviews-view-grid .dataviews-view-grid__media,
 	.dataviews-view-activity .dataviews-view-activity__item-type-icon {
 		background-color: var(--paper-2, var(--np-surface-subtle));
+	}
+
+	// A column's menu is a tertiary button that reads as header text.
+	.dataviews-view-table-header-button {
+		--button-secondary-background: transparent;
+		--button-secondary-border: transparent;
 	}
 
 	.dataviews-view-activity .dataviews-view-activity__item-type::before,

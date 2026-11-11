@@ -2598,6 +2598,81 @@ describe( 'shared field chrome', () => {
 		from: UI_ENTRY,
 	} );
 
+	it( 'frames a stock token field or combobox once: the frame wears the field, its input none', () => {
+		let fieldRule = null;
+		uiStylesheet.walkRules( ( rule ) => {
+			if (
+				null === fieldRule &&
+				rule.selector.includes( 'input:not([type=checkbox])' )
+			) {
+				fieldRule = rule;
+			}
+		} );
+		expect( fieldRule.selector ).toContain(
+			':not(.components-form-token-field__input)'
+		);
+		const frame = mergedDeclarationsForSelectors(
+			uiStylesheet,
+			( selector ) =>
+				selectorHasClass(
+					selector,
+					'components-combobox-control__suggestions-container'
+				)
+		);
+		expect( frame?.border ).toBe( '1px solid var(--np-field-border)' );
+		const entry = mergedDeclarationsForSelectors(
+			uiStylesheet,
+			( selector ) =>
+				selectorHasClass(
+					selector,
+					'components-form-token-field__input'
+				)
+		);
+		expect( entry?.border ).toBe( '0' );
+	} );
+
+	it( 'draws DataViews table header menus as header text, not outlined buttons', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		const header = mergedDeclarationsForSelectors( sheet, ( selector ) =>
+			selectorHasClass( selector, 'dataviews-view-table-header-button' )
+		);
+		expect( header?.[ '--button-secondary-background' ] ).toBe(
+			'transparent'
+		);
+		expect( header?.[ '--button-secondary-border' ] ).toBe( 'transparent' );
+	} );
+
+	it( 'draws DataViews title links and table row rules in the skin', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		const link = mergedDeclarationsForSelectors(
+			sheet,
+			( selector ) =>
+				selectorHasClass( selector, 'dataviews-title-field' ) &&
+				/ a$/.test( selector )
+		);
+		expect( link?.color ).toBe( 'var(--ink, var(--np-text))' );
+		const row = mergedDeclarationsForSelectors( sheet, ( selector ) =>
+			/\.dataviews-view-table tr$/.test( selector )
+		);
+		expect( row?.[ 'border-top-color' ] ).toBe(
+			'var(--paper-shadow, var(--np-border-strong))'
+		);
+	} );
+
 	it( 'gives bare fields border-box, so width:100% cannot overflow', () => {
 		let fieldRule = null;
 		uiStylesheet.walkRules( ( rule ) => {
