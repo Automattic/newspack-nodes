@@ -29,6 +29,38 @@
 		background-color: var(--paper-2, var(--np-surface-subtle));
 	}
 
+	.dataviews-view-list div[role="row"],
+	.dataviews-view-list div[role="article"] {
+		border-top-color: var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.dataviews-bulk-actions-footer__item-count {
+		color: var(--ink-3, var(--np-text-secondary));
+	}
+
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip {
+		background: var(--paper-3, var(--np-surface-muted));
+		color: var(--ink, var(--np-text));
+	}
+
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip:hover:not(
+			.dataviews-filters__summary-chip-container
+				.dataviews-filters__summary-chip.is-not-clickable
+		),
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip:focus-visible,
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip[aria-expanded="true"],
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip-remove:hover,
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip-remove:focus {
+		background: var(--hover, var(--np-surface-muted));
+		color: var(--ink, var(--np-text));
+	}
+
 	// A column's menu is a tertiary button that reads as header text.
 	.dataviews-view-table-header-button {
 		--button-secondary-background: transparent;

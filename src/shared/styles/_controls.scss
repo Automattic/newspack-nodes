@@ -58,6 +58,16 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		cursor: text;
 	}
 
+	// A stock toggle off paints a white track and a near-black thumb.
+	.components-form-toggle:not(.is-checked) .components-form-toggle__track {
+		background-color: var(--paper-2, var(--np-surface-subtle));
+		border-color: var(--np-field-border);
+	}
+
+	.components-form-toggle:not(.is-checked) .components-form-toggle__thumb {
+		background-color: var(--ink-3, var(--np-text-secondary));
+	}
+
 	// A stock token field or combobox: the same split, on stock classes.
 	.components-form-token-field__input-container,
 	.components-combobox-control__suggestions-container {

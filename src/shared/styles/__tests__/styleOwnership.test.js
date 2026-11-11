@@ -2673,6 +2673,78 @@ describe( 'shared field chrome', () => {
 		);
 	} );
 
+	it( 'draws DataViews filter chips, the bulk count and list row rules in the skin', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		const of = ( test ) => mergedDeclarationsForSelectors( sheet, test );
+		expect(
+			of(
+				( selector ) =>
+					/summary-chip$/.test( selector ) &&
+					selectorHasClass( selector, 'newspack-nodes-ui' )
+			)?.background
+		).toBe( 'var(--paper-3, var(--np-surface-muted))' );
+		expect(
+			of( ( selector ) => /summary-chip:hover/.test( selector ) )
+				?.background
+		).toBe( 'var(--hover, var(--np-surface-muted))' );
+		expect(
+			of( ( selector ) =>
+				selectorHasClass(
+					selector,
+					'dataviews-bulk-actions-footer__item-count'
+				)
+			)?.color
+		).toBe( 'var(--ink-3, var(--np-text-secondary))' );
+		expect(
+			of( ( selector ) =>
+				/\.dataviews-view-list div\[role=row\]$/.test( selector )
+			)?.[ 'border-top-color' ]
+		).toBe( 'var(--paper-shadow, var(--np-border-strong))' );
+	} );
+
+	it( 'draws a stock toggle and a disabled primary button in the skin', () => {
+		const track = mergedDeclarationsForSelectors(
+			uiStylesheet,
+			( selector ) =>
+				selectorHasClass( selector, 'components-form-toggle__track' )
+		);
+		expect( track?.[ 'background-color' ] ).toBe(
+			'var(--paper-2, var(--np-surface-subtle))'
+		);
+		let disabled = null;
+		uiStylesheet.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some(
+					( selector ) =>
+						selectorHasClass( selector, 'button-primary' ) &&
+						selector.includes( ':disabled' )
+				)
+			) {
+				rule.walkDecls( 'background', ( decl ) => {
+					disabled = decl;
+				} );
+			}
+		} );
+		expect( disabled?.important ).toBe( true );
+	} );
+
+	it( 'draws a link button inside a DataViews title field in the skin ink', () => {
+		const link = mergedDeclarationsForSelectors(
+			uiStylesheet,
+			( selector ) =>
+				selectorHasClass( selector, 'dataviews-title-field' ) &&
+				selectorHasClass( selector, 'is-link' )
+		);
+		expect( link?.color ).toBe( 'var(--ink, var(--np-text))' );
+	} );
+
 	it( 'gives bare fields border-box, so width:100% cannot overflow', () => {
 		let fieldRule = null;
 		uiStylesheet.walkRules( ( rule ) => {

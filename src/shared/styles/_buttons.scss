@@ -66,6 +66,16 @@
 		@include role.primary;
 	}
 
+	// @longform WordPress core paints a disabled primary grey with
+	// `!important`, and only another `!important` outweighs it; the skin's
+	// primary, dimmed by the role's disabled opacity, takes its place.
+	.button.button-primary:disabled,
+	.button.button-primary[disabled] {
+		background: var(--cyan, var(--np-primary)) !important;
+		border-color: var(--cyan, var(--np-primary)) !important;
+		color: var(--on-cyan, var(--np-on-primary)) !important;
+	}
+
 	.button.button-link-delete,
 	.button.is-danger {
 		@include role.danger;
@@ -150,6 +160,11 @@
 	.components-button.is-secondary,
 	.components-button.is-tertiary {
 		@include role.secondary;
+	}
+
+	// DataViews paints a link button inside a title field near black.
+	.dataviews-title-field .components-button.is-link {
+		color: var(--ink, var(--np-text));
 	}
 
 	.components-button.is-primary {
