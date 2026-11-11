@@ -29,9 +29,54 @@
 		background-color: var(--paper-2, var(--np-surface-subtle));
 	}
 
+	// A row hovered, focused or selected keeps the skin's ink; stock paints
+	// it in the admin accent.
 	.dataviews-view-list div[role="row"],
 	.dataviews-view-list div[role="article"] {
 		border-top-color: var(--paper-shadow, var(--np-border-strong));
+
+		&:not(.is-selected):hover,
+		&:not(.is-selected).is-hovered,
+		&:not(.is-selected):focus-within {
+			background-color: var(--hover, var(--np-surface-muted));
+			border-top-color: var(--paper-shadow, var(--np-border-strong));
+			color: var(--ink, var(--np-text));
+
+			+ div[role="row"],
+			+ div[role="article"] {
+				border-top-color: var(--paper-shadow, var(--np-border-strong));
+			}
+
+			.dataviews-title-field {
+				color: var(--ink, var(--np-text));
+			}
+
+			.dataviews-view-list__field {
+				color: var(--ink-3, var(--np-text-secondary));
+			}
+		}
+
+		&.is-selected.is-selected {
+			border-top-color: var(--paper-shadow, var(--np-border-strong));
+
+			+ div[role="row"],
+			+ div[role="article"] {
+				border-top-color: var(--paper-shadow, var(--np-border-strong));
+			}
+		}
+
+		&.is-selected .dataviews-view-list__item-wrapper {
+			background-color: var(--hover, var(--np-surface-muted));
+			color: var(--ink, var(--np-text));
+
+			.dataviews-title-field {
+				color: var(--ink, var(--np-text));
+			}
+
+			.dataviews-view-list__field {
+				color: var(--ink-3, var(--np-text-secondary));
+			}
+		}
 	}
 
 	.dataviews-bulk-actions-footer__item-count {

@@ -2824,6 +2824,42 @@ describe( 'shared field chrome', () => {
 		);
 	} );
 
+	it( 'keeps a hovered or selected DataViews list row in the skin\u2019s ink', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		const of = ( test ) => mergedDeclarationsForSelectors( sheet, test );
+		const hover = of( ( selector ) =>
+			/div\[role=row\]:not\(\.is-selected\):hover$/.test( selector )
+		);
+		expect( hover?.color ).toBe( 'var(--ink, var(--np-text))' );
+		expect( hover?.[ 'background-color' ] ).toBe(
+			'var(--hover, var(--np-surface-muted))'
+		);
+		expect(
+			of( ( selector ) =>
+				/:hover \.dataviews-title-field$/.test( selector )
+			)?.color
+		).toBe( 'var(--ink, var(--np-text))' );
+		expect(
+			of( ( selector ) =>
+				/\.is-selected \.dataviews-view-list__item-wrapper$/.test(
+					selector
+				)
+			)?.color
+		).toBe( 'var(--ink, var(--np-text))' );
+		expect(
+			of( ( selector ) =>
+				/div\[role=row\]\.is-selected\.is-selected$/.test( selector )
+			)?.[ 'border-top-color' ]
+		).toBe( 'var(--paper-shadow, var(--np-border-strong))' );
+	} );
+
 	it( 'gives bare fields border-box, so width:100% cannot overflow', () => {
 		let fieldRule = null;
 		uiStylesheet.walkRules( ( rule ) => {
