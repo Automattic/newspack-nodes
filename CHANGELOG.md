@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `DataViewsList` row's focus rings show whole.** The list renders the caller's row as DataViews' title cell, which clips its overflow in the list, grid and activity layouts, so a link ringed at the start of a line lost its edge; those cells now let it show.
 - **A hovered, focused or selected DataViews list row keeps the skin's ink.** Stock DataViews paints it, its title, its fields and the rules above and below it in WordPress's admin accent, so a row's text turned blue under the Newspack skin; it takes the skin's hover, ink and border instead.
 - **Menus WordPress portals to `<body>`, and DataViews' filter popover, take the skin.** `ThemedRoot` copies the skin root's `--wp-components-color-*` values, the accent and the `gray-300` ring among them, onto `<body>`, so an Ariakit menu such as DataViews' Layout and Add filter menus paints in the skin's paper, ink and accent rather than white and admin blue; a skin that leaves one unset removes it. The filter popover's search field keeps DataViews' icon inset, its icon, list rule, items and option boxes take the skin, and a stock token takes the skin's paper. A `DataViewsList` spaces its header rows, list and pager 12px apart.
 - **A run-only `DataViewsList` hides each row's ⋮ actions menu in the list layout.** Its hiding rule weighed (0,2,0), and stock DataViews shows a list row's actions at (0,3,1), so a list whose run acts through its own toolbar still offered every bulk action again on each row.

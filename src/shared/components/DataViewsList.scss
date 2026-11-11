@@ -157,6 +157,17 @@
 		border-color: var(--paper-shadow, var(--np-border-strong));
 	}
 
+	// The caller's row is the title cell, so the cell must not clip its rings.
+	.dataviews-view-list .dataviews-view-list__title-field,
+	.dataviews-view-grid
+		.dataviews-view-grid__card
+		.dataviews-view-grid__title-field,
+	.dataviews-view-activity
+		.dataviews-view-activity__item-content
+		.dataviews-view-activity__item-title {
+		overflow: visible;
+	}
+
 	// A column's menu is a tertiary button that reads as header text.
 	.dataviews-view-table-header-button {
 		--button-secondary-background: transparent;

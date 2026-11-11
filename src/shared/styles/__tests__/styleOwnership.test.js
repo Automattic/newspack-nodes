@@ -2860,6 +2860,28 @@ describe( 'shared field chrome', () => {
 		).toBe( 'var(--paper-shadow, var(--np-border-strong))' );
 	} );
 
+	it( 'lets a DataViewsList row\u2019s focus rings show past its title cell', () => {
+		const file = path.join(
+			NODES_SRC,
+			'shared/components/DataViewsList.scss'
+		);
+		const sheet = postcss.parse(
+			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
+			{ from: file }
+		);
+		for ( const cell of [
+			'dataviews-view-list__title-field',
+			'dataviews-view-activity__item-title',
+			'dataviews-view-grid__title-field',
+		] ) {
+			const declared = mergedDeclarationsForSelectors(
+				sheet,
+				( selector ) => selector.endsWith( `.${ cell }` )
+			);
+			expect( declared?.overflow ).toBe( 'visible' );
+		}
+	} );
+
 	it( 'gives bare fields border-box, so width:100% cannot overflow', () => {
 		let fieldRule = null;
 		uiStylesheet.walkRules( ( rule ) => {
