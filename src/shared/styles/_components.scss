@@ -948,6 +948,36 @@
 		background: transparent;
 		border-color: var(--paper-shadow, var(--np-border-strong));
 	}
+
+	// Stock Notice paints white, tinted by status; here the skin's paper, tinted.
+	.components-notice {
+		background: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+	}
+
+	.components-notice.is-error {
+		background: color-mix(
+			in srgb,
+			var(--oxide, var(--np-error)) 14%,
+			var(--paper-2, var(--np-surface-subtle))
+		);
+	}
+
+	.components-notice.is-warning {
+		background: color-mix(
+			in srgb,
+			var(--brass, var(--np-warning)) 14%,
+			var(--paper-2, var(--np-surface-subtle))
+		);
+	}
+
+	.components-notice.is-success {
+		background: color-mix(
+			in srgb,
+			var(--sage, var(--np-success)) 14%,
+			var(--paper-2, var(--np-surface-subtle))
+		);
+	}
 }
 
 // @longform Picker mode. `!important` because every askable row sets its own

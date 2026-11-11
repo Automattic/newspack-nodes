@@ -1,6 +1,23 @@
 @use "../styles/tokens";
 
-// The pager's layout; the stock DataViews sheet owns the list itself.
+// The stock sheet paints white and fixed greys; here it takes the skin's paper
+// and ink, tripled to outrank the stock two-class selectors in any load order.
+.newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
+	--wp-dataviews-color-background: var(--paper-2, var(--np-surface-subtle));
+
+	.dataviews-title-field,
+	.dataviews-view-list__group-header,
+	.dataviews-view-table th {
+		color: var(--ink, var(--np-text));
+	}
+
+	.dataviews-view-list__field,
+	.dataviews-view-table {
+		color: var(--ink-3, var(--np-text-secondary));
+	}
+}
+
+// The pager's layout.
 .newspack-nodes-dataviews__pager {
 	display: flex;
 	flex-wrap: wrap;
