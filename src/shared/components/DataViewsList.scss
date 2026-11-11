@@ -1,8 +1,8 @@
 @use "../styles/tokens";
 
 // The stock sheet paints white and fixed greys; here it takes the skin's paper
-// and ink, tripled to outrank the stock two-class selectors in any load order.
-.newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
+// and ink. Each rule is the stock selector under the root, one class heavier.
+.newspack-nodes-ui {
 	--wp-dataviews-color-background: var(--paper-2, var(--np-surface-subtle));
 
 	.dataviews-title-field,
@@ -11,21 +11,23 @@
 		color: var(--ink, var(--np-text));
 	}
 
-	.dataviews-view-list__field,
-	.dataviews-view-table {
+	.dataviews-view-table,
+	.dataviews-view-list .dataviews-view-list__field {
 		color: var(--ink-3, var(--np-text-secondary));
 	}
 
-	.dataviews-view-activity__item-type-icon,
-	.dataviews-view-list__media-wrapper,
-	.dataviews-view-grid__media,
-	.dataviews-column-primary__media {
+	.dataviews-column-primary__media,
+	.dataviews-view-list .dataviews-view-list__media-wrapper,
+	.dataviews-view-grid .dataviews-view-grid__media,
+	.dataviews-view-activity .dataviews-view-activity__item-type-icon {
 		background-color: var(--paper-2, var(--np-surface-subtle));
 	}
 
-	.dataviews-view-activity__item-bullet,
-	.dataviews-view-activity__item-type::before,
-	.dataviews-view-activity__item-type::after {
+	.dataviews-view-activity .dataviews-view-activity__item-type::before,
+	.dataviews-view-activity .dataviews-view-activity__item-type::after,
+	.dataviews-view-activity
+		.dataviews-view-activity__item-type-icon
+		.dataviews-view-activity__item-bullet {
 		background-color: var(--paper-shadow, var(--np-border-strong));
 	}
 }

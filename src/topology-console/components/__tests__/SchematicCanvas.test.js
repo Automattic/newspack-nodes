@@ -30,26 +30,29 @@ const parsed = {
 	edges: [ { from: 'a', to: 'b' } ],
 };
 
+// jsdom lacks PointerEvent; polyfill via MouseEvent for coord fields.
+beforeAll( () => {
+	if ( typeof window.PointerEvent === 'undefined' ) {
+		window.PointerEvent = class PointerEvent extends window.MouseEvent {
+			constructor( type, init = {} ) {
+				super( type, init );
+				this.pointerId = init.pointerId ?? 0;
+				this.pointerType = init.pointerType ?? '';
+				this.width = init.width ?? 1;
+				this.height = init.height ?? 1;
+				this.pressure = init.pressure ?? 0;
+				this.tangentialPressure = init.tangentialPressure ?? 0;
+				this.tiltX = init.tiltX ?? 0;
+				this.tiltY = init.tiltY ?? 0;
+				this.twist = init.twist ?? 0;
+				this.isPrimary = init.isPrimary ?? true;
+			}
+		};
+	}
+} );
+
 describe( 'SchematicCanvas', () => {
 	beforeAll( () => {
-		// jsdom lacks PointerEvent; polyfill via MouseEvent for coord fields.
-		if ( typeof window.PointerEvent === 'undefined' ) {
-			window.PointerEvent = class PointerEvent extends window.MouseEvent {
-				constructor( type, init = {} ) {
-					super( type, init );
-					this.pointerId = init.pointerId ?? 0;
-					this.pointerType = init.pointerType ?? '';
-					this.width = init.width ?? 1;
-					this.height = init.height ?? 1;
-					this.pressure = init.pressure ?? 0;
-					this.tangentialPressure = init.tangentialPressure ?? 0;
-					this.tiltX = init.tiltX ?? 0;
-					this.tiltY = init.tiltY ?? 0;
-					this.twist = init.twist ?? 0;
-					this.isPrimary = init.isPrimary ?? true;
-				}
-			};
-		}
 		// Stub createSVGPoint / getScreenCTM (jsdom SVGSVGElement lacks them).
 		const svg = window.SVGSVGElement.prototype;
 		svg.createSVGPoint = function () {
@@ -5177,8 +5180,12 @@ describe( 'SchematicCanvas — background click with only a hull selected', () =
 			c: { x: 4000, y: 3000 },
 		};
 		const NARROW = { a: { x: 0, y: 0 }, b: { x: 400, y: 300 } };
-		// WIDE with one card nudged: membership identical, extent is not.
-		const WIDE_DRAGGED = { ...WIDE, c: { x: 4400, y: 3300 } };
+		// WIDE laid out again: membership identical, extent much smaller.
+		const RELAID = {
+			a: { x: 0, y: 0 },
+			b: { x: 400, y: 300 },
+			c: { x: 800, y: 600 },
+		};
 
 		const canvasProps = {
 			parsed: THREE,
@@ -5229,12 +5236,28 @@ describe( 'SchematicCanvas — background click with only a hull selected', () =
 			);
 		} );
 
-		// Only MEMBERSHIP re-fits. Positions and the transcript inset move the
-		// autofit box too, and following either yanks the canvas mid-gesture.
-		it.each( [
-			[ 'a node is dragged', WIDE_DRAGGED, 0 ],
-			[ 'the transcript opens', WIDE, 950 ],
-		] )( 'does not re-fit when %s', ( _label, positions, inset ) => {
+		it( 're-fits an untouched viewport when a layout moves the same nodes', () => {
+			const onViewportChange = jest.fn();
+			const { rerenderWithCatalog } = renderWithCatalog(
+				<SchematicCanvas { ...canvasProps } />,
+				ambient( WIDE, null, onViewportChange )
+			);
+			const [ frozen, delta ] = lastCall( onViewportChange );
+			rerenderWithCatalog(
+				<SchematicCanvas { ...canvasProps } viewportDelta={ delta } />,
+				ambient( WIDE, frozen, onViewportChange )
+			);
+			rerenderWithCatalog(
+				<SchematicCanvas { ...canvasProps } viewportDelta={ delta } />,
+				ambient( RELAID, frozen, onViewportChange )
+			);
+			expect( lastViewport( onViewportChange ).w ).toBeLessThan(
+				frozen.w
+			);
+		} );
+
+		// The inset moves the autofit box too; following it yanks the canvas.
+		it( 'does not re-fit when the transcript opens', () => {
 			const onViewportChange = jest.fn();
 			const { rerenderWithCatalog } = renderWithCatalog(
 				<SchematicCanvas { ...canvasProps } />,
@@ -5249,7 +5272,56 @@ describe( 'SchematicCanvas — background click with only a hull selected', () =
 			const before = onViewportChange.mock.calls.length;
 			rerenderWithCatalog(
 				<SchematicCanvas { ...canvasProps } viewportDelta={ delta } />,
-				ambient( positions, frozen, onViewportChange, inset )
+				ambient( WIDE, frozen, onViewportChange, 950 )
+			);
+			expect( onViewportChange.mock.calls ).toHaveLength( before );
+		} );
+
+		it( 'keeps the view where it stands when a card is dropped, and stops tracking', () => {
+			const onViewportChange = jest.fn();
+			const onPositionChange = jest.fn();
+			const at = ( positions, viewport ) => ( {
+				...ambient( positions, viewport, onViewportChange ),
+				onPositionChange,
+			} );
+			const { container, rerenderWithCatalog } = renderWithCatalog(
+				<SchematicCanvas { ...canvasProps } />,
+				at( WIDE, null )
+			);
+			const [ frozen, delta ] = lastCall( onViewportChange );
+			rerenderWithCatalog(
+				<SchematicCanvas { ...canvasProps } viewportDelta={ delta } />,
+				at( WIDE, frozen )
+			);
+			const card = container.querySelector( '[aria-label^="c "]' );
+			// jsdom has no pointer capture; the drag handlers call it.
+			card.setPointerCapture = () => {};
+			card.releasePointerCapture = () => {};
+			const press = { button: 0, pointerId: 1 };
+			fireEvent.mouseDown( card, { ...press, clientX: 0, clientY: 0 } );
+			fireEvent.pointerMove( card, {
+				...press,
+				clientX: -3200,
+				clientY: -2400,
+			} );
+			fireEvent.pointerUp( card, {
+				...press,
+				clientX: -3200,
+				clientY: -2400,
+			} );
+			const [ id, dropped ] = lastCall( onPositionChange );
+			expect( id ).toBe( 'c' );
+			const [ kept, keptDelta ] = lastCall( onViewportChange );
+			expect( kept ).toEqual( frozen );
+			expect( keptDelta ).not.toEqual( { dcx: 0, dcy: 0, zoom: 1 } );
+
+			const before = onViewportChange.mock.calls.length;
+			rerenderWithCatalog(
+				<SchematicCanvas
+					{ ...canvasProps }
+					viewportDelta={ keptDelta }
+				/>,
+				at( { ...WIDE, c: dropped }, kept )
 			);
 			expect( onViewportChange.mock.calls ).toHaveLength( before );
 		} );

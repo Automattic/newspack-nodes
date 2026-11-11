@@ -784,6 +784,20 @@ export default function SchematicCanvas( {
 		},
 		[ onViewportChange ]
 	);
+	// A drop keeps the camera: the live view, measured against the moved fit.
+	const keepView = ( moved ) => {
+		if ( ! onViewportChange ) {
+			return;
+		}
+		const vp = liveViewportRef.current ?? autofitBoxRef.current;
+		const after = nodesRef.current.map( ( n ) =>
+			moved[ n.id ] ? { ...n, position: moved[ n.id ] } : n
+		);
+		const fit = parseViewBox(
+			autofitFor( after, canvasPx, bottomObstructionPx )
+		);
+		onViewportChange( vp, vp ? deltaFromAutofit( vp, fit ) : null );
+	};
 	// The box the last gesture committed, so a burst between renders chains.
 	const liveViewportRef = useRef( viewport );
 	liveViewportRef.current = viewport;
@@ -1033,19 +1047,18 @@ export default function SchematicCanvas( {
 			autofitFor( nodesRef.current, canvasPx, bottomObstructionPx )
 		);
 	}, [ nodes, canvasPx, bottomObstructionPx ] );
-	// MEMBERSHIP, not array identity: a drag moves the autofit box too.
-	const nodeIdsKey = useMemo(
-		() =>
-			nodes
-				.map( ( n ) => n.id )
-				.sort()
-				.join( '\n' ),
-		[ nodes ]
-	);
+	// Membership and extent: a layout re-laying the same nodes moves the fit.
+	const fitKey = useMemo( () => {
+		const box = nodesBBox( nodes );
+		const ids = nodes.map( ( n ) => n.id ).sort();
+		return box
+			? [ ...ids, box.minX, box.minY, box.maxX, box.maxY ].join( '\n' )
+			: '';
+	}, [ nodes ] );
 	// Fit once, then TRACK autofit until a pan: the node set arrives late.
 	useEffect( () => {
 		const autofit = autofitBoxRef.current;
-		if ( '' === nodeIdsKey || ! autofit ) {
+		if ( '' === fitKey || ! autofit ) {
 			return;
 		}
 		if ( ! viewport ) {
@@ -1064,7 +1077,7 @@ export default function SchematicCanvas( {
 			setViewport( autofit );
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ viewport, viewportDelta, nodeIdsKey, setViewport ] );
+	}, [ viewport, viewportDelta, fitKey, setViewport ] );
 
 	// On resize, rewrite the viewport to track autofit without a full re-fit.
 	const viewportRef = useRef( viewport );
@@ -1476,10 +1489,9 @@ export default function SchematicCanvas( {
 			// Pointer capture may already be released; ignore.
 		}
 		if ( draggedRef.current && onPositionChange ) {
-			onPositionChange(
-				drag.nodeId,
-				snapPosition( drag.currentPos.x, drag.currentPos.y )
-			);
+			const at = snapPosition( drag.currentPos.x, drag.currentPos.y );
+			onPositionChange( drag.nodeId, at );
+			keepView( { [ drag.nodeId ]: at } );
 		}
 		setDrag( null );
 		// Reset the click-suppress flag once the click has read it.
@@ -1618,9 +1630,12 @@ export default function SchematicCanvas( {
 			return;
 		}
 		const { dx, dy } = hullDragDelta( hullDrag );
+		const moved = {};
 		for ( const [ id, pos ] of Object.entries( origin ) ) {
-			onPositionChange( id, { x: pos.x + dx, y: pos.y + dy } );
+			moved[ id ] = { x: pos.x + dx, y: pos.y + dy };
+			onPositionChange( id, moved[ id ] );
 		}
+		keepView( moved );
 	};
 
 	// A cancelled press (a touch turned scroll) neither selects nor moves.
