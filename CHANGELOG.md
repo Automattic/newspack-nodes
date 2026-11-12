@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.154.2] - 2026-11-12
+
 ### Fixed
 
 - **A status line inside the error banner reads in the banner's ink.** A muted or toned `newspack-nodes-status` set beneath an error banner's sentence, such as Intelligence's refusal text for an operator, kept its page ink and was nearly illegible on the oxide fill.
