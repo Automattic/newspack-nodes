@@ -1,11 +1,14 @@
+@use "../shared/styles/field-scope" as scope;
+
 .newspack-nodes-theme:not(.newspack-nodes-ui) {
-	a[href],
-	button,
-	input,
-	select,
-	textarea,
-	summary,
-	[tabindex] {
+	a[href]#{scope.$outside-block-canvas},
+	button#{scope.$outside-block-canvas},
+	input#{scope.$outside-block-canvas},
+	select#{scope.$outside-block-canvas},
+	textarea#{scope.$outside-block-canvas},
+	summary#{scope.$outside-block-canvas},
+	[tabindex]#{scope.$outside-block-canvas},
+	#{scope.$rich-text-field}#{scope.$outside-block-canvas} {
 		&:focus:not(:focus-visible) {
 			outline: none;
 			box-shadow: none;

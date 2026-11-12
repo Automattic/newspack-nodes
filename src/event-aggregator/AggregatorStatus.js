@@ -259,9 +259,10 @@ function Stat( { label, title, className = '', children } ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 function StateBadge( { state, children } ) {
+	const tone = 'connected' === state ? 'is-success' : 'is-neutral';
 	return (
 		<span
-			className={ `newspack-nodes-status-badge aggregator-status-badge small ${ state }` }
+			className={ `newspack-nodes-status-badge aggregator-status-badge small ${ tone } ${ state }` }
 		>
 			{ children }
 		</span>
@@ -423,7 +424,11 @@ function PartitionLine( { label, status, now } ) {
 					</span>
 				) : (
 					<span
-						className={ `newspack-nodes-status-badge aggregator-response-badge small ${ responseStatus }` }
+						className={ `newspack-nodes-status-badge aggregator-response-badge small ${
+							'success' === responseStatus
+								? 'is-success'
+								: 'is-neutral'
+						} ${ responseStatus }` }
 					>
 						{ responseStatus }
 					</span>

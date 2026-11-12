@@ -71,6 +71,14 @@ describe( 'focused canonical UI DOM', () => {
 		],
 		[ 'select', ( document ) => document.createElement( 'select' ) ],
 		[
+			'rich-text field',
+			( document ) => {
+				const field = document.createElement( 'div' );
+				field.setAttribute( 'contenteditable', 'true' );
+				return field;
+			},
+		],
+		[
 			'number',
 			( document ) =>
 				Object.assign( document.createElement( 'input' ), {
@@ -150,6 +158,142 @@ describe( 'focused canonical UI DOM', () => {
 			expect( inputAfter.border ).toBe( inputUnfocused.border );
 			expect( inputAfter.borderColor ).toBe( inputUnfocused.borderColor );
 			dom.window.close();
+		}
+	);
+} );
+
+describe( 'focused token-only DOM', () => {
+	const THEME_SCSS = path.join( ROOT, 'src/theme/newspack-theme.scss' );
+	const compiledTheme = sass
+		.compile( THEME_SCSS )
+		.css.replaceAll( 'var(--ink, var(--np-text))', FOCUS_COLOR );
+
+	it.each( Object.entries( focusPaths ) )(
+		'rings a %s-focused rich-text field on a token-only host',
+		( label, focusElement ) => {
+			const dom = new JSDOM(
+				`<!doctype html><html><head><style>${ compiledTheme }</style></head><body><div class="newspack-nodes-theme"><div contenteditable="true"></div><div contenteditable="false" tabindex="-1"></div></div></body></html>`,
+				{ pretendToBeVisual: true }
+			);
+			const { document } = dom.window;
+			const [ field, locked ] =
+				document.querySelectorAll( '[contenteditable]' );
+
+			focusElement( dom.window, field );
+			expect( document.activeElement ).toBe( field );
+			expect( dom.window.getComputedStyle( field ).outline ).toBe(
+				`2px solid ${ FOCUS_COLOR }`
+			);
+			expect( dom.window.getComputedStyle( locked ).outline ).not.toBe(
+				`2px solid ${ FOCUS_COLOR }`
+			);
+			dom.window.close();
+		}
+	);
+} );
+
+describe( 'the block canvas keeps its own focus', () => {
+	const THEME_SCSS = path.join( ROOT, 'src/theme/newspack-theme.scss' );
+	const CANVAS =
+		'<div class="block-editor-writing-flow" contenteditable="true" tabindex="0">' +
+		'<div class="block-editor-block-list__layout">' +
+		'<div class="block-editor-block-list__block" tabindex="0">' +
+		'<p class="block-editor-rich-text__editable rich-text" contenteditable="true">Kestrel 4410</p>' +
+		'<button class="button canvas-button">Go</button><a class="canvas-link" href="#k">k</a>' +
+		'<details><summary class="canvas-summary">More</summary></details>' +
+		'<input class="canvas-input" type="text"><select class="canvas-select"></select>' +
+		'</div></div></div>' +
+		'<div class="probe-field-7720" contenteditable="true"></div>' +
+		'<button class="button probe-button-7721">Go</button>';
+	// Each selector of a rule painting a ring, its focus pseudo-classes gone.
+	const ringSelectors = ( css ) => {
+		const found = [];
+		const rule = /([^{}]+)\{([^{}]*)\}/g;
+		let match;
+		while ( ( match = rule.exec( css ) ) ) {
+			if (
+				/:focus/.test( match[ 1 ] ) &&
+				/outline:\s*2px solid/.test( match[ 2 ] )
+			) {
+				found.push( match[ 1 ].trim() );
+			}
+		}
+		return found;
+	};
+
+	it.each( [
+		[ 'the UI root', UI_SCSS, 'newspack-nodes-ui' ],
+		[ 'a token-only host', THEME_SCSS, 'newspack-nodes-theme' ],
+	] )(
+		'rings nothing inside the block canvas under %s, and still rings a plain field',
+		( label, scss, root ) => {
+			const dom = new JSDOM(
+				`<!doctype html><html><body><div class="${ root }">${ CANVAS }</div></body></html>`
+			);
+			const { document } = dom.window;
+			const rules = ringSelectors( sass.compile( scss ).css );
+			const ringed = ( element ) =>
+				rules.some( ( selector ) =>
+					element.matches(
+						selector.replace( /:focus(?:-visible|-within)?/g, '' )
+					)
+				);
+			for ( const selector of [
+				'.rich-text',
+				'.block-editor-block-list__block',
+				'.block-editor-writing-flow',
+				'.canvas-button',
+				'.canvas-link',
+				'.canvas-summary',
+				'.canvas-input',
+				'.canvas-select',
+			] ) {
+				expect( [
+					selector,
+					ringed( document.querySelector( selector ) ),
+				] ).toEqual( [ selector, false ] );
+			}
+			for ( const selector of [
+				'.probe-field-7720',
+				'.probe-button-7721',
+			] ) {
+				expect( ringed( document.querySelector( selector ) ) ).toBe(
+					true
+				);
+			}
+			dom.window.close();
+		}
+	);
+} );
+
+describe( 'every shared focus ring stays out of the block canvas', () => {
+	it.each( [
+		[ 'the UI sheet', UI_SCSS ],
+		[
+			'the theme sheet',
+			path.join( ROOT, 'src/theme/newspack-theme.scss' ),
+		],
+	] )(
+		'carries the canvas exclusion on each ring selector in %s',
+		( label, scss ) => {
+			const missing = [];
+			const rule = /([^{}]+)\{([^{}]*)\}/g;
+			const css = sass.compile( scss ).css;
+			let match;
+			while ( ( match = rule.exec( css ) ) ) {
+				if (
+					! /:focus/.test( match[ 1 ] ) ||
+					! /outline:\s*2px solid/.test( match[ 2 ] )
+				) {
+					continue;
+				}
+				for ( const selector of match[ 1 ].split( /,(?![^(]*\))/ ) ) {
+					if ( ! selector.includes( '.block-editor-writing-flow' ) ) {
+						missing.push( selector.trim().replace( /\s+/g, ' ' ) );
+					}
+				}
+			}
+			expect( missing ).toEqual( [] );
 		}
 	);
 } );

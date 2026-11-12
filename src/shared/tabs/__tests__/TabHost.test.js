@@ -138,6 +138,51 @@ describe( 'TabHost', () => {
 		expect( content.classList.contains( 'is-full-bleed' ) ).toBe( true );
 	} );
 
+	it( 'insets a default tab by the shared page inset, and a full-bleed one not at all', () => {
+		registerTab( {
+			id: 'console',
+			label: 'Console',
+			host: 'station',
+			order: 0,
+			fullBleed: true,
+			component: () => <div data-testid="console" />,
+		} );
+		registerTab( {
+			id: 'roster',
+			label: 'Roster',
+			host: 'station',
+			order: 1,
+			component: () => <div data-testid="roster" />,
+		} );
+		const { container, getByRole } = render( <TabHost host="station" /> );
+		const inset = () =>
+			container
+				.querySelector( '.nodes-tab-host__tab-content' )
+				.classList.contains( 'newspack-nodes-page-inset' );
+		expect( inset() ).toBe( false );
+		fireEvent.click( getByRole( 'tab', { name: 'Roster' } ) );
+		expect( inset() ).toBe( true );
+	} );
+
+	it( 'keeps the inset for a tab that owns its scroll, and drops the outer scroll', () => {
+		registerTab( {
+			id: 'tail',
+			label: 'Tail',
+			host: 'station',
+			ownsScroll: true,
+			component: () => <div data-testid="tail" />,
+		} );
+		const { container } = render( <TabHost host="station" /> );
+		const content = container.querySelector(
+			'.nodes-tab-host__tab-content'
+		);
+		expect( [ ...content.classList ] ).toEqual( [
+			'nodes-tab-host__tab-content',
+			'is-own-scroll',
+			'newspack-nodes-page-inset',
+		] );
+	} );
+
 	it( 'reports the initial and switched active tab id via onActiveTabChange', () => {
 		registerTab( {
 			id: 'console',

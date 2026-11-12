@@ -33,7 +33,7 @@
 			flex: 1 1 0;
 			min-height: 0;
 			overflow-y: auto;
-			font-family: monospace;
+			font-family: var(--font-mono);
 			font-size: 12px;
 			line-height: 1.5;
 		}
@@ -49,11 +49,11 @@
 			}
 
 			&--warning {
-				border-left-color: var(--brass, #dba617);
+				border-left-color: var(--brass, var(--np-warning));
 			}
 
 			&--error {
-				border-left-color: var(--oxide, #d63638);
+				border-left-color: var(--oxide, var(--np-error));
 				color: var(--oxide-text, var(--np-text));
 			}
 		}

@@ -12,8 +12,8 @@
  *
  * The Log Viewer reads every log the substrate knows: packed partition
  * dirs and plain registry files alike, a file streamed as `sources:<name>`. It
- * declares `fullBleed`, owning a full-height split like the Console instead of
- * the host's scroll container, and claims the `log` query param, which the
+ * declares `ownsScroll`, owning a full-height split inside the page inset
+ * instead of the host's scroll container, and claims the `log` query param, which the
  * host clears from the URL while another tab is active. It renders no debug
  * overlay of its own; the station renders one around whichever tab is active.
  */
@@ -60,7 +60,7 @@ registerTab( {
 	slug: 'log-viewer',
 	params: [ 'log' ],
 	order: 20,
-	fullBleed: true,
+	ownsScroll: true,
 	component: LogViewer,
 } );
 

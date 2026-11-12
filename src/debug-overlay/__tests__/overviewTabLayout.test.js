@@ -49,6 +49,13 @@ describe( 'Overview message list layout', () => {
 		} );
 	} );
 
+	it( 'leaves the page inset to the tab pane around it', () => {
+		const { tab } = renderPanel();
+		expect( tab.classList.contains( 'newspack-nodes-page-inset' ) ).toBe(
+			false
+		);
+	} );
+
 	it( 'grows the messages section into the space left', () => {
 		const { messages } = renderPanel();
 		expect( declarations( messages ) ).toMatchObject( {

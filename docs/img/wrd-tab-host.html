@@ -14,6 +14,7 @@
 .tab b { color: #003DA5; font-weight: 700; margin-right: 3px; }
 .tab.lazy { border-style: dashed; }
 .tab.fb { background: #EDF7ED; border-color: #9EC89E; }
+.tab.os { background: #EDF7ED; border-color: #9EC89E; border-style: dotted; }
 .tab.eln { background: #FFF6E5; border-color: #E8C98A; }
 .flds { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .fld { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #F6F7F7; border: 1px solid #DCDCDE; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -45,8 +46,8 @@
   <div class="body">
     <div class="chip"><span class="mono">DebugPanel</span> renders one <span class="mono">Header</span> above the bar and hands every tab <span class="mono">publishHeader</span>, <span class="mono">storageKey</span> and <span class="mono">frame</span> in <span class="mono">tabProps</span>. A tab publishes its own controls and retracts them with <span class="mono">null</span> on unmount.</div>
     <div class="tabs">
-      <span class="tab"><b>0</b>io-overview · Overview</span>
-      <span class="tab"><b>1</b>console · Console</span>
+      <span class="tab os"><b>0</b>io-overview · Overview</span>
+      <span class="tab fb"><b>1</b>console · Console</span>
       <span class="tab eln"><b>2</b>eln-current-request · Request</span>
     </div>
     <div class="chip"><span class="mono">newspack_nodes/overlay_pages</span> names every admin page beyond the station that mounts the overlay; each plugin contributing a tab enqueues on every slug in the list.</div>
@@ -60,7 +61,7 @@
     <div class="chip"><span class="mono">getTabs( host )</span> — its own tabs plus every <span class="mono">both</span> tab, each <span class="mono">gate()</span> run per read, sorted by <span class="mono">order</span> then label. <span class="mono">subscribeTabs</span>, <span class="mono">getTabsVersion</span>, <span class="mono">resetTabs</span> beside it.</div>
     <div class="flds">
       <span class="fld req">id</span><span class="fld req">label</span><span class="fld req">host</span><span class="fld req">component</span>
-      <span class="fld">order</span><span class="fld">slug</span><span class="fld">param</span><span class="fld">gate</span><span class="fld">icon</span><span class="fld">fullBleed</span>
+      <span class="fld">order</span><span class="fld">slug</span><span class="fld">param</span><span class="fld">gate</span><span class="fld">icon</span><span class="fld">ownsScroll</span><span class="fld">fullBleed</span>
     </div>
   </div>
 </div>
@@ -68,18 +69,18 @@
 <div class="panel" id="station" style="left:752px;top:0;width:300px">
   <header>the station · <span class="mono">host="station"</span></header>
   <div class="body">
-    <div class="chip"><span class="mono">Station.js</span>: a <span class="mono">position: fixed</span> full-height container set against <span class="mono">useAdminMenuWidth()</span>, one shared header whose controls slot reaches every tab as <span class="mono">headerControlsSlot</span>, and <span class="mono">syncUrl</span>.</div>
+    <div class="chip"><span class="mono">Station.js</span>: the shared <span class="mono">DashboardShell</span>, run <span class="mono">fullBleed</span> — a <span class="mono">position: fixed</span> full-height container set against <span class="mono">useAdminMenuWidth()</span>, one shared header whose controls slot reaches every tab as <span class="mono">headerControlsSlot</span>, and <span class="mono">syncUrl</span>.</div>
     <div class="tabs">
       <span class="tab"><b>0</b>overview</span>
       <span class="tab"><b>10</b>jobs</span>
       <span class="tab lazy fb"><b>15</b>topology-console · ?tab=console</span>
-      <span class="tab fb"><b>20</b>log-viewer</span>
+      <span class="tab os"><b>20</b>log-viewer</span>
       <span class="tab"><b>30</b>config-audit</span>
       <span class="tab lazy"><b>30</b>vault</span>
       <span class="tab lazy"><b>35</b>sessions</span>
       <span class="tab lazy"><b>40</b>aggregator</span>
     </div>
-    <div class="chip" style="margin-bottom:8px">dashed: lazy · green: <span class="mono">fullBleed</span> · the two 30s tie, so the label sorts Config Audit first. <span class="mono">onActiveTabChange</span> reports the RESOLVED id, which keys the overlay's <span class="mono">storageKey</span> and drops <span class="mono">buildRepl</span> on the Console.</div>
+    <div class="chip" style="margin-bottom:8px">dashed: lazy · green: <span class="mono">fullBleed</span> · dotted green: <span class="mono">ownsScroll</span> · the two 30s tie, so the label sorts Config Audit first. <span class="mono">onActiveTabChange</span> reports the RESOLVED id, which keys the overlay's <span class="mono">storageKey</span> and drops <span class="mono">buildRepl</span> on the Console.</div>
   </div>
 </div>
 
@@ -94,7 +95,7 @@
   <div class="card">
     <h3>What <span class="mono">TabHost</span> does for every tab</h3>
     <div class="step"><div class="n">1</div><div class="t"><b>Mounts only the active tab</b>, keyed on its id, so each tab's build-before-render runs fresh on every switch; <span class="mono">host</span> is applied after <span class="mono">tabProps</span> spreads, so a caller cannot hand a tab the wrong surface.</div></div>
-    <div class="step"><div class="n">2</div><div class="t"><b>Hides the bar at one tab</b>; adds <span class="mono">.is-full-bleed</span> to the pane for a <span class="mono">fullBleed</span> tab, opting it out of the default vertical scroll.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b>Hides the bar at one tab</b>; insets the pane with <span class="mono">newspack-nodes-page-inset</span>, adds <span class="mono">.is-own-scroll</span> for an <span class="mono">ownsScroll</span> tab, which drops the outer scroll, and <span class="mono">.is-full-bleed</span> for a <span class="mono">fullBleed</span> one, which drops both.</div></div>
     <div class="step"><div class="n">3</div><div class="t"><b>WAI-ARIA tabs</b>: <span class="mono">role="tablist"</span> over <span class="mono">role="tab"</span> buttons and one <span class="mono">role="tabpanel"</span>, a roving <span class="mono">tabIndex</span>, arrow keys wrapping at both ends, Home and End; every other key falls through.</div></div>
     <div class="step" style="margin-bottom:0"><div class="n">4</div><div class="t"><b>Lands on whichever tab sorts first at first render</b>, resolved once in a lazy state initializer. Overview holds that slot only because <span class="mono">Admin</span> registers <span class="mono">enqueue_event_dashboards_assets()</span> ahead of <span class="mono">enqueue_station_assets()</span> on the same hook.</div></div>
   </div>

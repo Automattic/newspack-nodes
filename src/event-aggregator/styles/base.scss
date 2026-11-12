@@ -1,8 +1,6 @@
-// Aggregator-only values that remain structural or semantic inputs.
-$system-font: var(--np-font);
-$mono-font: var(--np-font-mono);
-$error-text: var(--oxide-text);
-$border-radius-sm: 3px;
+// The shared tokens and mixins, under this dashboard's `base` namespace.
+@forward "@newspack-nodes/shared/styles/tokens";
+@forward "@newspack-nodes/shared/styles/mixins";
 
 // Scoped border-box baseline — applies only inside the dashboard root, never
 // leaking into the rest of wp-admin.

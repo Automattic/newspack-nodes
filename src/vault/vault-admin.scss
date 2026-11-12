@@ -1,14 +1,5 @@
 // Vault layout. Canonical shared roles own table, modal, status, and control
 // appearance.
-.event-aggregator-servers-admin {
-	box-sizing: border-box;
-	min-height: 100%;
-	padding: 16px 20px;
-	background: var(--paper-3);
-
-	// The header "Add Server" trigger reuses the shared `.nodes-cards__new`
-	// button (the Overview's "+ New Topology" look), styled there — not here.
-}
 
 // The form status sits left of the footer buttons; the shared modal owns
 // the flex row, this owns which end this element takes.

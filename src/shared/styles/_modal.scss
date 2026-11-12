@@ -1,7 +1,9 @@
+@use "mixins" as mix;
+
 :where(.newspack-nodes-ui) {
 	&.newspack-nodes-modal,
 	.newspack-nodes-modal {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		color: var(--ink, var(--np-text));
 		border: 1px solid var(--paper-shadow, var(--np-border-strong));
 		border-radius: var(--modal-radius, var(--np-modal-radius));
@@ -12,7 +14,7 @@
 			display: flex;
 			align-items: center;
 			gap: var(--np-space-md);
-			background: var(--paper-2, var(--np-surface-subtle));
+			@include mix.raised-surface;
 			border-bottom: 1px solid
 				var(--paper-shadow, var(--np-border-strong));
 		}
@@ -59,7 +61,7 @@
 .newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
 	&.newspack-nodes-modal.components-modal__frame,
 	.newspack-nodes-modal.components-modal__frame {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		color: var(--ink, var(--np-text));
 		border: 1px solid var(--paper-shadow, var(--np-border-strong));
 		border-radius: var(--modal-radius, var(--np-modal-radius));
@@ -69,7 +71,7 @@
 	&.newspack-nodes-modal,
 	.newspack-nodes-modal {
 		.components-modal__header {
-			background: var(--paper-2, var(--np-surface-subtle));
+			@include mix.raised-surface;
 			border-bottom: 1px solid
 				var(--paper-shadow, var(--np-border-strong));
 

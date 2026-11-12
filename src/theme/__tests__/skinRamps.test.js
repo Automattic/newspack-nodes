@@ -119,6 +119,8 @@ const COMMON_DERIVED_TOKENS = {
 	'--status-text': 'color-mix(in srgb, var(--ink) 45%, var(--ink-2))',
 	'--muted-text': 'color-mix(in srgb, var(--status-text) 60%, var(--ink-3))',
 	'--font-terminal': 'var(--font-mono)',
+	'--scrim': 'rgba(8, 10, 14, 0.62)',
+	'--canvas-wash': 'var(--canvas)',
 };
 // The eight chart roles a skin points at the Newspack chart palette.
 const NP_CHART_OVERRIDES = Object.fromEntries(
@@ -127,6 +129,14 @@ const NP_CHART_OVERRIDES = Object.fromEntries(
 		`var(--np-chart-${ i + 1 })`,
 	] )
 );
+// The three skins whose canvas carries a wash of its own.
+const CANVAS_WASHES = {
+	'newspack-brand':
+		'radial-gradient(120% 120% at 100% 0%, rgba(252, 155, 179, 0.1), transparent 60%), var(--canvas)',
+	synthwave:
+		'radial-gradient(80% 55% at 50% 122%, #ff7eb6 0%, #ff2d95 16%, transparent 52%), linear-gradient(180deg, #160826 0%, #2a0a3a 62%, #3a0f52 100%)',
+	aurora: 'radial-gradient(60% 80% at 18% 8%, rgba(122, 245, 208, 0.28), transparent 60%), radial-gradient(55% 75% at 92% 95%, rgba(155, 140, 255, 0.34), transparent 60%), radial-gradient(40% 50% at 60% 40%, rgba(94, 180, 255, 0.18), transparent 70%), var(--canvas)',
+};
 const ALLOWED_DERIVED_OVERRIDES = {
 	newspack: {
 		...NP_CHART_OVERRIDES,
@@ -139,6 +149,7 @@ const ALLOWED_DERIVED_OVERRIDES = {
 	},
 	'newspack-brand': {
 		...NP_CHART_OVERRIDES,
+		'--canvas-wash': CANVAS_WASHES[ 'newspack-brand' ],
 		'--cyan-subtle': 'var(--np-primary-subtle)',
 		'--font-terminal': '"jetbrains mono", ui-monospace, monospace',
 		'--modal-radius': 'var(--np-radius-md)',
@@ -148,7 +159,11 @@ const ALLOWED_DERIVED_OVERRIDES = {
 	},
 	'crt-color': NP_CHART_OVERRIDES,
 	synthwave: {
+		'--canvas-wash': CANVAS_WASHES.synthwave,
 		'--font-terminal': '"spline sans mono", monospace',
+	},
+	aurora: {
+		'--canvas-wash': CANVAS_WASHES.aurora,
 	},
 	botanical: {
 		'--font-terminal': '"spline sans mono", monospace',
@@ -1429,7 +1444,7 @@ describe( 'theme skin ramps', () => {
 			).toMatchObject( {
 				selector:
 					':where(.newspack-nodes-ui) .newspack-nodes-table[role=rowgroup] [role=row]:hover',
-				value: 'color-mix(in srgb, var(--cyan, var(--np-primary)) 15%, var(--paper-2, var(--np-surface-subtle)))',
+				value: 'color-mix(in srgb, var(--cyan, var(--np-primary)) 15%, var(--nodes-table-surface, var(--paper-2, var(--np-surface-subtle))))',
 			} );
 		}
 	);

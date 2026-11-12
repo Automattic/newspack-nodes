@@ -2,3 +2,8 @@
 // The control skin and the focus ring must agree on that, so the exclusion
 // lives here once instead of drifting between two blocklists.
 $not-a-field: '[type="submit"], [type="button"], [type="reset"], [type="image"], .button';
+
+// The block editor's canvas draws its own focus on everything inside it, so
+// every shared ring selector carries this and stays out of it.
+$outside-block-canvas: ":not(.block-editor-writing-flow, .block-editor-writing-flow *, .block-editor-block-list__layout, .block-editor-block-list__layout *)";
+$rich-text-field: '[contenteditable]:not([contenteditable="false"])';

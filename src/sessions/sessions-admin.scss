@@ -1,12 +1,5 @@
 // Sessions layout. Table, badge, status and modal appearance are the canonical
 // shared roles; only what is unique to this tab lives here.
-.nodes-sessions {
-	box-sizing: border-box;
-	min-height: 100%;
-	padding: 16px 20px;
-	background: var(--paper-3);
-}
-
 .nodes-sessions__key {
 	display: block;
 	overflow-wrap: anywhere;

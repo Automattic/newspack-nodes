@@ -58,6 +58,19 @@ class Admin {
 	/** Menu page slug for add_options_page() (the `?page=` fragment). */
 	public const MENU_SLUG = 'newspack-nodes';
 
+	/** The head script putting the stored skin's `theme-<slug>` on `<html>`. */
+	public const EARLY_SKIN_HANDLE = 'newspack-nodes-early-skin';
+
+	/**
+	 * Head-skin read seam. Replaces the read of the built `early-skin` bundle,
+	 * a `file_get_contents()` behind an `is_readable()` check; tests reassign
+	 * it to seed the body, or to answer false for an entry the build lacks.
+	 * Signature: `function (string $path): string|false`.
+	 *
+	 * @var (\Closure(string): (string|false))|null
+	 */
+	public static ?\Closure $read_early_skin = null;
+
 	/**
 	 * The script and style handle of the one `@wordpress/dataviews` copy, which
 	 * the build kit externalizes every consumer's import to.
@@ -258,104 +271,6 @@ class Admin {
 	}
 
 	/**
-	 * Shared React-dashboard enqueue registrar.
-	 *
-	 * Performs ONLY the mechanics every dashboard enqueue site shares: the page
-	 * gate, the `index.js` existence gate, manifest-versus-fallback deps and
-	 * version, the CSS sidecar with its RTL activation, and the
-	 * `NewspackNodesData` localize. Returns the script handle so a caller can
-	 * layer per-tree extras — an inline script, a secondary bundle — on top.
-	 *
-	 * A missing `index.js` returns null rather than enqueueing: a plugin whose
-	 * assets were never built then renders an empty mount div instead of a 404
-	 * on every admin page load.
-	 *
-	 * @api Sibling plugins enqueue their own dashboards through this.
-	 * @param array{handle:string, page:string|array<int,string>, dir:string, url:string,
-	 *   localize?:array<string,mixed>, version_fallback?:string, style_deps?:array<int,string>} $args
-	 *   Script handle, the `?page=` slug or slugs it may load on, the build
-	 *   directory and its public URL, and optional localize extras, version
-	 *   fallback and stylesheet dependencies.
-	 * @return string|null Enqueued script handle, or null when nothing was enqueued.
-	 * @throws \InvalidArgumentException When a localize extra is a non-string scalar.
-	 * @throws \LogicException When the bundle reads DataViews and its handle is not registered.
-	 */
-	public static function enqueue_react_page( array $args ): ?string {
-		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
-			return null;
-		}
-
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page  = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		$pages = (array) $args['page'];
-		if ( ! \in_array( $page, $pages, true ) ) {
-			return null;
-		}
-
-		$data    = self::localize_data( $args['localize'] ?? [] );
-		$dir     = \rtrim( $args['dir'], '/' );
-		$url     = \rtrim( $args['url'], '/' );
-		$js_path = "{$dir}/index.js";
-		if ( ! \file_exists( $js_path ) ) {
-			return null;
-		}
-
-		$fallback           = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
-		[ $deps, $version ] = self::bundle_manifest( $dir, $js_path, $fallback );
-		self::enqueue_dataviews_for( $deps );
-
-		$handle = $args['handle'];
-		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
-
-		if ( \file_exists( "{$dir}/index.css" ) ) {
-				// Canonical appearance also provides the token sheet.
-			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-ui' ];
-			$style_version = self::css_cache_version( "{$dir}/index.css", $version );
-			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
-			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
-				\wp_style_add_data( $handle, 'rtl', 'replace' );
-			}
-		}
-
-		\wp_localize_script( $handle, 'NewspackNodesData', $data );
-
-		return $handle;
-	}
-
-	/**
-	 * The `NewspackNodesData` payload an enqueued bundle localizes: the shared
-	 * `restUrl` and `nonce` under the per-bundle extras.
-	 *
-	 * A bundle may override either shared key, since the extras merge last. Both
-	 * fall back to a literal outside a WordPress runtime so building the payload
-	 * never fatals in a hermetic test harness.
-	 *
-	 * `wp_localize_script()` sends every top-level scalar as a string, so an
-	 * extra that is a bool, int or float would reach the browser as `'1'`,
-	 * `''` or `'7'`; it is refused. An array keeps its types.
-	 *
-	 * @param array<string,mixed> $localize Per-bundle extras (string keys).
-	 * @return array<string,mixed> The payload localized as `NewspackNodesData`.
-	 * @throws \InvalidArgumentException When an extra is a non-string scalar.
-	 */
-	private static function localize_data( array $localize ): array {
-		foreach ( $localize as $key => $value ) {
-			if ( \is_scalar( $value ) && ! \is_string( $value ) ) {
-				throw new \InvalidArgumentException( \esc_html( "localize extra {$key} is " . \get_debug_type( $value ) . ', not a string or an array: wp_localize_script() would send it as a string' ) );
-			}
-		}
-		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		return \array_merge(
-			[
-				'restUrl' => \esc_url_raw( $rest_url ),
-				'nonce'   => $nonce,
-			],
-			$localize
-		);
-	}
-
-	/**
 	 * Build the on-demand load recipe for one lazy station tab bundle: the
 	 * versioned script URL, the optional style URL, and the tab's own localize
 	 * extras, which the bundle reads through the station's `tabData()`. The
@@ -399,29 +314,6 @@ class Admin {
 		}
 
 		return $entry;
-	}
-
-	/**
-	 * Enqueue the DataViews script and its stylesheet for a bundle whose
-	 * dependencies name `DATAVIEWS_HANDLE`. WordPress has no way for a script to
-	 * pull in a stylesheet, and the station injects a lazy tab's script alone,
-	 * so both go on the page here.
-	 *
-	 * @param list<string> $deps The bundle's script dependencies.
-	 * @throws \LogicException When the bundle reads DataViews and the handle is
-	 *   not registered, which WordPress would answer by dropping the bundle.
-	 */
-	private static function enqueue_dataviews_for( array $deps ): void {
-		if ( ! \in_array( self::DATAVIEWS_HANDLE, $deps, true ) ) {
-			return;
-		}
-		if ( ! \wp_script_is( self::DATAVIEWS_HANDLE, 'registered' ) ) {
-			throw new \LogicException(
-				self::DATAVIEWS_HANDLE . ' is not registered: enqueue the bundle on admin_enqueue_scripts after priority 3, where Admin::register_dataviews() runs, and check that newspack-nodes was built with its build/dataviews/'
-			);
-		}
-		\wp_enqueue_script( self::DATAVIEWS_HANDLE );
-		\wp_enqueue_style( self::DATAVIEWS_HANDLE );
 	}
 
 	/** How many parallel log partitions the fleet runs. */
@@ -798,71 +690,6 @@ class Admin {
 	}
 
 	/**
-	 * Cache-bust a stylesheet on its OWN content hash rather than on the JS bundle
-	 * hash or the plugin version. A SCSS-only rebuild leaves both of those
-	 * unchanged, so a stylesheet keyed on either serves from cache behind a stale
-	 * `?ver=` and only a hard refresh lands the change.
-	 *
-	 * Falls back to the caller's version when the file is unreadable, checked
-	 * first so `md5_file()` never runs on an unreadable path and warns.
-	 *
-	 * @api Pyrobase, event-logger-nodes and nuclear-gyrobase version their own
-	 *      stylesheets through this.
-	 * @param string $css_path Filesystem path to the stylesheet.
-	 * @param string $fallback Version to use when the file is unreadable.
-	 * @return string Content hash, or the fallback.
-	 */
-	public static function css_cache_version( string $css_path, string $fallback ): string {
-		if ( ! \is_readable( $css_path ) ) {
-			return $fallback;
-		}
-		return \md5_file( $css_path ) ?: $fallback;
-	}
-
-	/** Public URL of a build subdirectory; the constant is undefined off a WP runtime. */
-	private static function build_url( string $subdir ): string {
-		return ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/' . $subdir;
-	}
-
-	/** Filesystem path to a build subdirectory ('vault' → '{plugin}/build/vault'). */
-	private static function build_dir( string $subdir ): string {
-		return \NEWSPACK_NODES_DIR . 'build/' . $subdir;
-	}
-
-	/**
-	 * Resolve a built bundle's script dependencies and cache-busting version.
-	 *
-	 * Reads the wp-scripts `index.asset.php` manifest when the build wrote one.
-	 * Without it, falls back to the four `wp-*` globals every dashboard imports
-	 * and to the bundle's mtime, so a hand-built or partially-built tree still
-	 * loads with a version that changes when the file does.
-	 *
-	 * The ONE resolver behind both the eager enqueue and the lazy tab recipe: a
-	 * second copy would let the two disagree on a version and serve one host a
-	 * cached bundle the other had already busted.
-	 *
-	 * @param string $dir      Filesystem path to the build subdirectory.
-	 * @param string $js_path  Path to the bundle's index.js.
-	 * @param string $fallback Version when neither manifest nor mtime resolve.
-	 * @return array{0:list<string>, 1:string} Dependencies, then version.
-	 */
-	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
-		$asset_path = "{$dir}/index.asset.php";
-		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
-		if ( \is_array( $asset ) ) {
-			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
-			return [
-				\array_values( \array_filter( $manifest_deps, '\is_string' ) ),
-				\is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback,
-			];
-		}
-		return [
-			[ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ],
-			(string) ( \filemtime( $js_path ) ?: $fallback ),
-		];
-	}
-
-	/**
 	 * Base-directory field: an absolute path whose placeholder is the effective
 	 * default — the schema's, as the config files override it. Blank means "use
 	 * that default", which is what makes the field resettable without a magic
@@ -1024,6 +851,260 @@ class Admin {
 	}
 
 	/**
+	 * Enqueue the per-field reset toggle on the server-rendered settings page,
+	 * at head time, and the `settings` bundle that skins the page. The toggle
+	 * brings the appearance stylesheet with it; the React hosts get that sheet
+	 * through their own bundles' style dependencies, and the skin bundle emits
+	 * no stylesheet, so the page opts in here.
+	 *
+	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
+	 *                     enqueue_event_dashboards_assets().
+	 */
+	public function enqueue_settings_assets( string $hook = '' ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( self::MENU_SLUG !== $page ) {
+			return;
+		}
+		Field_Reset_Assets::enqueue();
+		self::enqueue_react_page(
+			[
+				'handle'   => 'newspack-nodes-settings',
+				'page'     => self::MENU_SLUG,
+				'dir'      => self::build_dir( 'settings' ),
+				'url'      => self::build_url( 'settings' ),
+				'localize' => false,
+			]
+		);
+	}
+
+	/** Public URL of a build subdirectory; the constant is undefined off a WP runtime. */
+	private static function build_url( string $subdir ): string {
+		return ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/' . $subdir;
+	}
+
+	/**
+	 * Shared React-dashboard enqueue registrar.
+	 *
+	 * Performs ONLY the mechanics every dashboard enqueue site shares: the page
+	 * gate, the `index.js` existence gate, manifest-versus-fallback deps and
+	 * version, the CSS sidecar with its RTL activation, the
+	 * `NewspackNodesData` localize, and the head script applying the stored
+	 * skin before first paint, which a footer bundle would apply only after
+	 * the page had painted in the default. Returns the script handle so a
+	 * caller can layer per-tree extras — an inline script, a secondary bundle —
+	 * on top. `localize` set to `false` localizes nothing, for a bundle that
+	 * reads no `NewspackNodesData`.
+	 *
+	 * A missing `index.js` returns null rather than enqueueing: a plugin whose
+	 * assets were never built then renders an empty mount div instead of a 404
+	 * on every admin page load.
+	 *
+	 * @api Sibling plugins enqueue their own dashboards through this.
+	 * @param array{handle:string, page:string|array<int,string>, dir:string, url:string,
+	 *   localize?:array<string,mixed>|false, version_fallback?:string, style_deps?:array<int,string>} $args
+	 *   Script handle, the `?page=` slug or slugs it may load on, the build
+	 *   directory and its public URL, and optional localize extras, version
+	 *   fallback and stylesheet dependencies.
+	 * @return string|null Enqueued script handle, or null when nothing was enqueued.
+	 * @throws \LogicException When the plugin is built but its head-skin entry is not.
+	 * @throws \InvalidArgumentException When a localize extra is a non-string scalar.
+	 * @throws \LogicException When the bundle reads DataViews and its handle is not registered.
+	 */
+	public static function enqueue_react_page( array $args ): ?string {
+		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
+			return null;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page  = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		$pages = (array) $args['page'];
+		if ( ! \in_array( $page, $pages, true ) ) {
+			return null;
+		}
+
+		$localize = $args['localize'] ?? [];
+		$data     = false === $localize ? null : self::localize_data( $localize );
+		$dir      = \rtrim( $args['dir'], '/' );
+		$url     = \rtrim( $args['url'], '/' );
+		$js_path = "{$dir}/index.js";
+		if ( ! \file_exists( $js_path ) ) {
+			return null;
+		}
+
+		$fallback           = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
+		[ $deps, $version ] = self::bundle_manifest( $dir, $js_path, $fallback );
+		self::enqueue_dataviews_for( $deps );
+
+		self::enqueue_early_skin();
+		$handle = $args['handle'];
+		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
+
+		if ( \file_exists( "{$dir}/index.css" ) ) {
+				// Canonical appearance also provides the token sheet.
+			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-ui' ];
+			$style_version = self::css_cache_version( "{$dir}/index.css", $version );
+			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
+			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
+				\wp_style_add_data( $handle, 'rtl', 'replace' );
+			}
+		}
+
+		if ( null !== $data ) {
+			\wp_localize_script( $handle, 'NewspackNodesData', $data );
+		}
+
+		return $handle;
+	}
+
+	/**
+	 * Cache-bust a stylesheet on its OWN content hash rather than on the JS bundle
+	 * hash or the plugin version. A SCSS-only rebuild leaves both of those
+	 * unchanged, so a stylesheet keyed on either serves from cache behind a stale
+	 * `?ver=` and only a hard refresh lands the change.
+	 *
+	 * Falls back to the caller's version when the file is unreadable, checked
+	 * first so `md5_file()` never runs on an unreadable path and warns.
+	 *
+	 * @api Pyrobase, event-logger-nodes and nuclear-gyrobase version their own
+	 *      stylesheets through this.
+	 * @param string $css_path Filesystem path to the stylesheet.
+	 * @param string $fallback Version to use when the file is unreadable.
+	 * @return string Content hash, or the fallback.
+	 */
+	public static function css_cache_version( string $css_path, string $fallback ): string {
+		if ( ! \is_readable( $css_path ) ) {
+			return $fallback;
+		}
+		return \md5_file( $css_path ) ?: $fallback;
+	}
+
+	/**
+	 * Enqueue the head script that puts the stored skin's `theme-<slug>` on
+	 * `<html>` before first paint, registering it, source-less, the first time a
+	 * page asks. Its body is the `early-skin` bundle the build emits from
+	 * `src/shared/skinStore.js`, inlined whole, so it reads the same store and
+	 * the same exact slug list `theme.js` does. An unbuilt plugin enqueues
+	 * nothing, and `theme.js` applies the skin at load; a built one missing the
+	 * entry is a broken build, and throws.
+	 *
+	 * @throws \LogicException When the plugin is built but the entry is not.
+	 */
+	private static function enqueue_early_skin(): void {
+		if ( ! \wp_script_is( self::EARLY_SKIN_HANDLE, 'registered' ) ) {
+			$path = self::build_dir( 'early-skin' ) . '/index.js';
+			$read = self::$read_early_skin ?? static fn ( string $file ): string|false => \is_readable( $file )
+				// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- this plugin's own build.
+				? \file_get_contents( $file )
+				: false;
+			$body = $read( $path );
+			if ( false === $body ) {
+				if ( ! \is_dir( self::build_dir( '' ) ) ) {
+					return;
+				}
+				throw new \LogicException( 'newspack-nodes-early-skin has no body: check that newspack-nodes was built with its build/early-skin/' );
+			}
+			\wp_register_script( self::EARLY_SKIN_HANDLE, false, [], \NEWSPACK_NODES_VERSION, [ 'in_footer' => false ] );
+			\wp_add_inline_script( self::EARLY_SKIN_HANDLE, $body );
+		}
+		\wp_enqueue_script( self::EARLY_SKIN_HANDLE );
+	}
+
+	/** Filesystem path to a build subdirectory ('vault' → '{plugin}/build/vault'). */
+	private static function build_dir( string $subdir ): string {
+		return \NEWSPACK_NODES_DIR . 'build/' . $subdir;
+	}
+
+	/**
+	 * Enqueue the DataViews script and its stylesheet for a bundle whose
+	 * dependencies name `DATAVIEWS_HANDLE`. WordPress has no way for a script to
+	 * pull in a stylesheet, and the station injects a lazy tab's script alone,
+	 * so both go on the page here.
+	 *
+	 * @param list<string> $deps The bundle's script dependencies.
+	 * @throws \LogicException When the bundle reads DataViews and the handle is
+	 *   not registered, which WordPress would answer by dropping the bundle.
+	 */
+	private static function enqueue_dataviews_for( array $deps ): void {
+		if ( ! \in_array( self::DATAVIEWS_HANDLE, $deps, true ) ) {
+			return;
+		}
+		if ( ! \wp_script_is( self::DATAVIEWS_HANDLE, 'registered' ) ) {
+			throw new \LogicException(
+				self::DATAVIEWS_HANDLE . ' is not registered: enqueue the bundle on admin_enqueue_scripts after priority 3, where Admin::register_dataviews() runs, and check that newspack-nodes was built with its build/dataviews/'
+			);
+		}
+		\wp_enqueue_script( self::DATAVIEWS_HANDLE );
+		\wp_enqueue_style( self::DATAVIEWS_HANDLE );
+	}
+
+	/**
+	 * Resolve a built bundle's script dependencies and cache-busting version.
+	 *
+	 * Reads the wp-scripts `index.asset.php` manifest when the build wrote one.
+	 * Without it, falls back to the four `wp-*` globals every dashboard imports
+	 * and to the bundle's mtime, so a hand-built or partially-built tree still
+	 * loads with a version that changes when the file does.
+	 *
+	 * The ONE resolver behind both the eager enqueue and the lazy tab recipe: a
+	 * second copy would let the two disagree on a version and serve one host a
+	 * cached bundle the other had already busted.
+	 *
+	 * @param string $dir      Filesystem path to the build subdirectory.
+	 * @param string $js_path  Path to the bundle's index.js.
+	 * @param string $fallback Version when neither manifest nor mtime resolve.
+	 * @return array{0:list<string>, 1:string} Dependencies, then version.
+	 */
+	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
+		$asset_path = "{$dir}/index.asset.php";
+		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
+		if ( \is_array( $asset ) ) {
+			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
+			return [
+				\array_values( \array_filter( $manifest_deps, '\is_string' ) ),
+				\is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback,
+			];
+		}
+		return [
+			[ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ],
+			(string) ( \filemtime( $js_path ) ?: $fallback ),
+		];
+	}
+
+	/**
+	 * The `NewspackNodesData` payload an enqueued bundle localizes: the shared
+	 * `restUrl` and `nonce` under the per-bundle extras.
+	 *
+	 * A bundle may override either shared key, since the extras merge last. Both
+	 * fall back to a literal outside a WordPress runtime so building the payload
+	 * never fatals in a hermetic test harness.
+	 *
+	 * `wp_localize_script()` sends every top-level scalar as a string, so an
+	 * extra that is a bool, int or float would reach the browser as `'1'`,
+	 * `''` or `'7'`; it is refused. An array keeps its types.
+	 *
+	 * @param array<string,mixed> $localize Per-bundle extras (string keys).
+	 * @return array<string,mixed> The payload localized as `NewspackNodesData`.
+	 * @throws \InvalidArgumentException When an extra is a non-string scalar.
+	 */
+	private static function localize_data( array $localize ): array {
+		foreach ( $localize as $key => $value ) {
+			if ( \is_scalar( $value ) && ! \is_string( $value ) ) {
+				throw new \InvalidArgumentException( \esc_html( "localize extra {$key} is " . \get_debug_type( $value ) . ', not a string or an array: wp_localize_script() would send it as a string' ) );
+			}
+		}
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		return \array_merge(
+			[
+				'restUrl' => \esc_url_raw( $rest_url ),
+				'nonce'   => $nonce,
+			],
+			$localize
+		);
+	}
+
+	/**
 	 * Classes for scale chips on a weighted list, ranked once: keys rank by
 	 * weight, the heaviest key lightest (step 1), and the ranks spread evenly
 	 * onto 1..SCALE_CHIP_STEPS, `1 + round( rank x ( STEPS - 1 ) / ( count - 1 ) )`;
@@ -1176,6 +1257,11 @@ class Admin {
 	 * Render the settings page: the Settings-API form, plus a hidden form each for
 	 * Reset to Defaults and Flush Caches.
 	 *
+	 * The wrap wears the three roots every dashboard does, the head script puts
+	 * the stored skin on `<html>`, and the `settings` bundle runs
+	 * `paintSkinGutters` on the wrap, so the printed form and the admin gutters
+	 * take the skin without a second root.
+	 *
 	 * The two destructive actions post to `admin-post.php` rather than riding the
 	 * settings form, because `options.php` would treat them as a save. Their
 	 * buttons live in the settings form's submit row and submit the hidden form
@@ -1189,7 +1275,7 @@ class Admin {
 			? \admin_url( 'admin-post.php' )
 			: '/wp-admin/admin-post.php';
 		?>
-		<div class="wrap newspack-nodes-settings-wrap newspack-nodes-theme newspack-nodes-ui">
+		<div class="wrap newspack-nodes-settings-wrap newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui">
 			<h1><?php \esc_html_e( 'Nodes Runtime Settings', 'newspack-nodes' ); ?></h1>
 			<?php
 			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag.
@@ -1308,24 +1394,6 @@ class Admin {
 			)
 		);
 		exit;
-	}
-
-	/**
-	 * Enqueue the per-field reset toggle on the server-rendered settings page,
-	 * at head time. The toggle brings the appearance stylesheet with it; the
-	 * React hosts get that sheet through their own bundles' style dependencies,
-	 * and this page has no bundle, so it opts in here.
-	 *
-	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
-	 *                     enqueue_event_dashboards_assets().
-	 */
-	public function enqueue_settings_assets( string $hook = '' ): void {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		if ( self::MENU_SLUG !== $page ) {
-			return;
-		}
-		Field_Reset_Assets::enqueue();
 	}
 
 	/**

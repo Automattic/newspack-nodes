@@ -7,6 +7,7 @@
  */
 
 @use "../../shared/styles/mixins" as mix;
+@use "../../shared/styles/tokens";
 
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
@@ -216,10 +217,6 @@
 		&:hover {
 			background: var(--hover);
 			border-left-color: var(--oxide);
-
-			.topology-palette__glyph {
-				background: var(--paper-2);
-			}
 		}
 
 		// A candidate that would self-reference, duplicate, or cycle: no drag.
@@ -372,7 +369,7 @@
 		align-items: center;
 		padding: 0 16px;
 		border-top: 1px solid var(--ink-4);
-		background: var(--paper-3);
+		background: var(--paper-2);
 		font: 400 9px var(--font-mono);
 		letter-spacing: 0.1em;
 		color: var(--ink-3);
@@ -427,7 +424,7 @@
 	grid-area: canvas;
 	position: relative;
 	overflow: hidden;
-	background: var(--canvas);
+	background: var(--canvas-wash);
 
 	&__meta {
 		position: absolute;
@@ -566,6 +563,7 @@
 	position: absolute;
 	bottom: 14px;
 	right: 18px;
+	// The lightest rung, framed: the canvas is --paper or --paper-3 per skin.
 	background: var(--paper);
 	border: 1px solid var(--ink-2);
 	color: var(--ink-2);
@@ -593,7 +591,6 @@
 		letter-spacing: 0.18em;
 		text-transform: uppercase;
 		color: var(--ink-3);
-		background: var(--paper-2);
 	}
 
 	&__v {
@@ -1897,7 +1894,7 @@
 	// One resting height for every host that mounts it — station, console,
 	// overlay, a consumer's dashboard — so its chrome breathes the same way.
 	min-height: 64px;
-	padding: 0 18px;
+	padding: 0 tokens.$page-inset-x;
 	gap: 24px;
 	z-index: 3;
 }
@@ -1941,23 +1938,6 @@
 	justify-content: flex-end;
 	align-items: center;
 	gap: 12px;
-}
-
-// Scoped under .topology-app to outrank WP-admin's default select styling; subtle fill + low-contrast border.
-.topology-app .topology-select {
-	appearance: none;
-	-webkit-appearance: none;
-	background-color: color-mix(in srgb, var(--ink) 6%, transparent);
-	border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
-	color: var(--ink);
-	// WebKit paints the value via -webkit-text-fill-color; without this it blacks out on focus.
-	-webkit-text-fill-color: var(--ink);
-	// line-height 1 clipped glyph descenders (the g/p/y tails); 1.4 gives the
-	// line box room to render them (padding trimmed to keep the control height).
-	font: 500 12px/1.4 var(--font-mono);
-	padding: 6px 22px 6px 10px;
-	border-radius: 0;
-	cursor: pointer;
 }
 
 .topology-overlay-mode {
@@ -2104,17 +2084,6 @@
 	.topology-repl__input {
 		caret-color: color-mix(in srgb, var(--sage) 55%, white);
 	}
-
-	// Morganite is backgrounds-only (brand doc): a barely-there rose wash on
-	// the canvas, the only place the expressive tertiary is allowed.
-	.topology-canvas {
-		background: radial-gradient(
-				120% 120% at 100% 0%,
-				rgba(252, 155, 179, 0.1),
-				transparent 60%
-			),
-			var(--canvas);
-	}
 }
 
 // Newspack skins — shared product chrome: clean white rounded node cards with a
@@ -2150,13 +2119,7 @@
 		fill: var(--ink);
 	}
 
-	// Rounded controls (DESIGN.product): only the routing / edit-row INPUTS stay
-	// rounded. Every button is square on newspack (base radius 0) — including the
-	// delete button. Command buttons take a 1px border.
-	.topology-edit-row__input {
-		border-radius: 8px;
-	}
-
+	// Command buttons take a 1px border.
 	.topology-insp__actions button,
 	.topology-insp__commands button {
 		border-width: 1px;
@@ -2201,41 +2164,9 @@
 
 // 04 — Synthwave Outrun
 .theme-synthwave .topology-app {
-	.topology-canvas {
-		background: radial-gradient(
-				80% 55% at 50% 122%,
-				#ff7eb6 0%,
-				#ff2d95 16%,
-				transparent 52%
-			),
-			linear-gradient(180deg, #160826 0%, #2a0a3a 62%, #3a0f52 100%);
-	}
-
 	.topology-node__led,
 	.topology-edge--active {
 		filter: drop-shadow(0 0 4px currentcolor);
-	}
-}
-
-// 06 — Aurora Glass
-.theme-aurora .topology-app {
-	.topology-canvas {
-		background: radial-gradient(
-				60% 80% at 18% 8%,
-				rgba(122, 245, 208, 0.28),
-				transparent 60%
-			),
-			radial-gradient(
-				55% 75% at 92% 95%,
-				rgba(155, 140, 255, 0.34),
-				transparent 60%
-			),
-			radial-gradient(
-				40% 50% at 60% 40%,
-				rgba(94, 180, 255, 0.18),
-				transparent 70%
-			),
-			var(--canvas);
 	}
 }
 
@@ -2262,7 +2193,7 @@
 		width: 60px;
 		height: 60px;
 		border-radius: 50%;
-		background: #f4c20d;
+		background: var(--brass);
 		z-index: 0;
 		pointer-events: none;
 	}
@@ -2276,7 +2207,7 @@
 		height: 0;
 		border-left: 30px solid transparent;
 		border-right: 30px solid transparent;
-		border-bottom: 52px solid #1f4ec5;
+		border-bottom: 52px solid var(--cyan);
 		z-index: 0;
 		pointer-events: none;
 	}
@@ -2560,12 +2491,11 @@
 
 // ── Modal (ConfirmModal + PromptModal) ──────────────────────────────────────
 // Consumer-owned modal geometry. The canonical UI asset owns frame, header,
-// and close-control appearance. The backdrop remains a fixed dark wash (NOT
-// var(--ink), which flips light in dark skins and would brighten the screen).
+// and close-control appearance. The backdrop is the skin's scrim.
 .topology-modal-backdrop {
 	position: fixed;
 	inset: 0;
-	background: rgba(8, 10, 14, 0.62);
+	background: var(--scrim);
 	display: flex;
 	align-items: center;
 	justify-content: center;

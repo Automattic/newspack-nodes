@@ -12,9 +12,12 @@
  *
  * The active tab mounts inside a per-tab scroll container
  * (`.nodes-tab-host__tab-content`): it scrolls vertically by default, so a long
- * list tab (the Topology Manager) stays usable inside the station's fixed wrapper. A
- * tab declaring `fullBleed: true` (the Topology Console, which owns its own
- * full-height canvas) opts out via `.is-full-bleed`.
+ * list tab (the Topology Manager) stays usable inside the station's fixed
+ * wrapper, and it wears the shared page inset. A tab declaring `ownsScroll`
+ * (the Log Viewer, whose rows scroll in a pane of their own) keeps the inset
+ * and opts out of the scroll via `.is-own-scroll`; one declaring `fullBleed`
+ * (the Topology Console, which owns its own full-height canvas) opts out of
+ * both via `.is-full-bleed`.
  *
  * With `syncUrl` the host also owns the page's query string: the initial tab
  * comes from `?tab=<slug>`, the load canonicalizes it through `replaceState`,
@@ -183,15 +186,33 @@ export default function TabHost( {
 			) }
 			<div
 				{ ...panelProps }
-				className={ `nodes-tab-host__tab-content${
-					active.fullBleed ? ' is-full-bleed' : ''
-				}` }
+				className={ `nodes-tab-host__tab-content${ tabPane(
+					active
+				) }` }
 			>
 				{ /* host must win over any caller-supplied tabProps.host */ }
 				<Active key={ active.id } { ...tabProps } host={ host } />
 			</div>
 		</>
 	);
+}
+
+/**
+ * The classes after `nodes-tab-host__tab-content` that a tab's pane wears. A
+ * full-bleed tab runs edge to edge and scrolls itself; one that owns its
+ * scroll keeps the shared page inset and loses only the outer scroll; any
+ * other takes both.
+ *
+ * @param {import('./tabRegistry').TabDescriptor} tab The active tab.
+ * @return {string} The classes, each led by a space.
+ */
+function tabPane( tab ) {
+	if ( tab.fullBleed ) {
+		return ' is-full-bleed';
+	}
+	return `${
+		tab.ownsScroll ? ' is-own-scroll' : ''
+	} newspack-nodes-page-inset`;
 }
 
 /**

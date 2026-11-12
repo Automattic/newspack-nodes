@@ -526,40 +526,22 @@ describe( 'canonical appearance ownership', () => {
 		expect( css ).toContain( 'min-height: 40px;' );
 	} );
 
-	it( 'exports only live aggregator Sass tokens and compiles their consumer', () => {
+	it( 'forwards the shared aggregator tokens rather than redeclaring them', () => {
 		const stylesDir = path.join( NODES_SRC, 'event-aggregator/styles' );
 		const basePath = path.join( stylesDir, 'base.scss' );
 		const baseSource = fs.readFileSync( basePath, 'utf8' );
-		const consumerPaths = walkScss( stylesDir ).filter(
-			( file ) => file !== basePath
-		);
-		const exported = [ ...baseSource.matchAll( /^\$([\w-]+)\s*:/gm ) ]
-			.map( ( match ) => match[ 1 ] )
-			.sort();
-		const consumed = [
-			...new Set(
-				consumerPaths.flatMap( ( file ) =>
-					[
-						...fs
-							.readFileSync( file, 'utf8' )
-							.matchAll( /base\.\$([\w-]+)/g ),
-					].map( ( match ) => match[ 1 ] )
-				)
-			),
-		].sort();
-		const mixins = [ ...baseSource.matchAll( /@mixin\s+([\w-]+)/g ) ].map(
-			( match ) => match[ 1 ]
-		);
+		const forwarded = [
+			...baseSource.matchAll( /^@forward\s+"([^"]+)";/gm ),
+		].map( ( match ) => match[ 1 ] );
 
-		expect( consumed ).toEqual( [
-			'border-radius-sm',
-			'error-text',
-			'mono-font',
-			'system-font',
+		expect( forwarded ).toEqual( [
+			'@newspack-nodes/shared/styles/tokens',
+			'@newspack-nodes/shared/styles/mixins',
 		] );
-		expect( exported ).toEqual( consumed );
-		expect( mixins ).toEqual( [] );
-		for ( const consumerPath of consumerPaths ) {
+		expect( baseSource ).not.toMatch( /^\$[\w-]+\s*:/m );
+		for ( const consumerPath of walkScss( stylesDir ).filter(
+			( file ) => file !== basePath
+		) ) {
 			expect( () => compile( consumerPath ) ).not.toThrow();
 		}
 		expect(
@@ -1534,18 +1516,16 @@ describe( 'canonical appearance ownership', () => {
 		const tabHostStylesheet = compile(
 			path.join( NODES_SRC, 'station/station.scss' )
 		);
+		// The tab pane insets the placeholder, so it pads nothing itself.
 		expect(
 			declarationsForSelector(
 				tabHostStylesheet,
 				'.newspack-nodes-performance-loading.nodes-station__lazy-loading'
 			)
-		).toEqual(
-			expect.objectContaining( {
-				display: 'block',
-				'min-height': '0',
-				padding: '24px',
-			} )
-		);
+		).toEqual( {
+			display: 'block',
+			'min-height': '0',
+		} );
 		expect(
 			declarationsForSelector(
 				graphStylesheet,
@@ -2443,8 +2423,8 @@ describe( 'canonical appearance ownership', () => {
 		);
 	} );
 
-	// A table is a content surface like a card, not an elevated one.
-	it( 'seats a table on the same surface as a card', () => {
+	// On the page a table is a content surface like a card; a card lifts it.
+	it( 'seats a table on the same surface as a card, outside one', () => {
 		const ui = compile( UI_ENTRY );
 		expect(
 			declarationsForSelector(
@@ -2452,10 +2432,12 @@ describe( 'canonical appearance ownership', () => {
 				':where(.newspack-nodes-ui) .newspack-nodes-table'
 			).background
 		).toBe(
-			declarationsForSelector(
-				ui,
-				':where(.newspack-nodes-ui) .newspack-nodes-card'
-			).background
+			`var(--nodes-table-surface, ${
+				declarationsForSelector(
+					ui,
+					':where(.newspack-nodes-ui) .newspack-nodes-card'
+				).background
+			})`
 		);
 	} );
 
@@ -2631,15 +2613,30 @@ describe( 'shared field chrome', () => {
 		expect( entry?.border ).toBe( '0' );
 	} );
 
-	it( 'draws DataViews table header menus as header text, not outlined buttons', () => {
-		const file = path.join(
+	it( 'ships the DataViews skin once, in the UI entry, not in a component sheet', () => {
+		const component = path.join(
 			NODES_SRC,
-			'shared/components/DataViewsList.scss'
+			'shared/components/DataViewsList.js'
 		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
+		expect( fs.readFileSync( component, 'utf8' ) ).not.toMatch(
+			/import\s+['"][^'"]+\.scss['"]/
 		);
+		expect(
+			fs.existsSync(
+				path.join( NODES_SRC, 'shared/components/DataViewsList.scss' )
+			)
+		).toBe( false );
+		const wrapper = mergedDeclarationsForSelectors(
+			uiStylesheet,
+			( selector ) =>
+				':where(.newspack-nodes-ui) .newspack-nodes-dataviews > .dataviews-wrapper' ===
+				selector
+		);
+		expect( wrapper?.gap ).toBe( '12px' );
+	} );
+
+	it( 'draws DataViews table header menus as header text, not outlined buttons', () => {
+		const sheet = uiStylesheet;
 		const header = mergedDeclarationsForSelectors( sheet, ( selector ) =>
 			selectorHasClass( selector, 'dataviews-view-table-header-button' )
 		);
@@ -2650,14 +2647,7 @@ describe( 'shared field chrome', () => {
 	} );
 
 	it( 'draws DataViews title links and table row rules in the skin', () => {
-		const file = path.join(
-			NODES_SRC,
-			'shared/components/DataViewsList.scss'
-		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
-		);
+		const sheet = uiStylesheet;
 		const link = mergedDeclarationsForSelectors(
 			sheet,
 			( selector ) =>
@@ -2674,14 +2664,7 @@ describe( 'shared field chrome', () => {
 	} );
 
 	it( 'draws DataViews filter chips, the bulk count and list row rules in the skin', () => {
-		const file = path.join(
-			NODES_SRC,
-			'shared/components/DataViewsList.scss'
-		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
-		);
+		const sheet = uiStylesheet;
 		const of = ( test ) => mergedDeclarationsForSelectors( sheet, test );
 		expect(
 			of(
@@ -2689,7 +2672,7 @@ describe( 'shared field chrome', () => {
 					/summary-chip$/.test( selector ) &&
 					selectorHasClass( selector, 'newspack-nodes-ui' )
 			)?.background
-		).toBe( 'var(--paper-3, var(--np-surface-muted))' );
+		).toBe( 'var(--paper, var(--np-surface))' );
 		expect(
 			of( ( selector ) => /summary-chip:hover/.test( selector ) )
 				?.background
@@ -2746,14 +2729,7 @@ describe( 'shared field chrome', () => {
 	} );
 
 	it( 'hides a run-only list row\u2019s actions past the stock rule that shows them', () => {
-		const file = path.join(
-			NODES_SRC,
-			'shared/components/DataViewsList.scss'
-		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
-		);
+		const sheet = uiStylesheet;
 		// Stock shows it at (0,3,1): `.dataviews-view-list div[role=row] …`.
 		const hide = mergedDeclarationsForSelectors( sheet, ( selector ) =>
 			/\.newspack-nodes-dataviews__run-only\.dataviews-view-list div\[role=row\] \.dataviews-view-list__item-actions$/.test(
@@ -2764,14 +2740,7 @@ describe( 'shared field chrome', () => {
 	} );
 
 	it( 'spaces a DataViewsList\u2019s header rows, list and pager apart', () => {
-		const file = path.join(
-			NODES_SRC,
-			'shared/components/DataViewsList.scss'
-		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
-		);
+		const sheet = uiStylesheet;
 		const wrapper = mergedDeclarationsForSelectors( sheet, ( selector ) =>
 			/\.newspack-nodes-dataviews > \.dataviews-wrapper$/.test( selector )
 		);
@@ -2779,14 +2748,7 @@ describe( 'shared field chrome', () => {
 	} );
 
 	it( 'draws the DataViews filter popover in the skin', () => {
-		const file = path.join(
-			NODES_SRC,
-			'shared/components/DataViewsList.scss'
-		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
-		);
+		const sheet = uiStylesheet;
 		const of = ( test ) => mergedDeclarationsForSelectors( sheet, test );
 		expect(
 			of( ( selector ) => /combobox-list$/.test( selector ) )?.[
@@ -2825,14 +2787,7 @@ describe( 'shared field chrome', () => {
 	} );
 
 	it( 'keeps a hovered or selected DataViews list row in the skin\u2019s ink', () => {
-		const file = path.join(
-			NODES_SRC,
-			'shared/components/DataViewsList.scss'
-		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
-		);
+		const sheet = uiStylesheet;
 		const of = ( test ) => mergedDeclarationsForSelectors( sheet, test );
 		const hover = of( ( selector ) =>
 			/div\[role=row\]:not\(\.is-selected\):hover$/.test( selector )
@@ -2861,14 +2816,7 @@ describe( 'shared field chrome', () => {
 	} );
 
 	it( 'lets a DataViewsList row\u2019s focus rings show past its title cell', () => {
-		const file = path.join(
-			NODES_SRC,
-			'shared/components/DataViewsList.scss'
-		);
-		const sheet = postcss.parse(
-			sass.compile( file, { importers: [ SHARED_IMPORTER ] } ).css,
-			{ from: file }
-		);
+		const sheet = uiStylesheet;
 		for ( const cell of [
 			'dataviews-view-list__title-field',
 			'dataviews-view-activity__item-title',
@@ -2926,5 +2874,624 @@ describe( 'shared field chrome', () => {
 		);
 		expect( declared ).not.toBeNull();
 		expect( declared[ 'box-sizing' ] ).toBeUndefined();
+	} );
+} );
+
+describe( 'one page edge', () => {
+	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+	const tabHost = compile(
+		path.join( NODES_SRC, 'shared/tabs/TabHost.scss' )
+	);
+	// The left edge of a `padding` shorthand of one to four values, in pixels.
+	const leftEdge = ( padding ) => {
+		const parts = padding
+			.split( /\s+/ )
+			.map( ( part ) => parseFloat( part ) );
+		return [ parts[ 0 ], parts[ 1 ], parts[ 1 ], parts[ 3 ] ][
+			parts.length - 1
+		];
+	};
+
+	it( 'insets page content by one shared role', () => {
+		expect(
+			declarationsForSelector(
+				ui,
+				':where(.newspack-nodes-ui) .newspack-nodes-page-inset'
+			)
+		).toEqual( { padding: '16px 20px' } );
+	} );
+
+	it( 'starts the header text, the first tab label and the content on one edge', () => {
+		const header = declarationsForSelector(
+			graphStylesheet,
+			'.topology-header'
+		);
+		const bar = declarationsForSelector(
+			tabHost,
+			'.nodes-tab-host__tabbar'
+		);
+		const tab = mergedDeclarationsForSelectors( ui, ( selector ) =>
+			/ \.nodes-tab-host__tab$/.test( selector )
+		);
+		const inset = declarationsForSelector(
+			ui,
+			':where(.newspack-nodes-ui) .newspack-nodes-page-inset'
+		);
+		const edge = leftEdge( inset.padding );
+		expect( edge ).toBe( 20 );
+		expect( leftEdge( header.padding ) ).toBe( edge );
+		expect( leftEdge( bar.padding ) + leftEdge( tab.padding ) ).toBe(
+			edge
+		);
+	} );
+
+	it.each( [
+		[ 'event-dashboards/styles/overview.scss', '.nodes-overview' ],
+		[ 'event-dashboards/styles/probe-tab.scss', '.nodes-probe-tab' ],
+		[ 'event-dashboards/styles/config-audit.scss', '.nodes-config-audit' ],
+		[
+			'event-dashboards/styles/log-viewer.scss',
+			'.newspack-nodes-log-viewer',
+		],
+		[ 'sessions/sessions-admin.scss', '.nodes-sessions' ],
+		[ 'vault/vault-admin.scss', '.event-aggregator-servers-admin' ],
+		[
+			'event-aggregator/styles/aggregator-status.scss',
+			'.aggregator-status-dashboard',
+		],
+	] )(
+		'leaves the inset and the page paint to the tab pane in %s',
+		( file, selector ) => {
+			const declared =
+				declarationsForSelector(
+					compile( path.join( NODES_SRC, file ) ),
+					selector
+				) ?? {};
+			for ( const prop of [ 'padding', 'min-height', 'background' ] ) {
+				expect( [ prop, declared[ prop ] ] ).toEqual( [
+					prop,
+					undefined,
+				] );
+			}
+		}
+	);
+} );
+
+describe( 'audited appearance', () => {
+	const sheet = ( file ) => compile( path.join( NODES_SRC, file ) );
+	const workerStatus = sheet( 'event-dashboards/styles/worker-status.scss' );
+	const aggregator = sheet(
+		'event-aggregator/styles/aggregator-status.scss'
+	);
+	const theme = sheet( 'theme/newspack-theme.scss' );
+	const selectorsOf = ( stylesheet ) => {
+		const found = [];
+		stylesheet.walkRules( ( rule ) => found.push( ...rule.selectors ) );
+		return found;
+	};
+
+	it( 'keeps no select rule the header controls never sit under', () => {
+		expect(
+			selectorsOf( graphStylesheet ).filter( ( selector ) =>
+				selectorHasClass( selector, 'topology-select' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'leaves an edit-row field its radius from the shared field rule', () => {
+		const radii = [];
+		graphStylesheet.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some( ( selector ) =>
+					selectorHasClass( selector, 'topology-edit-row__input' )
+				)
+			) {
+				rule.walkDecls( 'border-radius', ( decl ) =>
+					radii.push( decl.value )
+				);
+			}
+		} );
+		expect( radii ).toEqual( [] );
+	} );
+
+	it( 'paints nothing on a topology-row root no markup wears', () => {
+		expect(
+			selectorsOf(
+				sheet( 'event-dashboards/styles/topology-row.scss' )
+			).filter( ( selector ) => '.nodes-tm' === selector )
+		).toEqual( [] );
+	} );
+
+	it( 'dims the page behind every dialog with one skin scrim', () => {
+		expect(
+			declarationsForSelector(
+				sheet( 'shared/components/Modal.scss' ),
+				'.newspack-nodes-modal__backdrop'
+			).background
+		).toBe( 'var(--scrim)' );
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-modal-backdrop'
+			).background
+		).toBe( 'var(--scrim)' );
+		const scrims = [];
+		theme.walkDecls( '--scrim', ( decl ) => scrims.push( decl.value ) );
+		expect( scrims ).toEqual( [ 'rgba(8, 10, 14, 0.62)' ] );
+	} );
+
+	it( 'draws the per-skin canvas washes and shapes from skin tokens', () => {
+		const literals = [];
+		graphStylesheet.walkRules( ( rule ) => {
+			// CRT's scanlines are the shared mixin's, not a skin's wash.
+			if (
+				! rule.selectors.some(
+					( selector ) =>
+						selectorHasClass( selector, 'topology-canvas' ) &&
+						! selector.includes( 'theme-crt' )
+				)
+			) {
+				return;
+			}
+			rule.walkDecls( ( decl ) => {
+				if ( /#[0-9a-f]{3,8}\b|rgba?\(/i.test( decl.value ) ) {
+					literals.push( `${ rule.selector } ${ decl.prop }` );
+				}
+			} );
+		} );
+		expect( literals ).toEqual( [] );
+		expect(
+			declarationsForSelector( graphStylesheet, '.topology-canvas' )
+				.background
+		).toBe( 'var(--canvas-wash)' );
+	} );
+
+	it( 'rounds and lifts a log partition row off its card, its track a recess', () => {
+		expect(
+			declarationsForSelector( workerStatus, '.log-partition-row' )
+		).toMatchObject( {
+			background: 'var(--paper)',
+			'border-radius': 'var(--np-radius-sm)',
+		} );
+		expect(
+			declarationsForSelector( workerStatus, '.segment-bar-h' ).background
+		).toBe( 'var(--paper-3)' );
+		expect(
+			declarationsForSelector( workerStatus, '.segment-fill-h.processed' )
+				.background
+		).toBe( 'var(--sage-subtle)' );
+	} );
+
+	it( 'leaves every aggregator badge tone to the shared status badge', () => {
+		const painted = [];
+		aggregator.walkRules( ( rule ) => {
+			if (
+				! rule.selectors.some(
+					( selector ) =>
+						selectorHasClass(
+							selector,
+							'aggregator-status-badge'
+						) ||
+						selectorHasClass(
+							selector,
+							'aggregator-response-badge'
+						)
+				)
+			) {
+				return;
+			}
+			rule.walkDecls( ( decl ) => {
+				if (
+					[ 'background', 'color' ].includes( decl.prop ) &&
+					! rule.selector.includes( '::before' )
+				) {
+					painted.push( `${ rule.selector } ${ decl.prop }` );
+				}
+			} );
+		} );
+		expect( painted ).toEqual( [] );
+	} );
+
+	it( 'sets the overlay message list in the skin mono face and status tokens', () => {
+		const overview = sheet( 'debug-overlay/tabs/overview-tab.scss' );
+		expect(
+			declarationsForSelector(
+				overview,
+				'.nodes-debug__panel .nodes-overview__messages ul'
+			)[ 'font-family' ]
+		).toBe( 'var(--font-mono)' );
+		expect(
+			declarationsForSelector(
+				overview,
+				'.nodes-debug__panel .nodes-overview__messages .nodes-overview__msg--warning'
+			)[ 'border-left-color' ]
+		).toBe( 'var(--brass, var(--np-warning))' );
+		expect(
+			declarationsForSelector(
+				overview,
+				'.nodes-debug__panel .nodes-overview__messages .nodes-overview__msg--error'
+			)[ 'border-left-color' ]
+		).toBe( 'var(--oxide, var(--np-error))' );
+	} );
+
+	it( 'seats palette and title-block chrome lighter than the surface under it', () => {
+		expect(
+			selectorsOf( graphStylesheet ).filter( ( selector ) =>
+				/__item:hover \.topology-palette__glyph$/.test( selector )
+			)
+		).toEqual( [] );
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-palette__footer'
+			).background
+		).toBe( 'var(--paper-2)' );
+		// The canvas is --paper in eight skins and --paper-3 in the rest, so
+		// only --paper, framed, never sits below it; its cells take no fill.
+		expect(
+			declarationsForSelector( graphStylesheet, '.topology-title-block' )
+				.background
+		).toBe( 'var(--paper)' );
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-title-block__k'
+			).background
+		).toBeUndefined();
+	} );
+} );
+
+describe( 'shared log-row inks', () => {
+	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+	const of = ( selector ) => declarationsForSelector( ui, selector );
+
+	it.each( [
+		[ 'fast', 'var(--sage-text, var(--np-text))' ],
+		[ 'slow', 'var(--brass-text, var(--np-text))' ],
+		[ 'critical', 'var(--oxide-text, var(--np-text))' ],
+	] )( 'inks a %s duration once, for every log pane', ( speed, color ) => {
+		expect(
+			of( `:where(.newspack-nodes-ui) .entry-duration--${ speed }` )
+		).toEqual( { color } );
+	} );
+
+	it.each( [
+		[
+			'error',
+			{
+				color: 'var(--oxide-text, var(--np-text))',
+				'font-weight': '600',
+			},
+		],
+		[
+			'warning',
+			{
+				color: 'var(--brass-text, var(--np-text))',
+				'font-weight': '600',
+			},
+		],
+		[
+			'stderr',
+			{
+				color: 'var(--ink-3, var(--np-text-secondary))',
+				'font-style': 'italic',
+			},
+		],
+		[ 'info', { color: 'var(--ink-3, var(--np-text-secondary))' } ],
+	] )( 'inks a %s keyword by its data-keyword', ( keyword, declared ) => {
+		expect(
+			of(
+				`:where(.newspack-nodes-ui) .entry-keyword[data-keyword=${ keyword }]`
+			)
+		).toEqual( declared );
+	} );
+} );
+
+describe( 'status badge type', () => {
+	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+
+	it( 'sizes the badge itself at the 2xs step', () => {
+		expect(
+			declarationsForSelector(
+				ui,
+				':where(.newspack-nodes-ui) .newspack-nodes-status-badge'
+			)[ 'font-size' ]
+		).toBe( 'var(--np-text-2xs)' );
+	} );
+
+	it.each( [ '', '.small', '.compact', '.is-pill' ] )(
+		'sets the badge%s on the product type scale, no smaller than its 2xs step',
+		( variant ) => {
+			const declared = mergedDeclarationsForSelectors(
+				ui,
+				( selector ) =>
+					`:where(.newspack-nodes-ui) .newspack-nodes-status-badge${ variant }` ===
+					selector
+			);
+			expect( declared ).toBeDefined();
+			expect( [ undefined, 'var(--np-text-2xs)' ] ).toContain(
+				declared[ 'font-size' ]
+			);
+		}
+	);
+
+	it( 'sets a small round-trip reading no smaller than the 2xs step', () => {
+		expect(
+			declarationsForSelector(
+				compile(
+					path.join(
+						NODES_SRC,
+						'event-aggregator/styles/aggregator-status.scss'
+					)
+				),
+				'.aggregator-rtt.small'
+			)[ 'font-size' ]
+		).toBe( 'var(--np-text-2xs)' );
+	} );
+
+	it( 'leaves the jobs status tone to the shared badge', () => {
+		const jobs = compile(
+			path.join( NODES_SRC, 'event-dashboards/styles/jobs.scss' )
+		);
+		const painted = [];
+		jobs.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some( ( selector ) =>
+					selectorHasClass( selector, 'nodes-jobs__status' )
+				)
+			) {
+				rule.walkDecls( ( decl ) => painted.push( decl.prop ) );
+			}
+		} );
+		expect( painted ).toEqual( [] );
+	} );
+} );
+
+describe( 'status badge elevation', () => {
+	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+	const tone = ( state ) =>
+		declarationsForSelector(
+			ui,
+			`:where(.newspack-nodes-ui) .newspack-nodes-status-badge.${ state }`
+		);
+
+	it.each( [ 'is-neutral', 'held', 'idle' ] )(
+		'lifts a %s badge to the lightest rung, framed, never darker than its card',
+		( state ) => {
+			expect( tone( state ) ).toMatchObject( {
+				background: 'var(--paper, var(--np-surface))',
+				'box-shadow':
+					'inset 0 0 0 1px var(--paper-shadow, var(--np-border-strong))',
+			} );
+		}
+	);
+
+	it( 'fills no tone from a surface rung below the lightest', () => {
+		const sunk = [];
+		ui.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some( ( selector ) =>
+					selectorHasClass( selector, 'newspack-nodes-status-badge' )
+				)
+			) {
+				rule.walkDecls( /^background/, ( decl ) => {
+					if ( /--paper-[23]\b/.test( decl.value ) ) {
+						sunk.push( `${ rule.selector } ${ decl.value }` );
+					}
+				} );
+			}
+		} );
+		expect( sunk ).toEqual( [] );
+	} );
+} );
+
+describe( 'a table steps up a rung inside a card or modal', () => {
+	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+	const SURFACE =
+		'var(--nodes-table-surface, var(--paper-2, var(--np-surface-subtle)))';
+	const tableRules = () => {
+		const found = [];
+		ui.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some( ( selector ) =>
+					/\.newspack-nodes-table(?:__(?:header|row|details|summary))?(?![\w-])/.test(
+						selector
+					)
+				)
+			) {
+				found.push( rule );
+			}
+		} );
+		return found;
+	};
+
+	it.each( [
+		'.newspack-nodes-card',
+		'.newspack-nodes-card--elevated',
+		'.newspack-nodes-modal',
+		'.newspack-nodes-modal__header',
+		'.components-modal__header',
+		'.components-card',
+		'.components-surface',
+		'.components-panel',
+		'.components-popover__content',
+		'.nodes-tab-host__tabbar',
+		'.topology-header',
+	] )( 'lifts every table inside %s to the lightest rung', ( container ) => {
+		const declared = mergedDeclarationsForSelectors( ui, ( selector ) =>
+			new RegExp(
+				`${ container.replace( /[.]/g, '\\.' ) }(?![\\w-])`
+			).test( selector )
+		);
+		expect( declared?.[ '--nodes-table-surface' ] ).toBe(
+			'var(--paper, var(--np-surface))'
+		);
+	} );
+
+	it( 'fills every --paper-2 surface through the one mixin that lifts a table', () => {
+		const PAPER_2 = 'var(--paper-2, var(--np-surface-subtle))';
+		const unpaired = [];
+		ui.walkRules( ( rule ) => {
+			const props = {};
+			rule.walkDecls( ( decl ) => ( props[ decl.prop ] = decl.value ) );
+			const fills = Object.values( props ).includes( PAPER_2 );
+			if (
+				fills !==
+				( undefined !== props[ '--nodes-table-surface' ] )
+			) {
+				unpaired.push( rule.selector.replace( /\s+/g, ' ' ) );
+			}
+		} );
+		expect( unpaired ).toEqual( [] );
+		const sources = walkScss( path.join( NODES_SRC, 'shared/styles' ) )
+			.map( ( file ) => fs.readFileSync( file, 'utf8' ) )
+			.join( '\n' );
+		// An undivided table reads the variable too, and falls back to transparent.
+		expect(
+			sources.match( /var\(--nodes-table-surface, var\(--paper-2/g )
+		).toHaveLength( 1 );
+		expect( sources.match( /--nodes-table-surface:/g ) ).toHaveLength( 1 );
+	} );
+
+	it( 'paints table, header, rows, stripes and hover from the one surface', () => {
+		const literal = [];
+		let reads = 0;
+		for ( const rule of tableRules() ) {
+			rule.walkDecls( /^background/, ( decl ) => {
+				if ( decl.value.includes( SURFACE ) ) {
+					reads += 1;
+				} else if ( /--paper-2\b/.test( decl.value ) ) {
+					literal.push( `${ rule.selector } ${ decl.value }` );
+				}
+			} );
+		}
+		expect( literal ).toEqual( [] );
+		expect( reads ).toBeGreaterThanOrEqual( 9 );
+	} );
+
+	it( 'paints no table part --paper-2 except through the table surface', () => {
+		const tablePart =
+			/(?:^|[\s>+~])(?:table|thead|tbody|tr|th)(?![\w-])|table__|[\w-]*table(?![\w-])/;
+		const literal = [];
+		for ( const [ file, stylesheet ] of [
+			[ UI_ENTRY, ui ],
+			...consumerStylesheets(),
+		] ) {
+			stylesheet.walkRules( ( rule ) => {
+				if (
+					! rule.selectors.some( ( sel ) => tablePart.test( sel ) )
+				) {
+					return;
+				}
+				rule.walkDecls( /^background/, ( decl ) => {
+					if (
+						/--paper-2\b/.test( decl.value ) &&
+						! decl.value.includes( '--nodes-table-surface' )
+					) {
+						literal.push(
+							`${ path.relative( NODES_SRC, file ) }:${
+								rule.selector
+							}`
+						);
+					}
+				} );
+			} );
+		}
+		expect( literal ).toEqual( [] );
+	} );
+
+	it( 'gives an undivided table the stepped surface where one is set', () => {
+		expect(
+			declarationsForSelector(
+				ui,
+				':where(.newspack-nodes-ui) .newspack-nodes-table--undivided'
+			).background
+		).toBe( 'var(--nodes-table-surface, transparent)' );
+	} );
+} );
+
+describe( 'settings-table headings', () => {
+	it( 'inks a form-table row heading as its label, over WordPress own dark', () => {
+		const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+			from: UI_ENTRY,
+		} );
+		const heading = mergedDeclarationsForSelectors(
+			ui,
+			( selector ) =>
+				'.newspack-nodes-ui.newspack-nodes-ui .form-table th' ===
+				selector
+		);
+		expect( heading?.color ).toBe( 'var(--ink-2, var(--np-text))' );
+	} );
+} );
+
+describe( 'WordPress notices in a skinned page', () => {
+	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+	const of = ( selector ) =>
+		mergedDeclarationsForSelectors(
+			ui,
+			( candidate ) => `.newspack-nodes-ui ${ selector }` === candidate
+		);
+
+	it( 'seats a notice on the lightest rung in the skin ink', () => {
+		expect( of( '.notice' ) ).toMatchObject( {
+			background: 'var(--paper, var(--np-surface))',
+			color: 'var(--ink, var(--np-text))',
+		} );
+	} );
+
+	it.each( [
+		[ 'success', 'var(--sage, var(--np-success))' ],
+		[ 'warning', 'var(--brass, var(--np-warning))' ],
+		[ 'error', 'var(--oxide, var(--np-error))' ],
+		[ 'info', 'var(--cyan, var(--np-primary))' ],
+	] )( 'edges a %s notice in its status colour', ( tone, color ) => {
+		expect( of( `.notice-${ tone }` )?.[ 'border-left-color' ] ).toBe(
+			color
+		);
+	} );
+} );
+
+describe( 'stock tables and the shared mixins', () => {
+	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+	const of = ( selector ) =>
+		mergedDeclarationsForSelectors(
+			ui,
+			( candidate ) =>
+				`.newspack-nodes-ui.newspack-nodes-ui ${ selector }` ===
+				candidate
+		);
+
+	it( 'seats a stock table on the canonical table surface, striped as one', () => {
+		const SURFACE =
+			'var(--nodes-table-surface, var(--paper-2, var(--np-surface-subtle)))';
+		expect( of( '.widefat' )?.background ).toBe( SURFACE );
+		expect( of( '.widefat tbody tr:nth-child(odd)' )?.background ).toBe(
+			`color-mix(in srgb, var(--ink, var(--np-text)) 8%, ${ SURFACE })`
+		);
+	} );
+
+	it( 'declares no mixin that nothing includes', () => {
+		const source = fs.readFileSync(
+			path.join( NODES_SRC, 'shared/styles/_mixins.scss' ),
+			'utf8'
+		);
+		expect( source ).not.toMatch(
+			/@mixin (?:table-header|widefat-themed)\b/
+		);
 	} );
 } );

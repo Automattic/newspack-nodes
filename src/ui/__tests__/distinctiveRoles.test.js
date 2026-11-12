@@ -537,11 +537,11 @@ describe( 'distinctive canonical roles', () => {
 			);
 		}
 		expect( matchingDeclarations( nested ) ).toMatchObject( {
-			background: 'transparent',
+			background: 'var(--nodes-table-surface,transparent)',
 			border: '0',
 		} );
 		expect( matchingDeclarations( details ).background ).toBe(
-			'var(--paper-2,var(--np-surface-subtle))'
+			'var(--nodes-table-surface,var(--paper-2,var(--np-surface-subtle)))'
 		);
 		expectUsesSentinel(
 			details,
@@ -568,7 +568,8 @@ describe( 'distinctive canonical roles', () => {
 			SENTINELS.fontTerminal
 		);
 		expect( matchingDeclarations( summary ) ).toMatchObject( {
-			background: 'var(--paper-2,var(--np-surface-subtle))',
+			background:
+				'var(--nodes-table-surface,var(--paper-2,var(--np-surface-subtle)))',
 			'font-weight': '700',
 		} );
 		expectUsesSentinel(
@@ -670,14 +671,16 @@ describe( 'distinctive canonical roles', () => {
 			SENTINELS.cyanSubtle,
 			'--cyan-text',
 			SENTINELS.cyanText,
+			undefined,
 		],
 		[
 			'user',
 			'is-neutral',
-			'--paper-3',
-			SENTINELS.paper3,
+			'--paper',
+			SENTINELS.paper,
 			'--ink-3',
 			SENTINELS.ink3,
+			'inset 0 0 0 1px var(--paper-shadow,var(--np-border-strong))',
 		],
 	] )(
 		'renders %s provenance through the canonical status pill and semantic tone',
@@ -687,7 +690,8 @@ describe( 'distinctive canonical roles', () => {
 			backgroundToken,
 			backgroundSentinel,
 			colorToken,
-			colorSentinel
+			colorSentinel,
+			frame
 		) => {
 			const { container } = render( provider( topologyRow( source ) ) );
 			const provenance = container.querySelector( '.nodes-tm__badge' );
@@ -726,7 +730,8 @@ describe( 'distinctive canonical roles', () => {
 				colorSentinel
 			);
 			expect( declarations.border ).toBeUndefined();
-			expect( declarations[ 'box-shadow' ] ).toBeUndefined();
+			// A neutral pill is framed; a tinted one reads by its tint.
+			expect( declarations[ 'box-shadow' ] ).toBe( frame );
 		}
 	);
 

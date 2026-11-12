@@ -6,6 +6,7 @@
 
 @use "button-roles" as role;
 @use "mixins" as mix;
+@use "tokens";
 
 :where(.newspack-nodes-ui) {
 	.newspack-nodes-disclosure {
@@ -26,7 +27,7 @@
 	}
 
 	.nodes-tab-host__tabbar {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
@@ -46,7 +47,7 @@
 		cursor: pointer;
 		font: inherit;
 		font-size: 13px;
-		padding: 6px 14px;
+		padding: 6px tokens.$tab-inset-x;
 		transition:
 			color 0.15s,
 			border-color 0.15s;
@@ -71,7 +72,7 @@
 	}
 
 	.topology-header {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
@@ -181,7 +182,7 @@
 
 	.newspack-nodes-rail-toggle {
 		appearance: none;
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		border-color: var(--ink-4, var(--np-text-secondary));
 		border-radius: 2px;
 		border-style: solid;

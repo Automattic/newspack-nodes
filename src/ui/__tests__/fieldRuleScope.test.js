@@ -133,3 +133,90 @@ describe( 'field styling scope', () => {
 		expect( painting.length ).toBeGreaterThan( 0 );
 	} );
 } );
+
+// [ids, classes and attributes, types] for one complex selector. `:where()` is
+// zero; `:not()` and `:is()` count their heaviest argument.
+function specificity( selector ) {
+	const inner = ( pseudo ) => {
+		const args = [];
+		const open = new RegExp( `:${ pseudo }\\(`, 'g' );
+		let match;
+		while ( ( match = open.exec( selector ) ) ) {
+			let depth = 1;
+			let i = match.index + match[ 0 ].length;
+			const start = i;
+			while ( depth ) {
+				depth += { '(': 1, ')': -1 }[ selector[ i ] ] ?? 0;
+				i += 1;
+			}
+			args.push( selector.slice( start, i - 1 ) );
+		}
+		return args;
+	};
+	let rest = selector;
+	const score = [ 0, 0, 0 ];
+	for ( const pseudo of [ 'not', 'is', 'where' ] ) {
+		for ( const arg of inner( pseudo ) ) {
+			rest = rest.replace( `:${ pseudo }(${ arg })`, ' ' );
+			if ( 'where' !== pseudo ) {
+				const heaviest = splitSelectorList( arg )
+					.map( specificity )
+					.sort(
+						( a, b ) =>
+							b[ 0 ] - a[ 0 ] ||
+							b[ 1 ] - a[ 1 ] ||
+							b[ 2 ] - a[ 2 ]
+					)[ 0 ];
+				heaviest.forEach( ( n, k ) => ( score[ k ] += n ) );
+			}
+		}
+	}
+	score[ 0 ] += ( rest.match( /#[\w-]+/g ) || [] ).length;
+	score[ 1 ] += (
+		rest.match( /\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g ) || []
+	).length;
+	score[ 2 ] += ( rest.match( /(?:^|[\s>+~])[a-z][\w-]*/gi ) || [] ).length;
+	return score;
+}
+
+describe( 'native select chrome', () => {
+	// The winning value, by specificity and then source order.
+	const winning = ( element, longhand ) => {
+		let best = null;
+		stylesheet.walkDecls( ( decl ) => {
+			if ( decl.prop !== longhand && decl.prop !== 'padding' ) {
+				return;
+			}
+			const value =
+				'padding' === decl.prop
+					? decl.value.split( /\s+/ )[ 1 ] ?? decl.value
+					: decl.value;
+			for ( const sel of splitSelectorList( decl.parent.selector ) ) {
+				if ( ! matchesButton( sel, element ) ) {
+					continue;
+				}
+				const weight = specificity( sel );
+				if (
+					! best ||
+					weight[ 0 ] > best.weight[ 0 ] ||
+					( weight[ 0 ] === best.weight[ 0 ] &&
+						( weight[ 1 ] > best.weight[ 1 ] ||
+							( weight[ 1 ] === best.weight[ 1 ] &&
+								weight[ 2 ] >= best.weight[ 2 ] ) ) )
+				) {
+					best = { value, weight };
+				}
+			}
+		} );
+		return best?.value;
+	};
+
+	it( 'clears the chevron with its right padding, past the field rule', () => {
+		document.body.innerHTML =
+			'<div class="newspack-nodes-theme newspack-nodes-ui">' +
+			'<select id="kind-6604"><option>-- Select Type --</option></select></div>';
+		expect(
+			winning( document.getElementById( 'kind-6604' ), 'padding-right' )
+		).toBe( '22px' );
+	} );
+} );

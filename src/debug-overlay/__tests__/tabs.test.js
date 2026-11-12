@@ -52,12 +52,13 @@ describe( 'debug-overlay tab registration', () => {
 		).toBeDefined();
 	} );
 
-	it( 'gives Overview its own full-bleed chrome (fixed header + scrolling body)', () => {
+	it( 'lets Overview scroll its own body inside the page inset', () => {
 		require( '../tabs/index.js' );
 		const overview = getTabs( 'overlay' ).find(
 			( t ) => t.id === 'io-overview'
 		);
 		expect( overview ).toBeDefined();
-		expect( overview.fullBleed ).toBe( true );
+		expect( overview.ownsScroll ).toBe( true );
+		expect( overview.fullBleed ).toBeUndefined();
 	} );
 } );

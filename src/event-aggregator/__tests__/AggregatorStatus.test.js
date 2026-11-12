@@ -385,6 +385,47 @@ describe( 'AggregatorStatus', () => {
 		).toBeNull();
 	} );
 
+	it( 'tones a quiet connection state neutral through the shared status badge', () => {
+		registerSlices( {
+			summary: { serverNow: 1748980002, loading: false },
+			servers: { servers: OPENING, loading: false },
+		} );
+		const { container } = mount();
+		const badge = partitionLine( container, 'p0' ).querySelector(
+			'.aggregator-status-badge'
+		);
+
+		expect( [ ...badge.classList ] ).toEqual(
+			expect.arrayContaining( [
+				'newspack-nodes-status-badge',
+				'is-neutral',
+			] )
+		);
+		expect( badge.classList.contains( 'is-success' ) ).toBe( false );
+	} );
+
+	it( 'tones a live connection and its answered heartbeat as success', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const response = stat(
+			partitionLine( container, 'p0' ),
+			'Status'
+		).querySelector( '.aggregator-response-badge' );
+		const live = [
+			...container.querySelectorAll(
+				'.aggregator-status-badge.connected'
+			),
+		];
+
+		expect( response.classList.contains( 'is-success' ) ).toBe( true );
+		expect( live.length ).toBeGreaterThan( 0 );
+		for ( const badge of live ) {
+			expect( badge.classList.contains( 'is-success' ) ).toBe( true );
+		}
+	} );
+
 	it( 'says what broke in short, keeping the transport string on hover', () => {
 		registerSlices( {
 			summary: { serverNow: 1748980002, loading: false },

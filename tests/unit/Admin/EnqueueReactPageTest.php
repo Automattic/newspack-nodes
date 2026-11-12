@@ -37,6 +37,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 		}
 
 		protected function tearDown(): void {
+			Admin::$read_early_skin = null;
 			// make_temp_dir() doesn't auto-track its dirs for removal, so clean up ours.
 			$this->rmdir_recursive( $this->tree_dir );
 			parent::tearDown();
@@ -236,7 +237,67 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertArrayNotHasKey( 'test-handle', $GLOBALS['_style_data'] );
 		}
 
+		// ---- early skin -------------------------------------------------------
+
+		public function test_applies_the_stored_skin_in_the_head_ahead_of_the_bundle(): void {
+			$this->seed_tree();
+			$GLOBALS['_registered_scripts'] = [];
+			$GLOBALS['_inline_scripts']     = [];
+			Admin::$read_early_skin         = static fn ( string $path ): string => 'window.seededSkin4411 = 1;';
+			$_GET                           = [ 'page' => 'my-page' ];
+			Admin::enqueue_react_page( $this->args() );
+
+			$this->assertArrayHasKey( Admin::EARLY_SKIN_HANDLE, $GLOBALS['_enqueued_scripts'] );
+			$this->assertFalse( $GLOBALS['_registered_scripts'][ Admin::EARLY_SKIN_HANDLE ]['src'] );
+			$inline = \array_values(
+				\array_filter(
+					$GLOBALS['_inline_scripts'],
+					static fn ( array $row ): bool => Admin::EARLY_SKIN_HANDLE === $row[0]
+				)
+			);
+			$this->assertCount( 1, $inline );
+			$this->assertSame( 'window.seededSkin4411 = 1;', $inline[0][1] );
+		}
+
+		public function test_refuses_a_built_plugin_missing_its_head_skin(): void {
+			$this->seed_tree();
+			$GLOBALS['_registered_scripts'] = [];
+			$_GET                           = [ 'page' => 'my-page' ];
+			Admin::$read_early_skin         = static fn ( string $path ): false => false;
+
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessage( 'build/early-skin/' );
+			Admin::enqueue_react_page( $this->args() );
+		}
+
+		public function test_registers_the_early_skin_once_however_many_pages_enqueue(): void {
+			$this->seed_tree();
+			$GLOBALS['_registered_scripts'] = [];
+			$GLOBALS['_inline_scripts']     = [];
+			Admin::$read_early_skin         = static fn ( string $path ): string => 'window.seededSkin4411 = 1;';
+			$_GET                           = [ 'page' => 'my-page' ];
+			Admin::enqueue_react_page( $this->args() );
+			Admin::enqueue_react_page( $this->args( [ 'handle' => 'second-handle' ] ) );
+
+			$this->assertCount(
+				1,
+				\array_filter(
+					$GLOBALS['_inline_scripts'],
+					static fn ( array $row ): bool => Admin::EARLY_SKIN_HANDLE === $row[0]
+				)
+			);
+		}
+
 		// ---- localize ---------------------------------------------------------
+
+		public function test_localizes_nothing_for_a_page_that_reads_none(): void {
+			$this->seed_tree();
+			$_GET = [ 'page' => 'my-page' ];
+			$this->assertSame( 'test-handle', Admin::enqueue_react_page( $this->args( [ 'localize' => false ] ) ) );
+
+			$this->assertArrayHasKey( 'test-handle', $GLOBALS['_enqueued_scripts'] );
+			$this->assertArrayNotHasKey( 'test-handle', $GLOBALS['_localized_scripts'] );
+		}
 
 		public function test_localizes_rest_url_and_nonce(): void {
 			$this->seed_tree();

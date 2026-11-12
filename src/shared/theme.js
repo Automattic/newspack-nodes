@@ -10,6 +10,10 @@
  * and the non-layout skin roots; graph-only artwork lives in
  * `topology-console/styles/graph-view.scss`.
  *
+ * The stored slug, the exact slug list and the root class live in the
+ * dependency-free `skinStore.js`, which the head script is built from, so the
+ * page and this module apply the skin one way.
+ *
  * Consumers import this through the `@newspack-nodes/shared/theme` alias. The
  * topology console's `themes.js` re-exports the four entry points it uses and
  * adds its own console-only collapse-state keys.
@@ -21,128 +25,54 @@
  * refuse `localStorage` outright.
  */
 import { __ } from '@wordpress/i18n';
+import {
+	DEFAULT_THEME,
+	SKIN_EVENT,
+	THEME_SLUGS,
+	THEME_STORAGE_KEY,
+	clearRootThemeClass,
+	getStoredTheme,
+	initSkin,
+	isValidTheme,
+	setRootThemeClass,
+} from './skinStore';
 
-/**
- * The `localStorage` key holding the persisted skin slug. One global key
- * rather than one per surface, so a skin picked anywhere applies everywhere,
- * including in the sibling plugins that import this module.
- */
-export const THEME_STORAGE_KEY = 'newspack-nodes:theme';
+export {
+	DEFAULT_THEME,
+	SKIN_EVENT,
+	THEME_STORAGE_KEY,
+	getStoredTheme,
+	initSkin,
+	isValidTheme,
+};
 
-/**
- * The skin an unknown, absent or unreadable preference coerces to. It must be
- * a slug registered in THEMES; nothing else has token CSS behind it.
- */
-export const DEFAULT_THEME = 'newspack';
+/** Each skin's name in the picker, by slug. */
+const LABELS = {
+	newspack: __( 'Newspack', 'newspack-nodes' ),
+	'newspack-brand': __( 'Newspack Brand', 'newspack-nodes' ),
+	current: __( 'Drafting Plotter', 'newspack-nodes' ),
+	blueprint: __( 'Cyanotype Blueprint', 'newspack-nodes' ),
+	crt: __( 'CRT Phosphor Terminal', 'newspack-nodes' ),
+	'crt-color': __( 'CRT Phosphor Terminal (true color)', 'newspack-nodes' ),
+	swiss: __( 'Swiss Brutalist', 'newspack-nodes' ),
+	synthwave: __( 'Synthwave Outrun', 'newspack-nodes' ),
+	nord: __( 'Nord Frost', 'newspack-nodes' ),
+	aurora: __( 'Aurora Glass', 'newspack-nodes' ),
+	solarized: __( 'Solarized Workshop', 'newspack-nodes' ),
+	botanical: __( 'Botanical Naturalist', 'newspack-nodes' ),
+	bauhaus: __( 'Bauhaus Constructivist', 'newspack-nodes' ),
+	neotokyo: __( 'Neo-Tokyo HUD', 'newspack-nodes' ),
+	pastel: __( 'Pastel Toy', 'newspack-nodes' ),
+	scada: __( 'Control-Room SCADA', 'newspack-nodes' ),
+};
 
 /**
  * The skin registry — every selectable skin, in picker order.
- *
- * Adding a slug here without a matching token block in `theme/_skins.scss`
- * fails `src/theme/__tests__/skinRamps.test.js`, which derives its expected
- * skin list from this array and asserts each entry defines every token role.
  */
-export const THEMES = [
-	{ slug: 'newspack', label: __( 'Newspack', 'newspack-nodes' ) },
-	{ slug: 'newspack-brand', label: __( 'Newspack Brand', 'newspack-nodes' ) },
-	{ slug: 'current', label: __( 'Drafting Plotter', 'newspack-nodes' ) },
-	{
-		slug: 'blueprint',
-		label: __( 'Cyanotype Blueprint', 'newspack-nodes' ),
-	},
-	{ slug: 'crt', label: __( 'CRT Phosphor Terminal', 'newspack-nodes' ) },
-	{
-		slug: 'crt-color',
-		label: __( 'CRT Phosphor Terminal (true color)', 'newspack-nodes' ),
-	},
-	{ slug: 'swiss', label: __( 'Swiss Brutalist', 'newspack-nodes' ) },
-	{ slug: 'synthwave', label: __( 'Synthwave Outrun', 'newspack-nodes' ) },
-	{ slug: 'nord', label: __( 'Nord Frost', 'newspack-nodes' ) },
-	{ slug: 'aurora', label: __( 'Aurora Glass', 'newspack-nodes' ) },
-	{
-		slug: 'solarized',
-		label: __( 'Solarized Workshop', 'newspack-nodes' ),
-	},
-	{
-		slug: 'botanical',
-		label: __( 'Botanical Naturalist', 'newspack-nodes' ),
-	},
-	{
-		slug: 'bauhaus',
-		label: __( 'Bauhaus Constructivist', 'newspack-nodes' ),
-	},
-	{ slug: 'neotokyo', label: __( 'Neo-Tokyo HUD', 'newspack-nodes' ) },
-	{ slug: 'pastel', label: __( 'Pastel Toy', 'newspack-nodes' ) },
-	{ slug: 'scada', label: __( 'Control-Room SCADA', 'newspack-nodes' ) },
-];
-
-/** Registered slugs, computed once so `isValidTheme` is a plain lookup. */
-const SLUGS = THEMES.map( ( t ) => t.slug );
-
-/**
- * True when `slug` is a known skin.
- *
- * @param {string} slug Candidate skin slug.
- * @return {boolean} Whether the slug matches a registered skin.
- */
-export function isValidTheme( slug ) {
-	return typeof slug === 'string' && SLUGS.includes( slug );
-}
-
-/**
- * Read the persisted skin slug. An unknown slug, an absent one, and storage
- * the browser refuses all fall back to the default. This is the restore path;
- * the LIVE skin is the `<html>` class, which `applySkin` keeps in lockstep
- * with this value.
- *
- * @return {string} The persisted skin slug, or DEFAULT_THEME.
- */
-export function getStoredTheme() {
-	try {
-		const slug = window.localStorage.getItem( THEME_STORAGE_KEY );
-		return isValidTheme( slug ) ? slug : DEFAULT_THEME;
-	} catch ( _err ) {
-		return DEFAULT_THEME;
-	}
-}
-
-/**
- * Strip every `theme-*` class off the given root element.
- *
- * The list is copied before iterating, because removing a class mutates the
- * live `classList` the loop would otherwise be walking.
- *
- * @param {HTMLElement} root Element to clear.
- */
-function clearRootThemeClass( root ) {
-	[ ...root.classList ]
-		.filter( ( c ) => c.startsWith( 'theme-' ) )
-		.forEach( ( c ) => root.classList.remove( c ) );
-}
-
-/**
- * Set the single `theme-<slug>` class on `<html>`, dropping any prior one.
- * Pure DOM: it neither persists the slug nor fires SKIN_EVENT, so `applySkin`
- * and `initSkin` share it and add only the halves they differ on.
- *
- * @param {string} slug Validated skin slug.
- */
-function setRootThemeClass( slug ) {
-	if ( typeof document !== 'undefined' ) {
-		const root = document.documentElement;
-		clearRootThemeClass( root );
-		root.classList.add( `theme-${ slug }` );
-	}
-}
-
-/**
- * Name of the event `applySkin` fires on `window`, carrying the applied slug
- * as its `detail`. It lets an imperative side-effect re-run without React
- * state: a chart holding a token's computed color, or a dashboard painting the
- * WP-admin gutters to the skin surface. It reaches the SAME window, which the
- * `storage` event never does — that one fires only in other tabs.
- */
-export const SKIN_EVENT = 'newspack-nodes:skin';
+export const THEMES = THEME_SLUGS.map( ( slug ) => ( {
+	slug,
+	label: LABELS[ slug ],
+} ) );
 
 /**
  * Make `slug` the live skin: set the single `theme-<slug>` class on `<html>`,
@@ -171,21 +101,6 @@ export function applySkin( slug ) {
 }
 
 /**
- * Apply the PERSISTED skin's class to `<html>`. This is a READ, so it does not
- * re-persist — an empty preference stays empty until the user picks a skin —
- * and it fires no event, because a surface mounting into the class paints
- * itself. Each bundle calls it at load or mount so the root carries the right
- * skin before first paint.
- *
- * @return {string} The applied slug.
- */
-export function initSkin() {
-	const slug = getStoredTheme();
-	setRootThemeClass( slug );
-	return slug;
-}
-
-/**
  * Strip every `theme-*` class off `<html>` so a suite starts clean. The class
  * outlives a jest module reset, so a test that skips this reads the previous
  * test's skin.
@@ -208,7 +123,7 @@ if ( typeof window !== 'undefined' && window.addEventListener ) {
 	} );
 }
 
-// Apply the persisted skin to <html> at module load — no unstyled flash.
+// Re-apply at load; the head script painted it before first paint.
 if ( typeof document !== 'undefined' ) {
 	initSkin();
 }

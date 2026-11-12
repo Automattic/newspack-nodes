@@ -9,18 +9,12 @@
  * only dresses the row chrome.
  */
 
-@use "base";
-
 // The embedded live subtree AND the per-partition pills in the card heading
 // (`.topology-partition`, `.connector-heartbeat`, the tree rows) are styled by
 // worker-status.scss; this is the stylesheet that loads it.
 @use "worker-status";
 
 .nodes-tm {
-	padding: 20px 16px 24px;
-	color: var(--ink);
-	font-family: base.$system-font;
-
 	&__topology {
 		// No row margin — the Overview's `.nodes-overview__rows` flex `gap`
 		// owns the (small) inter-row spacing; a margin here double-stacked it.

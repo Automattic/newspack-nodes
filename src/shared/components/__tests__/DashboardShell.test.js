@@ -9,7 +9,8 @@
 
 jest.mock( '@newspack-nodes/debug-overlay', () => ( {
 	__esModule: true,
-	default: ( { storageKey } ) => `OVERLAY[${ storageKey }]`,
+	default: ( { storageKey, buildRepl = true } ) =>
+		`OVERLAY[${ storageKey }:${ buildRepl ? 'repl' : 'no-repl' }]`,
 } ) );
 
 import { createElement } from 'react';
@@ -220,7 +221,82 @@ describe( 'DashboardShell', () => {
 		);
 
 		expect( container.textContent ).toContain(
-			'OVERLAY[newspack-nodes:debug:probe-shell]'
+			'OVERLAY[newspack-nodes:debug:probe-shell:repl]'
+		);
+		unmount();
+	} );
+
+	it( 'insets the scrolling area by the one shared page inset', () => {
+		const { container, unmount } = render(
+			createElement( DashboardShell, {
+				storageKey: 'newspack-nodes:debug:probe-shell',
+				overflowY: 'auto',
+				children: () => null,
+			} )
+		);
+
+		expect(
+			container
+				.querySelector( '.newspack-nodes-page-content' )
+				.classList.contains( 'newspack-nodes-page-inset' )
+		).toBe( true );
+		unmount();
+	} );
+
+	it( 'runs a full-bleed page edge to edge, for a page that insets its own panel', () => {
+		const { container, unmount } = render(
+			createElement( DashboardShell, {
+				storageKey: 'newspack-nodes:debug:probe-shell',
+				overflowY: 'hidden',
+				fullBleed: true,
+				children: () => null,
+			} )
+		);
+
+		expect(
+			container
+				.querySelector( '.newspack-nodes-page-content' )
+				.classList.contains( 'newspack-nodes-page-inset' )
+		).toBe( false );
+		unmount();
+	} );
+
+	it( 'names the surface by the class a host gives it, beside the shared one', () => {
+		const { container, unmount } = render(
+			createElement( DashboardShell, {
+				storageKey: 'newspack-nodes:debug:probe-shell',
+				overflowY: 'hidden',
+				className: 'probe-host-4471',
+				children: () => null,
+			} )
+		);
+
+		expect( container.firstElementChild.firstElementChild.className ).toBe(
+			'probe-host-4471 newspack-nodes-page-surface'
+		);
+		unmount();
+	} );
+
+	it( 'mounts no overlay until the page names its key, and passes the REPL choice', () => {
+		const { container, rerender, unmount } = render(
+			createElement( DashboardShell, {
+				storageKey: null,
+				overflowY: 'hidden',
+				children: () => null,
+			} )
+		);
+		expect( container.textContent ).not.toContain( 'OVERLAY' );
+
+		rerender(
+			createElement( DashboardShell, {
+				storageKey: 'newspack-nodes:debug:probe-tab-3302',
+				overflowY: 'hidden',
+				buildRepl: false,
+				children: () => null,
+			} )
+		);
+		expect( container.textContent ).toContain(
+			'OVERLAY[newspack-nodes:debug:probe-tab-3302:no-repl]'
 		);
 		unmount();
 	} );

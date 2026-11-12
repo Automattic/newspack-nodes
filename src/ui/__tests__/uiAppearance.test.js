@@ -120,8 +120,11 @@ const matchingRules = ( predicate ) =>
 const hasSelector = ( fragment ) =>
 	rules.some( ( rule ) => rule.selector.includes( fragment ) );
 
+// Top-level commas only, so a `:not( a, b )` list stays one selector.
 const exactSelectorRule = ( selector ) =>
-	rules.find( ( rule ) => rule.selector.split( ',' ).includes( selector ) );
+	rules.find( ( rule ) =>
+		rule.selector.split( /,(?![^(]*\))/ ).includes( selector )
+	);
 
 const selectorMember = ( rule, predicate ) =>
 	rule?.selector.split( ',' ).find( predicate );
@@ -144,6 +147,12 @@ const parsedRule = ( parsedStylesheet, predicate ) => {
 				declarations: declarations( rule ),
 				importantProperties: importantProperties( rule ),
 				ancestors,
+				includes: ( rule.nodes || [] )
+					.filter(
+						( node ) =>
+							'atrule' === node.type && 'include' === node.name
+					)
+					.map( ( node ) => node.params ),
 			};
 		}
 	} );
@@ -200,7 +209,9 @@ const columnPickerContract = ( frame, label, hover ) => ( {
 		gap: frame?.declarations.gap,
 		padding: frame?.declarations.padding,
 		marginBottom: frame?.declarations[ 'margin-bottom' ],
-		background: frame?.declarations.background,
+		// A --paper-2 fill arrives through the mixin that lifts a table too.
+		background:
+			frame?.declarations.background ?? frame?.includes.join( ' ' ),
 		border: frame?.declarations.border,
 		borderRadius: frame?.declarations[ 'border-radius' ],
 		fontSize: frame?.declarations[ 'font-size' ],
@@ -531,25 +542,28 @@ describe( 'canonical UI appearance', () => {
 			expect( rule?.importantProperties ).toEqual( [] );
 		}
 
+		// Every ring stays out of the block canvas, which draws its own.
+		const CANVAS =
+			':not(.block-editor-writing-flow,.block-editor-writing-flow *,.block-editor-block-list__layout,.block-editor-block-list__layout *)';
 		const focusCases = [
 			[
-				`${ STOCK_UI_ROOT } .components-button:focus`,
+				`${ STOCK_UI_ROOT } .components-button${ CANVAS }:focus`,
 				'.components-button:focus',
 			],
 			[
-				`${ STOCK_UI_ROOT } .components-button.is-primary:focus:not(:disabled)`,
+				`${ STOCK_UI_ROOT } .components-button.is-primary${ CANVAS }:focus:not(:disabled)`,
 				'.components-button.is-primary:focus:not(:disabled)',
 			],
 			[
-				`${ STOCK_UI_ROOT } .components-button.is-secondary:focus:not(:disabled)`,
+				`${ STOCK_UI_ROOT } .components-button.is-secondary${ CANVAS }:focus:not(:disabled)`,
 				'.components-button.is-secondary:focus:not(:disabled)',
 			],
 			[
-				`${ STOCK_UI_ROOT } .components-button.is-destructive:not(.is-primary):not(.is-secondary):not(.is-tertiary):not(.is-link):focus`,
+				`${ STOCK_UI_ROOT } .components-button.is-destructive:not(.is-primary):not(.is-secondary):not(.is-tertiary):not(.is-link)${ CANVAS }:focus`,
 				'.components-button.is-destructive:not(.is-primary):not(.is-secondary):not(.is-tertiary):not(.is-link):focus',
 			],
 			[
-				`${ STOCK_UI_ROOT } .newspack-nodes-modal .components-modal__header > .components-button:focus:not(:disabled)`,
+				`${ STOCK_UI_ROOT } .newspack-nodes-modal .components-modal__header > .components-button${ CANVAS }:focus:not(:disabled)`,
 				'.components-modal__header > .components-button:focus:not(:disabled)',
 			],
 		];
@@ -910,7 +924,7 @@ describe( 'canonical UI appearance', () => {
 				found[ normalize( rule.selector ) ] = declarations( rule );
 			} );
 		expect( found[ '.nodes-tab-host__tabbar.is-narrow' ] ).toEqual( {
-			padding: 'var(--np-space-sm) var(--np-space-md)',
+			padding: 'var(--np-space-sm) 20px',
 		} );
 		expect( found[ '.nodes-tab-host__tabbar.is-narrow > *' ] ).toEqual( {
 			flex: '1 1 auto',
@@ -1128,7 +1142,7 @@ describe( 'canonical UI appearance', () => {
 				gap: '$space-sm',
 				padding: '$space-sm $space-md',
 				marginBottom: '$space-md',
-				background: 'var(--paper-2,var(--np-surface-subtle))',
+				background: 'mix.raised-surface',
 				border: '1px solid var(--paper-shadow,var(--np-border-strong))',
 				borderRadius: 'var(--button-radius,var(--np-radius-md))',
 				fontSize: '12px',
@@ -1343,16 +1357,14 @@ describe( 'canonical UI appearance', () => {
 			display: 'inline-block',
 			padding: '2px 8px',
 			'border-radius': 'var(--np-radius-sm)',
-			'font-size': '10px',
+			'font-size': 'var(--np-text-2xs)',
 			'font-weight': '600',
 		} );
 		expect( small?.declarations ).toEqual( {
 			padding: '2px 6px',
-			'font-size': '9px',
 		} );
 		expect( compact?.declarations ).toEqual( {
 			padding: '1px 6px',
-			'font-size': '9px',
 		} );
 		expect( pill?.declarations ).toEqual( {
 			'border-radius': 'var(--np-radius-full)',
@@ -1481,7 +1493,8 @@ describe( 'canonical UI appearance', () => {
 		);
 
 		expect( header?.declarations ).toMatchObject( {
-			background: 'var(--paper-2,var(--np-surface-subtle))',
+			background:
+				'var(--nodes-table-surface,var(--paper-2,var(--np-surface-subtle)))',
 			color: 'var(--ink,var(--np-text))',
 			'box-shadow':
 				'inset 1px 0 var(--paper-shadow,var(--np-border-strong)),inset -1px 0 var(--paper-shadow,var(--np-border-strong)),inset 0 1px var(--paper-shadow,var(--np-border-strong))',
@@ -1493,7 +1506,7 @@ describe( 'canonical UI appearance', () => {
 		);
 		expect( cell?.declarations.color ).toBe( 'inherit' );
 		expect( odd?.declarations.background ).toBe(
-			'var(--paper-2,var(--np-surface-subtle))'
+			'var(--nodes-table-surface,var(--paper-2,var(--np-surface-subtle)))'
 		);
 		expect( even?.declarations.background ).toContain( 'color-mix(' );
 		expect( hover?.declarations.background ).toContain( 'color-mix(' );
@@ -1662,17 +1675,20 @@ describe( 'canonical UI appearance', () => {
 				focusSelectors.push( rule.selector );
 			}
 		} );
+		// Every ring selector carries the block canvas exclusion first.
 		const forBare = focusSelectors.filter( ( sel ) =>
-			/(^|[\s,])button:focus(?![-:])/.test( sel )
+			/(^|[\s,])button(?::not\([^)]*\))?:focus(?![-:])/.test( sel )
 		);
 
 		expect( forBare ).toEqual( [] );
 		expect(
-			focusSelectors.some( ( sel ) => /button:focus-visible/.test( sel ) )
+			focusSelectors.some( ( sel ) =>
+				/button(?::not\([^)]*\))?:focus-visible/.test( sel )
+			)
 		).toBe( true );
 		expect(
 			focusSelectors.some( ( sel ) =>
-				/textarea:focus(?![-:])/.test( sel )
+				/textarea(?::not\([^)]*\))?:focus(?![-:])/.test( sel )
 			)
 		).toBe( true );
 	} );

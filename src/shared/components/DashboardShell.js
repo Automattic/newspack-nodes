@@ -36,10 +36,10 @@ export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
  *
  * Both boxes are flex COLUMNS, as the station's is. The outer one is what
  * gives the header its own height and hands the rest to the scrolling area;
- * the scrolling area is what a dashboard root grows into, because every root
- * here declares `flex: 1 1 auto; min-height: 0` and a block parent ignores
- * both — the rows then size to their content, and a virtualized list that
- * measures its own `clientHeight` never scrolls at all.
+ * the scrolling area is what a dashboard root grows into, because a root that
+ * keeps its own scroller declares `flex: 1 1 auto; min-height: 0` and a block
+ * parent ignores both — the rows then size to their content, and a
+ * virtualized list that measures its own `clientHeight` never scrolls at all.
  *
  * The box paints its own backdrop, through the substrate's shared
  * `newspack-nodes-page-surface` class. It is positioned rather than flowed, so
@@ -58,6 +58,10 @@ export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
  * rows instead of through the header's own band. The box therefore clips, and
  * the area below the header is what scrolls.
  *
+ * That area wears the one shared page inset, the `newspack-nodes-page-inset`
+ * role, unless the page is `fullBleed`: the station, whose tab host insets
+ * each tab, and a page heading its panel with a flush tab bar of its own.
+ *
  * `overflowY` is required, not defaulted, and applies to that area: a
  * dashboard whose body owns its own scroller must clip there, and one without
  * an inner scroller must scroll there. Getting it wrong is a double scrollbar
@@ -66,9 +70,13 @@ export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
  * container.
  *
  * @param {Object}                                        props                 Component props.
- * @param {string}                                        props.storageKey
+ * @param {?string}                                       props.storageKey
  *                                                                              Debug-overlay key; scopes the persisted panel layout to this page, so
- *                                                                              two dashboards may never share one.
+ *                                                                              two dashboards may never share one. Null mounts no overlay, for a page
+ *                                                                              that has not yet named the surface it shows.
+ * @param {boolean}                                       [props.buildRepl]     Whether the overlay builds its REPL; a page owning one of its own passes false.
+ * @param {boolean}                                       [props.fullBleed]     Runs the scrolling area edge to edge, without the shared page inset.
+ * @param {string}                                        [props.className]     A host's own class on the surface, beside the shared one.
  * @param {string}                                        [props.title]         The page's name, its one `h1`, in place of the wordmark and the subtitle.
  * @param {string}                                        [props.subtitle]      Names this dashboard in the header, beside the one shared wordmark.
  * @param {import('react').CSSProperties['overflowY']}    props.overflowY       Vertical overflow for the scrolling area below the header.
@@ -82,6 +90,9 @@ export default function DashboardShell( {
 	subtitle,
 	overflowY,
 	askDescriptor = '',
+	buildRepl = true,
+	fullBleed = false,
+	className = '',
 	children,
 } ) {
 	const menuWidth = useAdminMenuWidth();
@@ -91,7 +102,7 @@ export default function DashboardShell( {
 	return (
 		<ThemedRoot>
 			<div
-				className="newspack-nodes-page-surface"
+				className={ `${ className } newspack-nodes-page-surface`.trim() }
 				style={ {
 					position: 'fixed',
 					top: '32px',
@@ -118,7 +129,11 @@ export default function DashboardShell( {
 				     reader's page is the area under the header, so that is
 				     what the brief answers for and what the ring traces. */ }
 				<div
-					className={ PAGE_CONTENT_CLASS }
+					className={
+						fullBleed
+							? PAGE_CONTENT_CLASS
+							: `${ PAGE_CONTENT_CLASS } newspack-nodes-page-inset`
+					}
 					{ ...( askDescriptor
 						? {
 								'data-ask': askDescriptor,
@@ -138,7 +153,12 @@ export default function DashboardShell( {
 				>
 					{ children( headerControlsSlot ) }
 				</div>
-				<DebugOverlay storageKey={ storageKey } />
+				{ storageKey && (
+					<DebugOverlay
+						storageKey={ storageKey }
+						buildRepl={ buildRepl }
+					/>
+				) }
 			</div>
 		</ThemedRoot>
 	);

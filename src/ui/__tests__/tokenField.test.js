@@ -113,7 +113,7 @@ describe( 'the token field', () => {
 		);
 
 		expect( rings ).toEqual( [
-			'.newspack-nodes-ui.newspack-nodes-ui .newspack-nodes-token-field:has(.newspack-nodes-token-field__entry:focus)',
+			'.newspack-nodes-ui.newspack-nodes-ui .newspack-nodes-token-field:has(.newspack-nodes-token-field__entry:focus):not(.block-editor-writing-flow, .block-editor-writing-flow *, .block-editor-block-list__layout, .block-editor-block-list__layout *)',
 		] );
 	} );
 } );

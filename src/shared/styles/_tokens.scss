@@ -42,6 +42,20 @@ $border-radius-sm: 3px;
 $border-radius-lg: 6px;
 $border-radius: 8px;
 
+// A table's surface: the --paper-2 of the page, or the --paper a surface
+// that holds it lifts it to through the `raised-surface` mixin.
+$table-surface: var(
+	--nodes-table-surface,
+	var(--paper-2, var(--np-surface-subtle))
+);
+
+// The one page inset: where header text, the first tab label and content start.
+$page-inset-y: 16px;
+$page-inset-x: 20px;
+
+// A tab's own side padding, which the tab bar subtracts to keep that edge.
+$tab-inset-x: 14px;
+
 // Spacing
 $space-xs: 4px;
 $space-sm: 8px;

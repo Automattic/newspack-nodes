@@ -14,17 +14,15 @@
  * registry when the tab host resolves the landing tab and the placeholders sort
  * behind it.
  *
- * Themed via the global skin: the station is wrapped in the canonical non-graph
- * skin/UI provider, and the live skin is the single `theme-<slug>` class on
- * `<html>` (see shared/theme.js).
+ * The frame, the skin provider, the header and the overlay are the shared
+ * `DashboardShell`'s, run full-bleed, because the tab host insets each tab
+ * itself; the live skin is the single `theme-<slug>` class on `<html>` (see
+ * shared/theme.js).
  */
-import { Popover, SlotFillProvider } from '@wordpress/components';
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import TabHost from '@newspack-nodes/shared/tabs/TabHost';
-import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
-import Header from '@newspack-nodes/shared/components/Header';
-import DebugOverlay from '../debug-overlay/DebugOverlay';
+import DashboardShell from '@newspack-nodes/shared/components/DashboardShell';
 import { registerLazyTabs } from './lazyTabs';
 import './station.scss';
 
@@ -51,70 +49,39 @@ registerLazyTabs();
  * @return {import('react').ReactElement} The station page.
  */
 export default function Station() {
-	const menuWidth = useAdminMenuWidth();
 	const [ activeTabId, setActiveTabId ] = useState( null );
-	// The active tab portals its own controls into this shared-header slot.
-	const [ controlsSlot, setControlsSlot ] = useState( null );
 
 	return (
-		// Boxless provider: skin tokens + shared UI, without graph layout.
-		<div
-			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
-			style={ { display: 'contents' } }
+		<DashboardShell
+			className="nodes-station"
+			subtitle={ __( 'Station', 'newspack-nodes' ) }
+			overflowY="hidden"
+			fullBleed
+			storageKey={
+				activeTabId
+					? `newspack-nodes:debug:station:${ activeTabId }`
+					: null
+			}
+			buildRepl={ CONSOLE_TAB_ID !== activeTabId }
 		>
-			<SlotFillProvider>
-				<div
-					className="nodes-station newspack-nodes-page-surface"
-					style={
-						/** @type {import('react').CSSProperties} */ ( {
-							position: 'fixed',
-							top: '32px',
-							left: `${ menuWidth }px`,
-							right: '0',
-							bottom: '0',
-							zIndex: 99,
-							'--nodes-tab-host-fg': 'var(--ink)',
-							transition: 'left 0.1s ease-in-out',
-							margin: 0,
-							padding: 0,
-							boxSizing: 'border-box',
-							display: 'flex',
-							flexDirection: 'column',
-							overflow: 'hidden',
-						} )
+			{ ( controlsSlot ) => (
+				<TabHost
+					host="station"
+					syncUrl
+					onActiveTabChange={ setActiveTabId }
+					tabProps={ {
+						headerControlsSlot: controlsSlot,
+					} }
+					emptyState={
+						<p className="newspack-nodes-empty-state nodes-station__empty">
+							{ __(
+								'No tools registered yet.',
+								'newspack-nodes'
+							) }
+						</p>
 					}
-				>
-					{ /* ONE shared header — brand left, controls slot right. */ }
-					<Header
-						subtitle={ __( 'Station', 'newspack-nodes' ) }
-						controlsSlotRef={ setControlsSlot }
-					/>
-					<TabHost
-						host="station"
-						syncUrl
-						onActiveTabChange={ setActiveTabId }
-						tabProps={ {
-							headerControlsSlot: controlsSlot,
-						} }
-						emptyState={
-							<p className="newspack-nodes-empty-state nodes-station__empty">
-								{ __(
-									'No tools registered yet.',
-									'newspack-nodes'
-								) }
-							</p>
-						}
-					/>
-					{ activeTabId && (
-						<DebugOverlay
-							storageKey={ `newspack-nodes:debug:station:${ activeTabId }` }
-							buildRepl={ CONSOLE_TAB_ID !== activeTabId }
-						/>
-					) }
-				</div>
-				{ /* Popovers mount here: skinned, above the fixed station's z-index. */ }
-				<Popover.Slot />
-			</SlotFillProvider>
-		</div>
+				/>
+			) }
+		</DashboardShell>
 	);
 }

@@ -10,11 +10,17 @@
 
 import { Button, CheckboxControl, Modal } from '@wordpress/components';
 import { DataViews } from '@wordpress/dataviews';
-import { createContext, useContext, useState } from '@wordpress/element';
+import {
+	createContext,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import CloseIcon from './CloseIcon';
 import useNarrow from '../hooks/useNarrow';
-import './DataViewsList.scss';
 
 /** The one field every layout draws an item by. */
 const ROW = 'row';
@@ -97,17 +103,22 @@ function Pager( { view, onChangeView, totalPages } ) {
 				) }
 			</span>
 			{ 1 < page && (
-				<Button
-					variant="secondary"
+				<button
+					type="button"
+					className="button"
 					onClick={ () => go( Math.min( page - 1, pages ) ) }
 				>
 					{ __( 'Previous', 'newspack-nodes' ) }
-				</Button>
+				</button>
 			) }
 			{ page < totalPages && (
-				<Button variant="secondary" onClick={ () => go( page + 1 ) }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => go( page + 1 ) }
+				>
 					{ __( 'Next', 'newspack-nodes' ) }
-				</Button>
+				</button>
 			) }
 		</div>
 	);
@@ -353,6 +364,124 @@ function RunModal( { action, rows, close } ) {
 }
 
 /**
+ * The focus a list hands back: the element, read as a field so a text
+ * control's selection can be read, that selection, null for none, and the
+ * scroll position of the element's scroll container.
+ *
+ * @typedef {{element: HTMLInputElement, selection: ?number[], scroller: Element, top: number, left: number}} HeldFocus
+ */
+
+/**
+ * What holds focus outside the layout, with a text field's selection and its
+ * scroll container's place: null when the layout holds it or nothing does.
+ *
+ * @param {?Element} layout The layout's wrapper.
+ * @return {?HeldFocus} The focus to restore.
+ */
+function heldFocus( layout ) {
+	const element = /** @type {?HTMLInputElement} */ (
+		layout?.ownerDocument.activeElement
+	);
+	if (
+		! element ||
+		element === element.ownerDocument.body ||
+		layout.contains( element )
+	) {
+		return null;
+	}
+	let selection = null;
+	try {
+		if ( 'number' === typeof element.selectionStart ) {
+			selection = [ element.selectionStart, element.selectionEnd ];
+		}
+	} catch ( _err ) {
+		// An input type with no selection API throws on the read.
+	}
+	const scroller = scrollerOf( element );
+	return {
+		element,
+		selection,
+		scroller,
+		top: scroller.scrollTop,
+		left: scroller.scrollLeft,
+	};
+}
+
+/**
+ * The nearest ancestor that scrolls, or the document's own scroller.
+ *
+ * @param {Element} element The element.
+ * @return {Element} Its scroll container.
+ */
+function scrollerOf( element ) {
+	const view = element.ownerDocument.defaultView;
+	for ( let node = element.parentElement; node; node = node.parentElement ) {
+		if (
+			/auto|scroll|overlay/.test(
+				view.getComputedStyle( node ).overflowY
+			)
+		) {
+			return node;
+		}
+	}
+	return (
+		element.ownerDocument.scrollingElement ??
+		element.ownerDocument.documentElement
+	);
+}
+
+/**
+ * Notes what holds focus as new keys commit. A sibling ahead of the layout,
+ * its passive effect runs after every layout effect, a caller's moving focus
+ * into a row included, and before the layout's own effect moves it, so a
+ * move the list hands back is the layout's alone.
+ *
+ * @param {Object}                props
+ * @param {string}                props.ids       The keys shown.
+ * @param {{current: ?Element}}   props.layoutRef The layout's wrapper.
+ * @param {{current: ?HeldFocus}} props.held      Where the note goes.
+ * @return {null} Nothing.
+ */
+function FocusNote( { ids, layoutRef, held } ) {
+	useEffect( () => {
+		held.current = heldFocus( layoutRef.current );
+	}, [ ids, layoutRef, held ] );
+	return null;
+}
+
+/**
+ * Hands focus back to what held it, when the layout's own move took it to a
+ * row's item since: only to an element still in the document, with a text
+ * field's selection kept and its scroll container back where it was.
+ *
+ * @param {?Element}   layout The layout's wrapper.
+ * @param {?HeldFocus} was    The focus noted.
+ */
+function giveFocusBack( layout, was ) {
+	const now = layout?.ownerDocument.activeElement;
+	if (
+		! was ||
+		! now ||
+		! layout.contains( now ) ||
+		! now.matches( '.dataviews-view-list__item' ) ||
+		! was.element.isConnected
+	) {
+		return;
+	}
+	was.element.focus( { preventScroll: true } );
+	const [ start, end ] = was.selection ?? [];
+	if (
+		undefined !== start &&
+		( was.element.selectionStart !== start ||
+			was.element.selectionEnd !== end )
+	) {
+		was.element.setSelectionRange( start, end );
+	}
+	was.scroller.scrollTop = was.top;
+	was.scroller.scrollLeft = was.left;
+}
+
+/**
  * An item's key as DataViews reads it when the caller names none.
  *
  * @param {Object} item The item.
@@ -372,6 +501,16 @@ const itemId = ( item ) => item.id;
  * stands above the list inside DataViews, where `DataViews.Search`,
  * `DataViews.FiltersToggle` and `DataViews.FiltersToggled` read the view; any
  * other DataViews prop passes through.
+ *
+ * DataViews' list layout moves focus to a row whenever its active row leaves
+ * the data, wherever focus is. The list notes what held focus just before
+ * that effect runs, with its scroll position, and when the layout has moved
+ * focus to a row's item, hands it back to what held it outside the layout:
+ * a control such as a search box in the header, caret and scroll kept, or a
+ * menu or dialog a row portals out. Any other move, a caller's or a row's
+ * own, stays. Focus on a row or on nothing at all is left where the layout
+ * puts it, so a row that leaves still hands focus to the next. Nothing
+ * remounts, so every row keeps its state.
  *
  * Given `selectLabel`, the list owns the run and DataViews holds no part of
  * it: DataViews is handed an empty selection and a no-op in its place, so no
@@ -434,6 +573,18 @@ export default function DataViewsList( {
 		);
 	}
 	const layouts = [].concat( layout );
+	const layoutRef = useRef( null );
+	const held = useRef( null );
+	const ids = useMemo(
+		() => items.map( getItemId ).join( '\n' ),
+		[ items, getItemId ]
+	);
+	// Runs after the layout's own effect, which may have moved focus to a row.
+	useEffect( () => {
+		const was = held.current;
+		held.current = null;
+		giveFocusBack( layoutRef.current, was );
+	}, [ ids ] );
 	return (
 		<RowContext.Provider
 			value={ {
@@ -484,13 +635,20 @@ export default function DataViewsList( {
 							totalItems={ paginationInfo.totalItems }
 						/>
 					) }
-					<DataViews.Layout
-						className={
-							selectLabel
-								? 'newspack-nodes-dataviews__run-only'
-								: undefined
-						}
-					/>
+					<div ref={ layoutRef } style={ { display: 'contents' } }>
+						<FocusNote
+							ids={ ids }
+							layoutRef={ layoutRef }
+							held={ held }
+						/>
+						<DataViews.Layout
+							className={
+								selectLabel
+									? 'newspack-nodes-dataviews__run-only'
+									: undefined
+							}
+						/>
+					</div>
 					<Pager
 						view={ view }
 						onChangeView={ onChangeView }

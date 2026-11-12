@@ -16,8 +16,8 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	background: var(--paper-2);
-	border-radius: 4px;
+	background: var(--paper);
+	border-radius: var(--np-radius-sm);
 	padding: 4px 8px;
 }
 
@@ -247,9 +247,8 @@ $segment-fill-step: 0.3s;
 	}
 
 	&.processed {
-		// Softened green (lighter than solid Cobalt-success) so the wide bars
-		// don't dominate the light dashboard.
-		background: color-mix(in srgb, var(--sage) 68%, white); // processed
+		// The skin's soft success tint, so the wide bars do not dominate.
+		background: var(--sage-subtle); // processed
 	}
 
 	&.pending {

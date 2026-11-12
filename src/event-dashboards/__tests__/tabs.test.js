@@ -56,7 +56,7 @@ test( 'importing tabs registers the Jobs tab on the station host between Overvie
 	expect( typeof tab.component ).toBe( 'function' );
 } );
 
-test( 'importing tabs registers the log-viewer tab on the station host at order 20, full-bleed, ?log=', () => {
+test( 'importing tabs registers the log-viewer tab on the station host at order 20, scrolling itself inside the inset, ?log=', () => {
 	// tabs.js was already required by the first test; re-run its side effect.
 	jest.resetModules();
 	require( '../tabs' );
@@ -68,7 +68,8 @@ test( 'importing tabs registers the log-viewer tab on the station host at order 
 	expect( tab.slug ).toBe( 'log-viewer' );
 	expect( tab.params ).toEqual( [ 'log' ] );
 	expect( tab.order ).toBe( 20 );
-	expect( tab.fullBleed ).toBe( true );
+	expect( tab.ownsScroll ).toBe( true );
+	expect( tab.fullBleed ).toBeUndefined();
 	expect( tab.label ).toBe( __( 'Log Viewer', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
 	expect(

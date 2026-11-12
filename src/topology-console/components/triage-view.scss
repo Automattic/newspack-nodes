@@ -3,6 +3,8 @@
 // grid classes (nodes-runtime__grid) for the table; this styles the header,
 // status line, empty state, and footer actions in the console's mono chrome.
 
+@use "../../shared/styles/tokens";
+
 .triage-view {
 	display: flex;
 	flex-direction: column;
@@ -57,7 +59,7 @@
 			position: sticky;
 			top: 0;
 			z-index: 1;
-			background: var(--paper-2, var(--np-surface-subtle));
+			background: tokens.$table-surface;
 		}
 	}
 

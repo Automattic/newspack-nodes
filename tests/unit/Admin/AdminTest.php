@@ -702,7 +702,7 @@ class AdminTest extends TestCase {
 		$this->assertStringContainsString( '<input type="submit"', $html );
 	}
 
-	public function test_render_settings_page_uses_the_standalone_ui_provider_contract(): void {
+	public function test_render_settings_page_wears_the_skinned_ui_provider_contract(): void {
 		$admin = new Admin();
 		$admin->register_settings();
 
@@ -711,10 +711,12 @@ class AdminTest extends TestCase {
 		$html = \ob_get_clean();
 
 		$this->assertStringContainsString(
-			'<div class="wrap newspack-nodes-settings-wrap newspack-nodes-theme newspack-nodes-ui">',
+			'<div class="wrap newspack-nodes-settings-wrap newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui">',
 			$html
 		);
-		$this->assertStringNotContainsString( 'newspack-nodes-skin-root', $html );
+		// One skin root, the wrap itself, which opens straight onto the title.
+		$this->assertSame( 1, \substr_count( $html, 'newspack-nodes-skin-root' ) );
+		$this->assertMatchesRegularExpression( '/newspack-nodes-ui">\s*<h1>/', $html );
 		$this->assertStringNotContainsString( 'topology-app', $html );
 	}
 
@@ -1710,6 +1712,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 			\array_keys( $GLOBALS['_enqueued_styles'] )
 		);
 		$this->assertArrayHasKey( 'newspack-nodes-field-reset', $GLOBALS['_enqueued_scripts'] );
+		$this->assertArrayHasKey( 'newspack-nodes-settings', $GLOBALS['_enqueued_scripts'], 'the skin mount rides the same page' );
+		$this->assertArrayNotHasKey( 'newspack-nodes-settings', $GLOBALS['_localized_scripts'] ?? [], 'the skin mount reads no localized data' );
 	}
 
 	public function test_enqueue_settings_assets_skips_other_pages(): void {

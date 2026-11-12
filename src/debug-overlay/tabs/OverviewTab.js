@@ -185,7 +185,7 @@ export default function OverviewTab( { publishHeader } ) {
 	}, [ messagesKey, levelsKey ] );
 
 	return (
-		// Fullbleed body; flex/overflow plumbing, visuals from classes.
+		// A self-scrolling body; flex/overflow plumbing, visuals from classes.
 		<div
 			data-testid="overview-tab"
 			className="nodes-overview"

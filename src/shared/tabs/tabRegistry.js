@@ -13,16 +13,17 @@
  * `params` already resolved, so a reader never repeats the defaulting.
  *
  * @typedef {Object} TabDescriptor
- * @property {string}                             id          Unique key; registering it again shadows whatever held it.
- * @property {string}                             label       Tab-bar label.
- * @property {string}                             host        Where the tab shows: `overlay`, `station` or `both`.
- * @property {import('react').ComponentType<any>} component   Panel body, mounted with the host's `tabProps` plus `host`.
- * @property {number}                             [order]     Sort weight, ties broken alphabetically by label.
- * @property {string}                             [slug]      Deep-link slug (`?tab=<slug>`); defaults to the id.
- * @property {string[]}                           [params]    Every query param the tab owns, such as `topology` and `partition`, or `log`; the host clears them while another tab is active. None unless named.
- * @property {() => boolean}                      [gate]      Excludes the tab while it returns false.
- * @property {import('react').ReactNode}          [icon]      Rendered before the label in the tab bar.
- * @property {boolean}                            [fullBleed] The tab owns a full-height canvas, so the host gives it the bare pane instead of the default scroll container.
+ * @property {string}                             id           Unique key; registering it again shadows whatever held it.
+ * @property {string}                             label        Tab-bar label.
+ * @property {string}                             host         Where the tab shows: `overlay`, `station` or `both`.
+ * @property {import('react').ComponentType<any>} component    Panel body, mounted with the host's `tabProps` plus `host`.
+ * @property {number}                             [order]      Sort weight, ties broken alphabetically by label.
+ * @property {string}                             [slug]       Deep-link slug (`?tab=<slug>`); defaults to the id.
+ * @property {string[]}                           [params]     Every query param the tab owns, such as `topology` and `partition`, or `log`; the host clears them while another tab is active. None unless named.
+ * @property {() => boolean}                      [gate]       Excludes the tab while it returns false.
+ * @property {import('react').ReactNode}          [icon]       Rendered before the label in the tab bar.
+ * @property {boolean}                            [fullBleed]  The tab owns a full-height canvas, so the host gives it the bare pane, edge to edge, instead of the default inset scroll container.
+ * @property {boolean}                            [ownsScroll] The tab scrolls in a pane of its own, so the host keeps the page inset and drops the outer scroll.
  */
 
 /**

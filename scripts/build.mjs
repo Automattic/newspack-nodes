@@ -68,7 +68,10 @@ const alias = esbuildAlias( path.resolve( ROOT, 'src' ) );
  * bundle is empty. `event-dashboards` and `station` load with the Nodes
  * station page; `topology-console`, `vault`, `sessions` and `event-aggregator` are
  * tabs the station shell fetches on first activation; `admin-field-reset`
- * is the settings-page module `Field_Reset_Assets` enqueues; `dataviews` is
+ * is the settings-page module `Field_Reset_Assets` enqueues, and `settings`
+ * skins that page's gutters; `early-skin` is the head script
+ * `enqueue_react_page()` inlines to apply the stored skin before first paint;
+ * `dataviews` is
  * the one copy of `@wordpress/dataviews`, which it `provides` to every bundle
  * as a global.
  */
@@ -96,6 +99,14 @@ const ENTRIES = [
 	{
 		entry: 'src/admin-field-reset/index.js',
 		outDir: path.resolve( ROOT, 'build/admin-field-reset' ),
+	},
+	{
+		entry: 'src/settings/index.js',
+		outDir: path.resolve( ROOT, 'build/settings' ),
+	},
+	{
+		entry: 'src/early-skin/index.js',
+		outDir: path.resolve( ROOT, 'build/early-skin' ),
 	},
 	{
 		entry: 'src/station/index.js',

@@ -86,6 +86,40 @@ describe( 'Station', () => {
 		).toHaveLength( 0 );
 	} );
 
+	it( 'lends <body> the skin’s component colours, for menus portalled there', () => {
+		const colours = {
+			'--wp-components-color-background': 'rgb(9, 27, 61)',
+			'--wp-components-color-accent': 'rgb(201, 88, 14)',
+		};
+		const real = window.getComputedStyle.bind( window );
+		const spy = jest
+			.spyOn( window, 'getComputedStyle' )
+			.mockImplementation( ( el, pseudo ) =>
+				el?.tagName === 'SPAN'
+					? {
+							backgroundColor: 'rgb(3, 14, 33)',
+							getPropertyValue: ( name ) => colours[ name ] ?? '',
+					  }
+					: real( el, pseudo )
+			);
+		const { unmount } = render( <Station /> );
+		for ( const [ name, value ] of Object.entries( colours ) ) {
+			expect( document.body.style.getPropertyValue( name ) ).toBe(
+				value
+			);
+		}
+		unmount();
+		spy.mockRestore();
+	} );
+
+	it( 'leaves the tab ink to the shared sheet, not an inline token', () => {
+		const { container } = render( <Station /> );
+		const station = container.querySelector( '.nodes-station' );
+		expect( station.style.getPropertyValue( '--nodes-tab-host-fg' ) ).toBe(
+			''
+		);
+	} );
+
 	it( 'mounts a tab’s popover in the skin root, outside the fixed station', async () => {
 		registerTab( {
 			id: 'demo',

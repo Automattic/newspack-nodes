@@ -9,6 +9,7 @@
  */
 
 @use "tokens" as *;
+@use "mixins" as mix;
 
 :where(.newspack-nodes-ui).newspack-nodes-theme {
 	font-family: var(--np-font);
@@ -42,6 +43,11 @@
 	}
 }
 
+// The content inset a page, a station tab and a tab panel share.
+:where(.newspack-nodes-ui) .newspack-nodes-page-inset {
+	padding: $page-inset-y $page-inset-x;
+}
+
 // The surface a dashboard mounts on. A page shell is POSITIONED, not flowed,
 // so the WP-admin page keeps its place underneath it — an admin notice
 // included, which WordPress relocates to just above the mount. A transparent
@@ -54,7 +60,7 @@
 :where(.newspack-nodes-ui) {
 	.newspack-nodes-card,
 	&.newspack-nodes-card {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		color: var(--ink, var(--np-text));
 		border: 0;
 		border-radius: var(--np-radius-md);
@@ -63,7 +69,7 @@
 
 	.newspack-nodes-card--elevated,
 	&.newspack-nodes-card--elevated {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		box-shadow:
 			inset 0 0 0 1px var(--paper-shadow, var(--np-border-strong)),
 			0 1px 3px rgb(0 0 0 / 6%);
@@ -122,7 +128,7 @@
 		display: inline-block;
 		padding: 2px 8px;
 		border-radius: var(--np-radius-sm);
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		font-weight: 600;
 
 		&.is-pill {
@@ -152,21 +158,23 @@
 			color: var(--oxide-text, var(--np-text));
 		}
 
+		// The lightest rung, framed: never darker than the card it sits in.
 		&.is-neutral,
 		&.held,
 		&.idle {
-			background: var(--paper-3, var(--np-surface-muted));
+			background: var(--paper, var(--np-surface));
+			box-shadow: inset 0 0 0 1px
+				var(--paper-shadow, var(--np-border-strong));
 			color: var(--ink-3, var(--np-text-secondary));
 		}
 
+		// A variant tightens the padding, never the type below the scale.
 		&.small {
 			padding: 2px 6px;
-			font-size: 9px;
 		}
 
 		&.compact {
 			padding: 1px 6px;
-			font-size: 9px;
 		}
 	}
 
@@ -282,7 +290,7 @@
 		color: var(--ink-3, var(--np-text-secondary));
 		text-align: center;
 		padding: $space-xl $space-lg;
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		border-radius: $border-radius-lg;
 		border: 1px dashed var(--ink-3, var(--np-text-secondary));
 
@@ -306,7 +314,7 @@
 	.newspack-nodes-table {
 		width: 100%;
 		border-collapse: collapse;
-		background: var(--paper-2, var(--np-surface-subtle));
+		background: $table-surface;
 		border: 1px solid var(--paper-shadow, var(--np-border-strong));
 		font-size: 13px;
 
@@ -338,7 +346,7 @@
 			background: color-mix(
 				in srgb,
 				var(--ink, var(--np-text)) 8%,
-				var(--paper-2, var(--np-surface-subtle))
+				$table-surface
 			);
 		}
 
@@ -346,7 +354,7 @@
 			background: color-mix(
 				in srgb,
 				var(--cyan, var(--np-primary)) 15%,
-				var(--paper-2, var(--np-surface-subtle))
+				$table-surface
 			);
 		}
 	}
@@ -354,7 +362,7 @@
 	// Native lists keep WP widefat's quiet row rhythm without
 	// changing the denser canonical tables used elsewhere.
 	.newspack-nodes-table--undivided {
-		background: transparent;
+		background: var(--nodes-table-surface, transparent);
 		border: 0;
 
 		thead th {
@@ -380,11 +388,11 @@
 	}
 
 	.newspack-nodes-table__details {
-		background: var(--paper-2, var(--np-surface-subtle));
+		background: $table-surface;
 	}
 
 	.newspack-nodes-table__summary {
-		background: var(--paper-2, var(--np-surface-subtle));
+		background: $table-surface;
 		font-weight: 700;
 	}
 
@@ -392,7 +400,7 @@
 	// divs rather than native table elements. The header draws only the top and
 	// side cap; the rowgroup's existing 1px top border is the single seam.
 	.newspack-nodes-table__header {
-		background: var(--paper-2, var(--np-surface-subtle));
+		background: $table-surface;
 		color: var(--ink, var(--np-text));
 		box-shadow:
 			inset 1px 0 var(--paper-shadow, var(--np-border-strong)),
@@ -419,14 +427,14 @@
 
 		// Restates the table surface: the contrast audits resolve one per state.
 		&.row-odd {
-			background: var(--paper-2, var(--np-surface-subtle));
+			background: $table-surface;
 		}
 
 		&.row-even {
 			background: color-mix(
 				in srgb,
 				var(--ink, var(--np-text)) 8%,
-				var(--paper-2, var(--np-surface-subtle))
+				$table-surface
 			);
 		}
 
@@ -434,7 +442,7 @@
 			background: color-mix(
 				in srgb,
 				var(--cyan, var(--np-primary)) 15%,
-				var(--paper-2, var(--np-surface-subtle))
+				$table-surface
 			);
 		}
 
@@ -739,7 +747,7 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 10px 14px;
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		border-radius: $border-radius-sm;
 		border-left: 3px solid transparent;
 		text-decoration: none;
@@ -815,6 +823,40 @@
 	.entry-duration {
 		font-weight: 600;
 		text-align: right;
+
+		&--fast {
+			color: var(--sage-text, var(--np-text));
+		}
+
+		&--slow {
+			color: var(--brass-text, var(--np-text));
+		}
+
+		&--critical {
+			color: var(--oxide-text, var(--np-text));
+		}
+	}
+
+	.entry-keyword {
+		&[data-keyword="error"] {
+			color: var(--oxide-text, var(--np-text));
+			font-weight: 600;
+		}
+
+		&[data-keyword="warning"] {
+			color: var(--brass-text, var(--np-text));
+			font-weight: 600;
+		}
+
+		// A substrate stderr diagnostic: muted, low-priority.
+		&[data-keyword="stderr"] {
+			color: var(--ink-3, var(--np-text-secondary));
+			font-style: italic;
+		}
+
+		&[data-keyword="info"] {
+			color: var(--ink-3, var(--np-text-secondary));
+		}
 	}
 
 	.entry-method {
@@ -912,7 +954,7 @@
 	}
 
 	.widefat {
-		background: var(--paper, var(--np-surface));
+		background: $table-surface;
 		color: var(--ink, var(--np-text));
 		border-color: var(--paper-shadow, var(--np-border-strong));
 		box-shadow: none;
@@ -923,8 +965,13 @@
 			border-color: var(--paper-shadow, var(--np-border-strong));
 		}
 
+		// The canonical stripe: the table's own surface, darkened.
 		tbody tr:nth-child(odd) {
-			background: var(--paper-2, var(--np-surface-subtle));
+			background: color-mix(
+				in srgb,
+				var(--ink, var(--np-text)) 8%,
+				#{$table-surface}
+			);
 		}
 	}
 }
@@ -935,7 +982,7 @@
 .newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
 	.components-card,
 	.components-surface {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		color: var(--ink, var(--np-text));
 		border-color: var(--paper-shadow, var(--np-border-strong));
 		box-shadow: none;
@@ -951,7 +998,7 @@
 
 	// Stock Notice paints white, tinted by status; here the skin's paper, tinted.
 	.components-notice {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		color: var(--ink, var(--np-text));
 	}
 
@@ -984,7 +1031,7 @@
 	.components-panel,
 	.components-toolbar,
 	.components-toolbar-group {
-		background: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface;
 		color: var(--ink, var(--np-text));
 	}
 
@@ -999,7 +1046,7 @@
 	.block-editor-block-contextual-toolbar,
 	.block-editor-block-inspector__no-blocks,
 	.block-editor-block-inspector__no-block-tools {
-		background-color: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface(background-color);
 		color: var(--ink, var(--np-text));
 	}
 
@@ -1014,6 +1061,210 @@
 	.block-editor-inserter__panel-title,
 	.block-editor-inserter__panel-title button {
 		color: var(--ink-3, var(--np-text-secondary));
+	}
+
+	// A WordPress notice paints white, which a dark skin's ink cannot read on.
+	.notice {
+		background: var(--paper, var(--np-surface));
+		color: var(--ink, var(--np-text));
+	}
+
+	.notice-success {
+		border-left-color: var(--sage, var(--np-success));
+	}
+
+	.notice-warning {
+		border-left-color: var(--brass, var(--np-warning));
+	}
+
+	.notice-error {
+		border-left-color: var(--oxide, var(--np-error));
+	}
+
+	.notice-info {
+		border-left-color: var(--cyan, var(--np-primary));
+	}
+
+	// DataViews reads its own fill from this, and its sticky cells with it.
+	.dataviews-wrapper {
+		@include mix.raised-surface(--wp-dataviews-color-background);
+	}
+
+	.dataviews-title-field,
+	.dataviews-title-field a,
+	.dataviews-title-field--clickable,
+	.dataviews-view-list__group-header,
+	.dataviews-view-table th {
+		color: var(--ink, var(--np-text));
+	}
+
+	.dataviews-view-table tr {
+		border-top-color: var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.dataviews-view-table,
+	.dataviews-view-list .dataviews-view-list__field {
+		color: var(--ink-3, var(--np-text-secondary));
+	}
+
+	.dataviews-column-primary__media,
+	.dataviews-view-list .dataviews-view-list__media-wrapper,
+	.dataviews-view-grid .dataviews-view-grid__media,
+	.dataviews-view-activity .dataviews-view-activity__item-type-icon {
+		@include mix.raised-surface(background-color);
+	}
+
+	// A row hovered, focused or selected keeps the skin's ink; stock paints
+	// it in the admin accent.
+	.dataviews-view-list div[role="row"],
+	.dataviews-view-list div[role="article"] {
+		border-top-color: var(--paper-shadow, var(--np-border-strong));
+
+		&:not(.is-selected):hover,
+		&:not(.is-selected).is-hovered,
+		&:not(.is-selected):focus-within {
+			background-color: var(--hover, var(--np-surface-muted));
+			border-top-color: var(--paper-shadow, var(--np-border-strong));
+			color: var(--ink, var(--np-text));
+
+			+ div[role="row"],
+			+ div[role="article"] {
+				border-top-color: var(--paper-shadow, var(--np-border-strong));
+			}
+
+			.dataviews-title-field {
+				color: var(--ink, var(--np-text));
+			}
+
+			.dataviews-view-list__field {
+				color: var(--ink-3, var(--np-text-secondary));
+			}
+		}
+
+		&.is-selected.is-selected {
+			border-top-color: var(--paper-shadow, var(--np-border-strong));
+
+			+ div[role="row"],
+			+ div[role="article"] {
+				border-top-color: var(--paper-shadow, var(--np-border-strong));
+			}
+		}
+
+		&.is-selected .dataviews-view-list__item-wrapper {
+			background-color: var(--hover, var(--np-surface-muted));
+			color: var(--ink, var(--np-text));
+
+			.dataviews-title-field {
+				color: var(--ink, var(--np-text));
+			}
+
+			.dataviews-view-list__field {
+				color: var(--ink-3, var(--np-text-secondary));
+			}
+		}
+	}
+
+	.dataviews-bulk-actions-footer__item-count {
+		color: var(--ink-3, var(--np-text-secondary));
+	}
+
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip {
+		background: var(--paper, var(--np-surface));
+		color: var(--ink, var(--np-text));
+	}
+
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip:hover:not(
+			.dataviews-filters__summary-chip-container
+				.dataviews-filters__summary-chip.is-not-clickable
+		),
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip:focus-visible,
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip[aria-expanded="true"],
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip-remove:hover,
+	.dataviews-filters__summary-chip-container
+		.dataviews-filters__summary-chip-remove:focus {
+		background: var(--hover, var(--np-surface-muted));
+		color: var(--ink, var(--np-text));
+	}
+
+	// The filter popover: its search field, its list, and each option's box.
+	.dataviews-filters__search-widget-filter-combobox__wrapper
+		.dataviews-filters__search-widget-filter-combobox__input {
+		background-color: var(--paper, var(--np-surface));
+		border-color: var(--paper-shadow, var(--np-border-strong));
+		color: var(--ink, var(--np-text));
+
+		&::placeholder {
+			color: var(--ink-3, var(--np-text-secondary));
+		}
+
+		&:focus {
+			background: var(--paper, var(--np-surface));
+		}
+	}
+
+	.dataviews-filters__search-widget-filter-combobox__wrapper svg {
+		fill: currentcolor;
+	}
+
+	.dataviews-filters__search-widget-filter-combobox-list {
+		border-top-color: var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.dataviews-filters__search-widget-listitem:hover,
+	.dataviews-filters__search-widget-listitem[data-active-item] {
+		background: var(--hover, var(--np-surface-muted));
+		color: var(--ink, var(--np-text));
+	}
+
+	.dataviews-filters__search-widget-listitem
+		.dataviews-filters__search-widget-listitem-description,
+	.dataviews-filters__search-widget-listitem:hover
+		.dataviews-filters__search-widget-listitem-description,
+	.dataviews-filters__search-widget-listitem[data-active-item]
+		.dataviews-filters__search-widget-listitem-description {
+		color: var(--ink-3, var(--np-text-secondary));
+	}
+
+	.dataviews-filters__search-widget-listitem
+		.dataviews-filters__search-widget-listitem-multi-selection,
+	.dataviews-filters__search-widget-listitem
+		.dataviews-filters__search-widget-listitem-single-selection,
+	.dataviews-filters__search-widget-listitem:hover
+		.dataviews-filters__search-widget-listitem-single-selection,
+	.dataviews-filters__search-widget-listitem[data-active-item]
+		.dataviews-filters__search-widget-listitem-single-selection {
+		background: var(--paper, var(--np-surface));
+		border-color: var(--paper-shadow, var(--np-border-strong));
+	}
+
+	// The caller's row is the title cell, so the cell must not clip its rings.
+	.dataviews-view-list .dataviews-view-list__title-field,
+	.dataviews-view-grid
+		.dataviews-view-grid__card
+		.dataviews-view-grid__title-field,
+	.dataviews-view-activity
+		.dataviews-view-activity__item-content
+		.dataviews-view-activity__item-title {
+		overflow: visible;
+	}
+
+	// A column's menu is a tertiary button that reads as header text.
+	.dataviews-view-table-header-button {
+		--button-secondary-background: transparent;
+		--button-secondary-border: transparent;
+	}
+
+	.dataviews-view-activity .dataviews-view-activity__item-type::before,
+	.dataviews-view-activity .dataviews-view-activity__item-type::after,
+	.dataviews-view-activity
+		.dataviews-view-activity__item-type-icon
+		.dataviews-view-activity__item-bullet {
+		background-color: var(--paper-shadow, var(--np-border-strong));
 	}
 }
 
@@ -1104,4 +1355,66 @@ $ask-rows: "tr, .newspack-nodes-table__row";
 
 .newspack-nodes-ask-ring[data-ask-picked] {
 	box-shadow: inset 0 0 0 6px $ask-picked-tint;
+}
+
+// The header rows, the list and the pager stand apart.
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews > .dataviews-wrapper {
+	gap: $space-md;
+}
+
+// The pager's layout.
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews__pager {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: $space-sm;
+}
+
+// A row's checkbox stands before the caller's row, which fills the line.
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews__checkable {
+	display: flex;
+	align-items: flex-start;
+	gap: $space-sm;
+
+	> :last-child {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+}
+
+// The run's toolbar, laid out as DataViews' bulk footer lays out its own.
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews__run-toolbar,
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews__run-actions {
+	display: flex;
+	align-items: center;
+}
+
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews__run-toolbar {
+	gap: $space-md;
+}
+
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews__run-actions {
+	gap: $space-xs;
+}
+
+// A checked list acts on its run through the list's own toolbar, and DataViews'
+// own selection checkboxes and row actions stay hidden.
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews__run-only {
+	.dataviews-selection-checkbox,
+	.dataviews-view-table__checkbox-column,
+	.dataviews-view-list__item-actions,
+	.dataviews-view-activity__item-actions,
+	.dataviews-view-grid__media-actions,
+	.dataviews-view-table__actions-column,
+	.dataviews-view-table__col-actions {
+		display: none;
+	}
+
+	// Stock shows a list row's actions at (0,3,1); this outweighs it.
+	&.dataviews-view-list div[role="row"] .dataviews-view-list__item-actions,
+	&.dataviews-view-list
+		div[role="article"]
+		.dataviews-view-list__item-actions {
+		display: none;
+	}
 }

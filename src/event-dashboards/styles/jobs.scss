@@ -1,6 +1,6 @@
 /**
- * Jobs tab — the message column and the status badge; the panel grid, the
- * empty state and the shared table rules live in probe-tab.scss.
+ * Jobs tab — the message column. The status badge is the shared one; the
+ * panel grid, the empty state and the table rules live in probe-tab.scss.
  */
 
 .nodes-probe-tab__table .nodes-jobs__message {
@@ -9,16 +9,4 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--ink-3);
-}
-
-.nodes-jobs__status {
-	&.is-success {
-		background: var(--sage-subtle);
-		color: var(--sage-text);
-	}
-
-	&.is-error {
-		background: var(--oxide-subtle);
-		color: var(--oxide-text);
-	}
 }

@@ -6,9 +6,10 @@
 			.components-input-control__input,
 			.topology-repl__input,
 			.newspack-nodes-token-field__entry
-		):not(#{scope.$not-a-field}),
-	select:not(.components-input-control__input),
-	textarea {
+		):not(#{scope.$not-a-field})#{scope.$outside-block-canvas},
+	select:not(.components-input-control__input)#{scope.$outside-block-canvas},
+	textarea#{scope.$outside-block-canvas},
+	#{scope.$rich-text-field}#{scope.$outside-block-canvas} {
 		&:focus {
 			@include focus.ring;
 		}
@@ -20,13 +21,18 @@
 	// one permanently after a single click — which reads as a selected state on
 	// a control whose whole job is to show one. Text controls above keep plain
 	// `:focus`: a click there IS where you are about to type.
-	button,
-	input[type="submit"],
-	input[type="button"],
-	input[type="reset"],
-	a[href],
-	summary,
-	[tabindex]:not(input, select, textarea, button) {
+	button#{scope.$outside-block-canvas},
+	input[type="submit"]#{scope.$outside-block-canvas},
+	input[type="button"]#{scope.$outside-block-canvas},
+	input[type="reset"]#{scope.$outside-block-canvas},
+	a[href]#{scope.$outside-block-canvas},
+	summary#{scope.$outside-block-canvas},
+	[tabindex]:not(
+			input,
+			select,
+			textarea,
+			button
+		)#{scope.$outside-block-canvas} {
 		&:focus:not(:focus-visible) {
 			@include focus.no-ring;
 		}
@@ -38,8 +44,10 @@
 
 	.components-input-control__container:has(
 			.components-input-control__input:focus
-		),
-	.newspack-nodes-token-field:has(.newspack-nodes-token-field__entry:focus) {
+		)#{scope.$outside-block-canvas},
+	.newspack-nodes-token-field:has(
+			.newspack-nodes-token-field__entry:focus
+		)#{scope.$outside-block-canvas} {
 		@include focus.ring;
 	}
 
@@ -61,16 +69,24 @@
 }
 
 .newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
-	.components-button:focus,
-	.components-button.is-primary:focus:not(:disabled),
-	.components-button.is-secondary:focus:not(:disabled),
-	.components-button.is-tertiary:focus:not(:disabled),
+	.components-button#{scope.$outside-block-canvas}:focus,
+	.components-button.is-primary#{scope.$outside-block-canvas}:focus:not(
+			:disabled
+		),
+	.components-button.is-secondary#{scope.$outside-block-canvas}:focus:not(
+			:disabled
+		),
+	.components-button.is-tertiary#{scope.$outside-block-canvas}:focus:not(
+			:disabled
+		),
 	.components-button.is-destructive:not(.is-primary):not(.is-secondary):not(
 			.is-tertiary
-		):not(.is-link):focus,
+		):not(.is-link)#{scope.$outside-block-canvas}:focus,
 	.newspack-nodes-modal
 		.components-modal__header
-		> .components-button:focus:not(:disabled) {
+		> .components-button#{scope.$outside-block-canvas}:focus:not(
+			:disabled
+		) {
 		@include focus.ring;
 	}
 

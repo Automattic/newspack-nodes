@@ -11,12 +11,8 @@
 // =============================================================================
 
 .aggregator-status-dashboard {
-	background: var(--paper-3);
 	color: var(--ink);
 	font-family: base.$system-font;
-	min-height: 100%;
-	padding: 16px 20px;
-	box-sizing: border-box;
 }
 
 .aggregator-status-meta {
@@ -259,38 +255,12 @@
 }
 
 .aggregator-status-badge {
-	// Semantic text is independently contrast-audited against its tint.
-	&.connected {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		background: var(--sage-subtle);
-		color: var(--sage-text);
-
-		// A small breathing dot = a live connection.
-		&::before {
-			content: "";
-			width: 5px;
-			height: 5px;
-			border-radius: 50%;
-			background: currentcolor;
-			animation: pulse 1.6s ease-in-out infinite;
-		}
-	}
-
-	// Idle: quiet, not alarming — a stream between scheduled reconnects.
-	&.idle {
-		background: var(--paper-2);
-		color: var(--ink-2);
-	}
-
-	// Connecting: the same quiet tint, with the dot's beat to say it is working.
+	// A breathing dot: a live connection, or one still opening.
+	&.connected,
 	&.connecting {
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		background: var(--paper-2);
-		color: var(--ink-2);
 
 		&::before {
 			content: "";
@@ -300,11 +270,6 @@
 			background: currentcolor;
 			animation: pulse 1.6s ease-in-out infinite;
 		}
-	}
-
-	&.disconnected {
-		background: var(--paper-3);
-		color: var(--ink-3);
 	}
 }
 
@@ -314,21 +279,8 @@
 	gap: 2px;
 }
 
-.aggregator-response-badge {
-	// Semantic text is independently contrast-audited against its tint.
-	&.success {
-		background: var(--sage-subtle);
-		color: var(--sage-text);
-	}
-
-	&.pending {
-		background: var(--paper-2);
-		color: var(--ink-3);
-	}
-}
-
 .aggregator-rtt.small {
-	font-size: 10px;
+	font-size: var(--np-text-2xs);
 	color: var(--ink-3);
 }
 

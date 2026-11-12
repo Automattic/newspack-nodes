@@ -1,6 +1,6 @@
 /**
- * Shared dashboard mixins — the error banner, the table grid, and the
- * themed-widefat re-skin. The toolbar controls (search input, column picker,
+ * Shared dashboard mixins — the error banner, the table grid and the raised
+ * surface. The toolbar controls (search input, column picker,
  * stats display) are real classes in `_toolbar.scss`, not mixins.
  *
  * Mixin definitions emit no CSS until `@include`d, so carrying the full canonical set
@@ -35,17 +35,6 @@
 // =============================================================================
 // Shared Table Mixins
 // =============================================================================
-
-@mixin table-header {
-	display: grid;
-	gap: 8px;
-	padding: 8px 12px;
-	background: var(--paper-2);
-	border: 1px solid var(--ink-3);
-	border-bottom: none;
-	font-weight: 600;
-	font-size: 13px;
-}
 
 @mixin table-list {
 	border: 1px solid var(--ink-3);
@@ -98,30 +87,9 @@
 	font-style: italic;
 }
 
-/**
- * Re-skin the color properties of a WP-core `.widefat .striped` table so it
- * follows the station's decorative themes. WP-core hardcodes a light surface that
- * ignores the universal --paper/--ink tokens; each fallback is the exact
- * WP-core light value it shadows so the STANDALONE dashboard (tokens undefined)
- * stays byte-identical — body `td` text is #50575e, header `th` text #2c3338.
- */
-@mixin widefat-themed {
-	.widefat {
-		background: var(--paper, #fff);
-		border-color: var(--paper-shadow, #c3c4c7);
-	}
-
-	.widefat td {
-		color: var(--ink, #50575e);
-		border-color: var(--paper-shadow, #c3c4c7);
-	}
-
-	.widefat th {
-		color: var(--ink, #2c3338);
-		border-color: var(--paper-shadow, #c3c4c7);
-	}
-
-	.striped > tbody > tr:nth-child(odd) {
-		background-color: var(--paper-2, #f6f7f7);
-	}
+// A --paper-2 surface, which lifts any table inside it to the lightest rung.
+// `$property` names what takes the fill where `background` is the wrong one.
+@mixin raised-surface($property: background) {
+	#{$property}: var(--paper-2, var(--np-surface-subtle));
+	--nodes-table-surface: var(--paper, var(--np-surface));
 }

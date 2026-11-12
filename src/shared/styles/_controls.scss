@@ -1,4 +1,5 @@
 @use "field-scope" as scope;
+@use "mixins" as mix;
 
 $np-chevron-dark: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%2318222E'/%3E%3C/svg%3E";
 $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E";
@@ -78,7 +79,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 
 	// A stock toggle off paints a white track and a near-black thumb.
 	.components-form-toggle:not(.is-checked) .components-form-toggle__track {
-		background-color: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface(background-color);
 		border-color: var(--np-field-border);
 	}
 
@@ -135,7 +136,8 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	// wp-admin sets these on the element, so inherited skin color never wins.
 	.components-base-control__label,
 	.components-input-control__label,
-	.form-table label {
+	.form-table label,
+	.form-table th {
 		color: var(--ink-2, var(--np-text));
 	}
 
@@ -144,7 +146,8 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		color: var(--ink-3, var(--np-text-secondary));
 	}
 
-	select {
+	// Weighted like the field rule, so this padding clears the chevron.
+	select:not(.components-input-control__input) {
 		padding-right: 22px;
 		background-image: url("#{ $np-chevron-dark }");
 		background-repeat: no-repeat;
@@ -154,7 +157,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	}
 
 	select option {
-		background-color: var(--paper-2, var(--np-surface-subtle));
+		@include mix.raised-surface(background-color);
 		color: var(--np-field-ink);
 	}
 

@@ -64,6 +64,16 @@ $skins: (
 		paper-3: #f0f0f0,
 		paper-shadow: #ddd,
 		canvas: var(--paper),
+		// Morganite is backgrounds-only: a barely-there rose wash on the canvas.
+		canvas-wash:
+			(
+				radial-gradient(
+					120% 120% at 100% 0%,
+					rgba(252, 155, 179, 0.1),
+					transparent 60%
+				),
+				var(--canvas),
+			),
 		hover: var(--paper-3),
 		ink: #1e1e1e,
 		ink-2: #3e3e3e,
@@ -273,6 +283,15 @@ $skins: (
 		paper-3: #1a0b2e,
 		paper-shadow: #ff4da6,
 		canvas: var(--paper-3),
+		canvas-wash: (
+			radial-gradient(
+				80% 55% at 50% 122%,
+				#ff7eb6 0%,
+				#ff2d95 16%,
+				transparent 52%
+			),
+			linear-gradient(180deg, #160826 0%, #2a0a3a 62%, #3a0f52 100%),
+		),
 		hover: color-mix(in srgb, var(--paper) 80%, white),
 		ink: #ffe7fb,
 		ink-2: #e6b8e0,
@@ -354,6 +373,24 @@ $skins: (
 		paper-3: #0b1020,
 		paper-shadow: #323644,
 		canvas: var(--paper-3),
+		canvas-wash: (
+			radial-gradient(
+				60% 80% at 18% 8%,
+				rgba(122, 245, 208, 0.28),
+				transparent 60%
+			),
+			radial-gradient(
+				55% 75% at 92% 95%,
+				rgba(155, 140, 255, 0.34),
+				transparent 60%
+			),
+			radial-gradient(
+				40% 50% at 60% 40%,
+				rgba(94, 180, 255, 0.18),
+				transparent 70%
+			),
+			var(--canvas),
+		),
 		hover: color-mix(in srgb, var(--paper) 80%, white),
 		ink: #eef2ff,
 		ink-2: #cdd5ee,
@@ -668,6 +705,9 @@ $phosphor: (
 #{$skin-root} {
 	--modal-radius: 5px;
 	--modal-shadow: none;
+	// A fixed dark wash, never an ink, which a dark skin turns light.
+	--scrim: rgba(8, 10, 14, 0.62);
+	--canvas-wash: var(--canvas);
 	--oxide-subtle: color-mix(in srgb, var(--oxide) 12%, var(--paper));
 	--sage-subtle: color-mix(in srgb, var(--sage) 15%, var(--paper));
 	--brass-subtle: color-mix(in srgb, var(--brass) 14%, var(--paper));

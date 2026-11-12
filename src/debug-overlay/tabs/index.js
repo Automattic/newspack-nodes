@@ -11,9 +11,10 @@
  * Overview at all. `host` filters the read; it does not partition the key
  * space.
  *
- * Both tabs declare `fullBleed`, which hands each the bare tab-content pane
- * instead of the host's default scroll wrapper, because each owns a
- * full-height canvas and manages its own scrolling.
+ * Neither takes the host's default scroll wrapper. The Console declares
+ * `fullBleed`, which hands it the bare pane, edge to edge, because it owns a
+ * full-height canvas; the Overview declares `ownsScroll`, which keeps the page
+ * inset around a body that scrolls itself below its charts.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -27,7 +28,7 @@ registerTab( {
 	label: __( 'Overview', 'newspack-nodes' ),
 	host: 'overlay',
 	order: 0,
-	fullBleed: true,
+	ownsScroll: true,
 	component: OverviewTab,
 } );
 

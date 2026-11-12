@@ -6,7 +6,13 @@
  */
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { useState } from '@wordpress/element';
+import { Popover } from '@wordpress/components';
+import {
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import DataViewsList from '../DataViewsList';
 
 const HERON = { slug: 'heron-7', title: 'Heron Gazette moves to weekly' };
@@ -104,6 +110,21 @@ describe( 'DataViewsList', () => {
 			screen.queryByRole( 'button', { name: 'Previous' } )
 		).toBeNull();
 		expect( screen.getByRole( 'button', { name: 'Next' } ) ).toBeTruthy();
+	} );
+
+	it( 'pages through stock buttons, not WordPress components', async () => {
+		render(
+			list( {
+				view: view( { page: 2 } ),
+				paginationInfo: { totalItems: 19, totalPages: 4 },
+			} )
+		);
+		await screen.findByText( 'Page 2 of 4' );
+		for ( const name of [ 'Previous', 'Next' ] ) {
+			const button = screen.getByRole( 'button', { name } );
+			expect( button.className ).toBe( 'button' );
+			expect( button.getAttribute( 'type' ) ).toBe( 'button' );
+		}
 	} );
 
 	it( 'heads its row column by the label the caller names, else "Item"', async () => {
@@ -584,5 +605,256 @@ describe( 'DataViewsList', () => {
 	it( 'stands the header above the list, inside the DataViews it reads', async () => {
 		render( list( { header: <span>Kea filters 3301</span> } ) );
 		expect( await screen.findByText( 'Kea filters 3301' ) ).toBeTruthy();
+	} );
+
+	describe( 'focus across a new result set', () => {
+		const KIWI = { slug: 'kiwi-41', title: 'Kiwi Courier opens a bureau' };
+		const TUI = { slug: 'tui-58', title: 'Tui Herald names an editor' };
+		const searching = ( items, over = {} ) =>
+			list( {
+				items,
+				header: <input aria-label="Search words 8817" />,
+				...over,
+			} );
+		const searchBox = () =>
+			screen.getByRole( 'textbox', { name: 'Search words 8817' } );
+		const row = ( slug ) =>
+			document.querySelector( `[id$="-${ slug }-item-wrapper"]` );
+
+		it( 'gives a header control its focus and caret back when the results change', async () => {
+			const { rerender } = render( searching( [ HERON, OTTER ] ) );
+			await screen.findByText( /Heron Gazette/ );
+			const input = searchBox();
+			input.value = 'kiwi courier';
+			act( () => {
+				input.focus();
+				input.setSelectionRange( 2, 6 );
+			} );
+			rerender( searching( [ KIWI, TUI ] ) );
+			await screen.findByText( /Kiwi Courier/ );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe( input );
+			expect( [ input.selectionStart, input.selectionEnd ] ).toEqual( [
+				2, 6,
+			] );
+		} );
+
+		it( 'leaves a header control its focus after a control removed a row', async () => {
+			const Accepting = ( { item } ) => (
+				<>
+					<span>{ item.title }</span>
+					<button type="button">{ `Accept ${ item.slug }` }</button>
+				</>
+			);
+			const accepting = ( items ) =>
+				searching( items, { render: Accepting } );
+			const { rerender } = render( accepting( [ HERON, OTTER, KIWI ] ) );
+			await screen.findByText( /Otter Ledger/ );
+			act( () =>
+				screen.getByRole( 'button', { name: 'Accept otter-2' } ).focus()
+			);
+			rerender( accepting( [ HERON, KIWI ] ) );
+			await act( () => Promise.resolve() );
+			const input = searchBox();
+			act( () => input.focus() );
+			rerender( accepting( [ KIWI, TUI ] ) );
+			await screen.findByText( /Tui Herald/ );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe( input );
+		} );
+
+		it( 'keeps a header control its focus over a list whose caller holds the selection', async () => {
+			// jsdom has no scrollIntoView, which DataViews calls on a checked row.
+			window.HTMLElement.prototype.scrollIntoView = () => {};
+			const selecting = ( items ) =>
+				searching( items, {
+					selection: [ 'otter-2' ],
+					onChangeSelection: () => {},
+				} );
+			const { rerender } = render( selecting( [ HERON, OTTER ] ) );
+			await screen.findByText( /Otter Ledger/ );
+			const input = searchBox();
+			act( () => input.focus() );
+			rerender( selecting( [ KIWI, TUI ] ) );
+			await screen.findByText( /Kiwi Courier/ );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe( input );
+			delete window.HTMLElement.prototype.scrollIntoView;
+		} );
+
+		it( 'keeps a header control its focus in the table layout', async () => {
+			const table = ( items ) =>
+				searching( items, {
+					layout: 'table',
+					view: view( { type: 'table', page: 1 } ),
+				} );
+			const { rerender } = render( table( [ HERON, OTTER ] ) );
+			await screen.findByText( /Heron Gazette/ );
+			const input = searchBox();
+			act( () => input.focus() );
+			rerender( table( [ KIWI, TUI ] ) );
+			await screen.findByText( /Kiwi Courier/ );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe( input );
+		} );
+
+		it( 'leaves focus a caller moves into a row as the results commit', async () => {
+			const Focusable = ( { item } ) => (
+				<span tabIndex={ -1 } data-row={ item.slug }>
+					{ item.title }
+				</span>
+			);
+			const Undoing = () => {
+				const [ items, setItems ] = useState( [ HERON, OTTER ] );
+				const restore = useRef( null );
+				useLayoutEffect( () => {
+					if ( restore.current ) {
+						document
+							.querySelector(
+								`[data-row="${ restore.current }"]`
+							)
+							.focus();
+						restore.current = null;
+					}
+				} );
+				return searching( items, {
+					render: Focusable,
+					header: (
+						<button
+							type="button"
+							onClick={ () => {
+								restore.current = 'kiwi-41';
+								setItems( [ KIWI, HERON, OTTER ] );
+							} }
+						>
+							Undo 6610
+						</button>
+					),
+				} );
+			};
+			render( <Undoing /> );
+			const undo = await screen.findByRole( 'button', {
+				name: 'Undo 6610',
+			} );
+			act( () => undo.focus() );
+			fireEvent.click( undo );
+			await screen.findByText( /Kiwi Courier/ );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe(
+				document.querySelector( '[data-row="kiwi-41"]' )
+			);
+		} );
+
+		it( 'leaves focus a new row moves to its own field as it mounts', async () => {
+			const Field = ( { item } ) => {
+				const field = useRef( null );
+				useEffect( () => {
+					if ( 'kiwi-41' === item.slug ) {
+						field.current.focus();
+					}
+				}, [ item.slug ] );
+				return (
+					<input ref={ field } aria-label={ `Note ${ item.slug }` } />
+				);
+			};
+			const noting = ( items ) => searching( items, { render: Field } );
+			const { rerender } = render( noting( [ HERON, OTTER ] ) );
+			await screen.findByRole( 'textbox', { name: 'Note otter-2' } );
+			act( () => searchBox().focus() );
+			rerender( noting( [ HERON, KIWI ] ) );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe(
+				screen.getByRole( 'textbox', { name: 'Note kiwi-41' } )
+			);
+		} );
+
+		it( 'scrolls back to where the reader was when it hands focus back', async () => {
+			const pane = ( items ) => (
+				<div data-testid="pane-3390" style={ { overflowY: 'auto' } }>
+					{ searching( items ) }
+				</div>
+			);
+			const { rerender } = render( pane( [ HERON, OTTER ] ) );
+			await screen.findByText( /Heron Gazette/ );
+			const scroller = screen.getByTestId( 'pane-3390' );
+			scroller.scrollTop = 40;
+			act( () => searchBox().focus() );
+			// The browser scrolls the row DataViews focuses into view.
+			const focus = window.HTMLElement.prototype.focus;
+			window.HTMLElement.prototype.focus = function ( options ) {
+				if ( this.classList.contains( 'dataviews-view-list__item' ) ) {
+					scroller.scrollTop = 900;
+				}
+				return focus.call( this, options );
+			};
+			try {
+				rerender( pane( [ KIWI, TUI ] ) );
+				await screen.findByText( /Kiwi Courier/ );
+				await act( () => Promise.resolve() );
+			} finally {
+				window.HTMLElement.prototype.focus = focus;
+			}
+			expect( document.activeElement ).toBe( searchBox() );
+			expect( scroller.scrollTop ).toBe( 40 );
+		} );
+
+		it( 'keeps every row mounted with its state through a refetch', async () => {
+			const Counting = ( { item } ) => {
+				const [ taps, setTaps ] = useState( 0 );
+				return (
+					<button type="button" onClick={ () => setTaps( taps + 1 ) }>
+						{ `${ item.slug } tapped ${ taps }` }
+					</button>
+				);
+			};
+			const counting = ( items ) =>
+				searching( items, { render: Counting } );
+			const { rerender } = render( counting( [ HERON, OTTER ] ) );
+			fireEvent.click( await screen.findByText( 'otter-2 tapped 0' ) );
+			act( () => searchBox().focus() );
+			rerender( counting( [ OTTER, KIWI ] ) );
+			await screen.findByText( /kiwi-41 tapped 0/ );
+			expect( screen.getByText( 'otter-2 tapped 1' ) ).toBeTruthy();
+		} );
+
+		it( 'keeps focus in a surface a row portals out, when other results change', async () => {
+			const Pinned = ( { item } ) => (
+				<>
+					<span>{ item.title }</span>
+					{ 'heron-7' === item.slug && (
+						<Popover>
+							<button type="button">Pin 5521</button>
+						</Popover>
+					) }
+				</>
+			);
+			const pinned = ( items ) => searching( items, { render: Pinned } );
+			const { rerender } = render( pinned( [ HERON, OTTER ] ) );
+			await act( () => Promise.resolve() );
+			const pin = screen.getByRole( 'button', { name: 'Pin 5521' } );
+			expect( pin.closest( '.newspack-nodes-dataviews' ) ).toBeNull();
+			act( () => pin.focus() );
+			rerender( pinned( [ HERON, KIWI ] ) );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe( pin );
+		} );
+
+		it( 'hands focus on to a row when nothing held it and the active row leaves', async () => {
+			const { rerender } = render( searching( [ HERON, OTTER, KIWI ] ) );
+			await screen.findByText( /Otter Ledger/ );
+			document.body.focus();
+			rerender( searching( [ OTTER, KIWI ] ) );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe( row( 'otter-2' ) );
+		} );
+
+		it( 'moves focus to a row when the focused row leaves the results', async () => {
+			const { rerender } = render( searching( [ HERON, OTTER, KIWI ] ) );
+			await screen.findByText( /Otter Ledger/ );
+			act( () => row( 'otter-2' ).focus() );
+			rerender( searching( [ HERON, KIWI ] ) );
+			await act( () => Promise.resolve() );
+			expect( document.activeElement ).toBe( row( 'kiwi-41' ) );
+		} );
 	} );
 } );
