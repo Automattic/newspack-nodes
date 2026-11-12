@@ -141,3 +141,37 @@ describe( 'applySkin / initSkin / resetSkin (the global <html> skin)', () => {
 		).toBe( false );
 	} );
 } );
+
+describe( 'another tab writing the skin', () => {
+	afterEach( () => {
+		window.localStorage.clear();
+		resetSkin();
+	} );
+
+	const storage = ( key ) =>
+		window.dispatchEvent( new window.StorageEvent( 'storage', { key } ) );
+
+	it( 're-skins this tab when the skin key changes', () => {
+		applySkin( 'nord' );
+		window.localStorage.setItem( THEME_STORAGE_KEY, 'synthwave' );
+		storage( THEME_STORAGE_KEY );
+		expect( root().classList.contains( 'theme-synthwave' ) ).toBe( true );
+		expect( root().classList.contains( 'theme-nord' ) ).toBe( false );
+	} );
+
+	it( 're-skins this tab when storage is cleared (key null)', () => {
+		applySkin( 'nord' );
+		window.localStorage.clear();
+		storage( null );
+		expect( root().classList.contains( `theme-${ DEFAULT_THEME }` ) ).toBe(
+			true
+		);
+	} );
+
+	it( 'ignores a write to another key', () => {
+		applySkin( 'nord' );
+		window.localStorage.setItem( THEME_STORAGE_KEY, 'synthwave' );
+		storage( 'some-other-key' );
+		expect( root().classList.contains( 'theme-nord' ) ).toBe( true );
+	} );
+} );
