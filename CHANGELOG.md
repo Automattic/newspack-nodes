@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.154.0] - 2026-11-12
+
 ### Changed
 
 - **The section-heading role rules what it heads.** `newspack-nodes-section-heading` draws a hairline in the skin's shadow ink beneath the element carrying it, 8px under its text, so a dashboard's heading, or a header row holding a heading and its actions, takes the one rule the shared sheet paints rather than one of its own.
