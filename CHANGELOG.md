@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The section-heading role rules what it heads.** `newspack-nodes-section-heading` draws a hairline in the skin's shadow ink beneath the element carrying it, 8px under its text, so a dashboard's heading, or a header row holding a heading and its actions, takes the one rule the shared sheet paints rather than one of its own.
+
+### Added
+
+- **A `DataViewsList` table can draw real columns.** `columns` names, by id, the `fields` a table draws in place of `render`: the first in the title place and the rest in order, none movable, each render taking `rowProps` beside its `item` as `render` does. The view the caller holds keeps its own title, fields and `enableMoving`, so the list and the other layouts still draw `render`, and any other layout change the table makes, such as its density, passes through. A caller passing no `columns` draws exactly as before.
+
+### Fixed
+
+- **The block inserter wears the skin.** Its tabbed panel, search bar, category panel and preview stayed stock white and grey while their labels took the skin's ink, so a dark skin such as CRT drew pale text on white. Each now sits on the raised surface its popover wears.
+- **A `DataViewsList` table fits its container.** Stock DataViews holds every table cell, the title's link included, to one line, so a long title or a whole row card ran past the page and scrolled it sideways. In the shared sheet every cell of a `DataViewsList` table now wraps, breaking a word only where it cannot fit, and only the title may break one mid-way, so an unbroken URL never widens the table. Stock's 1% columns keep their content width and the title column takes the rest: measured in headless Chrome at 1,400, 1,100 and 900 pixels, the table is as wide as its container and the title column is 726, 426 and 226 pixels wide. Every consumer's table, Intelligence's Watches included, wraps the same way.
+
 ## [2.153.0] - 2026-11-11
 
 ### Fixed

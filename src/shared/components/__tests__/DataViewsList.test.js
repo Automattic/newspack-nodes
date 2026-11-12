@@ -7,6 +7,7 @@
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Popover } from '@wordpress/components';
+import { DataViews } from '@wordpress/dataviews';
 import {
 	useEffect,
 	useLayoutEffect,
@@ -145,6 +146,189 @@ describe( 'DataViewsList', () => {
 
 		rerender( table( undefined ) );
 		expect( heads() ).toContain( 'Item' );
+	} );
+
+	describe( 'a table drawn by its columns', () => {
+		const DESK = {
+			id: 'desk',
+			label: 'Desk 4410',
+			enableHiding: false,
+			enableSorting: false,
+			render: ( { item } ) => (
+				<a href="#desk">{ `Desk of ${ item.slug }` }</a>
+			),
+		};
+		const BEAT = {
+			id: 'beat',
+			label: 'Beat 2207',
+			enableHiding: false,
+			enableSorting: false,
+			render: ( { item } ) => `Beat of ${ item.slug }`,
+		};
+		const RANK = {
+			id: 'rank',
+			label: 'Rank 6093',
+			enableHiding: false,
+			render: ( { item } ) => `Rank of ${ item.slug }`,
+		};
+		const columned = ( over = {} ) =>
+			list( {
+				items: [ HERON, OTTER ],
+				layout: [ 'list', 'table' ],
+				view: view( { type: 'table', page: 1, fields: [] } ),
+				fields: [ DESK, BEAT, RANK ],
+				columns: [ 'desk', 'beat', 'rank' ],
+				...over,
+			} );
+		const heads = () =>
+			screen
+				.getAllByRole( 'columnheader' )
+				.map( ( one ) => one.textContent.trim() );
+
+		it( 'heads one column per field it names, in order, the first the title', async () => {
+			render( columned() );
+			await screen.findByText( 'Desk of heron-7' );
+			expect( heads() ).toEqual( [
+				'Desk 4410',
+				'Beat 2207',
+				'Rank 6093',
+			] );
+			const cells = screen
+				.getAllByRole( 'row' )[ 1 ]
+				.querySelectorAll( 'td' );
+			expect( [ ...cells ].map( ( one ) => one.textContent ) ).toEqual( [
+				'Desk of heron-7',
+				'Beat of heron-7',
+				'Rank of heron-7',
+			] );
+		} );
+
+		it( 'draws no row in the table, where the columns stand in its place', async () => {
+			render( columned() );
+			await screen.findByText( 'Desk of otter-2' );
+			expect( screen.queryByText( /^Dry: / ) ).toBeNull();
+			expect( heads() ).not.toContain( 'Item' );
+		} );
+
+		it( 'draws the row in the list layout, the columns aside', async () => {
+			render( columned( { view: view( { type: 'list', page: 1 } ) } ) );
+			expect(
+				await screen.findByText( 'Dry: Heron Gazette moves to weekly' )
+			).toBeTruthy();
+			expect( screen.queryByText( 'Beat of heron-7' ) ).toBeNull();
+		} );
+
+		it( 'sorts through the header of a column that sorts', async () => {
+			const onChangeView = jest.fn();
+			render( columned( { onChangeView } ) );
+			await screen.findByText( 'Rank of heron-7' );
+			fireEvent.click(
+				screen.getByRole( 'button', { name: 'Rank 6093' } )
+			);
+			fireEvent.click(
+				await screen.findByRole( 'menuitemradio', {
+					name: 'Sort descending',
+				} )
+			);
+			expect( onChangeView ).toHaveBeenLastCalledWith(
+				expect.objectContaining( {
+					sort: { field: 'rank', direction: 'desc' },
+				} )
+			);
+			expect( onChangeView.mock.calls.at( -1 )[ 0 ].titleField ).toBe(
+				undefined
+			);
+		} );
+
+		it( 'keeps the view the caller holds, whose fields the table never writes', async () => {
+			const onChangeView = jest.fn();
+			render(
+				columned( {
+					onChangeView,
+					paginationInfo: { totalItems: 9, totalPages: 2 },
+				} )
+			);
+			await screen.findByText( 'Rank of heron-7' );
+			fireEvent.click( screen.getByRole( 'button', { name: 'Next' } ) );
+			expect( onChangeView ).toHaveBeenLastCalledWith( {
+				type: 'table',
+				page: 2,
+				perPage: 7,
+				fields: [],
+			} );
+		} );
+
+		it( 'hands each column its row props beside the item, as the row takes them', async () => {
+			const TONED = {
+				...BEAT,
+				render: ( { item, tone } ) =>
+					`${ tone } beat of ${ item.slug }`,
+			};
+			render( columned( { fields: [ DESK, TONED, RANK ] } ) );
+			expect(
+				await screen.findByText( 'Dry beat of otter-2' )
+			).toBeTruthy();
+		} );
+
+		it( 'keeps a layout change the table makes, moving aside', async () => {
+			const onChangeView = jest.fn();
+			// jsdom has no ResizeObserver, which the density control reads.
+			window.ResizeObserver = class {
+				observe() {}
+				unobserve() {}
+				disconnect() {}
+			};
+			try {
+				render(
+					columned( {
+						onChangeView,
+						view: view( {
+							type: 'table',
+							page: 1,
+							layout: { enableMoving: true },
+						} ),
+						header: <DataViews.ViewConfig />,
+					} )
+				);
+				await screen.findByText( 'Desk of heron-7' );
+				fireEvent.click(
+					screen.getByRole( 'button', { name: 'View options' } )
+				);
+				fireEvent.click(
+					await screen.findByRole( 'radio', { name: 'Compact' } )
+				);
+			} finally {
+				delete window.ResizeObserver;
+			}
+			expect( onChangeView.mock.calls.at( -1 )[ 0 ].layout ).toEqual( {
+				enableMoving: true,
+				density: 'compact',
+			} );
+		} );
+
+		it( 'hands its actions each row of the table', async () => {
+			const callback = jest.fn();
+			render(
+				columned( {
+					actions: [
+						{
+							id: 'pin',
+							label: 'Pin 5521',
+							isPrimary: true,
+							callback,
+						},
+					],
+				} )
+			);
+			await screen.findByText( 'Desk of otter-2' );
+			fireEvent.click(
+				screen.getAllByRole( 'button', { name: 'Pin 5521' } )[ 1 ]
+			);
+			expect( callback ).toHaveBeenCalledWith(
+				[ OTTER ],
+				expect.anything()
+			);
+		} );
 	} );
 
 	it( 'passes its actions through to each row', async () => {

@@ -1,7 +1,8 @@
 /**
  * The one DataViews list every dashboard draws: each item by the row the
- * caller names, in the layout the view names, the caller's own words when
- * there is none, and a pager only when there is a second page.
+ * caller names, or a table by the columns it names, in the layout the view
+ * names, the caller's own words when there is none, and a pager only when
+ * there is a second page.
  *
  * `@wordpress/dataviews` resolves to the substrate's `newspack-nodes-dataviews`
  * global in every build, and the enqueue of a bundle reading it puts the
@@ -490,13 +491,104 @@ function giveFocusBack( layout, was ) {
 const itemId = ( item ) => item.id;
 
 /**
+ * The view DataViews draws: in a table drawn by its columns, the first in the
+ * title place and the rest in order, none movable; else the row as the title.
+ *
+ * @param {Object}    view    The caller's view.
+ * @param {?string[]} columns The table's columns, or null.
+ * @return {Object} The view drawn.
+ */
+function shownView( view, columns ) {
+	if ( ! columns ) {
+		return { ...view, titleField: ROW };
+	}
+	const [ title, ...others ] = columns;
+	return {
+		...view,
+		titleField: title,
+		fields: others,
+		layout: { ...view.layout, enableMoving: false },
+	};
+}
+
+/**
+ * A view a table drawn by its columns moved, as the caller holds it: the
+ * title, the fields and the `enableMoving` that `shownView()` drew put back
+ * as the caller's own view holds them, and any other layout change kept.
+ *
+ * @param {Object} next The view moved.
+ * @param {Object} view The caller's view.
+ * @return {Object} The caller's view, moved.
+ */
+function heldView( next, view ) {
+	const held = { ...next, layout: { ...next.layout } };
+	for ( const key of [ 'titleField', 'fields' ] ) {
+		if ( key in view ) {
+			held[ key ] = view[ key ];
+		} else {
+			delete held[ key ];
+		}
+	}
+	const own = view.layout ?? {};
+	delete held.layout.enableMoving;
+	if ( 'enableMoving' in own ) {
+		held.layout.enableMoving = own.enableMoving;
+	}
+	if ( ! ( 'layout' in view ) && 0 === Object.keys( held.layout ).length ) {
+		delete held.layout;
+	}
+	return held;
+}
+
+/** Each column's render, wrapped once to take the row props. */
+const COLUMN_CELLS = new WeakMap();
+
+/**
+ * A column's render, taking the row props beside DataViews' own props, as
+ * the row takes them; the same component for the same render, so a render
+ * of the list keeps every cell mounted.
+ *
+ * @param {import('react').ComponentType<Object>} Render The field's render.
+ * @return {import('react').ComponentType<Object>} The cell.
+ */
+function columnCell( Render ) {
+	if ( ! COLUMN_CELLS.has( Render ) ) {
+		COLUMN_CELLS.set( Render, function ColumnCell( props ) {
+			const { rowProps } = useContext( RowContext );
+			return <Render { ...rowProps } { ...props } />;
+		} );
+	}
+	return COLUMN_CELLS.get( Render );
+}
+
+/**
+ * The fields DataViews is handed: each one `columns` names drawn through
+ * `columnCell()`, every other as given.
+ *
+ * @param {Object[]}  fields  The caller's fields.
+ * @param {?string[]} columns The table's columns, or none.
+ * @return {Object[]} The fields.
+ */
+const columnFields = ( fields, columns ) =>
+	fields.map( ( field ) =>
+		columns?.includes( field.id ) && field.render
+			? { ...field, render: columnCell( field.render ) }
+			: field
+	);
+
+/**
  * `<DataViewsList items view onChangeView layout? empty paginationInfo render
- * rowProps? label? fields? actions? header? getItemId? selection?
+ * rowProps? label? fields? columns? actions? header? getItemId? selection?
  * onChangeSelection? selectLabel? />`: DataViews over the items, keyed by
  * `getItemId`, the item's `id` unless named. `layout` names one layout, or
  * several with the first the default; `view.type` picks among them. Each item
  * draws as `render` (a component taking `item` and `rowProps`) in the layout's
  * title place, headed `label`, so `fields` adds only further columns.
+ * `columns` names, by id, the `fields` a table draws in place of `render`: the
+ * first in the title place and the rest in order, none movable, each render
+ * taking `rowProps` beside its `item`, as `render` does. The view the caller
+ * holds keeps its own title, fields and `enableMoving`, so the other layouts
+ * still draw `render`, and every other layout change passes through.
  * `actions` pass through, `supportsBulk` and `isPrimary` with them. `header`
  * stands above the list inside DataViews, where `DataViews.Search`,
  * `DataViews.FiltersToggle` and `DataViews.FiltersToggled` read the view; any
@@ -538,6 +630,7 @@ const itemId = ( item ) => item.id;
  * @property {Object}                                        [rowProps]          Props each row takes beside its item.
  * @property {string}                                        [label]             The row column's heading, "Item" unless named.
  * @property {Object[]}                                      [fields]            Further DataViews fields, as columns or filters.
+ * @property {string[]}                                      [columns]           The `fields` a table draws in place of the row, by id, the first the title.
  * @property {Object[]}                                      [actions]           DataViews actions.
  * @property {import('react').ReactNode}                     [header]            Controls above the list.
  * @property {(item: Object) => string}                      [getItemId]         An item's key, its `id` unless named.
@@ -562,6 +655,7 @@ export default function DataViewsList( {
 	actions = [],
 	header = null,
 	getItemId = itemId,
+	columns,
 	selection,
 	onChangeSelection,
 	selectLabel,
@@ -573,6 +667,7 @@ export default function DataViewsList( {
 		);
 	}
 	const layouts = [].concat( layout );
+	const columned = columns && 'table' === view.type;
 	const layoutRef = useRef( null );
 	const held = useRef( null );
 	const ids = useMemo(
@@ -600,8 +695,12 @@ export default function DataViewsList( {
 				<DataViews
 					data={ items }
 					getItemId={ getItemId }
-					view={ { ...view, titleField: ROW } }
-					onChangeView={ onChangeView }
+					view={ shownView( view, columned ? columns : null ) }
+					onChangeView={
+						columned
+							? ( next ) => onChangeView( heldView( next, view ) )
+							: onChangeView
+					}
 					fields={ [
 						{
 							id: ROW,
@@ -610,7 +709,7 @@ export default function DataViewsList( {
 							enableSorting: false,
 							render: RowCell,
 						},
-						...fields,
+						...columnFields( fields, columns ),
 					] }
 					defaultLayouts={ Object.fromEntries(
 						layouts.map( ( type ) => [ type, {} ] )

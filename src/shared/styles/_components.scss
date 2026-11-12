@@ -229,8 +229,11 @@
 		padding: 2px 6px;
 	}
 
+	// A heading, or a header row holding one, ruled beneath.
 	.newspack-nodes-section-heading {
 		color: var(--ink, var(--np-text));
+		padding-block-end: $space-sm;
+		border-block-end: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
 	// Loading container
@@ -1045,7 +1048,11 @@
 .newspack-nodes-ui {
 	.block-editor-block-contextual-toolbar,
 	.block-editor-block-inspector__no-blocks,
-	.block-editor-block-inspector__no-block-tools {
+	.block-editor-block-inspector__no-block-tools,
+	.block-editor-tabbed-sidebar,
+	.block-editor-inserter__search,
+	.block-editor-inserter__category-panel,
+	.block-editor-inserter__preview-content {
 		@include mix.raised-surface(background-color);
 		color: var(--ink, var(--np-text));
 	}
@@ -1360,6 +1367,27 @@ $ask-rows: "tr, .newspack-nodes-table__row";
 // The header rows, the list and the pager stand apart.
 :where(.newspack-nodes-ui) .newspack-nodes-dataviews > .dataviews-wrapper {
 	gap: $space-md;
+}
+
+// @longform A table fits its container: every cell wraps, which stock holds
+// to one line, breaking a word only where it cannot fit. Stock's 1% columns
+// keep their content width, and the title column, the one without a width,
+// takes the rest; only a title may break a word mid-way to fit, so an
+// unbroken URL never widens the table.
+:where(.newspack-nodes-ui) .newspack-nodes-dataviews .dataviews-view-table {
+	tbody .dataviews-view-table__cell-content-wrapper,
+	.dataviews-title-field,
+	.dataviews-title-field a,
+	.dataviews-title-field button.components-button.is-link {
+		white-space: normal;
+		overflow-wrap: break-word;
+	}
+
+	tbody .dataviews-title-field.dataviews-view-table__cell-content-wrapper,
+	.dataviews-title-field a,
+	.dataviews-title-field button.components-button.is-link {
+		overflow-wrap: anywhere;
+	}
 }
 
 // The pager's layout.
