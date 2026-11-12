@@ -1249,7 +1249,7 @@
 		border-color: var(--paper-shadow, var(--np-border-strong));
 	}
 
-	// The caller's row is the title cell, so the cell must not clip its rings.
+	// The caller's row is the title cell: it wraps, and never clips its rings.
 	.dataviews-view-list .dataviews-view-list__title-field,
 	.dataviews-view-grid
 		.dataviews-view-grid__card
@@ -1258,6 +1258,12 @@
 		.dataviews-view-activity__item-content
 		.dataviews-view-activity__item-title {
 		overflow: visible;
+		white-space: normal;
+
+		a,
+		button.components-button.is-link {
+			white-space: normal;
+		}
 	}
 
 	// A column's menu is a tertiary button that reads as header text.

@@ -1,4 +1,7 @@
 /**
+ * A DataViewsList list wraps the row its caller draws as the title, link and
+ * button text included, which the stock DataViews rules hold to one line.
+ *
  * A DataViewsList table fits its container: every cell wraps its text, which
  * the stock DataViews rules hold to one line, breaking a word only where it
  * cannot fit, and only the title may break one mid-way, so an unbroken URL
@@ -35,7 +38,7 @@ const stock = postcss.parse( fs.readFileSync( STOCK, 'utf8' ), {
 stock.each( ( node ) => {
 	if (
 		'rule' !== node.type ||
-		! /dataviews-(?:view-table|title-field)/.test( node.selector )
+		! /dataviews-(?:view-table|view-list|title-field)/.test( node.selector )
 	) {
 		node.remove();
 	}
@@ -86,6 +89,46 @@ const table = ( columns ) => (
 );
 
 const wins = ( element, longhand ) => winning( element, longhand, SHEETS );
+
+describe( 'a DataViewsList list', () => {
+	it( 'wraps the row it draws as the title, its links and its link buttons', async () => {
+		render(
+			<div className="newspack-nodes-ui">
+				<DataViewsList
+					items={ [ { id: 'heron-5', title: LONG } ] }
+					view={ { type: 'list', page: 1, perPage: 5 } }
+					onChangeView={ () => {} }
+					layout="list"
+					empty={ null }
+					paginationInfo={ { totalItems: 1, totalPages: 1 } }
+					render={ ( { item } ) => (
+						<div>
+							<a href="#heron">{ item.title }</a>
+							<p>{ `${ item.title } 6620` }</p>
+							<button
+								type="button"
+								className="components-button is-link"
+							>
+								Why this ranks 6620
+							</button>
+						</div>
+					) }
+				/>
+			</div>
+		);
+		const link = await screen.findByRole( 'link', { name: LONG } );
+		const title = link.closest( '.dataviews-title-field' );
+		const button = screen.getByRole( 'button', {
+			name: 'Why this ranks 6620',
+		} );
+		expect(
+			title.classList.contains( 'dataviews-view-list__title-field' )
+		).toBe( true );
+		for ( const element of [ title, link, button ] ) {
+			expect( wins( element, 'white-space' ) ).toBe( 'normal' );
+		}
+	} );
+} );
 
 describe( 'a DataViewsList table', () => {
 	it( 'wraps a long title, its link and every other cell', async () => {
