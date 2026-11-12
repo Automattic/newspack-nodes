@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.153.0] - 2026-11-11
+
 ### Fixed
 
 - **The substrate floor check sees every way a consumer reaches the substrate.** `scripts/check-substrate-floor.sh` held a consumer only to the methods it calls, so reading a new class constant (`Admin::FONTS_HANDLE`), instantiating a new class or reading a static property passed the gate and fataled against an older substrate. One PHPStan collector now reports methods (nullable receivers included), constants and enum cases, static properties, `new`, `extends`, `implements`, used traits, `instanceof`, `catch` and `[ X::class, 'm' ]` callables, under the class the access names. A php-parser index of each tag's `includes/` (read through one `git cat-file --batch`, parser from the PHPStan phar) answers each: present and reachable at the floor (public, static where called statically, protected from a subclass, trait aliases resolved), first released at a later tag, unreleased (in the tracked working tree only), or dropped. A floor naming no tag, a substrate with no tags, any PHPStan error line, a class declared twice and a short answer all fail loud. PHPStan's raw output no longer drops a long name, and a `use Trait { … }` block is followed.
