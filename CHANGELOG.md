@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.154.1] - 2026-11-12
+
 ### Fixed
 
 - **A `DataViewsList` list, grid or activity row wraps.** The row a caller draws as the title cell, and every link and link button in it, wraps to its container; stock DataViews held them to one line, so a long summary ran off the right edge of Intelligence's Search, Team views, Review and Watches.
