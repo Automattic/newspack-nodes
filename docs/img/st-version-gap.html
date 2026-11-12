@@ -69,10 +69,10 @@ h2 { font-size:15px; margin:0 0 10px; }
       <h4>Guard the call with <span class="mono">method_exists()</span></h4>
       <p>A substrate predating the method carries no such method, so the call meant to prevent a fatal becomes one. Event-logger-nodes, intelligence and cache-cozy each test for it first.</p>
     </div>
-    <p style="margin-top:10px"><span class="mono">scripts/check-substrate-floor.sh</span>, authored here and vendored into every consumer though only event-logger-nodes' <span class="mono">pre-push</span> runs it, proves the floor covers every substrate API the plugin calls: PHPStan resolves each call to its declaring class, then the script searches the substrate's tags for the first release that answers it, walking traits and the <span class="mono">extends</span> chain the way PHP would.</p>
+    <p style="margin-top:10px"><span class="mono">scripts/check-substrate-floor.sh</span>, authored here and vendored into every consumer, where the shared <span class="mono">pre-push</span> hook runs it, proves the floor covers every substrate method, constant, static property, class, interface and trait the plugin reaches: PHPStan names each, then the script parses the substrate at each tag and finds the first release that answers it, walking traits and the <span class="mono">extends</span> chain the way PHP would.</p>
     <div class="ok" style="margin-top:8px">
       <h4>Sound, not complete</h4>
-      <p>A call counts only where PHPStan resolves the callee to ONE definite declaring class. A dynamically-named method, or a callee typed as a union or <span class="mono">mixed</span>, goes uncounted, so the floor the script reports is a lower bound, not a guarantee for code shaped that way.</p>
+      <p>An access counts only where PHPStan resolves it to ONE definite declaring class. A dynamic name, a callee typed as a union or <span class="mono">mixed</span>, or a class named only in a type hint goes uncounted, so the floor the script reports is a lower bound, not a guarantee for code shaped that way.</p>
     </div>
   </div>
   <div class="card">

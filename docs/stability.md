@@ -309,9 +309,10 @@ $dependent )`](../includes/class-bootstrap.php) returns false and posts an admin
 against a newer substrate stays dormant instead of fataling mid-request. Guard
 the call with `method_exists()`, as [event-logger-nodes](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/newspack-event-logger-nodes.php), intelligence and
 cache-cozy each do. [`scripts/check-substrate-floor.sh`](../scripts/check-substrate-floor.sh) proves the floor covers
-every substrate API the plugin calls, and is sound rather than complete: a
-call resolved to a union, `mixed` or a dynamic name goes uncounted, so the
-floor it reports is a lower bound.
+every substrate method, constant, static property, class, interface and trait
+the plugin reaches, and is sound rather than complete: an access resolved to a union, `mixed` or a dynamic name goes
+uncounted, as does a class named only in a type hint, so the floor it reports
+is a lower bound.
 
 **A new parameter raises the floor.** A signature change ships with no
 bridging default: every consumer that calls it raises its `version_at_least()`

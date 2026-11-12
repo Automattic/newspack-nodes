@@ -7,17 +7,21 @@ includes:
 parameters:
 	level: 0
 	customRulesetUsed: true
-	# The collectors live outside any autoloader; load them into PHPStan's own
+	# The plugin's review config is not this run's: its strict rules and its
+	# ignores answer review, and an error this run reports is a gap in analysis.
+	reportUnmatchedIgnoredErrors: false
+	strictRules:
+		allRules: false
+	checkFunctionNameCase: false
+	checkInternalClassCaseSensitivity: false
+	# The collector lives outside any autoloader; load it into PHPStan's own
 	# container. Run from the plugin root, which the wrapper enforces.
 	bootstrapFiles:
 		- %currentWorkingDirectory%/scripts/phpstan-substrate-floor.php
 
 services:
 	-
-		class: Newspack_Nodes\Tools\Substrate_Method_Call_Collector
-		tags: [phpstan.collector]
-	-
-		class: Newspack_Nodes\Tools\Substrate_Static_Call_Collector
+		class: Newspack_Nodes\Tools\Substrate_Api_Collector
 		tags: [phpstan.collector]
 	-
 		class: Newspack_Nodes\Tools\Substrate_Floor_Rule

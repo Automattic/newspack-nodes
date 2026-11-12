@@ -32,6 +32,7 @@ SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
 	lint-contract.mjs lint-styles.mjs lint-english.mjs lint-wp-pin.mjs
 	lint-private-data.py
 	check-substrate-floor.sh phpstan-substrate-floor.php phpstan-floor.neon
+	substrate-floor-index.php
 	pre-commit commit-msg pre-push .shellcheckrc lint-docs.sh
 	render-diagram.sh autocrop.py"
 

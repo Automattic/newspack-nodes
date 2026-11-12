@@ -41,7 +41,7 @@
   $load();
 }, <span class="k">11</span> );</div>
       <p>Plugins load alphabetically, so a slug sorting before <span class="mono">newspack-nodes</span> is included before the substrate's classes exist. Every plugin file is included before <span class="mono">plugins_loaded</span> fires, so any priority is late enough: cache-cozy uses 11, the bundled example 12.</p>
-      <p>Below the floor the plugin goes dormant behind an admin notice, on substrates from 0.54.0 on; older ones have no notice, so the <span class="mono">method_exists</span> guard is what covers them, in silence. <span class="mono">scripts/check-substrate-floor.sh</span> computes the floor: it collects each substrate API you call through PHPStan, resolves each to its declaring class, and names the oldest tag defining all of them.</p>
+      <p>Below the floor the plugin goes dormant behind an admin notice, on substrates from 0.54.0 on; older ones have no notice, so the <span class="mono">method_exists</span> guard is what covers them, in silence. <span class="mono">scripts/check-substrate-floor.sh</span> computes the floor: it collects through PHPStan every substrate method, constant, static property, class, interface and trait you reach, and names the oldest tag defining all of them.</p>
     </div>
   </div>
 
