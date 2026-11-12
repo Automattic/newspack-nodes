@@ -793,6 +793,11 @@
 		border-radius: $border-radius-sm;
 		margin-bottom: $space-md;
 		font-size: 12px;
+
+		// A page's toned ink is illegible on the oxide fill; use the banner's ink.
+		.newspack-nodes-status {
+			color: inherit;
+		}
 	}
 
 	// Canonical banner: a sentence qualifying the panel below it, where the
