@@ -1555,7 +1555,10 @@ describe( 'canonical appearance ownership', () => {
 				graphStylesheet,
 				'.topology-insp__section:has(> .nodes-runtime__grid)'
 			)
-		).toEqual( { 'font-size': '9px', 'overflow-x': 'auto' } );
+		).toEqual( {
+			'font-size': 'var(--np-text-2xs)',
+			'overflow-x': 'auto',
+		} );
 		expect(
 			declarationsForSelector(
 				graphStylesheet,
@@ -1666,7 +1669,7 @@ describe( 'canonical appearance ownership', () => {
 				'min-height': '0',
 				height: 'auto',
 				padding: '8px 10px',
-				'font-size': '10px',
+				'font-size': 'var(--np-text-2xs)',
 				'line-height': '1.2',
 				'margin-bottom': '0',
 				'vertical-align': 'baseline',
@@ -1846,7 +1849,7 @@ describe( 'canonical appearance ownership', () => {
 			expect.objectContaining( {
 				display: 'grid',
 				'grid-template-columns': 'repeat(3, minmax(0, 1fr))',
-				'font-size': '11px',
+				'font-size': 'var(--np-text-2xs)',
 			} )
 		);
 		expect( labelRules ).toEqual( [] );
@@ -3143,6 +3146,104 @@ describe( 'audited appearance', () => {
 	} );
 } );
 
+describe( "the skins' web fonts", () => {
+	const imports = ( stylesheet ) => {
+		const found = [];
+		stylesheet.walkAtRules( 'import', ( rule ) =>
+			found.push( rule.params )
+		);
+		return found;
+	};
+
+	// The fonts are a style handle of their own, `Admin::FONTS_HANDLE`.
+	it( 'ride no shared sheet, so a page loads them only by asking', () => {
+		for ( const sheet of [
+			compile( path.join( NODES_SRC, 'theme/newspack-theme.scss' ) ),
+			compile( UI_ENTRY ),
+			graphStylesheet,
+		] ) {
+			expect( imports( sheet ) ).toEqual( [] );
+		}
+	} );
+} );
+
+describe( 'the error colours', () => {
+	// `_tokens.scss` spells each once: `$error-bg` and `$error-text`.
+	it( 'are spelled once, in the tokens, never inline with a fallback', () => {
+		const offenders = walkScss( NODES_SRC )
+			.filter( ( file ) => ! file.endsWith( '_tokens.scss' ) )
+			.flatMap( ( file ) =>
+				fs
+					.readFileSync( file, 'utf8' )
+					.split( '\n' )
+					.map( ( line, index ) => [ line, index + 1 ] )
+					.filter( ( [ line ] ) =>
+						/var\(\s*--oxide(?:-text)?\s*,/.test( line )
+					)
+					.map(
+						( [ , line ] ) =>
+							`${ path.relative( NODES_SRC, file ) }:${ line }`
+					)
+			);
+		expect( offenders ).toEqual( [] );
+		const tokens = scss.parse(
+			fs.readFileSync(
+				path.join( NODES_SRC, 'shared/styles/_tokens.scss' ),
+				'utf8'
+			)
+		);
+		const spelled = {};
+		tokens.walkDecls( /^\$error-(bg|text)$/, ( decl ) => {
+			spelled[ decl.prop ] = decl.value;
+		} );
+		expect( spelled ).toEqual( {
+			'$error-bg': 'var(--oxide, var(--np-error))',
+			'$error-text': 'var(--oxide-text, var(--np-error-text))',
+		} );
+	} );
+} );
+
+describe( 'the product error ink', () => {
+	// A text ink, as the skins' `--*-text` inks are, never a status fill.
+	it( 'paints text where a refused label falls back to it', () => {
+		expect( RAW_SEMANTIC_TEXT.test( 'var(--np-error-text)' ) ).toBe(
+			false
+		);
+		expect( RAW_SEMANTIC_TEXT.test( 'var(--np-error)' ) ).toBe( true );
+	} );
+} );
+
+describe( 'the title block', () => {
+	const of = ( selector ) =>
+		declarationsForSelector( graphStylesheet, selector );
+
+	// Its keys are translated, so the key column takes its longest label and
+	// the values the rest of a cartouche between 312px and 432px wide.
+	it( 'sizes the key column to its longest key, one column for every row', () => {
+		expect( of( '.topology-title-block' ) ).toMatchObject( {
+			display: 'grid',
+			'grid-template-columns': 'max-content minmax(0, 1fr)',
+			'min-width': '312px',
+			'max-width': '432px',
+		} );
+		expect( of( '.topology-title-block__row' ) ).toMatchObject( {
+			display: 'grid',
+			'grid-column': '1/-1',
+			'grid-template-columns': 'subgrid',
+		} );
+	} );
+
+	// A long sheet name ends in an ellipsis inside the frame.
+	it( 'clips a value to its column with an ellipsis', () => {
+		expect( of( '.topology-title-block__v' ) ).toMatchObject( {
+			'min-width': '0',
+			overflow: 'hidden',
+			'text-overflow': 'ellipsis',
+			'white-space': 'nowrap',
+		} );
+	} );
+} );
+
 describe( 'shared log-row inks', () => {
 	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
 		from: UI_ENTRY,
@@ -3152,7 +3253,7 @@ describe( 'shared log-row inks', () => {
 	it.each( [
 		[ 'fast', 'var(--sage-text, var(--np-text))' ],
 		[ 'slow', 'var(--brass-text, var(--np-text))' ],
-		[ 'critical', 'var(--oxide-text, var(--np-text))' ],
+		[ 'critical', 'var(--oxide-text, var(--np-error-text))' ],
 	] )( 'inks a %s duration once, for every log pane', ( speed, color ) => {
 		expect(
 			of( `:where(.newspack-nodes-ui) .entry-duration--${ speed }` )
@@ -3163,7 +3264,7 @@ describe( 'shared log-row inks', () => {
 		[
 			'error',
 			{
-				color: 'var(--oxide-text, var(--np-text))',
+				color: 'var(--oxide-text, var(--np-error-text))',
 				'font-weight': '600',
 			},
 		],
@@ -3358,7 +3459,9 @@ describe( 'a table steps up a rung inside a card or modal', () => {
 			.join( '\n' );
 		// An undivided table reads the variable too, and falls back to transparent.
 		expect(
-			sources.match( /var\(--nodes-table-surface, var\(--paper-2/g )
+			sources.match(
+				/var\(\s*--nodes-table-surface,\s*var\(\s*--paper-2/g
+			)
 		).toHaveLength( 1 );
 		expect( sources.match( /--nodes-table-surface:/g ) ).toHaveLength( 1 );
 	} );
@@ -3431,7 +3534,14 @@ describe( 'settings-table headings', () => {
 				'.newspack-nodes-ui.newspack-nodes-ui .form-table th' ===
 				selector
 		);
-		expect( heading?.color ).toBe( 'var(--ink-2, var(--np-text))' );
+		expect( heading?.color ).toBe( 'var(--np-field-label)' );
+		expect(
+			mergedDeclarationsForSelectors(
+				ui,
+				( selector ) =>
+					'.newspack-nodes-ui.newspack-nodes-ui' === selector
+			)?.[ '--np-field-label' ]
+		).toBe( 'var(--ink-2, var(--np-text))' );
 	} );
 } );
 
@@ -3493,5 +3603,37 @@ describe( 'stock tables and the shared mixins', () => {
 		expect( source ).not.toMatch(
 			/@mixin (?:table-header|widefat-themed)\b/
 		);
+	} );
+} );
+
+describe( 'the type scale floor', () => {
+	const {
+		stylesheetOffenders,
+		scriptOffenders,
+	} = require( '../../../build-kit/type-scale-floor.cjs' );
+
+	it( 'sets no UI type below --np-text-2xs in a stylesheet', () => {
+		const offenders = walkScss( NODES_SRC )
+			.filter( ( file ) => ! path.basename( file ).startsWith( '_' ) )
+			.flatMap( ( file ) =>
+				stylesheetOffenders(
+					compile( file ),
+					path.relative( NODES_SRC, file )
+				)
+			);
+		expect( offenders ).toEqual( [] );
+	} );
+
+	// A d3 chart or an inline style sets type from a script.
+	it( 'sets no UI type below --np-text-2xs from a script', () => {
+		const offenders = walkJavaScript( NODES_SRC )
+			.filter( ( file ) => ! file.includes( `${ path.sep }test-utils` ) )
+			.flatMap( ( file ) =>
+				scriptOffenders(
+					fs.readFileSync( file, 'utf8' ),
+					path.relative( NODES_SRC, file )
+				)
+			);
+		expect( offenders ).toEqual( [] );
 	} );
 } );

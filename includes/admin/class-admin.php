@@ -77,6 +77,50 @@ class Admin {
 	 */
 	public const DATAVIEWS_HANDLE = 'newspack-nodes-dataviews';
 
+	/**
+	 * The style handle of the web fonts the skins name. Only the console's
+	 * graph sheet and the settings pages load it, so a page that never asked
+	 * for the skins' faces, the OAuth consent page among them, sends nothing to
+	 * the font host.
+	 */
+	public const FONTS_HANDLE = 'newspack-nodes-fonts';
+
+	/** Every face a skin names, in one stylesheet request. */
+	public const FONTS_URL =
+		'https://fonts.googleapis.com/css2?'
+		. 'family=Inter:wght@400;500;600;700'
+		. '&family=Anonymous+Pro:wght@400;700'
+		. '&family=Archivo:wght@500;700'
+		. '&family=Archivo+Black'
+		. '&family=Barlow+Semi+Condensed:wght@500;700'
+		. '&family=Bitter:wght@500;700'
+		. '&family=Chakra+Petch:wght@400;600'
+		. '&family=DM+Mono:wght@400;500'
+		. '&family=Fira+Code:wght@400;600'
+		. '&family=Fraunces:wght@500;700'
+		. '&family=Fredoka:wght@400;600'
+		. '&family=IBM+Plex+Mono:wght@400;500;600'
+		. '&family=JetBrains+Mono:wght@300;400;500;700'
+		. '&family=Josefin+Sans:wght@500;700'
+		. '&family=Major+Mono+Display'
+		. '&family=Monoton'
+		. '&family=Noto+Sans+JP:wght@500;700'
+		. '&family=Orbitron:wght@500;700'
+		. '&family=Quicksand:wght@500;700'
+		. '&family=Rajdhani:wght@500;600'
+		. '&family=Saira+Condensed:wght@500;700'
+		. '&family=Saira+Stencil+One'
+		. '&family=Share+Tech+Mono'
+		. '&family=Sora:wght@500;700'
+		. '&family=Space+Mono:wght@400;700'
+		. '&family=Spectral:wght@400;600'
+		. '&family=Spline+Sans+Mono:wght@400;500;700'
+		. '&family=Syne:wght@600;800'
+		. '&family=Teko:wght@500;600'
+		. '&family=VT323'
+		. '&family=Workbench'
+		. '&display=swap';
+
 	/** Settings group for register_setting() / options.php. */
 	public const OPTIONS_GROUP = 'newspack_nodes';
 
@@ -121,6 +165,7 @@ class Admin {
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
 		\add_action( 'admin_post_' . self::FLUSH_ACTION, [ $this, 'handle_flush_cache' ] );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'register_fonts_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_ui_style' ], 2 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_graph_style' ], 3 );
@@ -612,13 +657,14 @@ class Admin {
 
 	/**
 	 * Register the topology-canvas artwork and layout. Depends on the appearance
-	 * sheet, so a page loading the graph gets both in the right cascade order.
+	 * sheet, so a page loading the graph gets both in the right cascade order,
+	 * and on the skins' web fonts, which the console draws in.
 	 */
 	public function register_graph_style(): void {
 		$this->register_built_style(
 			'newspack-nodes-graph',
 			'graph',
-			[ 'newspack-nodes-ui' ]
+			[ 'newspack-nodes-ui', self::FONTS_HANDLE ]
 		);
 	}
 
@@ -852,10 +898,10 @@ class Admin {
 
 	/**
 	 * Enqueue the per-field reset toggle on the server-rendered settings page,
-	 * at head time, and the `settings` bundle that skins the page. The toggle
-	 * brings the appearance stylesheet with it; the React hosts get that sheet
-	 * through their own bundles' style dependencies, and the skin bundle emits
-	 * no stylesheet, so the page opts in here.
+	 * at head time, the `settings` bundle that skins the page, and the skins'
+	 * web fonts. The toggle brings the appearance stylesheet with it; the React
+	 * hosts get that sheet through their own bundles' style dependencies, and
+	 * the skin bundle emits no stylesheet, so the page opts in here.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
 	 *                     enqueue_event_dashboards_assets().
@@ -867,6 +913,7 @@ class Admin {
 			return;
 		}
 		Field_Reset_Assets::enqueue();
+		\wp_enqueue_style( self::FONTS_HANDLE );
 		self::enqueue_react_page(
 			[
 				'handle'   => 'newspack-nodes-settings',
@@ -1102,6 +1149,20 @@ class Admin {
 			],
 			$localize
 		);
+	}
+
+	/**
+	 * Register the skins' web fonts under `FONTS_HANDLE`, unversioned, since
+	 * the font host answers the URL itself.
+	 */
+	public function register_fonts_style(): void {
+		if (
+			! \function_exists( 'wp_register_style' )
+			|| \wp_style_is( self::FONTS_HANDLE, 'registered' )
+		) {
+			return;
+		}
+		\wp_register_style( self::FONTS_HANDLE, self::FONTS_URL, [], null );
 	}
 
 	/**

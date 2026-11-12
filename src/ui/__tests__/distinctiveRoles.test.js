@@ -774,7 +774,7 @@ describe( 'distinctive canonical roles', () => {
 				display: 'inline-flex',
 				'align-items': 'center',
 				gap: '5px',
-				'font-size': '10px',
+				'font-size': 'var(--np-text-2xs)',
 				'font-weight': '600',
 				'letter-spacing': '0.3px',
 				'text-transform': 'uppercase',
@@ -878,7 +878,7 @@ describe( 'distinctive canonical roles', () => {
 
 		expectUsesSentinel( compact, 'color', '--ink-3', SENTINELS.ink3 );
 		expect( compactDeclarations ).toMatchObject( {
-			'font-size': '9px',
+			'font-size': 'var(--np-text-2xs)',
 			'text-transform': 'uppercase',
 			'letter-spacing': '0.3px',
 		} );
@@ -1262,9 +1262,18 @@ describe( 'distinctive canonical roles', () => {
 			null
 		);
 		// Softer than body ink, still a step above the help text below it.
-		expectUsesSentinel( wpLabel, 'color', '--ink-2', SENTINELS.ink2 );
+		// A label reads the field label token, which the root points at --ink-2.
+		for ( const label of [ wpLabel, adminLabel ] ) {
+			expect( matchingDeclarations( label ).color ).toBe(
+				'var(--np-field-label)'
+			);
+		}
+		expect(
+			matchingDeclarations( wpLabel.closest( '.newspack-nodes-ui' ) )[
+				'--np-field-label'
+			]
+		).toContain( 'var(--ink-2' );
 		expectUsesSentinel( wpHelp, 'color', '--ink-3', SENTINELS.ink3 );
-		expectUsesSentinel( adminLabel, 'color', '--ink-2', SENTINELS.ink2 );
 		expectUsesSentinel( adminHelp, 'color', '--ink-3', SENTINELS.ink3 );
 	} );
 

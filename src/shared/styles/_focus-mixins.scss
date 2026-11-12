@@ -1,8 +1,9 @@
 // The halo fills the offset gap, so the ring reads on a saturated fill.
+// A dark surface in a light skin re-points `--focus-halo` alone.
 @mixin ring {
 	outline: 2px solid var(--ink, var(--np-text, currentcolor));
 	outline-offset: 1px;
-	box-shadow: 0 0 0 1px var(--paper, var(--np-surface));
+	box-shadow: 0 0 0 1px var(--focus-halo, var(--paper, var(--np-surface)));
 }
 
 @mixin no-ring {

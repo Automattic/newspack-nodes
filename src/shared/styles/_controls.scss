@@ -1,14 +1,28 @@
+@use "sass:list";
 @use "field-scope" as scope;
 @use "mixins" as mix;
+@use "tokens";
 
 $np-chevron-dark: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%2318222E'/%3E%3C/svg%3E";
 $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E";
+// What the field rule paints: every text field, select and textarea.
+$np-field: 'input:not([type="checkbox"]):not([type="radio"]):not(.components-input-control__input):not(.topology-repl__input):not(.newspack-nodes-token-field__entry):not(.components-form-token-field__input):not(.dataviews-filters__search-widget-filter-combobox__input):not(#{scope.$not-a-field}), select:not(.components-input-control__input), textarea';
+
+// A listbox: `multiple`, or a size opening 2-9 or 10-19; "02" and " 3" miss.
+$np-listbox: ("[multiple]");
+@each $lead in 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 {
+	$np-listbox: list.append($np-listbox, '[size^="#{$lead}"]', comma);
+}
+// A select that drops down; a listbox takes no chevron at all.
+$np-dropdown: "select:not(.components-input-control__input):not(#{$np-listbox})";
 
 .newspack-nodes-ui.newspack-nodes-ui {
 	--np-field-surface: var(--paper, var(--np-surface));
 	--np-field-ink: var(--ink, var(--np-text));
 	--np-field-muted: var(--ink-3, var(--np-text-secondary));
 	--np-field-border: var(--paper-shadow, var(--np-border-strong));
+	--np-field-label: var(--ink-2, var(--np-text));
+	--np-field-checked: var(--cyan, var(--np-primary));
 	// WordPress components paint from these; the skin's ink and paper fill them.
 	--wp-components-color-foreground: var(--ink, var(--np-text));
 	--wp-components-color-foreground-inverted: var(--paper, var(--np-surface));
@@ -30,15 +44,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	);
 	--wp-components-color-accent-inverted: var(--on-cyan, var(--np-on-primary));
 
-	input:not([type="checkbox"]):not([type="radio"]):not(
-			.components-input-control__input
-		):not(.topology-repl__input):not(
-			.newspack-nodes-token-field__entry
-		):not(.components-form-token-field__input):not(
-			.dataviews-filters__search-widget-filter-combobox__input
-		):not(#{scope.$not-a-field}),
-	select:not(.components-input-control__input),
-	textarea {
+	#{$np-field} {
 		appearance: none;
 		background-color: var(--np-field-surface);
 		border: 1px solid var(--np-field-border);
@@ -57,6 +63,29 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			color: var(--np-field-muted);
 			-webkit-text-fill-color: var(--np-field-muted);
 			opacity: 1;
+		}
+
+		// The swatch fills the frame a text field's padding leaves it.
+		&[type="color"] {
+			inline-size: 44px;
+			cursor: pointer;
+
+			&::-webkit-color-swatch-wrapper {
+				padding: 0;
+			}
+
+			&::-webkit-color-swatch {
+				border: 0;
+			}
+
+			&::-moz-color-swatch {
+				border: 0;
+			}
+		}
+
+		// Its button stands where a text field's line does, at the same height.
+		&[type="file"] {
+			padding-block: 4px;
 		}
 	}
 
@@ -138,7 +167,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	.components-input-control__label,
 	.form-table label,
 	.form-table th {
-		color: var(--ink-2, var(--np-text));
+		color: var(--np-field-label);
 	}
 
 	.components-base-control__help,
@@ -146,14 +175,19 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		color: var(--ink-3, var(--np-text-secondary));
 	}
 
-	// Weighted like the field rule, so this padding clears the chevron.
-	select:not(.components-input-control__input) {
+	// Outweighs the field rule's padding.
+	#{$np-dropdown} {
 		padding-right: 22px;
 		background-image: url("#{ $np-chevron-dark }");
 		background-repeat: no-repeat;
 		background-position: right 8px center;
 		background-size: 8px;
 		cursor: pointer;
+	}
+
+	// A listbox keeps its native list inside the field frame.
+	select:is(#{$np-listbox}):not(.components-input-control__input) {
+		appearance: auto;
 	}
 
 	select option {
@@ -184,8 +218,8 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 
 		&:checked,
 		&:indeterminate {
-			background: var(--cyan, var(--np-primary));
-			border-color: var(--cyan, var(--np-primary));
+			background: var(--np-field-checked);
+			border-color: var(--np-field-checked);
 		}
 
 		&:checked::after {
@@ -212,11 +246,35 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	}
 
 	input[type="radio"] {
-		accent-color: var(--cyan, var(--np-primary));
+		accent-color: var(--np-field-checked);
 	}
 
 	.components-checkbox-control__input-container svg {
 		display: none;
+	}
+
+	// A refused control, a frame holding one, or a wrapper the page marks.
+	[aria-invalid="true"],
+	.newspack-nodes-field-invalid,
+	:is(
+			.newspack-nodes-token-field,
+			.components-form-token-field__input-container,
+			.components-combobox-control__suggestions-container,
+			.components-input-control__container
+		):has([aria-invalid="true"]) {
+		--np-field-border: #{tokens.$error-bg};
+		--np-field-checked: #{tokens.$error-bg};
+		--np-field-label: #{tokens.$error-text};
+	}
+
+	// A plain label and an editable read the tokens inside a refused field.
+	.newspack-nodes-field-invalid label {
+		color: var(--np-field-label);
+	}
+
+	.newspack-nodes-field-invalid #{scope.$rich-text-field},
+	#{scope.$rich-text-field}[aria-invalid="true"] {
+		border-color: var(--np-field-border);
 	}
 }
 
@@ -255,6 +313,9 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 
 	.components-select-control__input {
 		border: 0;
+	}
+
+	.components-select-control__input:not(#{$np-listbox}) {
 		padding-right: 22px;
 		background-image: url("#{ $np-chevron-dark }");
 		background-repeat: no-repeat;
@@ -277,8 +338,7 @@ $np-dark-skins: blueprint, crt, crt-color, synthwave, nord, aurora, neotokyo,
 		// root every scroller and field inside inherits it.
 		color-scheme: dark;
 
-		select,
-		.components-select-control__input {
+		#{$np-dropdown} {
 			background-image: url("#{ $np-chevron-light }");
 		}
 	}

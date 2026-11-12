@@ -4,6 +4,7 @@
  * and scoped under the panel so none of it bleeds into the station dashboard's
  * identical class names when both load on one page.
  */
+@use "../../shared/styles/tokens";
 
 .nodes-debug__panel {
 	// The classified-message list, below the rate charts. Level is a left
@@ -19,7 +20,7 @@
 		// than the browser-default serif h3 (reads unthemed in the overlay).
 		h3 {
 			margin: 0 0 8px;
-			font-size: 10px;
+			font-size: var(--np-text-2xs);
 			font-weight: 600;
 			letter-spacing: 0.04em;
 			text-transform: uppercase;
@@ -53,8 +54,8 @@
 			}
 
 			&--error {
-				border-left-color: var(--oxide, var(--np-error));
-				color: var(--oxide-text, var(--np-text));
+				border-left-color: tokens.$error-bg;
+				color: tokens.$error-text;
 			}
 		}
 	}

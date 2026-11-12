@@ -292,11 +292,26 @@ describe( 'canonical UI appearance', () => {
 		} );
 	} );
 
-	it( 'keeps generic native-field paint from resetting select artwork', () => {
-		const native = parsedRule( controlsStylesheet, ( selector ) =>
-			selector.includes( 'select:not(.components-input-control__input)' )
+	// The field rule's selector is `$np-field`, which the invalid mark reuses.
+	const fieldSelector = () => {
+		let value;
+		controlsStylesheet.walkDecls( '$np-field', ( decl ) => {
+			value = decl.value;
+		} );
+		return value;
+	};
+	const fieldRule = () =>
+		parsedRule(
+			controlsStylesheet,
+			( selector ) => '#{$np-field}' === selector
 		);
 
+	it( 'keeps generic native-field paint from resetting select artwork', () => {
+		const native = fieldRule();
+
+		expect( fieldSelector() ).toContain(
+			'select:not(.components-input-control__input)'
+		);
 		expect( native ).toBeDefined();
 		expect( native?.declarations[ 'background-color' ] ).toBe(
 			'var(--np-field-surface)'
@@ -305,10 +320,10 @@ describe( 'canonical UI appearance', () => {
 	} );
 
 	it( 'declares deterministic field line boxes on the authored selectors', () => {
-		const native = parsedRule( controlsStylesheet, ( selector ) =>
-			selector.includes( 'input:not([type="checkbox"])' )
+		const native = fieldRule();
+		expect( fieldSelector() ).toContain(
+			'input:not([type="checkbox"]):not([type="radio"])'
 		);
-		expect( native?.selector ).toContain( ':not([type="radio"])' );
 
 		const checkbox = parsedRule(
 			controlsStylesheet,
@@ -492,15 +507,18 @@ describe( 'canonical UI appearance', () => {
 		} );
 		expect( container.declarations.border ).toBeUndefined();
 
-		const select = rules.find(
+		const select = exactSelectorRule(
+			`${ STOCK_UI_ROOT } .components-select-control__input`
+		);
+		const selectSelector = select.selector;
+		// The chevron and its padding go to a select that drops down alone.
+		const chevron = rules.find(
 			( rule ) =>
-				rule.selector.includes( '.components-select-control__input' ) &&
-				'22px' === rule.declarations[ 'padding-right' ]
+				rule.selector.includes(
+					'.components-select-control__input:not([multiple]'
+				) && '22px' === rule.declarations[ 'padding-right' ]
 		);
-		const selectSelector = selectorMember( select, ( selector ) =>
-			selector.endsWith( ' .components-select-control__input' )
-		);
-		expect( select ).toBeDefined();
+		expect( chevron?.importantProperties ).toEqual( [] );
 		expect(
 			compareSpecificity(
 				classOnlySpecificity( selectSelector ),
@@ -582,7 +600,7 @@ describe( 'canonical UI appearance', () => {
 			// Overrides WordPress's own focus shadow with our halo, rather than
 			// by zeroing it.
 			expect( rule?.declarations[ 'box-shadow' ] ).toBe(
-				'0 0 0 1px var(--paper,var(--np-surface))'
+				'0 0 0 1px var(--focus-halo,var(--paper,var(--np-surface)))'
 			);
 			expect( rule?.importantProperties ).toEqual( [] );
 		}
@@ -799,7 +817,7 @@ describe( 'canonical UI appearance', () => {
 			] ) {
 				const rule = exactSelectorRule( `${ root } ${ label }` );
 				expect( rule?.declarations ).toEqual( {
-					color: 'var(--ink,var(--np-text))',
+					color: 'var(--np-field-label)',
 				} );
 				expect(
 					compareSpecificity(
@@ -1404,7 +1422,7 @@ describe( 'canonical UI appearance', () => {
 		);
 		for ( const state of [ 'stale', 'down' ] ) {
 			expect( statusBadge( state )?.declarations.color ).toBe(
-				'var(--oxide-text,var(--np-text))'
+				'var(--oxide-text,var(--np-error-text))'
 			);
 		}
 		for ( const state of [ 'held', 'idle' ] ) {
@@ -1419,7 +1437,7 @@ describe( 'canonical UI appearance', () => {
 			'var(--brass-text,var(--np-text))'
 		);
 		expect( statusIndicator( 'is-error' )?.declarations.color ).toBe(
-			'var(--oxide-text,var(--np-text))'
+			'var(--oxide-text,var(--np-error-text))'
 		);
 		expect( statusDot( 'is-success' )?.declarations.background ).toBe(
 			'var(--sage,var(--np-success))'
@@ -1597,7 +1615,7 @@ describe( 'canonical UI appearance', () => {
 
 		expect( standalone?.declarations ).toEqual( {
 			color: 'var(--ink-3,var(--np-text-secondary))',
-			'font-size': '9px',
+			'font-size': 'var(--np-text-2xs)',
 			'text-transform': 'uppercase',
 			'letter-spacing': '0.3px',
 		} );
@@ -1618,12 +1636,12 @@ describe( 'canonical UI appearance', () => {
 			exactSelectorRule(
 				`${ CUSTOM_UI_ROOT } .newspack-nodes-status.is-error`
 			)?.declarations.color
-		).toBe( 'var(--oxide-text,var(--np-text))' );
+		).toBe( 'var(--oxide-text,var(--np-error-text))' );
 		expect(
 			exactSelectorRule(
 				`${ CUSTOM_UI_ROOT } .newspack-nodes-status.is-accent`
 			)?.declarations.color
-		).toBe( 'var(--oxide-text,var(--np-text))' );
+		).toBe( 'var(--oxide-text,var(--np-error-text))' );
 		expect(
 			exactSelectorRule(
 				`${ CUSTOM_UI_ROOT } .newspack-nodes-stat-value`
@@ -1633,7 +1651,7 @@ describe( 'canonical UI appearance', () => {
 			exactSelectorRule(
 				`${ CUSTOM_UI_ROOT } .newspack-nodes-stat-value.is-accent`
 			)?.declarations.color
-		).toBe( 'var(--oxide-text,var(--np-text))' );
+		).toBe( 'var(--oxide-text,var(--np-error-text))' );
 	} );
 
 	it( 'owns compact command-label typography in the shared button role', () => {

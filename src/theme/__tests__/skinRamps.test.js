@@ -1543,6 +1543,20 @@ describe( 'theme skin ramps', () => {
 		}
 	} );
 
+	// A refused label falls back to it on a root that carries no skin.
+	it( 'holds the product error ink at AA as text on both product surfaces', () => {
+		const ink = resolveCssColor(
+			themeTokens[ '--np-error-text' ],
+			themeTokens
+		);
+		expect( ink ).not.toBeNull();
+		for ( const surface of [ '--np-surface', '--np-surface-subtle' ] ) {
+			expect(
+				contrast( ink, parseColor( themeTokens[ surface ] ) )
+			).toBeGreaterThanOrEqual( MINIMUM_TEXT_CONTRAST );
+		}
+	} );
+
 	it( 'draws one eight-slot Newspack chart palette in both Newspack skins', () => {
 		const expected = [
 			'#406ebc',
@@ -1910,7 +1924,7 @@ describe( 'theme skin ramps', () => {
 				'var(--cyan-text, var(--np-text))',
 				'var(--brass-text, var(--np-text))',
 				'var(--sage-text, var(--np-text))',
-				'var(--oxide-text, var(--np-text))',
+				'var(--oxide-text, var(--np-error-text))',
 			] )
 		);
 		expect( productionSemanticSurfacePairs.length ).toBeGreaterThan( 0 );
@@ -2028,7 +2042,7 @@ describe( 'theme skin ramps', () => {
 					new Set( [
 						'var(--sage-text, var(--np-text))',
 						'var(--brass-text, var(--np-text))',
-						'var(--oxide-text, var(--np-text))',
+						'var(--oxide-text, var(--np-error-text))',
 						'var(--ink, var(--np-text))',
 					] )
 				);

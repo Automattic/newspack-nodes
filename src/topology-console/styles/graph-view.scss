@@ -9,11 +9,6 @@
 @use "../../shared/styles/mixins" as mix;
 @use "../../shared/styles/tokens";
 
-// Google Fonts — imported into the admin page asset graph.
-// @import url is fine here; wp-scripts' sass loader pipes the URL
-// through to the final CSS without trying to inline it.
-@import url(https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Anonymous+Pro:wght@400;700&family=Archivo:wght@500;700&family=Archivo+Black&family=Barlow+Semi+Condensed:wght@500;700&family=Bitter:wght@500;700&family=Chakra+Petch:wght@400;600&family=DM+Mono:wght@400;500&family=Fira+Code:wght@400;600&family=Fraunces:wght@500;700&family=Fredoka:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500;700&family=Josefin+Sans:wght@500;700&family=Major+Mono+Display&family=Monoton&family=Noto+Sans+JP:wght@500;700&family=Orbitron:wght@500;700&family=Quicksand:wght@500;700&family=Rajdhani:wght@500;600&family=Saira+Condensed:wght@500;700&family=Saira+Stencil+One&family=Share+Tech+Mono&family=Sora:wght@500;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;600&family=Spline+Sans+Mono:wght@400;500;700&family=Syne:wght@600;800&family=Teko:wght@500;600&family=VT323&family=Workbench&display=swap);
-
 .topology-app {
 	position: relative;
 	z-index: 2;
@@ -198,7 +193,7 @@
 
 	&__group {
 		margin: 0 16px 8px;
-		font: 700 9px/1 var(--font-mono);
+		font: 700 var(--np-text-2xs) / 1 var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.22em;
 		color: var(--ink-3);
@@ -348,7 +343,7 @@
 
 	&__badge {
 		margin-left: auto;
-		font: 700 8px var(--font-mono);
+		font: 700 var(--np-text-2xs) var(--font-mono);
 		color: var(--ink-4);
 		letter-spacing: 0.1em;
 	}
@@ -370,7 +365,7 @@
 		padding: 0 16px;
 		border-top: 1px solid var(--ink-4);
 		background: var(--paper-2);
-		font: 400 9px var(--font-mono);
+		font: 400 var(--np-text-2xs) var(--font-mono);
 		letter-spacing: 0.1em;
 		color: var(--ink-3);
 		text-transform: uppercase;
@@ -430,7 +425,7 @@
 		position: absolute;
 		top: 16px;
 		left: 56px;
-		font: 700 9px/1.5 var(--font-mono);
+		font: 700 var(--np-text-2xs) / 1.5 var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.22em;
 		color: var(--ink-3);
@@ -471,7 +466,7 @@
 	}
 
 	&__layout-chip {
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		line-height: 1;
 		padding: 8px 14px;
 	}
@@ -567,16 +562,22 @@
 	background: var(--paper);
 	border: 1px solid var(--ink-2);
 	color: var(--ink-2);
-	font: 400 10px var(--font-mono);
+	font: 400 var(--np-text-2xs) var(--font-mono);
 	// Below the SVG content layer (z 1) — the cartouche is a stamp on the
 	// paper that the drawing may overlap, not chrome that occludes a node.
 	// Still >= 0 so it paints above the canvas paper background.
 	z-index: 0;
 	box-shadow: 2px 2px 0 var(--paper-shadow);
+	// The widest translated key sets the key column; the values take the rest.
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	min-width: 312px;
+	max-width: 432px;
 
 	&__row {
 		display: grid;
-		grid-template-columns: 70px 130px;
+		grid-column: 1 / -1;
+		grid-template-columns: subgrid;
 		border-bottom: 1px solid var(--ink-2);
 
 		&:last-child {
@@ -587,7 +588,7 @@
 	&__k {
 		padding: 3px 8px;
 		border-right: 1px solid var(--ink-2);
-		font: 700 8px var(--font-mono);
+		font: 700 var(--np-text-2xs) var(--font-mono);
 		letter-spacing: 0.18em;
 		text-transform: uppercase;
 		color: var(--ink-3);
@@ -595,10 +596,15 @@
 
 	&__v {
 		padding: 3px 8px;
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
+		// A long sheet name ends in an ellipsis; its title holds the whole.
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 
 		&--proj {
-			font: 700 11px var(--font-display-stencil);
+			font: 700 var(--np-text-2xs) var(--font-display-stencil);
 			font-variation-settings: "BLCK" 8;
 		}
 	}
@@ -657,7 +663,7 @@
 	&__open,
 	&__remove {
 		padding: 5px 8px;
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 	}
 
 	&__list {
@@ -670,7 +676,7 @@
 			gap: 8px;
 			align-items: baseline;
 			padding: 2px 0;
-			font-size: 11px;
+			font-size: var(--np-text-2xs);
 		}
 	}
 
@@ -682,7 +688,7 @@
 	&__also,
 	&__dir {
 		color: var(--ink-3);
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 	}
 }
 
@@ -797,9 +803,10 @@
 	}
 
 	&__type {
-		font: 700 9px var(--font-mono);
+		font: 700 var(--np-text-2xs) var(--font-mono);
 		fill: var(--ink);
-		letter-spacing: 0.18em;
+		// The card is NODE_W wide; tighter tracking keeps a class name in it.
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
 	}
 
@@ -855,7 +862,7 @@
 	}
 
 	&__meta {
-		font: 400 10px var(--font-mono);
+		font: 400 var(--np-text-2xs) var(--font-mono);
 		fill: var(--ink-3);
 	}
 
@@ -866,7 +873,7 @@
 	// from formatNodeRate; the renderer returns null below the
 	// threshold so the slot is empty rather than "0 /s".
 	&__rate {
-		font: 400 10px var(--font-mono);
+		font: 400 var(--np-text-2xs) var(--font-mono);
 		fill: var(--oxide-text);
 		font-variant-numeric: tabular-nums;
 	}
@@ -1120,7 +1127,7 @@
 .topology-insp__empty {
 	text-align: center;
 	padding: 100px 20px;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 }
 
 // The Open topology and sidecars cards, on the handle the overlay loads too.
@@ -1148,7 +1155,7 @@
 
 .topology-open-item__badge {
 	padding: 1px 6px;
-	font-size: 9px;
+	font-size: var(--np-text-2xs);
 }
 
 .newspack-nodes-ui.newspack-nodes-ui .button:where(.topology-open-item) {
@@ -1191,7 +1198,7 @@
 }
 
 .topology-insp__type {
-	font: 700 9px var(--font-mono);
+	font: 700 var(--np-text-2xs) var(--font-mono);
 	text-transform: uppercase;
 	letter-spacing: 0.22em;
 	margin-bottom: 16px;
@@ -1204,7 +1211,7 @@
 
 // Provenance trail on a selected borrowed node (task 13): `via a → b`.
 .topology-insp__breadcrumb {
-	font: 400 10px var(--font-mono);
+	font: 400 var(--np-text-2xs) var(--font-mono);
 	color: var(--ink-3);
 	margin: -8px 0 14px;
 	letter-spacing: 0.04em;
@@ -1226,9 +1233,9 @@
 .topology-insp__section {
 	margin: 18px 0;
 
-	// Grids inherit 9px from here; one still too wide scrolls in place.
+	// Grids inherit the 2xs size from here; one too wide scrolls in place.
 	&:has(> .nodes-runtime__grid) {
-		font-size: 9px;
+		font-size: var(--np-text-2xs);
 		overflow-x: auto;
 	}
 
@@ -1237,7 +1244,7 @@
 	}
 
 	&-title {
-		font: 700 10px var(--font-mono);
+		font: 700 var(--np-text-2xs) var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.2em;
 		color: var(--ink-2);
@@ -1273,7 +1280,7 @@
 }
 
 .topology-insp__spark-label {
-	font: 400 10px var(--font-mono);
+	font: 400 var(--np-text-2xs) var(--font-mono);
 	color: var(--ink-3);
 }
 
@@ -1285,7 +1292,7 @@
 }
 
 .topology-insp__spark-val {
-	font: 700 11px var(--font-mono);
+	font: 700 var(--np-text-2xs) var(--font-mono);
 	font-variant-numeric: tabular-nums;
 
 	&--dim {
@@ -1295,7 +1302,7 @@
 }
 
 .topology-insp__spark-peak {
-	font: 400 9px var(--font-mono);
+	font: 400 var(--np-text-2xs) var(--font-mono);
 	color: var(--ink-3);
 	font-variant-numeric: tabular-nums;
 	letter-spacing: 0.05em;
@@ -1331,12 +1338,12 @@
 	}
 
 	&-name {
-		font: 400 10px var(--font-mono);
+		font: 400 var(--np-text-2xs) var(--font-mono);
 		color: var(--ink-3);
 	}
 
 	&-val {
-		font: 500 11px var(--font-mono);
+		font: 500 var(--np-text-2xs) var(--font-mono);
 		color: var(--ink);
 		word-break: break-all;
 
@@ -1360,12 +1367,12 @@
 	}
 
 	&__key {
-		font: 400 10px var(--font-mono);
+		font: 400 var(--np-text-2xs) var(--font-mono);
 		color: var(--ink-3);
 	}
 
 	&__val {
-		font: 500 11px var(--font-mono);
+		font: 500 var(--np-text-2xs) var(--font-mono);
 		color: var(--ink);
 		word-break: break-all;
 
@@ -1407,7 +1414,7 @@
 		// stay readable inside the 308px inspector column without
 		// blowing past the value cell.
 		&--mono {
-			font: 400 10px/1.4 var(--font-mono);
+			font: 400 var(--np-text-2xs) / 1.4 var(--font-mono);
 			color: var(--ink-2);
 			word-break: break-all;
 		}
@@ -1467,13 +1474,13 @@
 
 // Where the cursor sits, in words (live / parked / between keyframes).
 .topology-tt__position {
-	font: 400 10px var(--font-mono);
+	font: 400 var(--np-text-2xs) var(--font-mono);
 	color: var(--ink-3, var(--ink-4));
 	margin: 0 0 4px;
 }
 
 .topology-tt__empty {
-	font-size: 10px;
+	font-size: var(--np-text-2xs);
 	padding: 4px;
 }
 
@@ -1486,7 +1493,7 @@
 
 .topology-tt__transport-btn {
 	flex: 1;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	padding: 3px 0;
 }
 
@@ -1515,7 +1522,7 @@
 	min-height: 0;
 	height: auto;
 	padding: 8px 10px;
-	font-size: 10px;
+	font-size: var(--np-text-2xs);
 	line-height: 1.2;
 	text-align: left;
 	width: 100%;
@@ -1653,7 +1660,7 @@
 .topology-insp__levels {
 	display: flex;
 	gap: 12px;
-	font: 700 10px var(--font-mono);
+	font: 700 var(--np-text-2xs) var(--font-mono);
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
 }
@@ -1664,7 +1671,7 @@
 	justify-content: space-between;
 	gap: 8px;
 	padding: 2px 0;
-	font: 400 11px var(--font-mono);
+	font: 400 var(--np-text-2xs) var(--font-mono);
 	color: var(--ink);
 }
 
@@ -1697,7 +1704,7 @@
 	display: block;
 	margin: 8px 0 12px;
 	padding: 6px 12px;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 }
 
 .topology-edit-row {
@@ -1745,7 +1752,7 @@
 .topology-app .topology-edit-command__add {
 	margin-top: 4px;
 	padding: 8px 8px;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 }
 
 // Space consecutive invocations of a multiple command apart.
@@ -1783,7 +1790,7 @@
 }
 
 .topology-edit-row__hint {
-	font-size: 10px;
+	font-size: var(--np-text-2xs);
 	color: var(--oxide-text);
 	margin-top: 2px;
 }
@@ -1804,7 +1811,7 @@
 	border: 1px solid var(--ink-3);
 	padding: 2px 4px 2px 7px;
 	font-family: var(--font-mono);
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	color: var(--ink);
 }
 
@@ -1841,7 +1848,7 @@
 }
 
 .topology-edit-empty {
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	padding: 4px 0;
 }
 
@@ -1878,7 +1885,7 @@
 }
 
 .topology-include-tree__name {
-	font: 400 11px var(--font-mono);
+	font: 400 var(--np-text-2xs) var(--font-mono);
 	color: var(--ink-2);
 }
 
@@ -2329,7 +2336,7 @@
 	}
 
 	&__status {
-		font-size: 9px;
+		font-size: var(--np-text-2xs);
 		display: flex;
 		align-items: center;
 		gap: 6px;
@@ -2384,7 +2391,7 @@
 		// padding bumped from 8px to 12px to clear the 4px resize
 		// handle that overlays the top edge.
 		padding: 12px 70px 14px 18px;
-		font: 400 11px/1.5 var(--font-terminal);
+		font: 400 var(--np-text-2xs) / 1.5 var(--font-terminal);
 		color: color-mix(in srgb, var(--repl-fg) 92%, transparent);
 		box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
 	}
@@ -2541,7 +2548,7 @@
 	display: block;
 	margin-top: 14px;
 	font-family: var(--font-mono);
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	color: var(--ink-2);
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
@@ -2612,7 +2619,7 @@
 
 .topology-modal__hint {
 	margin-top: 6px;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	color: var(--oxide-text);
 }
 

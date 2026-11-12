@@ -31,7 +31,7 @@ $stream-padding-x: 12px;
 }
 
 .newspack-nodes-log-header__th {
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 }
 
 .newspack-nodes-log-rows__content {

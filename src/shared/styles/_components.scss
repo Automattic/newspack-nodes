@@ -111,7 +111,7 @@
 		}
 
 		&.is-error {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 		}
 
 		&.is-muted {
@@ -119,7 +119,7 @@
 		}
 
 		&.is-accent {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 		}
 	}
 
@@ -155,7 +155,7 @@
 		&.stale,
 		&.down {
 			background: var(--oxide-subtle, var(--np-error-subtle));
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 		}
 
 		// The lightest rung, framed: never darker than the card it sits in.
@@ -182,7 +182,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		font-weight: 600;
 		letter-spacing: 0.3px;
 		text-transform: uppercase;
@@ -212,10 +212,10 @@
 		}
 
 		&.is-error {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 
 			&::before {
-				background: var(--oxide, var(--np-error));
+				background: $error-bg;
 			}
 		}
 	}
@@ -526,7 +526,7 @@
 			// d3 axis ink and type size on the panel.
 			.tick text {
 				fill: var(--ink-3, var(--np-text-secondary));
-				font-size: 10px;
+				font-size: var(--np-text-2xs);
 			}
 
 			.y-label {
@@ -586,7 +586,7 @@
 
 		&__partial-label {
 			fill: var(--ink-3, var(--np-text-secondary));
-			font-size: 10px;
+			font-size: var(--np-text-2xs);
 		}
 
 		// The caller's selected slots, shaded beneath the bands.
@@ -599,7 +599,7 @@
 			display: none;
 			position: absolute;
 			padding: 7px 11px;
-			font-size: 11px;
+			font-size: var(--np-text-2xs);
 			pointer-events: none;
 			white-space: nowrap;
 			z-index: 10;
@@ -637,7 +637,7 @@
 		padding: 0;
 		list-style: none;
 		overflow-y: auto;
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 
 		li {
 			margin: 0;
@@ -712,13 +712,13 @@
 		color: var(--ink, var(--np-text));
 
 		&.is-accent {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 		}
 	}
 
 	.newspack-nodes-stat-label {
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 9px;
+		font-size: var(--np-text-2xs);
 		text-transform: uppercase;
 		letter-spacing: 0.3px;
 	}
@@ -784,7 +784,7 @@
 	}
 
 	.newspack-nodes-error-banner {
-		background: var(--oxide, var(--np-error));
+		background: $error-bg;
 		color: var(--on-oxide, var(--np-on-status));
 		padding: $space-sm $space-md;
 		border-radius: $border-radius-sm;
@@ -817,7 +817,7 @@
 	// Shared entry cell styles (used by Request Log and Gyroscope)
 	.entry-time {
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 	}
 
 	.entry-duration {
@@ -833,13 +833,13 @@
 		}
 
 		&--critical {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 		}
 	}
 
 	.entry-keyword {
 		&[data-keyword="error"] {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 			font-weight: 600;
 		}
 
@@ -863,12 +863,12 @@
 		color: var(--cyan-text, var(--np-text));
 		font-weight: 500;
 		text-transform: uppercase;
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 	}
 
 	.entry-status {
 		text-align: center;
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 
 		&[data-status^="2"] {
 			color: var(--sage-text, var(--np-text));
@@ -879,11 +879,11 @@
 		}
 
 		&[data-status^="4"] {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 		}
 
 		&[data-status^="5"] {
-			color: var(--oxide-text, var(--np-text));
+			color: $error-text;
 		}
 	}
 
@@ -892,7 +892,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 	}
 
 	.entry-rid {
@@ -920,12 +920,12 @@
 
 	.entry-ip {
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 	}
 
 	.entry-ua {
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -933,7 +933,7 @@
 
 	.entry-partition {
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		text-align: center;
 	}
 
@@ -1005,7 +1005,7 @@
 	.components-notice.is-error {
 		background: color-mix(
 			in srgb,
-			var(--oxide, var(--np-error)) 14%,
+			$error-bg 14%,
 			var(--paper-2, var(--np-surface-subtle))
 		);
 	}
@@ -1078,7 +1078,7 @@
 	}
 
 	.notice-error {
-		border-left-color: var(--oxide, var(--np-error));
+		border-left-color: $error-bg;
 	}
 
 	.notice-info {

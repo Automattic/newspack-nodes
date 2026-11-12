@@ -174,7 +174,7 @@
 	flex-wrap: wrap;
 	gap: 4px 12px;
 	font-family: base.$mono-font;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	color: var(--ink-3);
 
 	&.is-error {
@@ -196,7 +196,7 @@
 	flex-wrap: wrap;
 	gap: 0 6px;
 	font-family: base.$mono-font;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	color: var(--ink-3);
 }
 
@@ -212,7 +212,7 @@
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 6px 8px;
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 }
 
 .aggregator-partition-head {

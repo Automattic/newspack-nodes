@@ -18,6 +18,22 @@ describe( 'CanvasFrame', () => {
 		expect( container.textContent ).toContain( 'demo.p0' );
 	} );
 
+	// A value too long for its cell ends in an ellipsis; its title says it all.
+	it( 'titles each title-block value with its whole text', () => {
+		const sheet = 'newspack-intelligence-workstation-ingest';
+		const { container } = render(
+			<CanvasFrame topology={ sheet } partition={ 3 } isWorker />
+		);
+		const values = [
+			...container.querySelectorAll( '.topology-title-block__v' ),
+		];
+		expect( values.length ).toBe( 4 );
+		for ( const value of values ) {
+			expect( value.title ).toBe( value.textContent );
+		}
+		expect( values[ 2 ].title ).toBe( `${ sheet }.p3` );
+	} );
+
 	it( 'a worker scope shows the .tsl filename and `· Partition N`', () => {
 		const { container } = render(
 			<CanvasFrame topology="digest" partition={ 0 } isWorker />

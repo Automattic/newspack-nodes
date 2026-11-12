@@ -116,7 +116,7 @@
 	&__eta {
 		flex: 0 0 auto;
 		min-width: 72px;
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 		color: var(--ink-3);
 		font-variant-numeric: tabular-nums;
 	}

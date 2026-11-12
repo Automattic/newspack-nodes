@@ -418,7 +418,8 @@ final class OauthConsentTest extends TestCase {
 		$this->assertStringEndsWith( 'admin.php?page=' . Oauth_Server::AUTHORIZE_PAGE, Oauth_Server::authorization_endpoint() );
 
 		\do_action( 'load-_page_' . Oauth_Server::AUTHORIZE_PAGE );
-		$this->assertArrayHasKey( 'newspack-nodes-ui', $GLOBALS['_enqueued_styles'] );
+		// The UI sheet alone: no web font tells a third party who is consenting.
+		$this->assertSame( [ 'newspack-nodes-ui' ], \array_keys( $GLOBALS['_enqueued_styles'] ) );
 		$this->assertSame( 'Approve a connection', $GLOBALS['title'] ?? null, 'a hidden page names its own title' );
 	}
 

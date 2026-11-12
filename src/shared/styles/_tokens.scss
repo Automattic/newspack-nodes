@@ -13,8 +13,8 @@ $status-4xx: var(--oxide-text);
 $status-5xx: var(--oxide-text);
 
 // Semantic colors.
-$error-bg: var(--oxide);
-$error-text: var(--oxide-text);
+$error-bg: var(--oxide, var(--np-error));
+$error-text: var(--oxide-text, var(--np-error-text));
 $error-surface: var(--oxide-subtle);
 $success-bg: var(--sage);
 $success-border: var(--sage);

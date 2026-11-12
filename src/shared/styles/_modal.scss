@@ -70,6 +70,9 @@
 
 	&.newspack-nodes-modal,
 	.newspack-nodes-modal {
+		// A modal's labels take the body ink; a refused field re-points it.
+		--np-field-label: var(--ink, var(--np-text));
+
 		.components-modal__header {
 			@include mix.raised-surface;
 			border-bottom: 1px solid
@@ -99,10 +102,7 @@
 		// Out-specifies the Emotion rules WordPress injects inside a modal.
 		.components-base-control__label,
 		.components-input-control__label {
-			color: var(
-				--ink,
-				var(--np-text)
-			); // styles-ok: out-specifies Emotion
+			color: var(--np-field-label); // styles-ok: out-specifies Emotion
 		}
 
 		.components-base-control__help {

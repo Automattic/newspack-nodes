@@ -1552,7 +1552,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 			],
 			'newspack-nodes-graph' => [
 				'subdir' => 'graph',
-				'deps'   => [ 'newspack-nodes-ui' ],
+				'deps'   => [ 'newspack-nodes-ui', Admin::FONTS_HANDLE ],
 			],
 		];
 		foreach ( $assets as $handle => $asset ) {
@@ -1588,6 +1588,38 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 				$GLOBALS['_style_data'][ $handle ]['rtl'] ?? null
 			);
 		}
+	}
+
+	/**
+	 * The skins' web fonts are one handle of their own: the console's graph
+	 * sheet pulls them in, and the theme and UI sheets, which the OAuth
+	 * consent page loads, never reach them.
+	 */
+	public function test_registers_the_fonts_apart_from_the_theme_and_ui_sheets(): void {
+		$admin = new Admin();
+		$admin->register_fonts_style();
+		$admin->register_theme_style();
+		$admin->register_ui_style();
+		$admin->register_graph_style();
+
+		$styles = $GLOBALS['_registered_styles'];
+		$this->assertSame(
+			[
+				'src'     => Admin::FONTS_URL,
+				'deps'    => [],
+				'version' => null,
+			],
+			$styles[ Admin::FONTS_HANDLE ]
+		);
+		$this->assertStringStartsWith( 'https://fonts.googleapis.com/css2?family=Inter:', Admin::FONTS_URL );
+
+		$reach = static function ( string $handle ) use ( $styles, &$reach ): array {
+			$deps = $styles[ $handle ]['deps'];
+			return \array_merge( $deps, ...\array_map( $reach, $deps ) );
+		};
+		$this->assertContains( Admin::FONTS_HANDLE, $reach( 'newspack-nodes-graph' ) );
+		$this->assertNotContains( Admin::FONTS_HANDLE, $reach( 'newspack-nodes-ui' ) );
+		$this->assertNotContains( Admin::FONTS_HANDLE, $reach( 'newspack-nodes-theme' ) );
 	}
 
 	public function test_registers_the_dataviews_script_and_style_from_its_build(): void {
@@ -1707,8 +1739,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 		// The reset toggle rides the same head-time hook as the sheet, so the
 		// sheet prints in <head> rather than as a late style after the form.
+		// The skinned page draws in the skins' faces, a handle of their own.
 		$this->assertSame(
-			[ 'newspack-nodes-ui' ],
+			[ 'newspack-nodes-ui', Admin::FONTS_HANDLE ],
 			\array_keys( $GLOBALS['_enqueued_styles'] )
 		);
 		$this->assertArrayHasKey( 'newspack-nodes-field-reset', $GLOBALS['_enqueued_scripts'] );

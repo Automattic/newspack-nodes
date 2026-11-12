@@ -83,7 +83,7 @@
 		letter-spacing: 0.04em;
 
 		&__colon {
-			color: var(--oxide-text, var(--np-text));
+			color: tokens.$error-text;
 		}
 	}
 
@@ -98,14 +98,14 @@
 	.topology-subtitle {
 		border-left: 1px solid var(--ink-4, var(--np-border-strong));
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		letter-spacing: 0.22em;
 		text-transform: uppercase;
 	}
 
 	.topology-ctl-label {
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 9px;
+		font-size: var(--np-text-2xs);
 		letter-spacing: 0.22em;
 		text-transform: uppercase;
 	}
@@ -116,7 +116,7 @@
 
 	.newspack-nodes-log-browser__title {
 		color: var(--ink-3, var(--np-text-secondary));
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 		font-weight: 600;
 		text-transform: uppercase;
 	}
@@ -134,8 +134,8 @@
 	}
 
 	.newspack-nodes-log-browser__mode--live.is-active {
-		background: var(--oxide, var(--np-error));
-		border-color: var(--oxide, var(--np-error));
+		background: tokens.$error-bg;
+		border-color: tokens.$error-bg;
 		color: var(--on-oxide, var(--np-on-status));
 	}
 
@@ -239,7 +239,7 @@
 		box-shadow: none;
 		color: var(--ink-3, var(--np-text-secondary));
 		cursor: pointer;
-		font: 700 10px var(--font-mono, var(--np-font-mono));
+		font: 700 var(--np-text-2xs) var(--font-mono, var(--np-font-mono));
 		letter-spacing: 0.16em;
 		padding: 7px 14px;
 		transition:
@@ -257,7 +257,7 @@
 		}
 
 		&--live.is-active {
-			background: var(--oxide, var(--np-error));
+			background: tokens.$error-bg;
 			color: var(--on-oxide, var(--np-on-status));
 		}
 
@@ -292,7 +292,7 @@
 		}
 
 		&--delete {
-			background: var(--oxide, var(--np-error));
+			background: tokens.$error-bg;
 			border-right: 1px solid var(--ink, var(--np-text));
 			color: var(--on-oxide, var(--np-on-status));
 
@@ -306,7 +306,7 @@
 			font-size: 18px;
 
 			&:hover {
-				background: var(--oxide, var(--np-error));
+				background: tokens.$error-bg;
 				color: var(--on-oxide, var(--np-on-status));
 			}
 		}
@@ -331,7 +331,7 @@
 			transparent
 		);
 		cursor: pointer;
-		font: 700 11px var(--font-mono, var(--np-font-mono));
+		font: 700 var(--np-text-2xs) var(--font-mono, var(--np-font-mono));
 		transition:
 			border-color 100ms ease,
 			color 100ms ease;
@@ -343,8 +343,8 @@
 	}
 
 	.topology-repl__clear:hover {
-		border-color: var(--oxide, var(--np-error));
-		color: var(--oxide, var(--np-error));
+		border-color: tokens.$error-bg;
+		color: tokens.$error-bg;
 	}
 }
 

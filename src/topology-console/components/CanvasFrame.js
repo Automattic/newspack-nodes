@@ -142,40 +142,35 @@ export default function CanvasFrame( {
 			{ children }
 
 			<div className="topology-title-block">
-				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">
-						{ __( 'Project', 'newspack-nodes' ) }
+				{ [
+					[
+						__( 'Project', 'newspack-nodes' ),
+						'EVENT LOG/NODES',
+						' topology-title-block__v--proj',
+					],
+					[
+						__( 'Drawn', 'newspack-nodes' ),
+						`${ DRAWN_BY } · ${ todayISO() }`,
+					],
+					[
+						__( 'Sheet', 'newspack-nodes' ),
+						isWorker ? workerId( topology, partition ) : topology,
+					],
+					[
+						__( 'Scale', 'newspack-nodes' ),
+						`1:1 · ${ __( 'do not detail', 'newspack-nodes' ) }`,
+					],
+				].map( ( [ key, value, modifier = '' ] ) => (
+					<div key={ key } className="topology-title-block__row">
+						<div className="topology-title-block__k">{ key }</div>
+						<div
+							className={ `topology-title-block__v${ modifier }` }
+							title={ value }
+						>
+							{ value }
+						</div>
 					</div>
-					<div className="topology-title-block__v topology-title-block__v--proj">
-						EVENT LOG/NODES
-					</div>
-				</div>
-				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">
-						{ __( 'Drawn', 'newspack-nodes' ) }
-					</div>
-					<div className="topology-title-block__v">
-						{ DRAWN_BY } · { todayISO() }
-					</div>
-				</div>
-				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">
-						{ __( 'Sheet', 'newspack-nodes' ) }
-					</div>
-					<div className="topology-title-block__v">
-						{ isWorker
-							? workerId( topology, partition )
-							: topology }
-					</div>
-				</div>
-				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">
-						{ __( 'Scale', 'newspack-nodes' ) }
-					</div>
-					<div className="topology-title-block__v">
-						1:1 · { __( 'do not detail', 'newspack-nodes' ) }
-					</div>
-				</div>
+				) ) }
 			</div>
 		</div>
 	);

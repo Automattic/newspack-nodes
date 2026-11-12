@@ -92,7 +92,7 @@ body:has(.nodes-station .topology-app) {
 }
 
 .topology-open-group__title {
-	font: 700 9px var(--font-mono);
+	font: 700 var(--np-text-2xs) var(--font-mono);
 	letter-spacing: 0.18em;
 	text-transform: uppercase;
 	color: var(--ink-3);
@@ -151,7 +151,7 @@ body:has(.nodes-station .topology-app) {
 	small {
 		display: block;
 		opacity: 0.7;
-		font-size: 11px;
+		font-size: var(--np-text-2xs);
 		margin-top: 2px;
 	}
 }
@@ -197,14 +197,14 @@ body:has(.nodes-station .topology-app) {
 
 	// Add — primary action; mirrors the toolbar SAVE button language.
 	&--add button {
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		padding: 8px 14px;
 	}
 }
 
 .topology-settings-error {
 	color: var(--oxide-text);
-	font-size: 11px;
+	font-size: var(--np-text-2xs);
 	margin-top: 4px;
 }
 

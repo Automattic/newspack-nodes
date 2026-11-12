@@ -1,3 +1,5 @@
+@use "tokens";
+
 @mixin disabled {
 	&:disabled,
 	&[disabled],
@@ -45,7 +47,7 @@
 }
 
 @mixin danger {
-	background: var(--oxide, var(--np-error));
+	background: tokens.$error-bg;
 	color: var(--on-oxide, var(--np-on-status));
 	border-color: var(--oxide-dark, var(--np-error));
 	@include disabled;

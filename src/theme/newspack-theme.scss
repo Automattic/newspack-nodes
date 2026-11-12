@@ -48,6 +48,8 @@
 	--np-warning-bright: #f9ef67;
 	--np-error: #b32d2e;
 	--np-error-subtle: #fcf0f1;
+	/* Error as text: AA on both product surfaces (5.88:1 at the lower). */
+	--np-error-text: var(--np-error);
 	--np-on-status: #fff;
 
 	/* Type — Inter in product; mono reserved for log/terminal surfaces */

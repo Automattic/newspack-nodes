@@ -36,7 +36,7 @@ $health-stalled: var(--oxide-text);
 	}
 
 	&__label {
-		font-size: 10px;
+		font-size: var(--np-text-2xs);
 		font-weight: 600;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;

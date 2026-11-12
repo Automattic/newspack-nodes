@@ -12,7 +12,10 @@ const HALO_COLOR = '#0f9d58';
 const compiledUi = sass
 	.compile( UI_SCSS )
 	.css.replaceAll( 'var(--ink, var(--np-text, currentcolor))', FOCUS_COLOR )
-	.replaceAll( 'var(--paper, var(--np-surface))', HALO_COLOR );
+	.replaceAll(
+		'var(--focus-halo, var(--paper, var(--np-surface)))',
+		HALO_COLOR
+	);
 
 const focusPaths = {
 	pointer: ( window, element ) => {

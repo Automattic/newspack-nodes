@@ -5,7 +5,7 @@
 // body is --paper-2, not the dark REPL pane).
 
 .timeline-view {
-	font: 400 11px/1.5 var(--font-terminal);
+	font: 400 var(--np-text-2xs) / 1.5 var(--font-terminal);
 	// Fills the modal body's flex column so only the row body scrolls.
 	flex: 1;
 	min-height: 0;
@@ -58,7 +58,7 @@
 	}
 
 	&__col {
-		font: 700 9px var(--font-terminal);
+		font: 700 var(--np-text-2xs) var(--font-terminal);
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		color: var(--ink-3);
