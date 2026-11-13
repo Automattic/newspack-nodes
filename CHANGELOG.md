@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **`Capabilities::$session_handle`** names the command session in force, written beside `$session_label`: the session's handle, null for the per-site secret and on any refusal, and restored by `interpret()`. A consumer's command reads it to tell one session of a user from another.
-
 ## [2.156.1] - 2026-11-13
 
 ### Fixed

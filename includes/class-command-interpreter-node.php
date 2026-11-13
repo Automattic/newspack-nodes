@@ -293,8 +293,7 @@ class Command_Interpreter_Node extends Node {
 		// harmless in a request handling one, and a worker stuck
 		// at the first caller's ceiling for its whole ~595s life.
 		$prior_scope = Capabilities::$session_scope;
-		$prior_label  = Capabilities::$session_label;
-		$prior_handle = Capabilities::$session_handle;
+		$prior_label = Capabilities::$session_label;
 		$noreply     = 0 !== ( Core::int( $message[ Message::TYPE ] ) & Message::TM_NOREPLY );
 		try {
 			if ( ! $authorize( $this, $message ) ) {
@@ -325,8 +324,7 @@ class Command_Interpreter_Node extends Node {
 			}
 		} finally {
 			Capabilities::$session_scope = $prior_scope;
-			Capabilities::$session_label  = $prior_label;
-			Capabilities::$session_handle = $prior_handle;
+			Capabilities::$session_label = $prior_label;
 		}
 
 		// One terminator per string reply; structs pass through untouched.

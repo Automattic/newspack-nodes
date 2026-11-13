@@ -656,9 +656,8 @@ class Command_Auth {
 		// leave a wider ceiling standing than the command that failed.
 		$ok = self::check( $message, $now, $turn, $interpreter, $load ?? self::load_session_record( ... ) );
 		if ( ! $ok ) {
-			Capabilities::$session_scope  = self::UNVERIFIED;
-			Capabilities::$session_label  = null;
-			Capabilities::$session_handle = null;
+			Capabilities::$session_scope = self::UNVERIFIED;
+			Capabilities::$session_label = null;
 		}
 		return $ok;
 	}
@@ -879,16 +878,14 @@ class Command_Auth {
 		if ( null === $handle ) {
 			$key = self::secret();
 			// The per-site secret is the site's own authority: no ceiling.
-			Capabilities::$session_scope  = null;
-			Capabilities::$session_label  = null;
-			Capabilities::$session_handle = null;
+			Capabilities::$session_scope = null;
+			Capabilities::$session_label = null;
 		} elseif ( null === $record ) {
 			return false;
 		} else {
 			$key = $record['key'];
-			Capabilities::$session_scope  = $record['scope'];
-			Capabilities::$session_label  = $record['label'];
-			Capabilities::$session_handle = $named;
+			Capabilities::$session_scope = $record['scope'];
+			Capabilities::$session_label = $record['label'];
 		}
 
 		$canon = self::canonical( $ts, $value, $nonce );

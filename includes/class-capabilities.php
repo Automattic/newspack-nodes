@@ -133,16 +133,6 @@ class Capabilities {
 	public static ?string $session_label = null;
 
 	/**
-	 * Handle of the command session in force, or null for none. Written
-	 * beside `$session_label`: a session's own handle, null for the per-site
-	 * secret and on any refusal. `interpret()` restores what stood before.
-	 *
-	 * @api A consuming plugin's command reads it to tell one session of a user from another.
-	 * @var string|null
-	 */
-	public static ?string $session_handle = null;
-
-	/**
 	 * The one authorisation gate, which `Command_Interpreter_Node::dispatch()`
 	 * puts in front of every command: throw unless the command being handled may
 	 * run at $role (ADR-26). `interpret()` catches and wraps the refusal as
