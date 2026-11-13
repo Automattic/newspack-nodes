@@ -95,18 +95,12 @@ function RestoreDefault( { context, page } ) {
 
 /**
  * @param {Object}                                                                         props
- * @param {import('../useComposition').CompositionAnswer|{context: string, error: string}} props.layout        What `Composition_Store::page_data()` answered for the page's context.
- * @param {Object<string,import('../CompositionView').CompositionBlockView>}               props.views         Block name => view, each View handed `editing`. The substrate supplies the aside's view.
- * @param {import('./pageContext').ComposedPageValue}                                      props.page          The page the blocks stand on.
- * @param {(error: Error) => import('react').ReactNode}                                    [props.renderError] Renders a block that could not render.
+ * @param {import('../useComposition').CompositionAnswer|{context: string, error: string}} props.layout What `Composition_Store::page_data()` answered for the page's context.
+ * @param {Object<string,import('../CompositionView').CompositionBlockView>}               props.views  Block name => view, each View handed `editing`. The substrate supplies the aside's view.
+ * @param {import('./pageContext').ComposedPageValue}                                      props.page   The page the blocks stand on.
  * @return {?import('react').ReactElement} The layout, or nothing for an empty one.
  */
-export default function ComposedLayout( {
-	layout,
-	views,
-	page,
-	renderError = unreadBlock,
-} ) {
+export default function ComposedLayout( { layout, views, page } ) {
 	if ( 'error' in layout ) {
 		return (
 			<ComposedPage.Provider value={ page }>
@@ -133,13 +127,13 @@ export default function ComposedLayout( {
 					<CompositionView
 						blocks={ main }
 						views={ withAside }
-						renderError={ renderError }
+						renderError={ unreadBlock }
 					/>
 				</div>
 				<CompositionView
 					blocks={ aside }
 					views={ withAside }
-					renderError={ renderError }
+					renderError={ unreadBlock }
 				/>
 			</div>
 		</ComposedPage.Provider>

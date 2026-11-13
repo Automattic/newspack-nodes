@@ -2,10 +2,12 @@
 /**
  * `Unread` is a read that was refused or failed: one polite sentence, a way
  * to ask again where asking can help, and for an operator the refusal's own
- * words beneath, muted.
+ * words beneath, muted. With no `operator` given it reads the page it stands
+ * on, and outside a page it shows no refusal.
  */
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import { ComposedPage } from '../../composition/page/pageContext';
 import Unread from '../Unread';
 
 const UNREAD = 'This could not be read just now. Try again.';
@@ -49,6 +51,50 @@ describe( 'Unread', () => {
 			<Unread error="limit must be positive" refresh={ jest.fn() } />
 		);
 		expect( screen.queryByText( 'limit must be positive' ) ).toBeNull();
+	} );
+
+	it( 'shows the refusal to the operator its page names, with no prop given', () => {
+		render(
+			<ComposedPage.Provider
+				value={ {
+					group: 'tui-desk',
+					canTune: false,
+					onRestored: jest.fn(),
+					operator: true,
+				} }
+			>
+				<Unread error="tide gauge 7731 refused" />
+			</ComposedPage.Provider>
+		);
+		expect(
+			screen
+				.getByText( 'tide gauge 7731 refused' )
+				.classList.contains( 'is-muted' )
+		).toBe( true );
+	} );
+
+	it( 'lets an explicit operator prop overrule its page', () => {
+		render(
+			<ComposedPage.Provider
+				value={ {
+					group: 'tui-desk',
+					canTune: false,
+					onRestored: jest.fn(),
+					operator: true,
+				} }
+			>
+				<Unread error="tide gauge 7731 refused" operator={ false } />
+			</ComposedPage.Provider>
+		);
+		expect( screen.queryByText( 'tide gauge 7731 refused' ) ).toBeNull();
+	} );
+
+	it( 'shows no refusal outside a page, and does not throw there', () => {
+		render( <Unread error="tide gauge 7731 refused" /> );
+		expect( screen.getByRole( 'status' ).textContent ).toBe(
+			'This could not be read just now.'
+		);
+		expect( screen.queryByText( 'tide gauge 7731 refused' ) ).toBeNull();
 	} );
 
 	it( 'offers no way to ask again where asking would refuse again', () => {

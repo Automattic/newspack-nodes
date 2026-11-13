@@ -178,7 +178,7 @@ describe( 'ComposedLayout', () => {
 		expect( button.hasAttribute( 'aria-disabled' ) ).toBe( false );
 	} );
 
-	it( 'renders a block that cannot render by the renderError given', () => {
+	it( 'names why a block could not render to an operator the page names', () => {
 		render(
 			<ComposedLayout
 				layout={ {
@@ -189,16 +189,15 @@ describe( 'ComposedLayout', () => {
 					],
 				} }
 				views={ VIEWS }
-				page={ page() }
-				renderError={ ( error ) => (
-					<p data-testid="refused">{ error.message }</p>
-				) }
+				page={ page( { operator: true } ) }
 			/>
 		);
 
-		expect( screen.getByTestId( 'refused' ).textContent ).toBe(
-			'weka-7711/heron-gone has no view'
-		);
+		expect(
+			screen
+				.getByText( 'weka-7711/heron-gone has no view' )
+				.classList.contains( 'is-muted' )
+		).toBe( true );
 		expect( screen.getByTestId( 'tally' ).textContent ).toBe(
 			'Ferry count at Kestrel'
 		);
@@ -239,6 +238,31 @@ describe( 'ComposedLayout', () => {
 		expect(
 			screen.queryByRole( 'button', { name: 'Restore default' } )
 		).toBeNull();
+	} );
+
+	it( 'names why a layout was refused to an operator the page names alone', () => {
+		const { rerender } = render(
+			<ComposedLayout
+				layout={ REFUSED }
+				views={ VIEWS }
+				page={ page( { operator: true } ) }
+			/>
+		);
+		expect(
+			screen.getByText( REFUSED.error ).classList.contains( 'is-muted' )
+		).toBe( true );
+
+		rerender(
+			<ComposedLayout
+				layout={ REFUSED }
+				views={ VIEWS }
+				page={ page() }
+			/>
+		);
+		expect( screen.queryByText( REFUSED.error ) ).toBeNull();
+		expect( screen.getByRole( 'status' ).textContent ).toBe(
+			'This could not be read just now.'
+		);
 	} );
 
 	it( 'asks a curator first, then restores the context and hands back the default', async () => {

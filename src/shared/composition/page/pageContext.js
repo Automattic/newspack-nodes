@@ -1,9 +1,9 @@
 /**
  * What a block on a composed page reads besides its attributes: the page it
  * stands on, which the consumer shapes and the substrate never reads past
- * `canTune`, `onRestored` and `group`; and whether its layout is being
- * edited, in which case every write control the block holds is inert, so
- * editing a layout writes nothing else. `providedViews()` hands each View's
+ * `canTune`, `onRestored`, `group` and `operator`; and whether its layout is
+ * being edited, in which case every write control the block holds is inert,
+ * so editing a layout writes nothing else. `providedViews()` hands each View's
  * `editing` prop to that context.
  */
 
@@ -11,12 +11,13 @@ import { createContext, useContext } from '@wordpress/element';
 
 /**
  * The page a composed layout stands on: the consumer's own object, carrying
- * at least these three.
+ * at least the first three.
  *
  * @typedef {Object} ComposedPageValue
  * @property {string}                   group      The surface the page's commands are sent for.
  * @property {boolean}                  canTune    Whether the reader may curate the layout.
  * @property {(layout: Object) => void} onRestored Takes the default a curator's restore answers.
+ * @property {boolean}                  [operator] Whether the reader may read a refusal's own words, which each `Unread` on the page shows.
  */
 
 /** Does nothing, as a write control does while its layout is edited. */

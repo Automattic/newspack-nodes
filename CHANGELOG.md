@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `ComposedLayout`'s page takes an optional `operator`, and the shared `Unread` shows a refusal's reason when its page's `operator` is true.
+
+### Removed
+
+- **`ComposedLayout`'s `renderError` prop.** A block that cannot render shows the shared `Unread`, which reads its page's `operator`; a consumer passing `renderError` drops it.
+
 ## [2.155.0] - 2026-11-13
 
 ### Added
