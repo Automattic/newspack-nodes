@@ -194,6 +194,28 @@ describe( 'mountComposedEditor', () => {
 		);
 	} );
 
+	it( 'stands under the page’s own ComposedPage when given no wrap', async () => {
+		mountComposedEditor( LOCALIZED, VIEWS, {
+			heading: 'Edit the roost at Pier 7733',
+		} );
+		const Editor = compositionEditor( CONTEXT );
+		render(
+			<ComposedPage.Provider value={ { ...PAGE, group: 'ruru-desk' } }>
+				<Editor onDone={ jest.fn() } onDirty={ jest.fn() } />
+			</ComposedPage.Provider>
+		);
+
+		expect( screen.getByRole( 'heading' ).textContent ).toBe(
+			'Edit the roost at Pier 7733'
+		);
+		expect( screen.queryByTestId( 'preview' ) ).toBeNull();
+		await waitFor( () =>
+			expect(
+				Core.node( 'compositions:kaka-7730:roost:get:fetch' )?.target
+			).toBe( 'ruru-desk:shell/_http/compositions' )
+		);
+	} );
+
 	it( 'refuses a localized block that has no view, as registration does', () => {
 		const localized = {
 			...LOCALIZED,
