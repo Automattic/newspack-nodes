@@ -11,6 +11,10 @@
 @use "tokens" as *;
 @use "mixins" as mix;
 
+// From this width a composed layout stands its aside beside the main column.
+$composed-wide: 1100px;
+$composed-aside-width: 320px;
+
 :where(.newspack-nodes-ui).newspack-nodes-theme {
 	font-family: var(--np-font);
 	color: var(--np-text);
@@ -260,6 +264,37 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: $space-sm;
+	}
+
+	// A composed layout's aside follows its main column, and stands beside it
+	// when wide; the view it stands in spaces it from the header above.
+	.newspack-nodes-composed-layout {
+		display: flex;
+		flex-direction: column;
+		gap: $space-xl;
+
+		@media (min-width: $composed-wide) {
+			flex-direction: row;
+			align-items: flex-start;
+		}
+	}
+
+	.newspack-nodes-composed-layout-main {
+		display: flex;
+		flex: 1 1 0;
+		flex-direction: column;
+		gap: $space-xl;
+		min-width: 0;
+	}
+
+	.newspack-nodes-composed-aside {
+		display: flex;
+		flex-direction: column;
+		gap: $space-xl;
+
+		@media (min-width: $composed-wide) {
+			flex: 0 0 $composed-aside-width;
+		}
 	}
 
 	// Loading container

@@ -19,6 +19,7 @@ jest.mock( '@wordpress/blocks', () => {
 const CompositionView = require( '../CompositionView' ).default;
 const CompositionEditSlot = require( '../CompositionEditSlot' ).default;
 const { useComposition } = require( '../useComposition' );
+const { ASIDE, ComposedLayout } = require( '../page' );
 
 const LAYOUT = {
 	context: 'acme-desk/board',
@@ -65,4 +66,38 @@ it( 'imports and renders with the editor packages unloadable', async () => {
 	await waitFor( () => expect( result.current.answer ).toEqual( LAYOUT ), {
 		timeout: 4000,
 	} );
+} );
+
+it( 'renders the page frame with the editor packages unloadable', () => {
+	const { container } = render(
+		<ComposedLayout
+			layout={ {
+				context: 'acme-desk/board',
+				blocks: [
+					{
+						name: ASIDE,
+						attributes: {},
+						inner: [
+							{
+								name: 'acme-desk/tally',
+								attributes: { label: 'Gull tally' },
+								inner: [],
+							},
+						],
+					},
+				],
+			} }
+			views={ {
+				'acme-desk/tally': {
+					View: ( { attributes } ) => (
+						<p data-testid="tally">{ attributes.label }</p>
+					),
+				},
+			} }
+			page={ { group: 'quayside', canTune: false, onRestored() {} } }
+		/>
+	);
+	expect(
+		container.querySelector( '.newspack-nodes-composed-aside' ).textContent
+	).toBe( 'Gull tally' );
 } );

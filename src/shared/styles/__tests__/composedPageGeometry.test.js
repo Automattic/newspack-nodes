@@ -17,18 +17,23 @@ const SHEETS = [ postcss.parse( sass.compile( UI ).css, { from: UI } ) ];
 
 const wins = ( element, longhand ) => winning( element, longhand, SHEETS );
 
-// The reader does not model `gap`, so read it off the rule that declares it.
-const gapOf = ( selector ) => {
-	let gap;
+// The reader models neither `gap` nor `flex`: read each off its own rule.
+const declOf = ( selector, prop ) => {
+	let value;
 	SHEETS[ 0 ].walkRules( ( rule ) => {
-		if ( rule.selector.endsWith( selector ) ) {
-			rule.walkDecls( 'gap', ( decl ) => {
-				gap = decl.value;
+		if (
+			rule.selector.endsWith( selector ) &&
+			'root' === rule.parent.type
+		) {
+			rule.walkDecls( prop, ( decl ) => {
+				value = decl.value;
 			} );
 		}
 	} );
-	return gap;
+	return value;
 };
+
+const gapOf = ( selector ) => declOf( selector, 'gap' );
 
 describe( 'the composed section header', () => {
 	let head;
@@ -135,5 +140,72 @@ describe( 'the skeleton rows', () => {
 	it( 'sets a row paragraph a short step from its neighbours', () => {
 		expect( wins( paragraph, 'margin-top' ) ).toBe( '4px' );
 		expect( wins( paragraph, 'margin-bottom' ) ).toBe( '4px' );
+	} );
+} );
+
+// The declarations a rule inside `@media (min-width: <px>)` sets, by property.
+const wideOf = ( selector, px ) => {
+	const decls = {};
+	SHEETS[ 0 ].walkAtRules( 'media', ( media ) => {
+		if ( `(min-width: ${ px })` !== media.params ) {
+			return;
+		}
+		media.walkRules( ( rule ) => {
+			if ( rule.selector.endsWith( selector ) ) {
+				rule.walkDecls( ( decl ) => {
+					decls[ decl.prop ] = decl.value;
+				} );
+			}
+		} );
+	} );
+	return decls;
+};
+
+describe( 'the composed layout', () => {
+	let layout;
+	let main;
+	let aside;
+
+	beforeEach( () => {
+		document.body.innerHTML = `
+			<div class="newspack-nodes-ui newspack-nodes-theme newspack-nodes-skin-root">
+				<div class="newspack-nodes-composed-layout">
+					<div class="newspack-nodes-composed-layout-main"></div>
+					<aside class="newspack-nodes-composed-aside"></aside>
+				</div>
+			</div>`;
+		layout = document.querySelector( '.newspack-nodes-composed-layout' );
+		main = document.querySelector( '.newspack-nodes-composed-layout-main' );
+		aside = document.querySelector( '.newspack-nodes-composed-aside' );
+	} );
+
+	it( 'stacks its main column and its aside in one column', () => {
+		expect( wins( layout, 'display' ) ).toBe( 'flex' );
+		expect( wins( layout, 'flex-direction' ) ).toBe( 'column' );
+		expect( gapOf( '.newspack-nodes-composed-layout' ) ).toBe( '24px' );
+	} );
+
+	it( 'stacks the blocks in each column, the main one free to shrink', () => {
+		for ( const column of [ main, aside ] ) {
+			expect( wins( column, 'display' ) ).toBe( 'flex' );
+			expect( wins( column, 'flex-direction' ) ).toBe( 'column' );
+		}
+		expect( declOf( '.newspack-nodes-composed-layout-main', 'flex' ) ).toBe(
+			'1 1 0'
+		);
+		expect( wins( main, 'min-width' ) ).toBe( '0' );
+		expect( gapOf( '.newspack-nodes-composed-layout-main' ) ).toBe(
+			'24px'
+		);
+		expect( gapOf( '.newspack-nodes-composed-aside' ) ).toBe( '24px' );
+	} );
+
+	it( 'stands the aside 320 px wide beside the main column from 1100 px', () => {
+		expect( wideOf( '.newspack-nodes-composed-layout', '1100px' ) ).toEqual(
+			{ 'flex-direction': 'row', 'align-items': 'flex-start' }
+		);
+		expect( wideOf( '.newspack-nodes-composed-aside', '1100px' ) ).toEqual(
+			{ flex: '0 0 320px' }
+		);
 	} );
 } );

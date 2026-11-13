@@ -56,6 +56,9 @@ final class Composition {
 	/** The global the editor bundle reads its page data from. */
 	public const EDITOR_GLOBAL = 'NewspackNodesComposition';
 
+	/** The substrate's one shared block: a column beside a page's main one. */
+	public const ASIDE = 'newspack-nodes/aside';
+
 	/** A namespace, as block.json spells one. */
 	private const NAMESPACE_PATTERN = '/^[a-z0-9-]+$/D';
 
@@ -232,6 +235,33 @@ final class Composition {
 	 */
 	public static function default_markup( string $context ): string {
 		return self::read_file( $context, self::context_of( $context )['default'], 'its default layout' );
+	}
+
+	/**
+	 * Declare the substrate's own shared block, the aside, on `FILTER` at
+	 * priority 5, so a consumer at the default priority can admit it.
+	 *
+	 * @param array<mixed> $declared What the filter holds so far.
+	 * @return array<mixed>
+	 * @throws \LogicException When an earlier filter declared `newspack-nodes`.
+	 */
+	public static function declare_aside( array $declared ): array {
+		if ( isset( $declared['newspack-nodes'] ) ) {
+			self::refuse_declaration( 'newspack-nodes', 'newspack-nodes', 'belongs to the substrate, which declares only ' . self::ASIDE );
+		}
+		$declared['newspack-nodes'] = [
+			'blocks'   => [
+				self::ASIDE => [
+					'title'      => 'Aside',
+					'shared'     => true,
+					'container'  => true,
+					'multiple'   => false,
+					'attributes' => [],
+				],
+			],
+			'contexts' => [],
+		];
+		return $declared;
 	}
 
 	/**

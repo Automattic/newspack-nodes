@@ -179,6 +179,8 @@ if ( \function_exists( 'add_filter' ) ) {
 	\add_filter( 'cron_schedules', [ '\\Newspack_Nodes\\Bootstrap', 'register_cron_schedules' ] );
 	// Topology catalog: every .tsl (user + stock dirs), not an allowlist.
 	\add_filter( 'newspack_nodes/topologies', [ '\\Newspack_Nodes\\Topology_Registry', 'publish_catalog' ] );
+	// Priority 5, so a consumer at the default priority can admit the aside.
+	\add_filter( \Newspack_Nodes\Composition::FILTER, [ \Newspack_Nodes\Composition::class, 'declare_aside' ], 5 );
 	// Every request: WordPress's weekly Site Health check runs from wp-cron.
 	\add_filter( 'site_status_tests', [ '\\Newspack_Nodes\\Bootstrap', 'register_site_health_tests' ] );
 }

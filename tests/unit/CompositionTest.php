@@ -601,6 +601,64 @@ final class CompositionTest extends TestCase {
 		);
 	}
 
+	public function test_the_substrate_declares_a_shared_aside_container(): void {
+		$registered = \array_values(
+			\array_filter(
+				$GLOBALS['_wp_initial_action_registrations'][ Composition::FILTER ] ?? [],
+				static fn ( array $one ): bool => [ Composition::class, 'declare_aside' ] === $one['callback']
+			)
+		);
+		$this->assertCount( 1, $registered );
+		$this->assertSame( 5, $registered[0]['priority'] );
+
+		$this->declare_shared( [ 'kea-7710/strip', Composition::ASIDE ] );
+
+		$this->assertSame(
+			[
+				'title'      => 'Aside',
+				'contexts'   => [],
+				'shared'     => true,
+				'attributes' => [],
+				'container'  => true,
+				'multiple'   => false,
+			],
+			Composition::declarations()['blocks']['newspack-nodes/aside']
+		);
+		$tree = Composition::validate(
+			'weka-7711/board',
+			'<!-- wp:newspack-nodes/aside --><!-- wp:kea-7710/strip {"hue":"plum"} /--><!-- /wp:newspack-nodes/aside -->'
+		);
+		$this->assertSame( 'newspack-nodes/aside', $tree[0]['name'] );
+		$this->assertSame( [ 'hue' => 'plum' ], $tree[0]['inner'][0]['attributes'] );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'a second newspack-nodes/aside; it stands once' );
+		Composition::validate( 'weka-7711/board', '<!-- wp:newspack-nodes/aside /--><!-- wp:newspack-nodes/aside /-->' );
+	}
+
+	public function test_a_foreign_declaration_under_the_substrate_namespace_is_refused(): void {
+		$GLOBALS['_wp_actions'][ Composition::FILTER ] = [
+			static fn ( array $declared ): array => $declared + [
+				'newspack-nodes' => [
+					'blocks'   => [
+						'quail-4410/strip' => [
+							'title'      => 'Strip',
+							'shared'     => true,
+							'attributes' => [],
+						],
+					],
+					'contexts' => [],
+				],
+			],
+			[ Composition::class, 'declare_aside' ],
+		];
+		$this->forget_declarations();
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'composition declaration newspack-nodes: newspack-nodes belongs to the substrate, which declares only newspack-nodes/aside' );
+		Composition::declarations();
+	}
+
 	/** Log in a user holding `$caps`, `read` filtered onto `edit_posts`. */
 	private function log_in( array $caps ): void {
 		$GLOBALS['_enqueued_scripts']         = [];
