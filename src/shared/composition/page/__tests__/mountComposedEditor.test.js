@@ -20,7 +20,13 @@ import {
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { compositionEditor } from '../../editorRegistry';
-import { ASIDE, ComposedPage, useWriteControl } from '..';
+import {
+	ASIDE,
+	ComposedPage,
+	definePageState,
+	usePageState,
+	useWriteControl,
+} from '..';
 import { mountComposedEditor } from '../mountComposedEditor';
 import { registerSource, useSource } from '../../../sources';
 
@@ -147,7 +153,39 @@ function SourcedPreview() {
 	);
 }
 
+definePageState( { 'kaka-7735': { default: 'dusk-7735', query: 'hour' } } );
+
+/**
+ * A preview reading the hour the page holds.
+ *
+ * @return {import('react').ReactElement} The preview.
+ */
+function HourPreview() {
+	const [ hour ] = usePageState( 'kaka-7735' );
+	return <span data-testid="preview">{ hour }</span>;
+}
+
 describe( 'mountComposedEditor', () => {
+	it( 'serves a preview’s page state with no provider of the consumer’s own', async () => {
+		window.history.replaceState( null, '', '/wp-admin/?hour=dawn-7735' );
+		mountComposedEditor( LOCALIZED, VIEWS, {
+			heading: 'Edit the roost at Pier 7735',
+			wrap: ( children ) => (
+				<ComposedPage.Provider value={ PAGE }>
+					{ children }
+				</ComposedPage.Provider>
+			),
+			preview: HourPreview,
+		} );
+		const Editor = compositionEditor( CONTEXT );
+		render( <Editor onDone={ jest.fn() } onDirty={ jest.fn() } /> );
+
+		expect( screen.getByTestId( 'preview' ).textContent ).toBe(
+			'dawn-7735'
+		);
+		expect( await screen.findByTestId( 'block-list' ) ).toBeTruthy();
+	} );
+
 	it( 'serves a preview’s sources with no provider of the consumer’s own', async () => {
 		mountComposedEditor( LOCALIZED, VIEWS, {
 			heading: 'Edit the roost at Pier 7734',

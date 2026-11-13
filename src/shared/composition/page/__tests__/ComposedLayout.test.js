@@ -18,7 +18,15 @@ import {
 import { useEffect } from '@wordpress/element';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import { ASIDE, ComposedLayout, Editing, usePage, useWriteControl } from '..';
+import {
+	ASIDE,
+	ComposedLayout,
+	definePageState,
+	Editing,
+	usePage,
+	usePageState,
+	useWriteControl,
+} from '..';
 import { registerSource, SourcesProvider, useSource } from '../../../sources';
 
 const CONTEXT = 'weka-7711/board';
@@ -74,6 +82,18 @@ function Gauge( { attributes } ) {
 	return <p data-testid="gauge">{ loading ? 'sounding' : 'sounded' }</p>;
 }
 
+definePageState( { 'weka-7728': { default: 'slack-7728', query: 'tide' } } );
+
+/**
+ * A tide board reading the page's tide.
+ *
+ * @return {import('react').ReactElement} The board.
+ */
+function TideBoard() {
+	const [ tide ] = usePageState( 'weka-7728' );
+	return <p data-testid="tide">{ tide }</p>;
+}
+
 const node = ( name, attributes = {}, inner = [] ) => ( {
 	name,
 	attributes,
@@ -107,6 +127,22 @@ const sent = ( name ) =>
 const WAIT = { timeout: 4000 };
 
 describe( 'ComposedLayout', () => {
+	it( 'serves its blocks’ page state with no provider of the consumer’s own', () => {
+		window.history.replaceState( null, '', '/wp-admin/?tide=flood-7728' );
+		render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [ node( 'weka-7711/tide' ) ],
+				} }
+				views={ { 'weka-7711/tide': { View: TideBoard } } }
+				page={ page() }
+			/>
+		);
+
+		expect( screen.getByTestId( 'tide' ).textContent ).toBe( 'flood-7728' );
+	} );
+
 	it( 'shares the sources of a provider above it, one ask for two layouts reading one key', async () => {
 		const layout = {
 			context: CONTEXT,

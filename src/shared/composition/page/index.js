@@ -15,6 +15,7 @@ export {
 	usePage,
 	useWriteControl,
 } from './pageContext';
+export { definePageState, usePageState } from './pageState';
 export {
 	editLayoutControl,
 	editSearch,

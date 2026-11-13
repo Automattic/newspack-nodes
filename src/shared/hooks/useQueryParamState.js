@@ -3,10 +3,14 @@
  *
  * The URL twin of `usePersistedState`: the same restore and encode pair, with
  * `?param=` in place of localStorage, so a copied link reopens the same view.
- * The bar is the state's mirror, never its owner. It seeds the value once on
- * mount, and every later write goes through `setQueryParams`' replaceState,
- * because a filter is state rather than navigation and earns no Back entry of
- * its own. `useQueryParamList` is the twin for a list, written as one repeated
+ * The value is what the bar holds, read through `restore`: every hook reads
+ * the bundle's one bar store in `utils/queryParams`, which page state reads
+ * too, so two readers of one param see one value and a direct
+ * `setQueryParams` reaches them both. The store cleans the bar on mount,
+ * dropping a value `restore` rejected and a default written out, and every
+ * write goes through `setQueryParams`' replaceState, because a filter is state
+ * rather than navigation and earns no Back entry of its own.
+ * `useQueryParamList` is the twin for a list, written as one repeated
  * `?param=` per item. Every hook here takes a last `{ written }` option that
  * holds its value off the bar while the view it belongs to is shut, so a
  * caller never hand-writes a gated encoder, and a `push` option that makes the
@@ -15,19 +19,116 @@
  *
  * A page can still push entries of its own — a `?url=`-style navigation — and
  * each carries the filters current when it was pushed. The view keeps its
- * filters across Back and Forward, so the hook writes the live value back over
- * the restored entry rather than let the bar name a view that is not on screen.
+ * filters across Back and Forward, so the store writes the live value back
+ * over the restored entry rather than let the bar name a view that is not on
+ * screen.
  *
  * Canonical in newspack-nodes, consumed through the `@newspack-nodes/shared`
  * alias.
  */
 
-import { useState, useEffect, useRef } from '@wordpress/element';
 import {
-	getQueryParam,
-	getQueryParams,
-	setQueryParams,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from '@wordpress/element';
+import {
+	openParam,
+	peekParam,
+	setParam,
+	setParamWritten,
+	subscribeParam,
 } from '../utils/queryParams';
+
+/**
+ * Where a slot's value lives, and how it is read and written there.
+ *
+ * @typedef  {Object}                                        SlotHome
+ * @property {(slot: *, listener: () => void) => () => void} subscribe Subscribes a reader.
+ * @property {(slot: *) => *}                                read      What the slot holds.
+ * @property {(slot: *, value: *) => *}                      peek      What it would hold once
+ *                                                                     set to a value.
+ * @property {(slot: *, value: *) => void}                   set       Sets it, telling every
+ *                                                                     reader.
+ */
+
+/**
+ * A param of the bundle's bar store.
+ *
+ * @type {SlotHome}
+ */
+export const BAR = {
+	subscribe: subscribeParam,
+	read: ( entry ) => entry.value,
+	peek: peekParam,
+	set: setParam,
+};
+
+/** No set waiting to land. */
+const NONE = Symbol( 'none' );
+
+/**
+ * A slot's value and its setter, with React state's contract: a set may run
+ * during the setter's own render, and lands with the commit it renders in.
+ * The setting component shows what the slot will hold at once; the set
+ * reaches the slot, and every other reader of it, in the commit's passive
+ * effects, after a layout effect's navigation, so a set made beside one is
+ * written into the entry it opened. A set still waiting when the setter
+ * unmounts lands as it goes.
+ *
+ * @param {SlotHome} home Where the slot lives.
+ * @param {*}        slot The slot.
+ * @return {[*, (next: *) => void]} The value and its setter, taking a value
+ *   or a function of the value shown.
+ */
+export function useSlot( home, slot ) {
+	const pending = useRef( NONE );
+	const [ waiting, setWaiting ] = useState( NONE );
+	const held = useSyncExternalStore(
+		useCallback(
+			( listener ) => home.subscribe( slot, listener ),
+			[ home, slot ]
+		),
+		() => home.read( slot )
+	);
+	useEffect( () => {
+		if ( NONE !== waiting ) {
+			if ( waiting === pending.current ) {
+				pending.current = NONE;
+			}
+			home.set( slot, waiting );
+			setWaiting( ( current ) =>
+				current === waiting ? NONE : current
+			);
+		}
+	}, [ home, slot, waiting ] );
+	useEffect(
+		() => () => {
+			if ( NONE !== pending.current ) {
+				home.set( slot, pending.current );
+			}
+		},
+		[ home, slot ]
+	);
+	const set = useCallback(
+		( next ) => {
+			const prior = pending.current;
+			pending.current =
+				'function' === typeof next
+					? next(
+							NONE === prior
+								? home.read( slot )
+								: home.peek( slot, prior )
+					  )
+					: next;
+			setWaiting( pending.current );
+		},
+		[ home, slot ]
+	);
+	return [ NONE === waiting ? held : home.peek( slot, waiting ), set ];
+}
 
 /**
  * Own a value mirrored into `?param=`.
@@ -47,17 +148,10 @@ import {
  *                                                        Back entry, false by
  *                                                        default.
  * @return {[T, import('react').Dispatch<import('react').SetStateAction<T>>]}
- *   The value and React's own setter.
+ *   The value and its setter.
  */
 export function useQueryParamState( param, restore, encode, options ) {
-	return useMirroredParam(
-		param,
-		getQueryParam,
-		null,
-		restore,
-		encode,
-		options
-	);
+	return useMirroredParam( param, false, restore, encode, options );
 }
 
 /**
@@ -80,47 +174,29 @@ export function useQueryParamState( param, restore, encode, options ) {
  *                                                        Back entry, false by
  *                                                        default.
  * @return {[T, import('react').Dispatch<import('react').SetStateAction<T>>]}
- *   The value and React's own setter.
+ *   The value and its setter.
  */
 export function useQueryParamList( param, restore, encode, options ) {
-	return useMirroredParam(
-		param,
-		getQueryParams,
-		[],
-		restore,
-		encode,
-		options
-	);
+	return useMirroredParam( param, true, restore, encode, options );
 }
 
 /**
- * Own a value the bar mirrors, read once on mount through `read` and written
- * back on mount, on each change and over every entry Back or Forward restores.
- *
- * The write keys on the ENCODED value as the bar would hold it, so it fires
- * when what the bar should say changes, never on a bare re-render, a fresh
- * array holding the same items or '' in place of null, and `encode` need not
- * be stable. The mount write drops a value `restore` rejected and a default
- * written out longhand: a bare link means the dashboard's defaults.
+ * Own a value the bar mirrors, through the bundle's one bar store: `restore`
+ * and `encode` are the param's codec, `restore` reading an absent param and
+ * `encode` saying what the bar omits, so every reader of the param, and
+ * every `setQueryParams`, shares one value. The store cleans the bar on mount, writes each set back and
+ * reads it off the bar again, and answers Back as `push` says.
  *
  * `written` false holds the value off the bar, for state whose view is shut:
- * it is restored and kept as ever, the bar is handed `empty` in its place, and
- * the bar names it again once `written` turns true. A value naming nothing
- * keeps its key as `written` flips, so it neither writes nor re-subscribes.
- *
- * `push` makes the value navigation: the mount write still replaces, every
- * later change pushes, and Back or Forward re-reads the landed entry through
- * `restore` in place of writing the live value over it. That entry already
- * names what was restored, so the write that follows finds nothing to change.
+ * it is kept as ever, the bar names nothing in its place, and names it again
+ * once `written` turns true.
  *
  * @template T
  * @param {string}                           param             Param name.
- * @param {(name: string) => *}              read              `getQueryParam`
- *                                                             or
- *                                                             `getQueryParams`.
- * @param {?(string[])}                      empty             What the bar is
- *                                                             handed while it
- *                                                             names nothing.
+ * @param {boolean}                          list              Whether the
+ *                                                             param is one
+ *                                                             `?param=` per
+ *                                                             item.
  * @param {(raw: *) => T}                    restore           Decode and
  *                                                             validate a read.
  * @param {(value: T) => ?(string|string[])} encode            The bar's value.
@@ -131,54 +207,24 @@ export function useQueryParamList( param, restore, encode, options ) {
  * @param {boolean}                          [options.push]    Whether a change
  *                                                             is a Back entry;
  *                                                             false by default.
- * @return {[T, import('react').Dispatch<import('react').SetStateAction<T>>]}
- *   The value and React's own setter.
+ * @return {[T, (next: T|((value: T) => T)) => void]}
+ *   The value and its setter.
  */
 function useMirroredParam(
 	param,
-	read,
-	empty,
+	list,
 	restore,
 	encode,
 	{ written = true, push = false } = {}
 ) {
-	const [ value, setValue ] = useState( () => restore( read( param ) ) );
-	const key = JSON.stringify( barValue( written ? encode( value ) : empty ) );
-	const mounted = useRef( false );
-	const reread = useRef( null );
-	reread.current = () => setValue( restore( read( param ) ) );
-
-	useEffect( () => {
-		const write = () =>
-			setQueryParams(
-				{ [ param ]: JSON.parse( key ) },
-				{ push: push && mounted.current }
-			);
-		write();
-		mounted.current = true;
-		const answer = push ? () => reread.current() : write;
-		window.addEventListener( 'popstate', answer );
-		return () => window.removeEventListener( 'popstate', answer );
-	}, [ param, key, push ] );
-
-	return [ value, setValue ];
-}
-
-/**
- * An encoded value as the bar would hold it: '' or a missing value is null,
- * and a list keeps only its non-empty strings, so every spelling of one bar
- * serializes alike and a missing entry never reaches the bar as `null`.
- *
- * @param {?(string|Array<?string>)} encoded What `encode` returned.
- * @return {?(string|string[])} The value the bar holds.
- */
-function barValue( encoded ) {
-	if ( Array.isArray( encoded ) ) {
-		return encoded.filter(
-			( entry ) => 'string' === typeof entry && '' !== entry
-		);
-	}
-	return '' === encoded || undefined === encoded ? null : encoded;
+	const entry = openParam( param, {
+		list,
+		parse: restore,
+		format: encode,
+		push,
+	} );
+	useEffect( () => setParamWritten( entry, written ), [ entry, written ] );
+	return useSlot( BAR, entry );
 }
 
 /**

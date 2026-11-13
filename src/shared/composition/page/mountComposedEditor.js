@@ -4,11 +4,12 @@
  * the consumer's views, the substrate's aside among them, each View providing
  * `editing` to the write controls it holds; then the context's editor for the
  * page's slot, standing inside the consumer's providers and sending for the
- * group of the `ComposedPage` they provide, under a `SourcesProvider` the
- * blocks and the preview read their sources through. A bundle reads only
- * the sources its own modules declare, so a page's source declarations live
- * in a module both its reader and its editor entries import, such as its
- * views map.
+ * group of the `ComposedPage` they provide, under a `PageStateProvider` and
+ * a `SourcesProvider` the blocks and the preview read their page state and
+ * sources through. A bundle reads only the sources and page state its own
+ * modules declare, so a page's `registerSource()` and `definePageState()`
+ * declarations live in a module both its reader and its editor entries
+ * import, such as its views map.
  *
  * The editor half of the composition layer: only a consumer's editor bundle
  * imports it, so `page/index.js` does not export it.
@@ -18,6 +19,7 @@ import CompositionEditor from '../CompositionEditor';
 import { registerCompositionEditor } from '../editorRegistry';
 import { registerCompositionBlocks } from '../registerCompositionBlocks';
 import { SourcesProvider } from '../../sources';
+import { PageStateProvider } from './pageState';
 import AsideView from './AsideView';
 import { ASIDE } from './ComposedLayout';
 import { providedViews, usePage } from './pageContext';
@@ -86,16 +88,18 @@ export function mountComposedEditor(
 	} ).filter( ( [ name ] ) => Object.hasOwn( blocks, name ) );
 	registerCompositionBlocks( blocks, Object.fromEntries( admitted ) );
 	registerCompositionEditor( context, ( slot ) => (
-		<SourcesProvider>
-			{ wrap(
-				<PageEditor
-					localized={ localized }
-					heading={ heading }
-					Preview={ preview }
-					slot={ slot }
-				/>,
-				slot
-			) }
-		</SourcesProvider>
+		<PageStateProvider>
+			<SourcesProvider>
+				{ wrap(
+					<PageEditor
+						localized={ localized }
+						heading={ heading }
+						Preview={ preview }
+						slot={ slot }
+					/>,
+					slot
+				) }
+			</SourcesProvider>
+		</PageStateProvider>
 	) );
 }

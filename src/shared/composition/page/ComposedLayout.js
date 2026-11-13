@@ -4,8 +4,9 @@
  * of its own, and a stored layout that no longer reads as the shared read
  * error in its place, with no Try again, since a read refuses it again; a
  * curator is offered **Restore default**, which asks first. The layout
- * stands under one `SourcesProvider`, so its blocks read sources with no
- * provider of the consumer's own, both columns sharing each one.
+ * stands under one `PageStateProvider` and one `SourcesProvider`, so its
+ * blocks read page state and sources with no provider of the consumer's
+ * own, both columns sharing each.
  *
  * The reader half of the composition layer: it imports no block library.
  */
@@ -19,6 +20,7 @@ import { SourcesProvider } from '../../sources';
 import Unread from '../../components/Unread';
 import AsideView from './AsideView';
 import { ComposedPage, providedViews } from './pageContext';
+import { PageStateProvider } from './pageState';
 
 /** The one block split into the aside column. */
 export const ASIDE = 'newspack-nodes/aside';
@@ -125,22 +127,24 @@ export default function ComposedLayout( { layout, views, page } ) {
 	const aside = layout.blocks.filter( ( node ) => ASIDE === node.name );
 	return (
 		<ComposedPage.Provider value={ page }>
-			<SourcesProvider>
-				<div className="newspack-nodes-composed-layout">
-					<div className="newspack-nodes-composed-layout-main">
+			<PageStateProvider>
+				<SourcesProvider>
+					<div className="newspack-nodes-composed-layout">
+						<div className="newspack-nodes-composed-layout-main">
+							<CompositionView
+								blocks={ main }
+								views={ withAside }
+								renderError={ unreadBlock }
+							/>
+						</div>
 						<CompositionView
-							blocks={ main }
+							blocks={ aside }
 							views={ withAside }
 							renderError={ unreadBlock }
 						/>
 					</div>
-					<CompositionView
-						blocks={ aside }
-						views={ withAside }
-						renderError={ unreadBlock }
-					/>
-				</div>
-			</SourcesProvider>
+				</SourcesProvider>
+			</PageStateProvider>
 		</ComposedPage.Provider>
 	);
 }

@@ -15,7 +15,9 @@ import {
 	useQueryParamFlag,
 	useQueryParamList,
 } from '../useQueryParamState';
-import { renderHook, act } from '@testing-library/react';
+import { render, renderHook, act } from '@testing-library/react';
+import { useEffect, useLayoutEffect, useState } from '@wordpress/element';
+import { setQueryParams } from '../../utils/queryParams';
 
 const METRICS = [ 'volume', 'avg', 'cumulative', 'memory' ];
 
@@ -265,6 +267,141 @@ describe( 'useQueryParamState', () => {
 		act( () => result.current[ 1 ]( '' ) );
 		expect( param( 'q' ) ).toBeNull();
 		replaceSpy.mockRestore();
+		unmount();
+	} );
+} );
+
+describe( 'useQueryParamState beside another writer', () => {
+	afterEach( () => {
+		jest.restoreAllMocks();
+	} );
+
+	it( 'shows a direct setQueryParams of its param', () => {
+		setLocation( '/wp-admin/admin.php?page=perf&q=wp-cron.php' );
+		const { result, unmount } = renderHook( () =>
+			useQueryParamState( 'q', ( raw ) => raw ?? '', String )
+		);
+
+		act( () => setQueryParams( { q: 'xmlrpc-7930.php' } ) );
+
+		expect( result.current[ 0 ] ).toBe( 'xmlrpc-7930.php' );
+		unmount();
+	} );
+
+	it( 'takes a set during its own render, as React state does', () => {
+		setLocation( '/wp-admin/admin.php?page=perf&paged=4' );
+		const error = jest.spyOn( console, 'error' );
+		const { result, rerender, unmount } = renderHook(
+			( { reset } ) => {
+				const [ page, setPage ] = useQueryParamState(
+					'paged',
+					( raw ) => Number( raw ?? 1 ),
+					( n ) => ( 1 === n ? null : String( n ) )
+				);
+				if ( reset && 1 !== page ) {
+					setPage( 1 );
+				}
+				return page;
+			},
+			{ initialProps: { reset: false } }
+		);
+		expect( result.current ).toBe( 4 );
+
+		rerender( { reset: true } );
+
+		expect( result.current ).toBe( 1 );
+		expect( param( 'paged' ) ).toBeNull();
+		expect( error ).not.toHaveBeenCalled();
+		unmount();
+	} );
+
+	it( 'writes a set made beside a navigation into the entry it opened', () => {
+		setLocation( '/wp-admin/admin.php?page=perf&server=edge-7932' );
+		let leftBehind = null;
+		jest.spyOn( window.history, 'pushState' ).mockImplementation(
+			( ...args ) => {
+				leftBehind = window.location.search;
+				Object.getPrototypeOf( window.history ).pushState.apply(
+					window.history,
+					args
+				);
+			}
+		);
+		const { result, unmount } = renderHook( () => {
+			const [ server, setServer ] = useQueryParamState(
+				'server',
+				( raw ) => raw ?? '',
+				( name ) => name || null
+			);
+			const [ request, setRequest ] = useState( null );
+			useLayoutEffect( () => {
+				if ( request ) {
+					setQueryParams( { request }, { push: true } );
+				}
+			}, [ request ] );
+			return { server, setServer, setRequest };
+		} );
+
+		act( () => {
+			result.current.setServer( '' );
+			result.current.setRequest( 'r-7932' );
+		} );
+
+		expect( leftBehind ).toBe( '?page=perf&server=edge-7932' );
+		expect( window.location.search ).toBe( '?page=perf&request=r-7932' );
+		unmount();
+	} );
+
+	it( 'keeps a param that moved between its render and its subscribe', () => {
+		setLocation( '/wp-admin/admin.php?page=perf&q=start-7940' );
+		const Mover = () => {
+			useEffect( () => setQueryParams( { q: 'moved-7940' } ), [] );
+			return null;
+		};
+		const Reader = () => {
+			const [ q ] = useQueryParamState(
+				'q',
+				( raw ) => raw ?? '',
+				String
+			);
+			return <p data-testid="q">{ q }</p>;
+		};
+		const { getByTestId, unmount } = render(
+			<>
+				<Mover />
+				<Reader />
+			</>
+		);
+
+		expect( param( 'q' ) ).toBe( 'moved-7940' );
+		expect( getByTestId( 'q' ).textContent ).toBe( 'moved-7940' );
+		unmount();
+	} );
+
+	it( 'lands a set whose setter unmounts in the same commit', () => {
+		setLocation( '/wp-admin/admin.php?page=perf' );
+		const { result, unmount } = renderHook( () =>
+			useQueryParamState( 'q', ( raw ) => raw ?? '', String )
+		);
+
+		act( () => {
+			result.current[ 1 ]( 'parting-7941' );
+			unmount();
+		} );
+
+		expect( param( 'q' ) ).toBe( 'parting-7941' );
+	} );
+
+	it( 'shows a page that reads one param in two hooks one value', () => {
+		const restore = ( raw ) => raw ?? '';
+		const { result, unmount } = renderHook( () => [
+			useQueryParamState( 'q', restore, String ),
+			useQueryParamState( 'q', restore, String ),
+		] );
+
+		act( () => result.current[ 0 ][ 1 ]( 'feed-7931' ) );
+
+		expect( result.current[ 1 ][ 0 ] ).toBe( 'feed-7931' );
 		unmount();
 	} );
 } );
