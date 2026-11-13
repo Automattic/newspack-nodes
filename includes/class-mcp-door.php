@@ -398,7 +398,10 @@ abstract class Mcp_Door {
 	abstract protected function server_info(): array;
 
 	/**
-	 * Gate: a Bearer `<handle>.<key>` naming a live session. On success this
+	 * Gate: a Bearer `<handle>.<key>` naming a live session whose scope is a
+	 * role. A `Capabilities::NONE` session, a roleless user's dashboard key,
+	 * is refused as an unknown one is, so the doors admit only the users
+	 * they admitted before a roleless user could mint. On success this
 	 * BECOMES that session's minting user and installs its scope as the
 	 * request's ceiling, which is what makes the scope subtractive, and its
 	 * label as `Capabilities::$session_label`. Then it meters the session by
@@ -419,7 +422,8 @@ abstract class Mcp_Door {
 			return new \WP_Error( 'mcp_unauthorized', 'A Bearer <handle>.<key> session credential is required.', [ 'status' => 401 ] );
 		}
 		$record = Command_Auth::load_session_record( $m[1] );
-		if ( null === $record || ! \hash_equals( $record['key'], $m[2] ) ) {
+		// A none session is a roleless user's dashboard key, never an agent's.
+		if ( null === $record || ! \hash_equals( $record['key'], $m[2] ) || Capabilities::NONE === $record['scope'] ) {
 			return new \WP_Error( 'mcp_unauthorized', 'That session is unknown or expired.', [ 'status' => 401 ] );
 		}
 		if ( ! Command_Auth::admits_resource( $record, $this->resource() ) ) {

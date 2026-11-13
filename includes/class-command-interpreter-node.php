@@ -243,8 +243,7 @@ class Command_Interpreter_Node extends Node {
 			return;
 		}
 
-		// TM_ERROR is a reply, as is_request_command() already says.
-		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) && '' === $message[ Message::TO ] ) {
+		if ( Message::is_request_command( $type ) && '' === $message[ Message::TO ] ) {
 			$this->interpret( $message );
 			return;
 		}
@@ -463,7 +462,9 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * The role $verb demands here: the `capability` its schema entry declares,
 	 * MANAGE when the entry declares none; for a command that is not named in any
-	 * schema, what `base_role()` answers (ADR-26).
+	 * schema, what `base_role()` answers (ADR-26). A schema may declare a
+	 * WordPress capability as `wp:<capability>`, which
+	 * `Capabilities::require_command()` asks the signed-in user for.
 	 *
 	 * @param string $verb Verb name.
 	 * @return string One of Capabilities::READ|TUNE|MANAGE, or whatever a schema declares.

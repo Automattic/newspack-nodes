@@ -406,7 +406,7 @@ test( 'command throwing returns TM_COMMAND|TM_ERROR with the message', () => {
  * `_respond()` addresses a reply TO the request's FROM, so an errored command
  * that arrived with an empty FROM produces a TM_COMMAND|TM_ERROR with an empty
  * TO — which a command test blind to TM_ERROR would read as a fresh command and
- * interpret again, unbounded and synchronously. PHP's `is_request_command()`
+ * interpret again, unbounded and synchronously. PHP's `Message::is_request_command()`
  * masks TM_ERROR beside TM_RESPONSE for exactly this, and so does the JS half.
  */
 test( 'TM_COMMAND|TM_ERROR is forwarded, never interpreted', () => {

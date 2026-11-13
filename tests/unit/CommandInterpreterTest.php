@@ -3932,8 +3932,8 @@ class CommandInterpreterTest extends TestCase {
 	 *
 	 * Every refusal is minted `TM_COMMAND|TM_ERROR` addressed `TO = FROM`, so
 	 * dispatching one makes a refusal answer a refusal, and each pass mints
-	 * another inside one PHP process. `Command_Auth::is_request_command()`
-	 * already excludes TM_ERROR; the interpreter's own gate did not.
+	 * another inside one PHP process. `Message::is_request_command()`, the
+	 * interpreter's gate, excludes TM_ERROR beside TM_RESPONSE.
 	 *
 	 * Asserted through a SIDE EFFECT: `make_node` builds a node when it runs,
 	 * so the registry says whether the command executed.

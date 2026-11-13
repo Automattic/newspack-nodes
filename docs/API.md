@@ -20,10 +20,10 @@ route registered elsewhere: `Nodes_Mcp_Door::wire()` hooks its own
 | Route | Method | Permission |
 |---|---|---|
 | [`/workers/spawn`](#worker-spawn) | POST | Internal HMAC token, or MANAGE + WP nonce + rate limit |
-| [`/auth`](#establishing-a-session) | POST | READ |
+| [`/auth`](#establishing-a-session) | POST | A signed-in user + per-user mint budget |
 | [`/oauth/register`](#oauth-authorization-server) | POST | Anyone, over HTTPS + per-address rate limit |
 | [`/oauth/token`](#oauth-authorization-server) | POST | A registered client, over HTTPS + per-client rate limit; the code and verifier or the refresh token authenticate |
-| [`/command`](#command-dispatch) | POST | READ + per-user burst limit, then a per-command signature |
+| [`/command`](#command-dispatch) | POST | A signed-in user + per-user burst limit, then a per-command signature and each command's declared role or WordPress capability |
 | [`/mcp`](#mcp-doors) | POST | A `Bearer <handle>.<key>` live session admitted at this door's resource + per-session rate limit; each tool needs its command's declared role |
 | [`/messages/stream`](#sse-stream) | GET | READ |
 | [`/health/runtime`](#internal-runtime-health) | POST | Internal HMAC token |
@@ -340,9 +340,18 @@ POST  /wp-json/newspack-nodes/v1/auth
 ```
 
 Issues a session: a random signing key under a random handle
-([`Command_Auth::mint_session()`](../includes/class-command-auth.php)). Gated by the fleet gate then the READ role — a
-scope is a ceiling, so a read-only user minting a `manage` session still gets a
-read-only one. The handle and the key are both generated server-side; caller
+([`Command_Auth::mint_session()`](../includes/class-command-auth.php)). Gated by the fleet gate then a signed-in
+user — a scope is a ceiling, so a read-only user minting a `manage` session
+still gets a read-only one, and a user holding no role gets a `none` session,
+which covers no role and runs only the commands declaring a WordPress capability
+that user holds (see [Service CIs](#service-cis)). A labelled request from a user
+holding no role answers 403 `invalid_scope`, and `Command_Auth::mint_session()`
+refuses a labelled `none` session outright. Each user's mints claim
+[`Auth_Controller::RATE_LIMIT_BURST`](../includes/rest/class-auth-controller.php)
+= 30 slots a minute (`RATE_LIMIT_WINDOW_S` = 60) under `auth:<user>`, raised by
+the `newspack_nodes/auth_rate_limit` filter and clamped to `Rate_Limit::MAX_BURST`;
+over budget answers 429 `rate_limited`, and with no cache to meter in the mint is
+admitted unmetered with one warning, as `/command` does. The handle and the key are both generated server-side; caller
 entropy is unverifiable, and a caller-chosen handle could collide with or
 fixate a live session.
 
@@ -363,8 +372,8 @@ by default — will not open or refuses the row, and
 [`issue()`](../includes/rest/class-auth-controller.php) catches that type alone,
 logging the server's reason and keeping it out of the
 response. `mint_session()` also throws `InvalidArgumentException` on a scope
-off the READ/TUNE/MANAGE ladder, which `issue()` refuses first with the 400
-above. A hub whose `HTTP_Out` handshake fails logs
+neither on the READ/TUNE/MANAGE ladder nor `none`, which `issue()` refuses first
+with the 400 above; a client cannot ask for `none`, which `issue()` grants alone. A hub whose `HTTP_Out` handshake fails logs
 `auth failed at spoke: HTTP <status> <code>`, naming the `code` the spoke's
 body carries — `HTTP 503 session_store_unavailable` for this outage — or the
 bare status when it carries none, and holds its batch for the next attempt.
@@ -705,9 +714,26 @@ on.
 
 The permission callback (`HTTP_In_Node::check_permission`) authenticates the
 request and does not sign any command inside it — see
-[Command Signing](#command-signing). READ is the FLOOR every command behind the
-endpoint needs, not the level any of them demands; who may call what is drawn
+[Command Signing](#command-signing). A signed-in user is the FLOOR every command
+behind the endpoint needs, because a command may declare a WordPress capability
+any user may hold, not the level any of them demands; who may call what is drawn
 under [Service CIs](#service-cis).
+
+The door routes a message only where the request graph meant it to go
+([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own)).
+A message whose TO's first segment names no node, an empty TO included, routes
+on: the base interpreter bounces a TM_PING or TM_EOF, and the Router answers
+the rest NOT_AVAILABLE. A request command may also go TO a bare name that holds
+an interpreter. Any other message, and a command whose TO runs past its first
+segment, may go only TO a node a gated mount built earlier in the same POST: a
+worker's input Partition through `topologies connect_worker_input`, or a Table
+through `topologies mount_tables`. A caller holding no role may send only a
+request command whose TYPE is TM_COMMAND and nothing else, to an interpreter.
+Each refused message is answered after the batch with a `TM_RESPONSE|TM_ERROR`
+frame carrying its ID — `the door routes a command to an interpreter, or a
+message to a node this POST mounted`, or for a roleless caller `a caller
+holding no role sends a bare command to an interpreter alone` — without the 401
+a signature failure raises.
 
 ### Request
 
@@ -1434,8 +1460,18 @@ Per-command args, return shapes and error semantics are declared on each CI's
 `node_schema()` under
 [`includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status,sessions}-ci-node.php`](../includes/rest/);
 the palette and the Inspector consume the same schema. Auth gating is uniform:
-the endpoint requires the READ floor AND a valid command signature, and each
-command's declared role decides the rest. A refusal THROWS —
+the endpoint requires a signed-in user AND a valid command signature, and each
+command's declared role decides the rest. A command may declare a WordPress
+capability in place of a role, `'capability' => 'wp:edit_posts'`: the signed-in
+user's own `current_user_can( 'edit_posts' )` decides it, neither the session's
+ceiling nor the `allowed_users` list narrowing it. It runs only under an
+unlabelled session — a dashboard's `none`, or a role holder's — and is refused
+`permission denied: edit_posts refuses a labelled session` under a labelled one,
+read and write alike, `permission denied: edit_posts requires a verified command`
+under the ceiling a refused verification leaves, and
+`permission denied: edit_posts requires a signed-in user` in a worker, so such a
+command belongs on a CI the request graph mounts. No MCP door lists one
+([ADR-26](architecture-decisions.md#adr-26-every-command-is-gated-by-the-role-its-schema-declares)). A refusal THROWS —
 `Command_Interpreter_Node::interpret()` wraps it as `TM_COMMAND|TM_ERROR`.
 
 <a id="error-words"></a>**Error words.** The reply's text is
@@ -2174,6 +2210,7 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/capability_map` | `array $map` — role => WP capability | [`Capabilities::cap_for()`](../includes/class-capabilities.php). The baseline is [`Roles::defaults()`](../includes/class-roles.php): all three roles map to `manage_options` until a site installs the granular capabilities, and then to `newspack_nodes_{read,tune,manage}`. Return all three roles — the union form `fn ( $map ) => [ 'read' => 'edit_posts' ] + $map`, never a bare `[ 'read' => … ]`; see below. |
 | `newspack_nodes/oauth_resources` | `array $resources` — canonical resource URIs | [`Oauth_Server`](../includes/class-oauth-server.php). Declare each resource the OAuth server issues sessions for, such as an MCP door's URL; its RFC 9728 metadata is served for a declared resource alone. Non-string entries are dropped, and a non-array result declares nothing. |
 | `newspack_nodes/command_rate_limit` | `int $burst` | [`HTTP_In_Node::check_permission()`](../includes/rest/class-http-in-node.php): `/command` POSTs per user per one-second window. Clamped to 1 through `Rate_Limit::MAX_BURST` (256). |
+| `newspack_nodes/auth_rate_limit` | `int $burst` | [`Auth_Controller::check_permission()`](../includes/rest/class-auth-controller.php): `/auth` mints per user per 60-second window, 30 by default. Clamped to 1 through `Rate_Limit::MAX_BURST` (256). |
 | `newspack_nodes/registered_log_producers` | `array<int,string> $producers` — path templates | [`Log_Cleaner`](../includes/class-log-cleaner.php). Declare a log dir the retention sweep must know about. Non-string and empty entries are dropped and duplicates collapse, but a well-formed template that does not resolve to a directory under `<config:logs_dir>` anywhere in the partition range is NOT dropped: it refuses the whole sweep, `offsets/` included, raising `log producer <template> declares no dir under the logs root <root>` before any delete, and `dump_graph` lists every other log and names the template under `refused_producers`. [`Core::resolve_partition_template`](../includes/class-core.php) expands each template over `Bootstrap::global_num_partitions()` — the global `num_partitions` clamped to `Spawn_Coordinator::MAX_PARTITIONS`, never the declaring topology's own count — so a producer writing past that range leaves undeclared dirs the sweep will take. A template carrying no `{partition}` token collapses to one directory pinned across the fleet, which is how `alerts.p0` is declared. One log dir escapes this rule: `Log_Cleaner` reads `Settings_Event_Writer::SETTINGS_LOG_DIR` directly and seeds `settings.p0` at partition 0 into an already non-empty declared set, because the settings writer has no `.tsl` write-set entry and does not register a template. Do not copy the settings writer as the model for a new PHP producer — one that declares nothing here is reaped. |
 | `newspack_nodes/segment_size_overrides` | `array<string,int> $overrides` — basename => bytes | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php). Declare the geometry of a Partition built in PHP rather than by a `make_node` line, which has no literal size to read. The union keeps the left side, so the filter fills gaps and never restates. |
 | `newspack_nodes/settings_sync/value` | `mixed $value, string $option` | [`Settings_Sync_Node`](../includes/class-settings-sync-node.php). Resolve the value a hub pushes to its spokes — a requirement for any option that can be absent, not an optional refinement. `push()` reads `\get_option( $local )` with NO default and never goes through `Config::value()`, `register_setting()` defaults apply only inside `is_admin()` requests and a worker is never one, and [`Reset_Gate`](../includes/config-system/class-reset-gate.php) DELETES the row on reset-to-default. An unsaved or freshly-reset option therefore resolves to `false`, `Core::as_string()` makes that `''`, and the spoke's typed receiver refuses it with `invalid value for setting: …`. A hub syncing the substrate's own `remote_*` geometry needs a resolver mapping absent to the owning config's default; the filter runs on every push, the periodic sweep included. The substrate does not register a handler of its own. |

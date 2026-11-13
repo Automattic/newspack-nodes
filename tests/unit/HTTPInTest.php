@@ -143,6 +143,18 @@ class HTTPInTest extends TestCase {
 		return $req;
 	}
 
+	/** An interpreter that keeps what it is filled with, so the door routes to it. */
+	private function capturing_interpreter(): Command_Interpreter_Node {
+		return new class() extends Command_Interpreter_Node {
+			/** @var list<array<int,mixed>> */
+			public array $captured = [];
+
+			public function fill( array $message ): void {
+				$this->captured[] = $message;
+			}
+		};
+	}
+
 	/**
 	 * HTTP_In signs nothing. Signing whatever arrived, on the grounds that
 	 * WordPress had already authenticated the caller, would make the boundary an
@@ -152,7 +164,7 @@ class HTTPInTest extends TestCase {
 	 */
 	public function test_dispatch_does_not_sign_an_unsigned_command(): void {
 		$base_interpreter = $this->build_graph();
-		$capture          = new Capture_Sink_Node();
+		$capture          = $this->capturing_interpreter();
 		$capture->name( 'capture_service' );
 		$capture->sink( $base_interpreter );
 
@@ -189,7 +201,7 @@ class HTTPInTest extends TestCase {
 	 */
 	public function test_dispatch_leaves_an_already_signed_session_envelope_alone(): void {
 		$base_interpreter = $this->build_graph();
-		$capture          = new Capture_Sink_Node();
+		$capture          = $this->capturing_interpreter();
 		$capture->name( 'capture_service' );
 		$capture->sink( $base_interpreter );
 
@@ -434,6 +446,421 @@ class HTTPInTest extends TestCase {
 		$selects = \array_filter( \array_slice( $db->sent, $before ), static fn ( string $sql ): bool => \str_starts_with( \ltrim( $sql ), 'SELECT' ) );
 		$this->assertNotContains( 401, $codes, 'every command verified' );
 		$this->assertCount( 1, $selects, 'one session read for three commands' );
+	}
+
+	/**
+	 * Mount `kea`, a service CI whose `kea_7801` writes and `kea_7802` reads
+	 * under `wp:edit_posts`, beside a READ `peek`, on the request graph.
+	 */
+	private function mount_kea(): void {
+		$base = $this->build_graph_sans_output();
+		$kea  = new class() extends \Newspack_Nodes\Service_CI_Node {
+			public static function node_schema(): array {
+				$wp = static fn ( string $verb, string $what, string $answer ): array => [
+					'name'        => $verb,
+					'description' => $what,
+					'capability'  => 'wp:edit_posts',
+					'handler'     => static fn (): string => $answer,
+				];
+				return [
+					'category'    => 'Control',
+					'description' => 'wp: capability door double',
+					'arguments'   => [],
+					'commands'    => [
+						$wp( 'kea_7801', 'an editor\'s write', 'kea wrote' ),
+						$wp( 'kea_7802', 'an editor\'s read', 'kea read' ),
+						[
+							'name'        => 'peek',
+							'description' => 'a read',
+							'capability'  => 'read',
+							'handler'     => static fn (): string => 'peeked',
+						],
+					],
+					'requests'    => [],
+				];
+			}
+		};
+		$kea->name( 'kea' );
+		$kea->sink( $base );
+	}
+
+	/**
+	 * Mint a session through `/auth` as the current user, POST one signed
+	 * command per `[ to, verb ]` pair under it, and answer each reply as
+	 * `[ is_error, payload ]`.
+	 *
+	 * @param array<string,string> $params The `/auth` request's params.
+	 * @param list<array{0:string,1:string}> $commands TO and verb per command.
+	 * @return array{0:string,1:list<array{0:bool,1:string}>} The granted scope, then the replies.
+	 */
+	private function post_under_auth_session( array $params, array $commands ): array {
+		$auth = new \WP_REST_Request();
+		foreach ( $params as $key => $value ) {
+			$auth->set_param( $key, $value );
+		}
+		$session = ( new \Newspack_Nodes\Rest\Auth_Controller() )->issue( $auth );
+		Command_Auth::remember_session( 'kea-6603', $session['handle'], $session['secret'] );
+		$lines = [];
+		foreach ( $commands as [ $to, $verb ] ) {
+			$m                       = Message::new_message();
+			$m[ Message::TYPE ]      = Message::TM_COMMAND;
+			$m[ Message::FROM ]      = '_http';
+			$m[ Message::TO ]        = $to;
+			$m[ Message::TIMESTAMP ] = (int) Core::$now;
+			$m[ Message::VALUE ]     = [ 'name' => $verb, 'arguments' => [] ];
+			Command_Auth::sign_for( 'kea-6603', $m );
+			$lines[] = Message::packed( $m );
+		}
+		$req = new \WP_REST_Request();
+		$req->set_body( \implode( "\n", $lines ) );
+		$req->set_header( 'content-type', 'application/json' );
+		$ctrl = new HTTP_In_Node( static fn ( int $code ) => null );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = \array_values( \array_filter( \explode( "\n", (string) \ob_get_clean() ) ) );
+		return [
+			$session['scope'],
+			\array_map(
+				static function ( string $line ): array {
+					$frame = \json_decode( $line, true );
+					return [ 0 !== ( $frame[ Message::TYPE ] & Message::TM_ERROR ), \trim( (string) $frame[ Message::VALUE ]['payload'] ) ];
+				},
+				$body
+			),
+		];
+	}
+
+	/**
+	 * End to end: a contributor's `/auth` session is `none`, and over the door
+	 * it runs the `wp:edit_posts` commands and is refused a READ command and a
+	 * READ base command, each answered in the one body.
+	 */
+	public function test_a_none_session_runs_its_wp_command_and_nothing_else(): void {
+		$this->use_wpdb_sessions();
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'read' => true ];
+		$this->mount_kea();
+
+		[ $scope, $replies ] = $this->post_under_auth_session( [], [ [ 'kea', 'kea_7801' ], [ 'kea', 'kea_7802' ], [ 'kea', 'peek' ], [ '', 'ls' ] ] );
+
+		$this->assertSame( \Newspack_Nodes\Capabilities::NONE, $scope );
+		$this->assertSame(
+			[
+				[ false, 'kea wrote' ],
+				[ false, 'kea read' ],
+				[ true, 'permission denied: read capability required' ],
+				[ true, 'permission denied: read capability required' ],
+			],
+			$replies
+		);
+	}
+
+	/**
+	 * A labelled `read` session an administrator minted for a CLI keeps
+	 * meaning "change nothing": it runs its READ command, and every `wp:`
+	 * command refuses it, the read as well as the write.
+	 */
+	public function test_a_labelled_read_session_is_refused_wp_writes_and_reads_alike(): void {
+		$this->use_wpdb_sessions();
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true, 'edit_posts' => true ];
+		$this->mount_kea();
+
+		[ $scope, $replies ] = $this->post_under_auth_session(
+			[ 'scope' => 'read', 'label' => 'kea cli' ],
+			[ [ 'kea', 'kea_7801' ], [ 'kea', 'kea_7802' ], [ 'kea', 'peek' ] ]
+		);
+
+		$this->assertSame( 'read', $scope );
+		$this->assertSame(
+			[
+				[ true, 'permission denied: edit_posts refuses a labelled session' ],
+				[ true, 'permission denied: edit_posts refuses a labelled session' ],
+				[ false, 'peeked' ],
+			],
+			$replies
+		);
+	}
+
+	/** An administrator's unlabelled dashboard session runs a `wp:` command. */
+	public function test_an_unlabelled_manage_session_runs_a_wp_command(): void {
+		$this->use_wpdb_sessions();
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true, 'edit_posts' => true ];
+		$this->mount_kea();
+
+		[ $scope, $replies ] = $this->post_under_auth_session( [], [ [ 'kea', 'kea_7801' ] ] );
+
+		$this->assertSame( 'manage', $scope );
+		$this->assertSame( [ [ false, 'kea wrote' ] ], $replies );
+	}
+
+	/**
+	 * POST one unsigned message of `$type` TO `$to` beside the worker input
+	 * Partition `combined.p7`, mounted as `connect_worker_input` mounts it,
+	 * and answer the status codes, the body and what landed in the partition.
+	 *
+	 * @param int    $type The message's TYPE.
+	 * @param string $to   The message's TO.
+	 * @return array{0:list<int>,1:list<array<int,mixed>>,2:list<array<int,mixed>>}
+	 */
+	private function post_request_to_worker( int $type = Message::TM_REQUEST, string $to = 'combined.p7/request-builder' ): array {
+		return $this->post_beside_partition( [ $this->kea_message( $type, $to ) ], 'combined.p7', true );
+	}
+
+	/** One unsigned message of `$type` TO `$to`, ID `kea-request-6603`. */
+	private function kea_message( int $type, string $to ): array {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = $type;
+		$m[ Message::FROM ]  = '_http';
+		$m[ Message::TO ]    = $to;
+		$m[ Message::ID ]    = 'kea-request-6603';
+		$m[ Message::VALUE ] = Message::TM_STRUCT === ( $type & Message::TM_STRUCT ) ? [ 'k' => 'job', 'm' => [ 'handler' => 'kea-7801' ] ] : 'GET_HEALTH';
+		return $m;
+	}
+
+	/**
+	 * POST `$messages` as the current user beside a Partition named `$node`:
+	 * a worker's input mounted through `Bootstrap::register_worker_partition()`
+	 * when `$mounted`, else one registered by name alone, as a request-scope
+	 * producer registers its own. Answers the status codes, the body and
+	 * what landed in the partition.
+	 *
+	 * @param list<array<int,mixed>> $messages The batch.
+	 * @return array{0:list<int>,1:list<array<int,mixed>>,2:list<array<int,mixed>>}
+	 */
+	private function post_beside_partition( array $messages, string $node, bool $mounted ): array {
+		if ( null === Core::node( '_command_interpreter' ) ) {
+			$this->build_graph_sans_output();
+		}
+		$base      = $this->make_temp_dir( 'cmd-ctrl-door-' );
+		$input_dir = "{$base}/ipc/{$node}/input";
+		\mkdir( $input_dir, 0755, true );
+		if ( $mounted ) {
+			\mkdir( "{$base}/locks/{$node}.lock.d", 0755, true );
+			$this->assertTrue( \Newspack_Nodes\Bootstrap::register_worker_partition( $node, $base ) );
+		} else {
+			$partition = new Partition_Node();
+			$partition->arguments( [ $input_dir ] );
+			$partition->name( $node );
+		}
+		$req = new \WP_REST_Request();
+		$req->set_body( \implode( "\n", \array_map( [ Message::class, 'packed' ], $messages ) ) );
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = \array_map( static fn ( string $line ): array => \json_decode( $line, true ), \array_values( \array_filter( \explode( "\n", (string) \ob_get_clean() ) ) ) );
+
+		$consumer = new Consumer_Node();
+		$consumer->arguments( [ $input_dir ] );
+		$consumer->next_offset( 'start' );
+		$consumer->sink( $got = new Capture_Sink_Node() );
+		$this->pump_consumer( $consumer );
+		$this->rmdir_recursive( $base );
+		return [ $codes, $body, $got->captured ];
+	}
+
+	/** The refusal frame the door answered `kea-request-6603` with, asserted to be one. */
+	private function refusal_frame( array $body ): array {
+		$frames = \array_values( \array_filter( $body, static fn ( array $f ): bool => 'kea-request-6603' === $f[ Message::ID ] ) );
+		$this->assertCount( 1, $frames );
+		$this->assertSame( Message::TM_RESPONSE | Message::TM_ERROR, $frames[0][ Message::TYPE ] );
+		return $frames[0];
+	}
+
+	/**
+	 * A named request-scope node a gated command did not mount — a producer's
+	 * own Topic, say — is refused to every caller: a READ holder's TM_STRUCT to it
+	 * is refused at the door and lands nowhere.
+	 */
+	public function test_a_read_callers_struct_to_an_unmounted_node_lands_nowhere(): void {
+		\add_filter( 'newspack_nodes/capability_map', static fn ( array $map ): array => [ 'read' => 'edit_pages' ] + $map );
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true ];
+
+		[ , $body, $landed ] = $this->post_beside_partition( [ $this->kea_message( Message::TM_STRUCT, 'kea:topic' ) ], 'kea:topic', false );
+
+		$this->assertSame( [], $landed );
+		$this->refusal_frame( $body );
+	}
+
+	public function test_a_roleless_callers_command_struct_to_an_unmounted_node_lands_nowhere(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+
+		[ , $body, $landed ] = $this->post_beside_partition( [ $this->kea_message( Message::TM_COMMAND | Message::TM_STRUCT, 'kea:topic' ) ], 'kea:topic', false );
+
+		$this->assertSame( [], $landed );
+		$this->refusal_frame( $body );
+	}
+
+	/**
+	 * An interpreter forwards a command whose TO goes past it without
+	 * verifying it, so the door refuses a two-segment TO headed by one, even
+	 * from a manage holder.
+	 */
+	public function test_a_command_past_an_interpreter_lands_nowhere(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$kea = new Command_Interpreter_Node();
+		$kea->name( 'kea' );
+		$kea->sink( $this->build_graph_sans_output() );
+
+		[ , $body, $landed ] = $this->post_beside_partition( [ $this->kea_message( Message::TM_COMMAND, 'kea/kea:topic' ) ], 'kea:topic', false );
+
+		$this->assertSame( [], $landed );
+		$this->refusal_frame( $body );
+	}
+
+	/**
+	 * POST one unsigned message as a READ holder and answer the body's frames
+	 * other than stderr's, each as `[ TYPE, FROM, VALUE ]`.
+	 *
+	 * @return list<array{0:mixed,1:mixed,2:mixed}>
+	 */
+	private function post_as_read_holder( int $type, string $to ): array {
+		\add_filter( 'newspack_nodes/capability_map', static fn ( array $map ): array => [ 'read' => 'edit_pages' ] + $map );
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true ];
+		$this->build_graph_sans_output();
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $this->kea_message( $type, $to ) ) );
+		$ctrl = new HTTP_In_Node( static fn ( int $code ) => null );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$frames = \array_map( static fn ( string $line ): array => \json_decode( $line, true ), \array_values( \array_filter( \explode( "\n", (string) \ob_get_clean() ) ) ) );
+		$frames = \array_values( \array_filter( $frames, static fn ( array $f ): bool => 'kea-request-6603' === $f[ Message::ID ] ) );
+		return \array_map( static fn ( array $f ): array => [ $f[ Message::TYPE ], $f[ Message::FROM ], $f[ Message::VALUE ] ], $frames );
+	}
+
+	/** The REPL's `ping` at the `_http` cwd: an empty-TO TM_PING bounces back. */
+	public function test_a_read_holders_ping_to_an_empty_to_comes_back(): void {
+		$frames = $this->post_as_read_holder( Message::TM_PING, '' );
+
+		$this->assertCount( 1, $frames );
+		$this->assertSame( Message::TM_PING, $frames[0][0] );
+	}
+
+	/**
+	 * A request to a worker `connect_worker_input` could not mount reaches no
+	 * node, so the Router answers it NOT_AVAILABLE from the address it was
+	 * bound for, as it did before the door read its mounts.
+	 */
+	public function test_a_request_to_a_name_holding_nothing_gets_not_available(): void {
+		$frames = $this->post_as_read_holder( Message::TM_REQUEST, 'dead.p3/x' );
+
+		$this->assertCount( 1, $frames );
+		$this->assertSame( Message::TM_ERROR, $frames[0][0] );
+		$this->assertSame( 'dead.p3/x', $frames[0][1] );
+		$this->assertSame( "NOT_AVAILABLE\n", $frames[0][2] );
+	}
+
+	/**
+	 * The attached console's path stays open: a signed `connect_worker_input`
+	 * mounts the worker, and a request later in the same POST lands in it.
+	 */
+	public function test_connect_worker_input_then_a_request_lands(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$base = $this->make_temp_dir( 'cmd-ctrl-connect-' );
+		$this->use_base_dir( $base );
+		\mkdir( "{$base}/locks/combined.p7.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/combined.p7/input", 0755, true );
+		$topologies = new \Newspack_Nodes\Rest\Topologies_CI_Node();
+		$topologies->name( 'topologies' );
+		$topologies->sink( $this->build_graph_sans_output() );
+
+		$connect                       = Message::new_message();
+		$connect[ Message::TYPE ]      = Message::TM_COMMAND;
+		$connect[ Message::FROM ]      = '_http';
+		$connect[ Message::TO ]        = 'topologies';
+		$connect[ Message::TIMESTAMP ] = (int) Core::$now;
+		$connect[ Message::VALUE ]     = [ 'name' => 'connect_worker_input', 'arguments' => [ 'combined.p7' ] ];
+		Command_Auth::sign( $connect );
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $connect ) . "\n" . Message::packed( $this->kea_message( Message::TM_REQUEST, 'combined.p7/request-builder' ) ) );
+		$ctrl = new HTTP_In_Node( static fn ( int $code ) => null );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_end_clean();
+
+		$consumer = new Consumer_Node();
+		$consumer->arguments( [ "{$base}/ipc/combined.p7/input" ] );
+		$consumer->next_offset( 'start' );
+		$consumer->sink( $got = new Capture_Sink_Node() );
+		$this->pump_consumer( $consumer );
+		$this->assertCount( 1, $got->captured );
+		$this->assertSame( 'GET_HEALTH', $got->captured[0][ Message::VALUE ] );
+	}
+
+	/**
+	 * A caller holding no role may send commands alone: the door refuses a
+	 * TM_REQUEST they post, per message, before it is routed, and answers it
+	 * with a refusal frame rather than the 401 that would drop their session.
+	 */
+	public function test_a_caller_holding_no_role_may_send_no_request(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+
+		[ $codes, $body, $landed ] = $this->post_request_to_worker();
+
+		$this->assertSame( [], $landed, 'nothing reached the worker' );
+		$this->assertSame( [ 200 ], $codes, 'a refusal frame, never the 401 that drops the session' );
+		$frames = \array_values( \array_filter( $body, static fn ( array $f ): bool => 'kea-request-6603' === $f[ Message::ID ] ) );
+		$this->assertCount( 1, $frames );
+		$this->assertSame( Message::TM_RESPONSE | Message::TM_ERROR, $frames[0][ Message::TYPE ] );
+		$this->assertSame( '_http', $frames[0][ Message::TO ] );
+		$this->assertSame( "a caller holding no role sends a bare command to an interpreter alone\n", $frames[0][ Message::VALUE ] );
+	}
+
+	/**
+	 * A caller holding no role sends a bare TM_COMMAND alone: one carrying
+	 * any other bit is refused before it routes, so it lands nowhere, whether
+	 * its TO names the worker or a path through an interpreter to it.
+	 *
+	 * @return array<string,array{0:int,1:string}>
+	 */
+	public static function roleless_refusals(): array {
+		return [
+			'command|request at the worker'   => [ Message::TM_COMMAND | Message::TM_REQUEST, 'combined.p7/request-builder' ],
+			'command|request|struct'          => [ Message::TM_COMMAND | Message::TM_REQUEST | Message::TM_STRUCT, 'combined.p7/request-builder' ],
+			'command|noreply'                 => [ Message::TM_COMMAND | Message::TM_NOREPLY, 'combined.p7/request-builder' ],
+			'bare command at the worker'      => [ Message::TM_COMMAND, 'combined.p7/request-builder' ],
+			'bare command through an interpreter' => [ Message::TM_COMMAND, '_command_interpreter/combined.p7/request-builder' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'roleless_refusals' )]
+	public function test_a_caller_holding_no_role_reaches_no_node_but_an_interpreter( int $type, string $to ): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+
+		[ , $body, $landed ] = $this->post_request_to_worker( $type, $to );
+
+		$this->assertSame( [], $landed, 'nothing reached the worker' );
+		$frames = \array_values( \array_filter( $body, static fn ( array $f ): bool => 'kea-request-6603' === $f[ Message::ID ] ) );
+		$this->assertCount( 1, $frames );
+		$this->assertSame( Message::TM_RESPONSE | Message::TM_ERROR, $frames[0][ Message::TYPE ] );
+	}
+
+	/** A READ holder's request routes as it always has. */
+	public function test_a_role_holder_may_still_send_a_request(): void {
+		\add_filter( 'newspack_nodes/capability_map', static fn ( array $map ): array => [ 'read' => 'edit_pages' ] + $map );
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true ];
+
+		[ , $body, $landed ] = $this->post_request_to_worker();
+
+		$this->assertSame( [], $body );
+		$this->assertCount( 1, $landed );
+		$this->assertSame( 'GET_HEALTH', $landed[0][ Message::VALUE ] );
 	}
 
 	/**
@@ -970,12 +1397,10 @@ class HTTPInTest extends TestCase {
 		$base      = $this->make_temp_dir( 'cmd-ctrl-ipc-' );
 		$input_dir = "{$base}/ipc/firehose-workers.p0/input";
 		\mkdir( $input_dir, 0755, true );
+		\mkdir( "{$base}/locks/firehose-workers.p0.lock.d", 0755, true );
 
-		// Mount a Partition under the worker's name — same as production
-		// bootstrap after scanning the locks/ dir.
-		$worker_partition = new Partition_Node();
-		$worker_partition->arguments( [ "{$input_dir}" ] );
-		$worker_partition->name( 'firehose-workers.p0' );
+		// Mounted as `connect_worker_input` mounts it, which the door reads.
+		$this->assertTrue( \Newspack_Nodes\Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
 
 		$req = $this->make_request(
 			[
@@ -1025,9 +1450,8 @@ class HTTPInTest extends TestCase {
 		$base      = $this->make_temp_dir( 'cmd-ctrl-request-' );
 		$input_dir = "{$base}/ipc/combined.p7/input";
 		\mkdir( $input_dir, 0755, true );
-		$worker = new Partition_Node();
-		$worker->arguments( [ $input_dir ] );
-		$worker->name( 'combined.p7' );
+		\mkdir( "{$base}/locks/combined.p7.lock.d", 0755, true );
+		$this->assertTrue( \Newspack_Nodes\Bootstrap::register_worker_partition( 'combined.p7', $base ) );
 
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_REQUEST;
@@ -1101,15 +1525,55 @@ class HTTPInTest extends TestCase {
 		return $admitted;
 	}
 
-	public function test_check_permission_rejects_when_user_lacks_manage_options(): void {
+	/**
+	 * The door asks for a login before any capability: an anonymous request
+	 * is refused even where the capability stub would answer yes.
+	 */
+	public function test_the_door_still_refuses_anonymous(): void {
 		$this->reset_rl_state();
-		// No capability granted.
-		$ctrl = new HTTP_In_Node();
-		$req  = new \WP_REST_Request( 'POST' );
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true, 'edit_posts' => true ];
 
-		$result = $ctrl->check_permission( $req );
+		$this->assertFalse( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request( 'POST' ) ) );
+	}
 
-		$this->assertNotTrue( $result, 'lacking manage_options must NOT pass permission' );
+	/**
+	 * A signed-in user holding no substrate role reaches the door, because a
+	 * command may declare a WordPress capability; every role-declared command
+	 * behind it still refuses them (ADR-26).
+	 */
+	public function test_the_door_admits_a_signed_in_user_without_read(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'read' => true ];
+
+		$this->assertFalse( \Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::READ ) );
+		$this->assertTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request( 'POST' ) ) );
+	}
+
+	public function test_the_rate_limit_meters_a_user_without_read(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+		$ctrl                                 = new HTTP_In_Node();
+
+		$this->assertSame( HTTP_In_Node::RATE_LIMIT_BURST, $this->admitted( $ctrl, HTTP_In_Node::RATE_LIMIT_BURST + 5 ) );
+	}
+
+	public function test_the_fleet_gate_refuses_a_user_without_read_on_a_subsite(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+		$GLOBALS['_wp_test_is_multisite']     = true;
+		$GLOBALS['_wp_test_is_main_site']     = false;
+		try {
+			$result = ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request( 'POST' ) );
+		} finally {
+			$GLOBALS['_wp_test_is_multisite'] = false;
+			$GLOBALS['_wp_test_is_main_site'] = true;
+		}
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'newspack_nodes_not_fleet_site', $result->get_error_code() );
 	}
 
 	public function test_check_permission_accepts_under_the_cap(): void {
@@ -1124,11 +1588,11 @@ class HTTPInTest extends TestCase {
 	}
 
 	/**
-	 * The command door: an administrator the operator kept out of
-	 * `allowed_users` must not reach `/command`, whatever nonce they lifted off
-	 * a wp-admin page.
+	 * An administrator the operator kept out of `allowed_users` reaches the
+	 * door as any signed-in user does, and holds none of the substrate's
+	 * roles there, so every role-declared command refuses them.
 	 */
-	public function test_check_permission_refuses_an_administrator_the_allowlist_excludes(): void {
+	public function test_an_administrator_the_allowlist_excludes_holds_no_role_at_the_door(): void {
 		$this->reset_rl_state();
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$GLOBALS['_wp_test_current_user_id']                    = 4471;
@@ -1136,7 +1600,8 @@ class HTTPInTest extends TestCase {
 		\update_option( 'newspack_nodes_allowed_users', [ 'quill', 'mercator' ] );
 		\Newspack_Nodes\Config::reset();
 
-		$this->assertNotTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request( 'POST' ) ) );
+		$this->assertTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request( 'POST' ) ) );
+		$this->assertFalse( \Newspack_Nodes\Capabilities::command_holds( \Newspack_Nodes\Capabilities::READ ) );
 	}
 
 	public function test_check_permission_admits_an_administrator_the_allowlist_names(): void {
@@ -1423,7 +1888,7 @@ class HTTPInTest extends TestCase {
 	 */
 	public function test_dispatch_drops_a_message_it_cannot_stamp(): void {
 		$base_interpreter = $this->build_graph();
-		$capture          = new Capture_Sink_Node();
+		$capture          = $this->capturing_interpreter();
 		$capture->name( 'capture_service' );
 		$capture->sink( $base_interpreter );
 

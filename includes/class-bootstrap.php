@@ -149,6 +149,17 @@ class Bootstrap {
 	 */
 	private static array $row_tables = [];
 
+	/**
+	 * Every node a gated mount built in this request — a worker's input
+	 * Partition by `register_worker_partition()`, a Table by `mount_table()` —
+	 * by name: the one record `HTTP_In_Node` reads before it routes a
+	 * message that is not a command for an interpreter. `door_mounted()`
+	 * checks the node still stands under its name.
+	 *
+	 * @var array<string,Node>
+	 */
+	private static array $door_mounts = [];
+
 	/** Wake-map key prefix; the active set's digest completes it and `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
 	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake_v2:';
 
@@ -499,8 +510,8 @@ class Bootstrap {
 				foreach ( $partitions as $p => $spec ) {
 					$stem = Table_Node::stem( $name, $p );
 					if ( ! Core::node( $stem ) instanceof Table_Node ) {
-						Table_Node::mount( $name, $p, $spec, $ci );
-						$built[] = $stem;
+						self::$door_mounts[ $stem ] = Table_Node::mount( $name, $p, $spec, $ci );
+						$built[]                    = $stem;
 					}
 					$out[ $name ][ $p ] = $stem;
 				}
@@ -1579,8 +1590,21 @@ class Bootstrap {
 			$part->sink( $ci );
 		}
 		$part->arguments( Worker_Base::ipc_partition_args( $channel['input'] ) );
+		self::$door_mounts[ $worker_id ] = $part;
 		Spawn_Coordinator::wake_channel( $base_dir, $channel, Core::right_now() );
 		return true;
+	}
+
+	/**
+	 * Whether `$name` is a node a gated mount built in this request and that
+	 * still stands under that name, so the `/command` door may route to it
+	 * a message that an interpreter does not verify (ADR-23). A node merely registered
+	 * by name, such as a request-scope producer's own Topic, is not.
+	 *
+	 * @param string $name A node name, a TO's first segment.
+	 */
+	public static function door_mounted( string $name ): bool {
+		return isset( self::$door_mounts[ $name ] ) && Core::node( $name ) === self::$door_mounts[ $name ];
 	}
 
 	/** Drop the request-static half of the wake map; `Topology_Registry::invalidate_config_cache()` calls it. */

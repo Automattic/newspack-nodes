@@ -73,6 +73,17 @@ class CommandAuthScopeTest extends TestCase {
 		$this->assertSame( Capabilities::MANAGE, $session['scope'] );
 	}
 
+	/** A `none` session is a dashboard's alone; a labelled one never reaches the store. */
+	public function test_a_labelled_none_session_is_refused_at_the_mint(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'a none session carries no label' );
+		Command_Auth::mint_session( Capabilities::NONE, 900, 'kea cli' );
+	}
+
+	public function test_an_unlabelled_none_session_mints(): void {
+		$this->assertSame( Capabilities::NONE, Command_Auth::mint_session( Capabilities::NONE, 900 )['scope'] );
+	}
+
 	public function test_an_unknown_scope_is_refused_at_the_mint(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		Command_Auth::mint_session( 'wizard' );
@@ -166,7 +177,7 @@ class CommandAuthScopeTest extends TestCase {
 
 		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 		$this->assertSame(
-			Capabilities::NONE,
+			Command_Auth::UNVERIFIED,
 			Capabilities::$session_scope,
 			'a refusal must never leave a usable ceiling behind, whatever stood before'
 		);
@@ -182,8 +193,8 @@ class CommandAuthScopeTest extends TestCase {
 		$m[ Message::VALUE ]     = $value;
 
 		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
-		$this->assertSame( Capabilities::NONE, Capabilities::$session_scope );
-		$this->assertFalse( Capabilities::scope_covers( Capabilities::NONE, Capabilities::READ ) );
+		$this->assertSame( Command_Auth::UNVERIFIED, Capabilities::$session_scope );
+		$this->assertFalse( Capabilities::scope_covers( Command_Auth::UNVERIFIED, Capabilities::READ ) );
 	}
 
 	public function test_a_revoked_session_stops_verifying(): void {

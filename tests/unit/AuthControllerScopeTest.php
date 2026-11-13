@@ -27,6 +27,8 @@ class AuthControllerScopeTest extends TestCase {
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		// A REST request carries a login; the gate refuses anonymous.
+		$GLOBALS['_wp_test_current_user_id'] = 4127;
 	}
 
 	protected function tearDown(): void {
@@ -138,10 +140,13 @@ class AuthControllerScopeTest extends TestCase {
 		$this->assertTrue( ( new Auth_Controller() )->check_permission( $this->request() ) );
 	}
 
-	public function test_a_user_holding_nothing_may_not_mint(): void {
+	/** Holding no role, a signed-in user still mints, and is clamped to `none`. */
+	public function test_a_user_holding_nothing_mints_a_none_session(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6605;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 
-		$this->assertFalse( ( new Auth_Controller() )->check_permission( $this->request() ) );
+		$this->assertTrue( ( new Auth_Controller() )->check_permission( $this->request() ) );
+		$this->assertSame( Capabilities::NONE, ( new Auth_Controller() )->issue( $this->request( [ 'scope' => Capabilities::MANAGE ] ) )['scope'] );
 	}
 
 	public function test_a_labelled_session_is_listed(): void {

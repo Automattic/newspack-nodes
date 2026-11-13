@@ -452,8 +452,8 @@ const PHP_NUMERIC =
 
 /**
  * Whether a message is a command asking for something, judged by TYPE alone:
- * TM_COMMAND set, TM_RESPONSE and TM_ERROR clear, as PHP's interpreter tests
- * in `fill()`. An answer — a refusal echoing a verb's name — is never one. The
+ * TM_COMMAND set, TM_RESPONSE and TM_ERROR clear, as PHP's
+ * `Message::is_request_command()` reads them. An answer — a refusal echoing a verb's name — is never one. The
  * interpreter dispatches on it and the Reset Graph tap counts edits by it.
  *
  * @param {Array} message Positional Message.
@@ -486,7 +486,7 @@ export function isCommandStruct( value ) {
 
 /**
  * Whether a message can be signed, mirroring PHP's
- * `Command_Auth::is_request_command()`: a command ask (`isCommandAsk()`) with a
+ * `Command_Auth::is_signable()`: a command ask (`isCommandAsk()`) with a
  * numeric TIMESTAMP and an object VALUE. TM_NOREPLY rides along. The signer
  * signs exactly these.
  *

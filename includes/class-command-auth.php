@@ -21,7 +21,7 @@
  *
  * A session also carries a SCOPE. Verifying installs it as
  * `Capabilities::$session_scope`, the ceiling over the one command being
- * handled; a refusal leaves `Capabilities::NONE`, and
+ * handled; a refusal leaves `UNVERIFIED`, and
  * `Command_Interpreter_Node::interpret()` restores what stood before.
  *
  * @package Newspack_Nodes
@@ -136,6 +136,14 @@ class Command_Auth {
 	 * spends only a site-wide session there and refuses a grant session.
 	 */
 	public const SITE_WIDE = '';
+
+	/**
+	 * The ceiling `verify()` installs on every refusal: off the ladder, so it
+	 * covers no role, and never a scope a session is granted, so a refused
+	 * command is never mistaken for `Capabilities::NONE`'s dashboard session.
+	 * `Capabilities::command_holds()` refuses every `wp:` command under it.
+	 */
+	public const UNVERIFIED = 'unverified';
 
 	/** Random bytes in a session handle, written as twice as many hex digits. */
 	private const HANDLE_BYTES = 16;
@@ -265,7 +273,7 @@ class Command_Auth {
 		$type  = $message[ Message::TYPE ]      ?? null;
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
-		if ( ! self::is_request_command( $type, $ts, $value ) ) {
+		if ( ! self::is_signable( $type, $ts, $value ) ) {
 			return;
 		}
 		$ts    = (int) $ts; // Second granularity, matching freshness window.
@@ -307,14 +315,15 @@ class Command_Auth {
 	 * The reply discloses the key as `secret`, the name `Core::is_secret_property()`
 	 * masks, so a redactor on either side of the wire never prints it.
 	 *
-	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
+	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE, or NONE.
 	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
 	 *                      it off the wire clamps through bounded_ttl() first.
 	 * @param string $label The operator's name for it, as `Sessions` lists it;
 	 *                      empty for an unlisted session.
 	 *
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
-	 * @throws \InvalidArgumentException On a scope outside the ladder.
+	 * @throws \InvalidArgumentException On a scope neither on the ladder nor
+	 *                                   NONE, or on a labelled NONE.
 	 * @throws Session_Store_Unavailable When the store will not open or refuses
 	 *                                   the row, naming why.
 	 */
@@ -414,21 +423,25 @@ class Command_Auth {
 	 * expires with the session, the one record of when it lapses; the same
 	 * mint reclaims up to SESSION_PURGE_ROWS rows already expired.
 	 *
-	 * @param string                $scope   One of Capabilities::READ|TUNE|MANAGE.
+	 * @param string                $scope   One of Capabilities::READ|TUNE|MANAGE, or NONE.
 	 * @param int                   $ttl     Lifetime in seconds.
 	 * @param int                   $user    Whose authority the session spends.
 	 * @param string                $label   The operator's name for it, or empty.
 	 * @param array<string,string>  $binding The `grant` and `resource` an OAuth
 	 *                                       session names; empty otherwise.
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
-	 * @throws \InvalidArgumentException On a scope outside the ladder.
+	 * @throws \InvalidArgumentException On a scope neither on the ladder nor
+	 *                                   NONE, or on a labelled NONE.
 	 * @throws Session_Store_Unavailable When the store will not open or refuses
 	 *                                   the row, naming why.
 	 */
 	private static function write_session( string $scope, int $ttl, int $user, string $label, array $binding ): array {
-		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
+		if ( Capabilities::NONE !== $scope && ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new \InvalidArgumentException( "unknown session scope: {$scope}" );
+		}
+		if ( Capabilities::NONE === $scope && '' !== $label ) {
+			throw new \InvalidArgumentException( 'a none session carries no label' );
 		}
 		$handle = \bin2hex( \random_bytes( self::HANDLE_BYTES ) );
 		$key    = \bin2hex( \random_bytes( self::KEY_BYTES ) );
@@ -643,7 +656,7 @@ class Command_Auth {
 		// leave a wider ceiling standing than the command that failed.
 		$ok = self::check( $message, $now, $turn, $interpreter, $load ?? self::load_session_record( ... ) );
 		if ( ! $ok ) {
-			Capabilities::$session_scope = Capabilities::NONE;
+			Capabilities::$session_scope = self::UNVERIFIED;
 			Capabilities::$session_label = null;
 		}
 		return $ok;
@@ -836,7 +849,7 @@ class Command_Auth {
 		$type  = $message[ Message::TYPE ]      ?? null;
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
-		if ( ! self::is_request_command( $type, $ts, $value ) ) {
+		if ( ! self::is_signable( $type, $ts, $value ) ) {
 			return self::refuse( $interpreter, $message, 'verification failed: wrong type', null );
 		}
 		$ts   = (int) $ts; // Second granularity: sign/verify truncate alike.
@@ -977,11 +990,11 @@ class Command_Auth {
 	}
 
 	/**
-	 * True when a Message is a signable request command: TM_COMMAND without
-	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
-	 * VALUE. Stamping and verification share this ONE predicate so the signer
-	 * and the verifier agree on what is signable at all. TYPE gates that
-	 * decision but is not itself signed.
+	 * True when a Message is a signable request command:
+	 * `Message::is_request_command()` over its TYPE, a numeric TIMESTAMP and
+	 * an array VALUE. Stamping and verification share this ONE predicate so
+	 * the signer and the verifier agree on what is signable at all. TYPE
+	 * gates that decision but is not itself signed.
 	 *
 	 * The decision reads the TYPE bits, never a `name` key in VALUE: a command
 	 * whose VALUE carries no name still signs and verifies, and a non-command
@@ -995,11 +1008,7 @@ class Command_Auth {
 	 * @phpstan-assert-if-true int|float|numeric-string $ts
 	 * @phpstan-assert-if-true array<array-key,mixed> $value
 	 */
-	private static function is_request_command( $type, $ts, $value ): bool {
-		return \is_integer( $type )
-			&& ( $type & Message::TM_COMMAND )
-			&& ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
-			&& \is_numeric( $ts )
-			&& \is_array( $value );
+	private static function is_signable( $type, $ts, $value ): bool {
+		return Message::is_request_command( $type ) && \is_numeric( $ts ) && \is_array( $value );
 	}
 }

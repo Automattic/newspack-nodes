@@ -182,6 +182,75 @@ class McpDoorTest extends TestCase {
 		}
 	}
 
+	/**
+	 * A command declaring a WordPress capability is the browser editors'
+	 * alone: no MCP door lists it or runs it, whatever the session's scope
+	 * and whatever its user holds.
+	 */
+	public function test_no_mcp_door_lists_a_wp_command(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true, 'edit_posts' => true ];
+		$ci = new class() extends \Newspack_Nodes\Service_CI_Node {
+			public static function node_schema(): array {
+				return [
+					'category'    => 'Service',
+					'description' => 'wp: capability MCP double',
+					'arguments'   => [],
+					'commands'    => [
+						[
+							'name'        => 'scribble',
+							'capability'  => 'wp:edit_posts',
+							'description' => 'Answer `scribbled`.',
+							'args'        => [],
+							'handler'     => static fn (): string => 'scribbled',
+						],
+					],
+				];
+			}
+		};
+		$door = new class( self::ALPHA, $ci::class ) extends Fixture_Mcp_Door {
+			public function __construct( string $ns, private string $ci ) {
+				parent::__construct( $ns );
+			}
+
+			protected function tools(): array {
+				return parent::tools() + [
+					'fixture_scribble' => [
+						'node'    => 'fixture-scribble',
+						'class'   => $this->ci,
+						'verb'    => 'scribble',
+						'summary' => 'Scribble.',
+						'args'    => [],
+					],
+				];
+			}
+		};
+
+		[ , $bearer ] = $this->session( Capabilities::MANAGE );
+		$door->check_permission( $this->request( [], $bearer ) );
+
+		$this->assertArrayNotHasKey( 'fixture_scribble', $this->listed( $door, $bearer ) );
+		$reply = $this->call( $door, $bearer, 'fixture_scribble', [] );
+		$this->assertSame( -32601, $reply['error']['code'] ?? null );
+	}
+
+	/**
+	 * A `none` session is a roleless user's dashboard key, and no MCP door
+	 * admits one: the door answers it as it answers a session it does not
+	 * know, so the doors reach no further than before a roleless user could
+	 * mint.
+	 */
+	public function test_a_none_session_is_refused_at_the_door(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+		[ , $bearer ] = $this->session( Capabilities::NONE );
+
+		$result = ( new Fixture_Mcp_Door( self::ALPHA ) )->check_permission( $this->request( [], $bearer ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'mcp_unauthorized', $result->get_error_code() );
+		$this->assertSame( 401, $result->get_error_data()['status'] );
+		$this->assertNull( Capabilities::$session_scope, 'a refused session installs no ceiling' );
+	}
+
 	/** tools/list tells the agent up front that nothing undeclared is taken. */
 	public function test_every_tool_schema_admits_its_declared_arguments_alone(): void {
 		[ $door, $bearer ] = $this->door( Capabilities::MANAGE );

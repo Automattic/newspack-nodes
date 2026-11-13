@@ -21,6 +21,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Rate_Limit;
 use Newspack_Nodes\Session_Store_Unavailable;
 use Newspack_Nodes\Sessions;
 
@@ -33,26 +34,52 @@ use Newspack_Nodes\Sessions;
 class Auth_Controller {
 
 	/**
-	 * Gate the request on the fleet site, then on the READ role. The fleet is
-	 * network-global — locks, IPC and logs carry no blog namespace — so a
-	 * subsite admin must not mint a session against the main site's fleet.
+	 * Default per-user budget of mints per RATE_LIMIT_WINDOW_S. A dashboard
+	 * mints once a page load and a hub once a session's life, so the cap
+	 * bounds the session rows a script can write, not normal use; the
+	 * `newspack_nodes/auth_rate_limit` filter raises it.
+	 */
+	public const RATE_LIMIT_BURST = 30;
+
+	/** Slot TTL, in seconds: each mint holds its slot for a minute. */
+	public const RATE_LIMIT_WINDOW_S = 60;
+
+	/**
+	 * Gate the request on the fleet site, then on a signed-in user, then on
+	 * the user's mint budget. The fleet is network-global — locks, IPC and
+	 * logs carry no blog namespace — so a subsite admin must not mint a
+	 * session against the main site's fleet.
 	 *
-	 * READ rather than MANAGE because a scope is a CEILING: a session minted by
-	 * a read-only user can only ever do read-only things whatever it asks for,
-	 * and `issue()` clamps the granted scope to match.
+	 * A login rather than a role because a scope is a CEILING: `issue()` clamps
+	 * the granted scope to the highest role the user holds, and to `none` for
+	 * a user holding no role, whose session then runs only the `wp:` commands
+	 * their own capabilities reach (ADR-26). Since any signed-in user may
+	 * mint, each mint claims one of the user's `auth:<user>` slots through
+	 * `Rate_Limit`, after the login so an anonymous flood spends none. A cache
+	 * that cannot meter admits the mint and warns through `admit_unmetered()`,
+	 * as `/command` does, because a dead memcached must not lock every editor
+	 * and dashboard out of a session.
 	 *
 	 * @param \WP_REST_Request $req Request; the gate reads nothing from it.
-	 * @return bool|\WP_Error True to proceed, false when the user holds none of the three roles, a 403 on a subsite.
+	 * @return bool|\WP_Error True to proceed, false with nobody signed in, a 403 on a subsite, a 429 over budget.
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
 		$gate = Bootstrap::fleet_gate();
 		if ( null !== $gate ) {
 			return $gate;
 		}
-		if ( ! Capabilities::can( Capabilities::READ ) ) {
+		$user = Core::current_user_id();
+		if ( 0 === $user ) {
 			return false;
 		}
-		return true;
+		/**
+		 * Tunable mints per RATE_LIMIT_WINDOW_S, clamped to 1 through
+		 * `Rate_Limit::MAX_BURST`. Defaults to RATE_LIMIT_BURST.
+		 *
+		 * @param int $burst Max `/auth` mints per user per window.
+		 */
+		$burst = Core::as_int( \apply_filters( 'newspack_nodes/auth_rate_limit', self::RATE_LIMIT_BURST ) );
+		return Rate_Limit::gate( '/auth', "auth:{$user}", $burst, self::RATE_LIMIT_WINDOW_S );
 	}
 
 	/**
@@ -69,10 +96,12 @@ class Auth_Controller {
 	 * the session shows up in that tab, and an empty one keeps it out of the
 	 * listing entirely.
 	 *
-	 * `highest_held()` returns null only for a user holding no role at all,
-	 * which `check_permission()` has already refused; answering 403 here keeps
-	 * the clamp and the refusal in one decision rather than trusting every
-	 * caller to gate first.
+	 * A user holding no role at all, for whom `highest_held()` answers null,
+	 * is issued an unlabelled `Capabilities::NONE` session, which covers no
+	 * role and runs only the `wp:` commands their own capabilities reach. A
+	 * labelled request from that user answers 403: a labelled session is a
+	 * hand-issued key, for a CLI, an MCP client or a hub's vault, which every
+	 * `wp:` command refuses, and every MCP door refuses a `none` session.
 	 *
 	 * A session the store cannot hold answers 503 `session_store_unavailable`,
 	 * because the fault lies with the server rather than the caller. The backend's
@@ -95,7 +124,7 @@ class Auth_Controller {
 			return new \WP_Error( 'invalid_scope', 'Unknown session scope.', [ 'status' => 400 ] );
 		}
 
-		$granted = Capabilities::highest_held( $requested );
+		$granted = Capabilities::highest_held( $requested ) ?? ( '' === $label ? Capabilities::NONE : null );
 		if ( null === $granted ) {
 			return new \WP_Error( 'invalid_scope', 'No capability to mint a session with.', [ 'status' => 403 ] );
 		}

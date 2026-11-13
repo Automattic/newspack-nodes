@@ -356,4 +356,21 @@ class SseStreamSessionTest extends TestCase {
 		}
 		return $events;
 	}
+
+	/**
+	 * The stream door is unchanged by a `wp:` declaration: a user whose
+	 * `/auth` session is `none` holds no READ, so the stream refuses them,
+	 * and a `none` ceiling refuses it even to a user who would otherwise hold
+	 * READ.
+	 */
+	public function test_the_stream_refuses_a_none_session(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'read' => true ];
+		$session = ( new \Newspack_Nodes\Rest\Auth_Controller() )->issue( new \WP_REST_Request() );
+		$this->assertSame( \Newspack_Nodes\Capabilities::NONE, $session['scope'] );
+		$this->assertFalse( ( new SSE_Out_Node() )->check_permission() );
+
+		$GLOBALS['_wp_test_current_user_can']           = [ 'manage_options' => true ];
+		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::NONE;
+		$this->assertFalse( ( new SSE_Out_Node() )->check_permission() );
+	}
 }

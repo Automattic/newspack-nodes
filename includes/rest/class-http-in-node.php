@@ -33,7 +33,6 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Capabilities;
-
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
@@ -79,6 +78,12 @@ class HTTP_In_Node extends Node {
 
 	/** Route within that namespace; the full path is `/newspack-nodes/v1/command`. */
 	public const ROUTE = '/command';
+
+	/** Why `door_refusal()` refuses a roleless caller anything else. */
+	private const COMMANDS_ALONE = 'a caller holding no role sends a bare command to an interpreter alone';
+
+	/** Why `door_refusal()` refuses a message bound past where the graph meant. */
+	private const UNROUTED = 'the door routes a command to an interpreter, or a message to a node this POST mounted';
 
 	/**
 	 * Whether this request's status line has been sent. `fill()` sets it as it
@@ -153,54 +158,52 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * Gate the request on the fleet site, then the READ role, then the per-user
-	 * rate limit. Capability is verified before the rate limit so an
+	 * Gate the request on the fleet site, then a signed-in user, then the
+	 * per-user rate limit. The login is checked before the rate limit so an
 	 * unauthenticated burst cannot spend a user's slots — the ordering
 	 * `Spawn_Controller` uses.
 	 *
-	 * The door demands the LEAST any command behind it needs, and authority is then
-	 * decided per command, by the role its schema declares, which `dispatch()`
-	 * holds MANAGE for a command that declares none (ADR-26). Demanding MANAGE
-	 * here would make the strictest command set the
-	 * privilege level of every caller, leaving the log aggregator holding an
-	 * administrator's application password to pull a read-only stream.
+	 * The door demands the LEAST any command behind it needs, and authority is
+	 * then decided per command by what its schema declares, which `dispatch()`
+	 * holds MANAGE for a command that declares none (ADR-26). A command may
+	 * declare a WordPress capability, which any signed-in user may hold, so
+	 * the least is a login; every role-declared command still refuses a
+	 * caller below its role. Demanding MANAGE here would make the strictest
+	 * command set the privilege level of every caller, leaving the log
+	 * aggregator holding an administrator's application password to pull a
+	 * read-only stream.
 	 *
 	 * @param \WP_REST_Request $req Request; the gate reads nothing from it.
-	 * @return bool|\WP_Error True to proceed, false without the READ role, a 403 off the fleet site, a 429 over budget.
+	 * @return bool|\WP_Error True to proceed, false with nobody signed in, a 403 off the fleet site, a 429 over budget.
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
 		$gate = Bootstrap::fleet_gate();
 		if ( null !== $gate ) {
 			return $gate;
 		}
-		if ( ! Capabilities::can( Capabilities::READ ) ) {
+		if ( 0 === Core::current_user_id() ) {
 			return false;
 		}
 		return $this->check_rate_limit();
 	}
 
 	/**
-	 * Per-user rate limit through `Rate_Limit`, keyed by user id. With no
-	 * shared cache to claim in, or one whose slot read fails, the door admits
-	 * and warns: every dashboard, Status poll and hub push rides `/command`,
-	 * and a dead memcached must not take all of them down with it.
+	 * Per-user rate limit through `Rate_Limit::gate()`, keyed by user id. With
+	 * no shared cache to claim in, or one whose slot read fails, the door
+	 * admits and warns: every dashboard, Status poll and hub push rides
+	 * `/command`, and a dead memcached must not take all of them down with it.
 	 *
 	 * @return true|\WP_Error True to proceed, a 429 over budget.
 	 */
-	private function check_rate_limit() {
+	private function check_rate_limit(): true|\WP_Error {
 		/**
 		 * Tunable budget per RATE_LIMIT_WINDOW_S, clamped to 1 through
 		 * `Rate_Limit::MAX_BURST`. Defaults to RATE_LIMIT_BURST.
 		 *
 		 * @param int $burst Max `/command` POSTs per user per window.
 		 */
-		$burst = \min( Rate_Limit::MAX_BURST, \max( 1, Core::as_int( \apply_filters( 'newspack_nodes/command_rate_limit', self::RATE_LIMIT_BURST ) ) ) );
-		return match ( Rate_Limit::claim( 'command:' . Core::current_user_id(), $burst, self::RATE_LIMIT_WINDOW_S ) ) {
-			Rate_Limit::ADMITTED    => true,
-			Rate_Limit::THROTTLED   => new \WP_Error( 'rate_limited', 'Too many /command requests; please slow down.', [ 'status' => 429 ] ),
-			// A dead cache must not take every dashboard and hub push with it.
-			Rate_Limit::UNAVAILABLE => Rate_Limit::admit_unmetered( '/command' ),
-		};
+		$burst = Core::as_int( \apply_filters( 'newspack_nodes/command_rate_limit', self::RATE_LIMIT_BURST ) );
+		return Rate_Limit::gate( '/command', 'command:' . Core::current_user_id(), $burst, self::RATE_LIMIT_WINDOW_S );
 	}
 
 	/**
@@ -210,6 +213,11 @@ class HTTP_In_Node extends Node {
 	 * client that sends `connect_worker_input` ahead of the command it enables
 	 * depends on that order holding. What it wrote into a Partition is flushed
 	 * before the status is decided, so a failed write never answers 202.
+	 *
+	 * Each message the door will not route (`door_refusal()`) is refused at
+	 * its turn, so a mount earlier in the batch opens the way for a message
+	 * after it, and answered with a refusal frame after the batch
+	 * (`boundary_refusal()`).
 	 *
 	 * The reply decides the status. A synchronous reply walks back to `fill()`,
 	 * which has already sent 200 or 401; when the request gets no synchronous
@@ -243,11 +251,12 @@ class HTTP_In_Node extends Node {
 
 		// Route the batch in order through the base interpreter (serial).
 		$out->reset();
-		$refused = [];
+		$refused  = [];
+		$roleless = null === Capabilities::highest_held();
 		foreach ( $messages as $message ) {
-			// Asked, not attempted: see boundary_refusal().
-			if ( ! self::can_stamp( $message, Node_Names::OUTPUT ) ) {
-				$refused[] = $message;
+			$reason = self::door_refusal( $message, $roleless );
+			if ( null !== $reason ) {
+				$refused[] = [ $message, $reason ];
 				continue;
 			}
 			$this->stamp_message( $message, Node_Names::OUTPUT );
@@ -256,9 +265,9 @@ class HTTP_In_Node extends Node {
 		}
 		self::flush_partitions();
 		// After the batch: the 401 latch must settle first.
-		foreach ( $refused as $message ) {
-			$this->drop_message( $message, 'path exceeded ' . Node::MAX_FROM_SIZE . ' bytes' );
-			$out->fill( self::boundary_refusal( $message ) );
+		foreach ( $refused as [ $message, $reason ] ) {
+			$this->drop_message( $message, $reason );
+			$out->fill( self::boundary_refusal( $message, $reason ) );
 		}
 
 		if ( ! $out->sent_headers ) {
@@ -286,8 +295,47 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
+	 * Why the door will not route $message, or null when it routes. The door
+	 * routes a message only where the request graph meant it to go
+	 * (ADR-23). For a caller holding a role that is:
+	 *
+	 * - a TO whose head names no node, an empty TO included, which only the
+	 *   bounce or the Router answers: the base interpreter bounces a TM_PING
+	 *   or TM_EOF and hands the rest to the Router, which answers
+	 *   NOT_AVAILABLE;
+	 * - a request command TO one interpreter by its bare name, which verifies
+	 *   the command and gates it on its declared role;
+	 * - any message TO a node a gated mount built in this POST
+	 *   (`Bootstrap::door_mounted()`), a worker's input or a Table, past
+	 *   whose head the worker or the mount answers for it.
+	 *
+	 * A request-scope node a mount did not build, such as a producer's own
+	 * Topic, and a path through an interpreter, which forwards unverified,
+	 * are refused. A caller holding no role may send a bare TM_COMMAND to an
+	 * interpreter or to a name holding nothing alone, since its `none`
+	 * session runs `wp:` commands alone. The path check is asked, not
+	 * attempted: see `boundary_refusal()`.
+	 *
+	 * @param array<int,mixed> $message  A posted message.
+	 * @param bool             $roleless Whether the caller holds no role.
+	 * @return string|null The refusal, as the frame's VALUE says it.
+	 */
+	private static function door_refusal( array $message, bool $roleless ): ?string {
+		$type            = $message[ Message::TYPE ];
+		[ $head, $rest ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
+		$named           = '' === $head ? null : Core::node( $head );
+		$to_ci           = '' === $rest && ( null === $named || $named instanceof Command_Interpreter_Node );
+		return match ( true ) {
+			! self::can_stamp( $message, Node_Names::OUTPUT ) => 'path exceeded ' . Node::MAX_FROM_SIZE . ' bytes',
+			$roleless => Message::TM_COMMAND === $type && $to_ci ? null : self::COMMANDS_ALONE,
+			null === $named, Message::is_request_command( $type ) && $to_ci, Bootstrap::door_mounted( $head ) => null,
+			default => self::UNROUTED,
+		};
+	}
+
+	/**
 	 * The reply a message refused AT the boundary gets, addressed back along the
-	 * FROM the client sent — unstamped, because stamping is what failed.
+	 * FROM the client sent — unstamped, because stamping may be what failed.
 	 *
 	 * Without it the batch answers as if it routed: `stamp_message()` warns to
 	 * stderr, the request-scope stderr sink writes that warning into `_output`,
@@ -300,20 +348,22 @@ class HTTP_In_Node extends Node {
 	 * decides the status on its first write, so a drop warned inside the loop
 	 * opened the response body and spent the status on 200 before a later
 	 * unauthorized command could raise the 401 latch. The latch is NOT raised
-	 * here — an overflowing path is not an auth failure, and a 401 makes
-	 * `HTTP_Out_Node` forget its session and re-handshake, which for a path the
-	 * client keeps sending is a loop.
+	 * here — neither an overflowing path nor an unroutable message is a
+	 * signature failure, and a 401 makes `HTTP_Out_Node` forget its
+	 * session and re-handshake, which for a message the client keeps sending
+	 * is a loop.
 	 *
 	 * @param array<int,mixed> $message The message the boundary refused.
+	 * @param string           $reason  Why, as the frame's VALUE says.
 	 * @return array<int,mixed> A TM_RESPONSE|TM_ERROR frame carrying its ID.
 	 */
-	private static function boundary_refusal( array $message ): array {
+	private static function boundary_refusal( array $message, string $reason ): array {
 		$r                   = Message::new_message();
 		$r[ Message::TYPE ]  = Message::TM_RESPONSE | Message::TM_ERROR;
 		$r[ Message::FROM ]  = Node_Names::OUTPUT;
 		$r[ Message::TO ]    = $message[ Message::FROM ];
 		$r[ Message::ID ]    = $message[ Message::ID ];
-		$r[ Message::VALUE ] = 'path exceeded ' . Node::MAX_FROM_SIZE . " bytes\n";
+		$r[ Message::VALUE ] = "{$reason}\n";
 		return $r;
 	}
 

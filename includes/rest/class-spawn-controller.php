@@ -244,12 +244,8 @@ class Spawn_Controller {
 			);
 		}
 
-		return match ( Rate_Limit::claim( 'spawn:' . Core::current_user_id(), 1, self::RATE_LIMIT_S ) ) {
-			Rate_Limit::ADMITTED    => true,
-			Rate_Limit::THROTTLED   => new \WP_Error( 'rate_limited', 'Too many spawn requests; please wait a moment.', [ 'status' => 429 ] ),
-			// Spawning revives the fleet; the throttle only stops hammering.
-			Rate_Limit::UNAVAILABLE => Rate_Limit::admit_unmetered( 'spawn' ),
-		};
+		// Spawning revives the fleet; a dead cache admits, unmetered.
+		return Rate_Limit::gate( 'spawn', 'spawn:' . Core::current_user_id(), 1, self::RATE_LIMIT_S );
 	}
 
 	/**

@@ -21,6 +21,12 @@
  * the read-only commands `READ_VERBS` lists, which answer READ. REST
  * permission callbacks call `can()`.
  *
+ * A command may declare a WordPress capability in place of a role,
+ * `'capability' => 'wp:edit_posts'`, for an editor who holds no role. The
+ * signed-in user's own `current_user_can()` decides it: no session ceiling
+ * and no `allowed_users` list narrows it, a worker refuses it for want of a
+ * user, and `can()` never admits it, so no MCP door lists one.
+ *
  * `$session_scope` is the second half: a scoped command session lowers the
  * CEILING for ONE command, which `Command_Interpreter_Node::interpret()`
  * restores around every dispatch. It can only subtract — the map still has to
@@ -29,9 +35,10 @@
  *
  * The operator's `allowed_users` list is the third half, and it narrows every
  * role rather than the admin menus alone: a login absent from a populated list
- * holds nothing, so `/command`, `/auth`, both SSE streams, the spawn endpoint's
- * external path and every gated command refuse it. It applies to an authenticated
- * actor only — see `allowed_by_operator_list()`.
+ * holds no role, so both SSE streams, the spawn endpoint's external path and
+ * every role-declared command refuse it, and `/auth` issues it a `none`
+ * session. It applies to an authenticated actor only — see
+ * `allowed_by_operator_list()`.
  *
  * Know what you grant: `read` is not just the shaped dashboards. It reaches
  * the RAW log firehose — request URLs, hooks, payloads — live on the SSE
@@ -66,9 +73,21 @@ class Capabilities {
 	public const NAME_PATTERN = '/^[a-z0-9_]+$/D';
 
 	/**
-	 * A scope covering nothing. Deliberately off the ladder: `Command_Auth`
-	 * installs it on every refused verification, so a command whose authority
-	 * never resolved cannot leave a wider ceiling standing behind it.
+	 * Opens a command's declared `capability` that names a WordPress
+	 * capability rather than a role: `wp:edit_posts`. The signed-in user's
+	 * own `current_user_can()` decides it, off the ladder, so no session
+	 * ceiling and no `allowed_users` list narrows it; it runs only under an
+	 * unlabelled session or none at all, so a labelled CLI, MCP or hub
+	 * session keeps the meaning of its ceiling (ADR-26).
+	 */
+	public const WP_PREFIX = 'wp:';
+
+	/**
+	 * A scope covering no role. Deliberately off the ladder: `/auth` issues it,
+	 * unlabelled, to a signed-in user holding none of the three roles, who may
+	 * then run only the `wp:` commands their own capabilities reach. A refused
+	 * verification installs `Command_Auth::UNVERIFIED` instead, a ceiling
+	 * that is never granted to a session.
 	 */
 	public const NONE = 'none';
 
@@ -92,7 +111,8 @@ class Capabilities {
 	 * Scope ceiling for the command being handled, or null for none.
 	 * `Command_Auth` writes all three states: the session's scope when a handle
 	 * resolves to a live session, null for the per-site secret because the
-	 * site's own authority carries no ceiling, and NONE on any refusal.
+	 * site's own authority carries no ceiling, and `Command_Auth::UNVERIFIED`
+	 * on any refusal.
 	 * `interpret()` restores what stood before, so one command's ceiling never
 	 * outlives it. A ceiling only subtracts; see the file docblock.
 	 *
@@ -124,31 +144,85 @@ class Capabilities {
 	 * carrying none — the site's own signature, a process's own line — runs at
 	 * MANAGE, the authority that loaded the topology.
 	 *
-	 * @param string $role One of READ|TUNE|MANAGE.
+	 * A `wp:<capability>` declaration is the signed-in user's own
+	 * `current_user_can()`, refused in a worker, which has no user, under a
+	 * labelled session and on an unverified command (`refusal()`).
+	 *
+	 * @param string $role One of READ|TUNE|MANAGE, or `wp:<capability>`.
 	 * @throws \RuntimeException When the role is refused.
-	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map does not name.
+	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map
+	 *                                   does not name, or through `wp_capability()`.
 	 */
 	public static function require_command( string $role ): void {
-		if ( ! self::command_holds( $role ) ) {
+		$denial = self::refusal( $role );
+		if ( null !== $denial ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new \RuntimeException( "permission denied: {$role} capability required" );
+			throw new \RuntimeException( "permission denied: {$denial}" );
 		}
 	}
 
 	/**
-	 * Whether the command being handled may run at $role: the logged-in
-	 * user's `can()`, else, in a worker, the session's ceiling alone, a
-	 * command carrying none running at MANAGE. `require_command()` refuses
-	 * on it, and `Core::caller_message()` asks it before it lets an engine
-	 * error's own words go back.
+	 * Whether the command being handled may run at $role, as `refusal()`
+	 * decides it. `require_command()` refuses on the same answer, and
+	 * `Core::caller_message()` asks it before it lets an engine error's own
+	 * words go back.
 	 *
-	 * @param string $role One of READ|TUNE|MANAGE.
-	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map does not name.
+	 * @param string $role One of READ|TUNE|MANAGE, or `wp:<capability>`.
+	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map
+	 *                                   does not name, or through `wp_capability()`.
 	 */
 	public static function command_holds( string $role ): bool {
-		return 0 !== Core::current_user_id()
-			? self::can( $role )
-			: self::scope_covers( self::$session_scope ?? self::MANAGE, $role );
+		return null === self::refusal( $role );
+	}
+
+	/**
+	 * Why the command being handled may not run at $role, or null when it
+	 * may. A role is the logged-in user's `can()`, else, in a worker, the
+	 * session's ceiling alone, a command carrying none running at MANAGE. A
+	 * `wp:` declaration needs a signed-in user, a verified command, an
+	 * unlabelled session or none — a labelled session is a hand-issued key,
+	 * for a CLI, an MCP client or a hub's vault, whose ceiling must keep
+	 * meaning what it says — and the user's own capability.
+	 *
+	 * @param string $role One of READ|TUNE|MANAGE, or `wp:<capability>`.
+	 * @return string|null The refusal, after `permission denied: `.
+	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map
+	 *                                   does not name, or through `wp_capability()`.
+	 */
+	private static function refusal( string $role ): ?string {
+		$cap  = self::wp_capability( $role );
+		$user = Core::current_user_id();
+		if ( null === $cap ) {
+			$holds = 0 !== $user ? self::can( $role ) : self::scope_covers( self::$session_scope ?? self::MANAGE, $role );
+			return $holds ? null : "{$role} capability required";
+		}
+		return match ( true ) {
+			0 === $user                                       => "{$cap} requires a signed-in user",
+			Command_Auth::UNVERIFIED === self::$session_scope => "{$cap} requires a verified command",
+			'' !== ( self::$session_label ?? '' )             => "{$cap} refuses a labelled session",
+			! \current_user_can( $cap )                       => "{$cap} capability required",
+			default                                           => null,
+		};
+	}
+
+	/**
+	 * The WordPress capability a `wp:` declaration names, or null for a role.
+	 *
+	 * @param string $role A declared `capability`.
+	 * @return string|null The capability after `wp:`, or null without the prefix.
+	 * @throws \InvalidArgumentException When the name after `wp:` is not a
+	 *                                   WordPress capability (`NAME_PATTERN`).
+	 */
+	private static function wp_capability( string $role ): ?string {
+		if ( ! \str_starts_with( $role, self::WP_PREFIX ) ) {
+			return null;
+		}
+		$cap = \substr( $role, \strlen( self::WP_PREFIX ) );
+		if ( 1 !== \preg_match( self::NAME_PATTERN, $cap ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \InvalidArgumentException( "invalid WordPress capability: '{$cap}'" );
+		}
+		return $cap;
 	}
 
 	/**

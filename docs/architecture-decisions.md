@@ -938,7 +938,7 @@ aspiration. A labelled session `/auth` mints holds only `read` or `tune`
 mints may hold `manage`. The scope rides in the stored record, never in the envelope, so the holder of a
 key cannot restate it: `Command_Auth::check()` installs the verified scope as
 `Capabilities::$session_scope` for the command being handled, `verify()` slams it to
-`Capabilities::NONE` on every refusal, and `interpret()` restores whatever stood before,
+`Command_Auth::UNVERIFIED` on every refusal, and `interpret()` restores whatever stood before,
 without which a worker would sit at its first caller's ceiling for its whole ~595s life.
 A command signed under the per-site secret carries no handle and no ceiling: that is the site's
 own authority. In a worker, where there is no current user, the ceiling is the whole gate
@@ -1046,7 +1046,7 @@ changes neither. The wall clock still bounds each command: one whose turn comes
 queued in one batch never outlives its nonce claim, which the first verification takes for
 `NONCE_TTL_S` (150 s). One freshness test refuses all three, past `MAX_PAST_S` at arrival,
 more than `MAX_FUTURE_S` ahead, or 140 s at its turn, each as `timestamp out of range`
-through `verify()`, the one refusal exit, which leaves `Capabilities::NONE` standing.
+through `verify()`, the one refusal exit, which leaves `Command_Auth::UNVERIFIED` standing.
 
 **Amendment:** an OAuth grant is a fourth issuer
 ([ADR-36](#adr-36-oauth-issues-command-sessions)). The token endpoint mints an ordinary
@@ -1585,7 +1585,8 @@ default `authorize`, which `Command_Interpreter_Node::interpret()` calls for a T
 mutating request has to live somewhere else.
 
 **Decision:** From outside a worker, a request reaches the worker's nodes only through that
-worker's input Partition, and two things write there. `Bootstrap::register_worker_partition()`
+worker's input Partition — which holds because the `/command` door routes a message only
+where a gated mount put a node (see the amendment below) — and two things write there. `Bootstrap::register_worker_partition()`
 mounts it into a request graph, and every command reaching that call declares MANAGE:
 `topologies connect_worker_input`, by declaring no capability, which `dispatch()` holds at
 MANAGE ([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)), and
@@ -1651,6 +1652,46 @@ from another MANAGE holder by session scope is a command, because only a command
 the minter's session into the worker. A command may mount a Table only when every row it holds is data the command's declared role may already read, because for the rest of the POST any caller holding that role can `GET` any key through the mount; a Table holding more is mounted under MANAGE alone. A mounting command's output
 is not the bound: `HTTP_In` does not filter by message type, so a raw `GET` in the same POST names any
 key, including one the command never shows.
+
+**Amendment: the door admits any signed-in user (Chris, 2026-11-13).** `HTTP_In` demanded
+READ, so a non-command message reached the request graph only from a caller holding a role.
+Since a command may declare a WordPress capability
+([ADR-26](#adr-26-every-command-is-gated-by-the-role-its-schema-declares)), the door admits
+any signed-in user. A caller holding a role posts what they did before, and a request one
+sends is routed as any other: nothing in this decision rested on READ, because what a
+request reaches from outside a worker is what the request graph has mounted, the service
+CIs alone until a command in the same POST mounts a worker's input Partition or a Table,
+and every such command still declares MANAGE or the role whose reads the mount exposes.
+
+**Amendment: the door routes only where the graph meant (security review, 2026-11-13).**
+The premise that a request reaches a worker only through its mounted input Partition was
+false while the door routed by name alone: an interpreter verifies a command only when its
+TO is empty and forwards everything else to `_router` unverified, the Router delivers to
+any name `Core::$nodes_by_name` holds, and a request-scope producer registers nodes of its
+own there — event-logger-nodes' `Log_Manager` registers `_firehose:topic` in every logged
+request — so any caller the door admitted could write into a log a worker reads. Before
+`HTTP_In_Node::dispatch()` routes a message, `door_refusal()` now holds every caller to
+one rule:
+
+- any message whose TO's head names no node, an empty TO included, routes on, since only
+  the bounce or the Router answers it: the base interpreter bounces a TM_PING or TM_EOF, as the
+  REPL's `ping` expects, and hands the rest to the Router, which answers NOT_AVAILABLE, as a
+  worker `connect_worker_input` could not mount always has;
+- a request command (`Message::is_request_command()`) may go TO one bare name that holds
+  an interpreter, which verifies it and gates it on its declared role;
+- any other message, and a command whose TO runs past its head, may go only TO a node a
+  gated mount built in this POST: a worker's input Partition by
+  `Bootstrap::register_worker_partition()`, a Table by `Bootstrap::mount_table()`. Each
+  records what it built, and `Bootstrap::door_mounted()` is the one reader, which answers
+  for a name only while the node it built still stands under it;
+- a caller holding no role may send a request command whose TYPE is TM_COMMAND and nothing
+  else, to an interpreter, since its `none` session runs `wp:` commands alone.
+
+The door refuses the rest per message, at its turn in the batch, so a mount earlier in the
+POST opens the way for what follows it, and answers each with a `TM_RESPONSE|TM_ERROR`
+frame rather than the 401 that would make a client drop its session. A named node is
+therefore never reachable for being named; it is reachable for having been mounted, and
+no list of forbidden names has to keep up with the next request-scope node.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a command that
 mounts it under a lower role, a writer beside the attached cli and an application's WP-CLI
@@ -2076,7 +2117,11 @@ which answer READ. One function, `Capabilities::require_command()`, makes the de
 - where the process has no logged-in user — a worker, WP-CLI without `--user`, WP-Cron —
   `Capabilities::scope_covers( $session_scope ?? MANAGE, $role )`: the verified session's
   scope alone. A command carrying no ceiling, signed by the site's own secret or LOCAL to the
-  process, runs at MANAGE, the authority that loaded the topology.
+  process, runs at MANAGE, the authority that loaded the topology;
+- where the schema declares a WordPress capability, `wp:<capability>`, the signed-in user's own
+  `current_user_can( '<capability>' )` under an unlabelled session or none, which the
+  session's ceiling does not narrow; a worker, which has no current user, refuses it, and so
+  do a labelled session and an unverified command — see the amendment below.
 
 A handler never checks a role. A `:config` command that only reports declares `read` — a Table's
 `stats`, a dead-letter queue's `dl_list` and `dl_show` — and every other declares nothing. [`scripts/lint-contract.mjs`](../scripts/lint-contract.mjs)'s
@@ -2124,6 +2169,52 @@ MANAGE for every other. `capability_for()` reads it when a verb has no declarati
 ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), so the gate and the sender
 cannot disagree about which base commands only read. `READ_VERBS` stays private: the rule is
 the surface, never the list.
+
+**Amendment: a command may declare a WordPress capability (Chris, 2026-11-13).** The roles
+gated every command, so an editor who holds `edit_posts` and no role could reach no command,
+and an application whose editors write through the command channel — pyrobase's object
+editor, newspack-foundation's editor routes — had no way to admit them. A command's
+`capability` may now name a WordPress capability as `wp:<capability>`, such as
+`wp:edit_posts`, in place of a role:
+
+- `Capabilities::require_command()` admits it when a WordPress user is signed in, the
+  command verified, its session unlabelled or absent, and `current_user_can( '<capability>' )`
+  holds. Each refusal names its reason after `permission denied: <capability>`:
+  `requires a signed-in user` in a worker, which has no user; `requires a verified command`
+  under `Command_Auth::UNVERIFIED`, the ceiling a refused verification installs;
+  `refuses a labelled session`; and `capability required` for a user without it. A name after
+  `wp:` that `Capabilities::NAME_PATTERN` does not match throws.
+- A labelled session is refused because it is a hand-issued key — one kept in a CLI's
+  history, an MCP client or a hub's vault — none of which drives an editor, so its `read` or
+  `tune` ceiling keeps meaning "change nothing" or "tune only", for a `wp:` read as for a
+  write. A hub's own automatic session is unlabelled, as `HTTP_Out_Node` mints it. A `wp:`
+  command runs under an unlabelled session: a dashboard's `none`, or a role holder's.
+- Otherwise the session's ceiling does not apply, because the capability sits off the
+  ladder the ceiling is measured on, and neither does the operator's `allowed_users` list,
+  which narrows the substrate's own roles and leaves a WordPress capability to WordPress.
+- `Capabilities::NONE` is a scope a session is granted; a refused verification installs
+  `Command_Auth::UNVERIFIED` instead, so the two never compare equal, and `Command_Auth`'s
+  mint refuses a labelled `none` session, so the Sessions listing never meets one.
+- The `/command` door and `POST /auth` admit any signed-in user rather than demanding READ.
+  `/auth` issues a user holding no role an unlabelled session scoped `Capabilities::NONE`,
+  which covers no role, so every role-declared command, the READ base commands among them,
+  refuses it, and only the `wp:` commands that user's capabilities reach run under it. A
+  user holding a role gets the session they got before, and a `wp:` command still asks
+  their own capability. A labelled request from a user holding no role answers 403. The
+  fleet gate and `/command`'s per-user rate limit still stand in front of every caller, and
+  `/auth` meters each user's mints in `auth:<user>` slots through `Rate_Limit::gate()`,
+  the one gate `/command` and spawn meter through too, admitting a mint unmetered with a
+  warning when neither memcached nor APCu answers, so a dead memcached cannot lock editors
+  out.
+- A caller holding no role may post only a request command whose TYPE is TM_COMMAND and
+  nothing else, addressed to an interpreter; the door refuses the rest per message, as it
+  refuses any caller a message bound for a node that a gated mount did not build
+  ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)).
+- `Capabilities::can()` does not read the prefix, so the SSE streams, which still demand
+  READ, refuse a user holding no role, and no MCP door lists or runs a `wp:` command,
+  whatever the session's scope. Every MCP door refuses a `none` session as it refuses an
+  unknown one, so the doors reach exactly the users they reached before a roleless user
+  could mint.
 
 ---
 

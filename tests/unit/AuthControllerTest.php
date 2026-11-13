@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Rest\Auth_Controller;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
@@ -20,6 +21,8 @@ class AuthControllerTest extends TestCase {
 		Core::$memd      = new InMemoryMemcached();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$GLOBALS['_wp_test_is_multisite']     = false;
+		// A REST request carries a login; the gate refuses anonymous.
+		$GLOBALS['_wp_test_current_user_id'] = 4127;
 		$GLOBALS['_wp_test_is_main_site']     = true;
 	}
 
@@ -38,12 +41,14 @@ class AuthControllerTest extends TestCase {
 	 * signing key scoped to their own capabilities — manage, on a site that has
 	 * not filtered the map — and every signed command follows from it.
 	 */
-	public function test_an_administrator_the_allowlist_excludes_is_refused(): void {
+	public function test_an_administrator_the_allowlist_excludes_is_issued_no_role(): void {
 		\update_option( 'newspack_nodes_allowed_users', [ 'quill', 'mercator' ] );
 		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_current_user_id']    = 4471;
 		$GLOBALS['_wp_test_current_user_login'] = 'redshank';
 
-		$this->assertFalse( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
+		$this->assertTrue( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
+		$this->assertSame( Capabilities::NONE, ( new Auth_Controller() )->issue( new \WP_REST_Request() )['scope'] );
 	}
 
 	public function test_an_administrator_the_allowlist_names_is_permitted(): void {
@@ -97,10 +102,54 @@ class AuthControllerTest extends TestCase {
 		);
 	}
 
-	public function test_a_user_without_manage_options_is_refused(): void {
+	/** The gate asks for a login before any capability. */
+	public function test_anonymous_is_refused(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 0;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true, 'edit_posts' => true ];
+
+		$this->assertFalse( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
+	}
+
+	public function test_a_signed_in_user_without_a_role_is_permitted(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
 
-		$this->assertNotTrue( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
+		$this->assertTrue( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
+	}
+
+	/**
+	 * A user holding no substrate role gets a `none` session: it covers no
+	 * role on the ladder, so only a `wp:` command their own capability
+	 * reaches will run under it.
+	 */
+	public function test_auth_issues_none_scope_below_every_role(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'read' => true ];
+
+		$body = ( new Auth_Controller() )->issue( new \WP_REST_Request() );
+
+		$this->assertSame( Capabilities::NONE, $body['scope'] );
+		$this->assertSame( Capabilities::NONE, Command_Auth::load_session_record( $body['handle'] )['scope'] ?? null );
+		foreach ( [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ] as $role ) {
+			$this->assertFalse( Capabilities::scope_covers( $body['scope'], $role ), $role );
+		}
+	}
+
+	/** A labelled session is for a CLI, an MCP client or a hub, none of which a `none` scope serves. */
+	public function test_a_labelled_request_from_a_user_without_a_role_is_refused(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+
+		$result = ( new Auth_Controller() )->issue( $this->labelled( 'kea laptop' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 403, $result->get_error_data()['status'] );
+	}
+
+	private function labelled( string $label ): \WP_REST_Request {
+		$req = new \WP_REST_Request();
+		$req->set_param( 'label', $label );
+		return $req;
 	}
 
 	/**
@@ -123,5 +172,103 @@ class AuthControllerTest extends TestCase {
 		$keys = \array_keys( $body );
 		\sort( $keys );
 		return $keys;
+	}
+
+	// ── check_permission: the per-user mint budget ────────────────────────
+
+	/** How many of `$calls` mint gates admit, the cache's clock pinned. */
+	private function admitted_mints( int $calls ): int {
+		$admitted = 0;
+		for ( $i = 0; $i < $calls; $i++ ) {
+			if ( true === ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) ) {
+				++$admitted;
+			}
+		}
+		return $admitted;
+	}
+
+	/** Pin the cache's expiry clock, the window's only clock. */
+	private function pin_cache_clock(): void {
+		$memd        = new InMemoryMemcached();
+		$memd->clock = static fn (): int => 1_700_000_000;
+		Core::$memd  = $memd;
+	}
+
+	public function test_over_budget_mints_answer_429(): void {
+		$this->pin_cache_clock();
+		$GLOBALS['_wp_test_current_user_id'] = 6603;
+		\add_filter( 'newspack_nodes/auth_rate_limit', static fn (): int => 3 );
+
+		$this->assertSame( 3, $this->admitted_mints( 3 ) );
+		$result = ( new Auth_Controller() )->check_permission( new \WP_REST_Request() );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'rate_limited', $result->get_error_code() );
+		$this->assertSame( 429, $result->get_error_data()['status'] );
+	}
+
+	public function test_the_mint_budget_defaults_to_its_constant(): void {
+		$this->pin_cache_clock();
+		$GLOBALS['_wp_test_current_user_id'] = 6603;
+
+		$this->assertSame( Auth_Controller::RATE_LIMIT_BURST, $this->admitted_mints( Auth_Controller::RATE_LIMIT_BURST + 4 ) );
+	}
+
+	/** A mint holds its slot for the whole minute, and frees it once the minute ends. */
+	public function test_the_mint_window_holds_a_spent_budget_for_its_minute(): void {
+		$now         = 1_700_000_000;
+		$memd        = new InMemoryMemcached();
+		$memd->clock = static function () use ( &$now ): int {
+			return $now;
+		};
+		Core::$memd                          = $memd;
+		$GLOBALS['_wp_test_current_user_id'] = 6603;
+		\add_filter( 'newspack_nodes/auth_rate_limit', static fn (): int => 2 );
+		$this->assertSame( 2, $this->admitted_mints( 2 ) );
+
+		foreach ( [ 2, 58 ] as $at ) {
+			$now    = 1_700_000_000 + $at;
+			$result = ( new Auth_Controller() )->check_permission( new \WP_REST_Request() );
+			$this->assertInstanceOf( \WP_Error::class, $result, "still spent at +{$at} s" );
+			$this->assertSame( 429, $result->get_error_data()['status'] );
+		}
+
+		$now = 1_700_000_000 + 61;
+		$this->assertTrue( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ), 'admitted again at +61 s' );
+	}
+
+	public function test_the_mint_budget_is_per_user(): void {
+		$this->pin_cache_clock();
+		\add_filter( 'newspack_nodes/auth_rate_limit', static fn (): int => 2 );
+		$GLOBALS['_wp_test_current_user_id'] = 6603;
+		$this->admitted_mints( 3 );
+
+		$GLOBALS['_wp_test_current_user_id'] = 6604;
+		$this->assertSame( 2, $this->admitted_mints( 3 ) );
+	}
+
+	/** Anonymous is refused before the budget, so a flood spends no user's slots. */
+	public function test_anonymous_spends_no_mint_slot(): void {
+		$this->pin_cache_clock();
+		\add_filter( 'newspack_nodes/auth_rate_limit', static fn (): int => 2 );
+		$GLOBALS['_wp_test_current_user_id'] = 0;
+		$this->admitted_mints( 5 );
+
+		$GLOBALS['_wp_test_current_user_id'] = 6603;
+		$this->assertSame( 2, $this->admitted_mints( 3 ) );
+	}
+
+	/** A dead cache must not lock editors out, so the gate admits and warns. */
+	public function test_a_host_with_no_shared_cache_admits_mints_and_warns(): void {
+		Core::$memd                          = null;
+		$GLOBALS['_wp_test_current_user_id'] = 6603;
+		\add_filter( 'newspack_nodes/auth_rate_limit', static fn (): int => 2 );
+		$lines = [];
+		Core::set_stderr_handler( static function ( string $text ) use ( &$lines ): void {
+			$lines[] = $text;
+		} );
+
+		$this->assertSame( 5, $this->admitted_mints( 5 ) );
+		$this->assertNotEmpty( \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, '/auth rate limit unavailable' ) ) );
 	}
 }

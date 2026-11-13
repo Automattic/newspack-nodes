@@ -872,7 +872,7 @@ class CommandAuthSessionTest extends TestCase {
 		Capabilities::$session_scope = Capabilities::TUNE;
 
 		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
-		$this->assertSame( Capabilities::NONE, Capabilities::$session_scope );
+		$this->assertSame( Command_Auth::UNVERIFIED, Capabilities::$session_scope );
 	}
 
 	/** An empty grant or resource column binds nothing, as a hand mint's absence does. */

@@ -258,7 +258,9 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
     hands `add_menu_page()` so its own pages open to exactly the holders the
     substrate admits. The constants are wire-adjacent rather than internal:
     every `capability` in a consumer's `node_schema()['commands']` is one of
-    the three, and `Service_CI_Node` reads them out of the INSTALLED substrate.
+    the three, or `wp:<capability>` naming a WordPress capability
+    (`Capabilities::WP_PREFIX`), and `Service_CI_Node` reads them out of the
+    INSTALLED substrate.
     `can()` also applies the operator's `allowed_users` list, and returns false
     rather than throwing when the config behind that list will not load — a
     permission callback answers 403 instead of 500, and a `fill()` on the
@@ -267,7 +269,8 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
     `$session_scope` and the `NONE` constant go with them: code authenticating
     its own credential installs the session's scope as a ceiling for one
     request, as [`Mcp_Door::check_permission()`](../includes/class-mcp-door.php)
-    does, and NONE is what a refusal installs. `highest_held()`, `scope_covers()` and
+    does, and `NONE` is the scope `/auth` grants a user holding no role;
+    a refused verification installs `Command_Auth::UNVERIFIED` instead. `highest_held()`, `scope_covers()` and
     `operator_list_excludes()` belong to the substrate and stay outside this
     contract.
 13. **The MCP door.** [`Mcp_Door`](../includes/class-mcp-door.php)'s six

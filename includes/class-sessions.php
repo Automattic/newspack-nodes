@@ -126,7 +126,8 @@ class Sessions {
 	 * refusal, so every live key is listed.
 	 *
 	 * @param string $label Operator's name for the session.
-	 * @param string $scope Capability ceiling, one of `Capabilities::READ|TUNE|MANAGE`.
+	 * @param string $scope Capability ceiling, one of `Capabilities::READ|TUNE|MANAGE`,
+	 *                      or `Capabilities::NONE` with an empty label.
 	 * @param int    $ttl   Lifetime in seconds, taken as given.
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int} The mint, the one place the key is disclosed.
 	 * @throws Session_Store_Unavailable When the store will not open, refuses the row, or refuses the index.

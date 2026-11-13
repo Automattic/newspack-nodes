@@ -515,7 +515,7 @@ class Node {
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
 			$redacted = self::redact_secrets( $value );
 			$shown    = ( $type & Message::TM_COMMAND )
-				? self::command_summary( $redacted, 0 === ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) )
+				? self::command_summary( $redacted, Message::is_request_command( $type ) )
 				: $redacted;
 			$value_str = \is_array( $shown )
 				? (string) \wp_json_encode( $shown, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )

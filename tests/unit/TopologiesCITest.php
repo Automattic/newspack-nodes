@@ -141,6 +141,27 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:kea.p1' ) );
 		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:rook.p1' ), 'an included Table mounts too' );
+		$this->assertTrue( \Newspack_Nodes\Bootstrap::door_mounted( 'lab-7:kea.p1' ), 'the door may route to what the mount built' );
+	}
+
+	/**
+	 * The door routes a message only to what a gated mount built: a node
+	 * merely registered by name, or a mounted node replaced under the same
+	 * name, is not on the record.
+	 */
+	public function test_only_a_gated_mount_puts_a_node_on_the_door_record(): void {
+		\mkdir( "{$this->base_dir}/locks/firehose-workers.p0.lock.d", 0755, true );
+		\mkdir( "{$this->base_dir}/ipc/firehose-workers.p0/input", 0755, true );
+		( new Topologies_CI_Node() )->dispatch( 'connect_worker_input', [ 'firehose-workers.p0' ] );
+		$this->assertTrue( \Newspack_Nodes\Bootstrap::door_mounted( 'firehose-workers.p0' ) );
+
+		$named = new \Newspack_Nodes\Partition_Node();
+		$named->name( 'kea:topic' );
+		$this->assertFalse( \Newspack_Nodes\Bootstrap::door_mounted( 'kea:topic' ) );
+
+		\Newspack_Nodes\Core::node( 'firehose-workers.p0' )->remove_node();
+		( new \Newspack_Nodes\Partition_Node() )->name( 'firehose-workers.p0' );
+		$this->assertFalse( \Newspack_Nodes\Bootstrap::door_mounted( 'firehose-workers.p0' ), 'a replacement under the mounted name is not the mount' );
 	}
 
 	public function test_mount_tables_leaves_a_row_table_unmounted(): void {

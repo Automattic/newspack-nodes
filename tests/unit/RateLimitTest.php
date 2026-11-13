@@ -180,4 +180,47 @@ class RateLimitTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		Rate_Limit::claim( self::NAME, self::BURST, 0 );
 	}
+
+	// ── gate(): one door's answer ─────────────────────────────────────────
+
+	/** A door is admitted within its budget and answers 429 past it. */
+	public function test_a_gate_admits_its_burst_then_answers_429(): void {
+		$this->memd->clock = static fn (): int => 1_700_000_000;
+		for ( $i = 0; $i < 3; $i++ ) {
+			$this->assertTrue( Rate_Limit::gate( 'probe-door', self::NAME, 3, self::WINDOW_S ) );
+		}
+
+		$refused = Rate_Limit::gate( 'probe-door', self::NAME, 3, self::WINDOW_S );
+
+		$this->assertInstanceOf( \WP_Error::class, $refused );
+		$this->assertSame( 'rate_limited', $refused->get_error_code() );
+		$this->assertSame( 'Too many probe-door requests; please slow down.', $refused->get_error_message() );
+		$this->assertSame( [ 'status' => 429 ], $refused->get_error_data() );
+	}
+
+	/** A burst a filter put out of range is clamped into it, never thrown. */
+	public function test_a_gate_clamps_its_burst(): void {
+		$this->memd->clock = static fn (): int => 1_700_000_000;
+		$this->assertTrue( Rate_Limit::gate( 'probe-door', self::NAME, -7, self::WINDOW_S ) );
+		$this->assertInstanceOf( \WP_Error::class, Rate_Limit::gate( 'probe-door', self::NAME, -7, self::WINDOW_S ), 'a burst below 1 is 1' );
+
+		$admitted = 0;
+		for ( $i = 0; $i < Rate_Limit::MAX_BURST + 3; $i++ ) {
+			$admitted += true === Rate_Limit::gate( 'probe-door', 'probe:7731', 9000, self::WINDOW_S ) ? 1 : 0;
+		}
+		$this->assertSame( Rate_Limit::MAX_BURST, $admitted, 'a burst above the ceiling is the ceiling' );
+	}
+
+	/** A dead cache admits the door unmetered and warns, rather than refusing it. */
+	public function test_a_gate_admits_unmetered_when_no_cache_answers(): void {
+		Core::$memd = null;
+		$lines      = [];
+		Core::set_stderr_handler( static function ( string $text ) use ( &$lines ): void {
+			$lines[] = $text;
+		} );
+
+		$this->assertTrue( Rate_Limit::gate( 'gate-door', self::NAME, 1, self::WINDOW_S ) );
+		$this->assertTrue( Rate_Limit::gate( 'gate-door', self::NAME, 1, self::WINDOW_S ) );
+		$this->assertCount( 1, \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'gate-door rate limit unavailable' ) ) );
+	}
 }

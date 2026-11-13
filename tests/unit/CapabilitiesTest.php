@@ -235,4 +235,123 @@ class CapabilitiesTest extends TestCase {
 
 		Capabilities::label( Capabilities::NONE );
 	}
+
+	// ---- a command may declare a WordPress capability ----
+
+	/**
+	 * A `wp:` declaration names a WordPress capability, which the user's own
+	 * `current_user_can()` decides; a `none` session's ceiling does not
+	 * subtract it, because it sits off the substrate's ladder.
+	 */
+	public function test_a_wp_capability_is_held_by_a_signed_in_user_holding_it(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'read' => true ];
+		Capabilities::$session_scope          = Capabilities::NONE;
+
+		$this->assertTrue( Capabilities::command_holds( 'wp:edit_posts' ) );
+		Capabilities::require_command( 'wp:edit_posts' );
+	}
+
+	public function test_a_wp_capability_refuses_a_user_without_it(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'read' => true, 'manage_options' => true ];
+
+		$this->assertFalse( Capabilities::command_holds( 'wp:edit_posts' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'permission denied: edit_posts capability required' );
+		Capabilities::require_command( 'wp:edit_posts' );
+	}
+
+	/** A worker has no user to ask, and no session ceiling stands in for one. */
+	public function test_a_wp_capability_in_a_worker_is_refused(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 0;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+		Capabilities::$session_scope          = null;
+
+		$this->assertFalse( Capabilities::command_holds( 'wp:edit_posts' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'permission denied: edit_posts requires a signed-in user' );
+		Capabilities::require_command( 'wp:edit_posts' );
+	}
+
+	/**
+	 * `allowed_users` narrows the substrate's three roles; a WordPress
+	 * capability is WordPress's to grant, so the list leaves it alone.
+	 */
+	public function test_the_allowlist_does_not_narrow_a_wp_capability(): void {
+		$this->seed_allowlist( [ 'quill', 'mercator' ], 'redshank' );
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'manage_options' => true ];
+
+		$this->assertTrue( Capabilities::command_holds( 'wp:edit_posts' ) );
+		$this->assertFalse( Capabilities::command_holds( Capabilities::READ ) );
+	}
+
+	public function test_a_malformed_wp_capability_throws(): void {
+		$GLOBALS['_wp_test_current_user_id'] = 6603;
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "invalid WordPress capability: 'Edit Posts'" );
+		Capabilities::command_holds( 'wp:Edit Posts' );
+	}
+
+	/** A `none` session holds no role, whatever its user could otherwise do. */
+	public function test_a_none_session_holds_no_role(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		Capabilities::$session_scope          = Capabilities::NONE;
+
+		foreach ( [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ] as $role ) {
+			$this->assertFalse( Capabilities::command_holds( $role ), $role );
+		}
+	}
+
+	/**
+	 * `can()` stays the role gate every REST callback and MCP listing asks;
+	 * a `wp:` declaration is not a role, so it answers no under a ceiling.
+	 */
+	public function test_can_does_not_admit_a_wp_capability_under_a_ceiling(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'manage_options' => true ];
+		Capabilities::$session_scope          = Capabilities::MANAGE;
+
+		$this->assertFalse( Capabilities::can( 'wp:edit_posts' ) );
+	}
+
+	/**
+	 * A labelled session serves a CLI, an MCP client or a hub, so its `read`
+	 * or `tune` ceiling keeps its meaning: a `wp:` command refuses it, read or
+	 * write, whatever its user holds.
+	 */
+	public function test_a_wp_capability_refuses_a_labelled_session(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'manage_options' => true ];
+		Capabilities::$session_scope          = Capabilities::READ;
+		Capabilities::$session_label          = 'kea cli';
+
+		$this->assertFalse( Capabilities::command_holds( 'wp:edit_posts' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'permission denied: edit_posts refuses a labelled session' );
+		Capabilities::require_command( 'wp:edit_posts' );
+	}
+
+	/** A role holder's unlabelled dashboard session runs a `wp:` command it holds. */
+	public function test_an_unlabelled_role_session_runs_a_wp_command(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'manage_options' => true ];
+		Capabilities::$session_scope          = Capabilities::MANAGE;
+		Capabilities::$session_label          = '';
+
+		$this->assertTrue( Capabilities::command_holds( 'wp:edit_posts' ) );
+	}
+
+	public function test_a_wp_capability_refuses_an_unverified_command(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 6603;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
+		Capabilities::$session_scope          = \Newspack_Nodes\Command_Auth::UNVERIFIED;
+
+		$this->assertFalse( Capabilities::command_holds( 'wp:edit_posts' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'permission denied: edit_posts requires a verified command' );
+		Capabilities::require_command( 'wp:edit_posts' );
+	}
 }

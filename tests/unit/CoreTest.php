@@ -793,9 +793,9 @@ class CoreTest extends TestCase {
 
 	/** A 429 the endpoint's own throttle did not send — a proxy, a WAF, a rate limit — is a failure. */
 	public function test_a_429_from_anything_but_the_spawn_throttle_is_failed(): void {
-		$this->endpoint_answers( 429, '{"code":"rate_limited","message":"Too many spawn requests; please wait a moment.","data":{"status":429}}' );
+		$this->endpoint_answers( 429, '{"code":"rate_limited","message":"Too many spawn requests; please slow down.","data":{"status":429}}' );
 		$this->assertSame(
-			[ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 429: Too many spawn requests; please wait a moment.' ],
+			[ 'outcome' => Core::POST_FAILED, 'message' => 'HTTP 429: Too many spawn requests; please slow down.' ],
 			Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'kea', 'partition' => 4 ], 'coordinator' )
 		);
 

@@ -49,6 +49,43 @@ final class Rate_Limit {
 	private function __construct() {}
 
 	/**
+	 * A door's whole answer to one call: claim one of `$burst` slots under
+	 * `$name`, the burst clamped to 1..MAX_BURST so a filter cannot throw it
+	 * out of range, and answer true when admitted, a 429 `rate_limited`
+	 * naming `$door` when throttled, and true through `admit_unmetered()`
+	 * when neither memcached nor APCu answers, for a door whose loss costs
+	 * more than an unmetered call. A door that must refuse an unmetered call asks
+	 * `claim()` instead, as the MCP doors and OAuth do.
+	 *
+	 * @param string $door     The door, as the 429 and the warning name it.
+	 * @param string $name     Caller-scoped slot name, e.g. `command:7`.
+	 * @param int    $burst    Calls admitted per window, before the clamp.
+	 * @param int    $window_s Slot TTL in seconds, at least 1.
+	 * @return true|\WP_Error True to proceed, a 429 over budget.
+	 * @throws \InvalidArgumentException Through `claim()`, on a window below 1
+	 *                                   or whitespace in the name.
+	 */
+	public static function gate( string $door, string $name, int $burst, int $window_s ): true|\WP_Error {
+		return match ( self::claim( $name, \min( self::MAX_BURST, \max( 1, $burst ) ), $window_s ) ) {
+			self::ADMITTED    => true,
+			self::THROTTLED   => new \WP_Error( 'rate_limited', "Too many {$door} requests; please slow down.", [ 'status' => 429 ] ),
+			self::UNAVAILABLE => self::admit_unmetered( $door ),
+		};
+	}
+
+	/**
+	 * Admit a call that a shared cache could not meter, saying so once a log
+	 * window per door. For a door whose loss costs more than an unmetered call.
+	 *
+	 * @param string $door The door, as the warning names it.
+	 * @return true
+	 */
+	public static function admit_unmetered( string $door ): true {
+		Core::print_less_often( "Rate_Limit: {$door} rate limit unavailable (neither memcached nor APCu answered); admitting unmetered" );
+		return true;
+	}
+
+	/**
 	 * Claim one of `$burst` slots under `$name` for `$window_s` seconds.
 	 *
 	 * One `read_multi()` of the slots chooses which to try, and only the
@@ -91,17 +128,5 @@ final class Rate_Limit {
 			}
 		}
 		return self::THROTTLED;
-	}
-
-	/**
-	 * Admit a call that a shared cache could not meter, saying so once a log
-	 * window per door. For a door whose loss costs more than an unmetered call.
-	 *
-	 * @param string $door The door, as the warning names it.
-	 * @return true
-	 */
-	public static function admit_unmetered( string $door ): true {
-		Core::print_less_often( "Rate_Limit: {$door} rate limit unavailable (neither memcached nor APCu answered); admitting unmetered" );
-		return true;
 	}
 }

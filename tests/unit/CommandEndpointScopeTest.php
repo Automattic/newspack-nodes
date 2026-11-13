@@ -13,8 +13,9 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * The endpoint door and the base interpreter's roles.
  *
- * The door demands READ, the least any command needs, so a read- or tune-scoped
- * caller reaches the commands its role covers. The base interpreter's vocabulary
+ * The door demands a login, the least any command needs now that a command may
+ * declare a WordPress capability, so a read- or tune-scoped caller reaches the
+ * commands its role covers and a caller holding no role reaches none of them. The base interpreter's vocabulary
  * builds and rewires the graph and declares no role, so `dispatch()` holds
  * every command of it at MANAGE but the read-only ones (ADR-26).
  */
@@ -44,6 +45,7 @@ class CommandEndpointScopeTest extends TestCase {
 
 	public function test_the_door_admits_a_read_only_caller(): void {
 		$this->relax_read();
+		$GLOBALS['_wp_test_current_user_id']  = 5813;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'manage_options' => false ];
 
 		Core::$memd = new InMemoryMemcached();
@@ -51,12 +53,16 @@ class CommandEndpointScopeTest extends TestCase {
 		$this->assertTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request() ) );
 	}
 
-	public function test_the_door_still_refuses_a_caller_holding_nothing(): void {
+	public function test_a_caller_holding_nothing_passes_the_door_and_holds_no_command(): void {
 		$this->relax_read();
+		$GLOBALS['_wp_test_current_user_id']  = 5813;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => false, 'manage_options' => false ];
 
-		$node = new HTTP_In_Node();
-		$this->assertFalse( $node->check_permission( new \WP_REST_Request() ) );
+		Core::$memd = new InMemoryMemcached();
+
+		$this->assertTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request() ) );
+		$e = $this->caught( fn () => ( new Command_Interpreter_Node() )->dispatch( 'ls' ), 'ls is READ' );
+		$this->assertSame( 'permission denied: read capability required', $e->getMessage() );
 	}
 
 	public function test_a_worker_interpreter_dispatches_without_a_user(): void {

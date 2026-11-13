@@ -376,4 +376,16 @@ class MessageTest extends TestCase {
 		$this->assertSame( [ '12345', '_output' ], Message::split_first( '12345/_output' ) );
 	}
 
+	/**
+	 * A request command is TM_COMMAND with neither TM_RESPONSE nor TM_ERROR,
+	 * whatever else it carries, and only an int TYPE is one.
+	 */
+	public function test_is_request_command_reads_the_type_bits(): void {
+		$this->assertTrue( \Newspack_Nodes\Message::is_request_command( \Newspack_Nodes\Message::TM_COMMAND ) );
+		$this->assertTrue( \Newspack_Nodes\Message::is_request_command( \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_NOREPLY ) );
+		$this->assertFalse( \Newspack_Nodes\Message::is_request_command( \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE ) );
+		$this->assertFalse( \Newspack_Nodes\Message::is_request_command( \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_ERROR ) );
+		$this->assertFalse( \Newspack_Nodes\Message::is_request_command( \Newspack_Nodes\Message::TM_REQUEST ) );
+		$this->assertFalse( \Newspack_Nodes\Message::is_request_command( '8' ) );
+	}
 }

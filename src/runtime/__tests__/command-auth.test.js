@@ -712,7 +712,7 @@ describe( 'an answered but unusable /auth', () => {
 } );
 
 /**
- * The one request-command predicate, PHP's is_request_command(): the signer
+ * The one signable-command predicate, PHP's `Command_Auth::is_signable()`: the signer
  * signs exactly these, and a forged TIMESTAMP PHP would not call numeric
  * leaves the command unsigned, as PHP's stamp() does.
  */

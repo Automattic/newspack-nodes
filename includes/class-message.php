@@ -296,6 +296,20 @@ class Message {
 	}
 
 	/**
+	 * Whether $type is a request command's: an int carrying TM_COMMAND and
+	 * neither TM_RESPONSE nor TM_ERROR, which mark a reply. The one reading
+	 * of those bits: the interpreter dispatches on it, `Command_Auth` signs
+	 * and verifies on it, and `HTTP_In_Node` narrows it for a roleless caller.
+	 *
+	 * @param mixed $type A raw Message TYPE.
+	 */
+	public static function is_request_command( mixed $type ): bool {
+		return \is_int( $type )
+			&& 0 !== ( $type & self::TM_COMMAND )
+			&& 0 === ( $type & ( self::TM_RESPONSE | self::TM_ERROR ) );
+	}
+
+	/**
 	 * Split a slash-delimited path into `[ first_segment, remainder ]`. The
 	 * remainder is `''` when there is no slash.
 	 *
