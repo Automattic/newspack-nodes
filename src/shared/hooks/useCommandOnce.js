@@ -126,7 +126,8 @@ const SUBJECT_MAX = 128;
  * @return {{run: (args: string[]) => void, abandon: () => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
  *   A screen serving many rows reads each answer through `onDone`, which
  *   names the subject it was about; what is returned here is the last one.
- * @throws {TypeError} On an option this hook does not take, or no group.
+ * @throws {TypeError} On an option this hook does not take, no group, or a
+ *   group, ci, command or scope other than the one its first render built.
  */
 export function useCommandOnce( {
 	command,
@@ -147,6 +148,16 @@ export function useCommandOnce( {
 				', '
 			) }`
 		);
+	}
+	// The Fetcher is built once, so a new identity needs a new mount.
+	const identity = { group, ci, command, scope };
+	const built = useRef( identity ).current;
+	for ( const [ name, value ] of Object.entries( identity ) ) {
+		if ( built[ name ] !== value ) {
+			throw new TypeError(
+				`useCommandOnce( { command: '${ built.command }' } ): ${ name } changed from '${ built[ name ] }' to '${ value }' after it was built; remount it under a React key`
+			);
+		}
 	}
 	const target = egressPath( group, ci );
 	const fetcher = `${ scope }:fetch`;

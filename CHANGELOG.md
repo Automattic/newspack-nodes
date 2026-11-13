@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`useCommandRead` and `useCommandWrite`, a page's reads and writes on the batched tick.** `@newspack-nodes/shared/hooks/useCommandRead` exports `useCommandRead( { group, ci, scope, command, args, retry } )`, which asks again whenever its arguments change and answers `{ answer, error, loading, stale, updatedAt, refresh }`, and `useCommandWrite( command, { group, ci, scope, refresh, onRefused, dirties } )`, which sends once per `run()` and answers `{ run, answer, refusal, answeredArgs, pending }`. Each group remembers its last 64 answers in the page, keyed `<verb>:<ci>:<args>`, so a read mounting again paints its last answer at once, marked stale, while it asks afresh, and two CIs answering one verb never paint each other's answer. A landed write forgets its group's answers under each prefix it `dirties` and re-reads every mounted read so keyed: `<verb>:` reaches that verb from every CI, and `<verb>:<ci>:` from one. A refusal forgets the answer it would have replaced. Nothing reaches browser storage. Either hook throws a `TypeError` naming an option it does not take. `commandArgs()` names each value given as `--key=value`, and `refusalOfSend()` answers the refusal a write's own send drew.
+
+### Changed
+
+- **`useCommandOnce` refuses a new identity on a mounted hook.** A `group`, `ci`, `command` or `scope` other than the one its first render built its Fetcher under throws a `TypeError` naming the option and both values; remount the component under a React `key` instead. Such a hook used to go quiet: `run()` found no Fetcher under the new names and sent nothing.
+
 ## [2.156.1] - 2026-11-13
 
 ### Fixed

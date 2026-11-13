@@ -164,6 +164,29 @@ describe( 'useCommandOnce', () => {
 		).toThrow( /group/ );
 	} );
 
+	// The Fetcher is built once, under the names its first render gave it.
+	it.each( [
+		[ 'group', { group: 'kea-7809' } ],
+		[ 'ci', { ci: 'tui-7805' } ],
+		[ 'command', { command: 'restore' } ],
+		[ 'scope', { scope: 'kea-7810-save' } ],
+	] )( 'refuses a %s changed after it was built', ( name, changed ) => {
+		jest.spyOn( console, 'error' ).mockImplementation( () => {} );
+		const built = {
+			group: GROUP,
+			ci: 'weka-7804',
+			command: 'save',
+			scope: 'kea-7808-save',
+		};
+		const { rerender } = renderHook( ( props ) => useCommandOnce( props ), {
+			initialProps: built,
+		} );
+		rerender( { ...built } );
+		expect( () => rerender( { ...built, ...changed } ) ).toThrow(
+			new RegExp( `${ name } changed .*React key` )
+		);
+	} );
+
 	it( "sends through its group's Tap, which stands while it is mounted", async () => {
 		const { result, unmount } = renderSave();
 		await act( async () => {} );
