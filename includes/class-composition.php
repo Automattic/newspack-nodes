@@ -130,6 +130,37 @@ final class Composition {
 	}
 
 	/**
+	 * Load the layout editor of the page `?edit=` names: register `$handle`
+	 * from the build dir's `layout-editor.js` and `.asset.php`, hand it to
+	 * `editor()`, and enqueue the build's `layout-editor.css` once it loads.
+	 * A page `$pages` does not list, and an unbuilt bundle, load nothing.
+	 *
+	 * @param array<string,string> $pages     Page slug => context.
+	 * @param string               $handle    The editor bundle's script handle.
+	 * @param string               $build_dir The build directory.
+	 * @param string               $build_url The build directory's URL.
+	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
+	 * @return bool What `editor()` answered, false when nothing was asked of it.
+	 */
+	public static function enqueue_editor( array $pages, string $handle, string $build_dir, string $build_url ): bool {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- names which page's editor to load; the editor's writes are command-gated.
+		$edit = isset( $_GET['edit'] ) && \is_string( $_GET['edit'] ) ? \sanitize_text_field( \wp_unslash( $_GET['edit'] ) ) : '';
+		if ( ! \array_key_exists( $edit, $pages ) || ! \file_exists( "{$build_dir}/layout-editor.js" ) ) {
+			return false;
+		}
+		$asset   = Core::arr( require "{$build_dir}/layout-editor.asset.php" );
+		$deps    = \array_map( Core::as_string( ... ), \array_values( Core::arr( $asset['dependencies'] ) ) );
+		$version = Core::as_string( $asset['version'] );
+		\wp_register_script( $handle, "{$build_url}/layout-editor.js", $deps, $version, true );
+		$loaded = self::editor( $pages[ $edit ], $handle );
+		if ( $loaded && \file_exists( "{$build_dir}/layout-editor.css" ) ) {
+			\wp_enqueue_style( $handle, "{$build_url}/layout-editor.css", [ 'wp-components', 'wp-block-editor' ], $version );
+			\wp_style_add_data( $handle, 'rtl', 'replace' );
+		}
+		return $loaded;
+	}
+
+	/**
 	 * Mount the editor for a `tune` caller: the block-editor canvas under
 	 * `$context`, the consumer's editor bundle `$handle`, and `schemas()`
 	 * localized on it as `EDITOR_GLOBAL`. Any other caller gets none of it.

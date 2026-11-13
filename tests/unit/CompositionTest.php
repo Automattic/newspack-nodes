@@ -26,6 +26,10 @@ final class CompositionTest extends TestCase {
 
 	private const EDITOR = 'acme-desk-editor';
 
+	private const PAGES = [ 'board' => self::BOARD ];
+
+	private const BUILD = __DIR__ . '/../fixtures/editor-build';
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->declare_acme_desk();
@@ -640,5 +644,123 @@ final class CompositionTest extends TestCase {
 		}
 		$this->assertArrayNotHasKey( 'wp-block-editor', $GLOBALS['_enqueued_scripts'] );
 		$this->assertSame( [], $GLOBALS['_localized_scripts'] );
+	}
+
+	/**
+	 * Run `$run` with `$_GET['edit']` set to `$edit`, `$_GET` restored after.
+	 *
+	 * @param string   $edit The `?edit=` value.
+	 * @param \Closure $run  What to run under it.
+	 */
+	private function with_edit( string $edit, \Closure $run ): void {
+		$before = $_GET;
+		try {
+			$_GET['edit'] = $edit;
+			$run();
+		} finally {
+			$_GET = $before;
+		}
+	}
+
+	public function test_enqueue_editor_loads_the_page_named_by_edit_for_tune(): void {
+		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
+		$this->with_edit(
+			'board',
+			function (): void {
+				$this->assertTrue( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD, 'https://x.test/b' ) );
+			}
+		);
+		$this->assertArrayHasKey( 'acme-fx-editor', $GLOBALS['_enqueued_scripts'] );
+		$registered = $GLOBALS['_registered_scripts']['acme-fx-editor'];
+		$this->assertSame( 'https://x.test/b/layout-editor.js', $registered['src'] );
+		$this->assertSame( [ 'wp-element', 'wp-blocks' ], $registered['deps'] );
+		$this->assertSame( 'fx-4417', $registered['version'] );
+		$this->assertSame( self::BOARD, $GLOBALS['_localized_scripts']['acme-fx-editor']['data']['context'] );
+		$style = $GLOBALS['_enqueued_styles']['acme-fx-editor'];
+		$this->assertSame( 'https://x.test/b/layout-editor.css', $style['src'] );
+		$this->assertSame( [ 'wp-components', 'wp-block-editor' ], $style['deps'] );
+		$this->assertSame( 'fx-4417', $style['version'] );
+		$this->assertSame( 'replace', $GLOBALS['_style_data']['acme-fx-editor']['rtl'] );
+	}
+
+	public function test_enqueue_editor_skips_a_stylesheet_the_build_lacks(): void {
+		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
+		unset( $GLOBALS['_enqueued_styles'] );
+		$this->with_edit(
+			'board',
+			function (): void {
+				$this->assertTrue( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD . '-bare', 'https://x.test/b' ) );
+			}
+		);
+		$this->assertArrayNotHasKey( 'acme-fx-editor', $GLOBALS['_enqueued_styles'] ?? [] );
+	}
+
+	public function test_enqueue_editor_ignores_an_edit_that_is_not_a_string(): void {
+		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
+		$before = $_GET;
+		try {
+			$_GET['edit'] = [ 'board' ];
+			$this->assertFalse( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD, 'https://x.test/b' ) );
+		} finally {
+			$_GET = $before;
+		}
+		$this->assertArrayNotHasKey( 'acme-fx-editor', $GLOBALS['_registered_scripts'] ?? [] );
+		$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
+	}
+
+	/** @return array<string,array{0:string}> */
+	public static function unclean_edits(): array {
+		return [
+			'trailing whitespace' => [ "board\n" ],
+			'slashed value'       => [ 'bo\\ard' ],
+		];
+	}
+
+	#[DataProvider( 'unclean_edits' )]
+	public function test_enqueue_editor_reads_edit_unslashed_and_sanitized( string $edit ): void {
+		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
+		$this->with_edit(
+			$edit,
+			function (): void {
+				$this->assertTrue( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD, 'https://x.test/b' ) );
+			}
+		);
+		$this->assertArrayHasKey( 'acme-fx-editor', $GLOBALS['_enqueued_scripts'] );
+	}
+
+	public function test_enqueue_editor_ignores_an_unknown_page(): void {
+		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
+		$this->with_edit(
+			'nope',
+			function (): void {
+				$this->assertFalse( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD, 'https://x.test/b' ) );
+			}
+		);
+		$this->assertArrayNotHasKey( 'acme-fx-editor', $GLOBALS['_registered_scripts'] ?? [] );
+		$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
+	}
+
+	public function test_enqueue_editor_loads_nothing_below_tune(): void {
+		$this->log_in( [ 'edit_posts' => true ] );
+		$this->with_edit(
+			'board',
+			function (): void {
+				$this->assertFalse( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD, 'https://x.test/b' ) );
+			}
+		);
+		$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
+		$this->assertSame( [], $GLOBALS['_localized_scripts'] );
+	}
+
+	public function test_enqueue_editor_loads_nothing_when_the_bundle_is_unbuilt(): void {
+		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
+		$this->with_edit(
+			'board',
+			function (): void {
+				$this->assertFalse( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD . '-missing', 'https://x.test/b' ) );
+			}
+		);
+		$this->assertArrayNotHasKey( 'acme-fx-editor', $GLOBALS['_registered_scripts'] ?? [] );
+		$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
 	}
 }

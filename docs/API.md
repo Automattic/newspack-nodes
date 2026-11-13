@@ -1166,6 +1166,14 @@ mounts the editor for a `tune` caller alone: it runs
 registered bundle `$handle` and localizes `Composition::schemas( $context )` on
 it as `NewspackNodesComposition`; for any other caller it does none of it and
 answers false.
+`Composition::enqueue_editor( $pages, $handle, $build_dir, $build_url )`
+loads the editor of the page `$_GET['edit']` names, `$pages` mapping each
+page slug to its context. A slug `$pages` does not list, or a
+build dir without `layout-editor.js`, answers false and loads nothing;
+otherwise it registers `$handle` from `layout-editor.js` with the
+dependencies and version of `layout-editor.asset.php`, calls `editor()`, and
+when that loads, enqueues `layout-editor.css` where the build holds one. It
+answers what `editor()` answered.
 
 The browser half lives in `@newspack-nodes/shared/composition/`, split so a
 reader's page loads no editor script. The reader half imports neither
