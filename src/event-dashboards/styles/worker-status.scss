@@ -247,8 +247,8 @@ $segment-fill-step: 0.3s;
 	}
 
 	&.processed {
-		// The skin's soft success tint, so the wide bars do not dominate.
-		background: var(--sage-subtle); // processed
+		// The track tinted toward success, so the wide bars do not dominate.
+		background: color-mix(in srgb, var(--sage) 40%, var(--paper-3));
 	}
 
 	&.pending {

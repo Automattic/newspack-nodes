@@ -3064,7 +3064,7 @@ describe( 'audited appearance', () => {
 		expect(
 			declarationsForSelector( workerStatus, '.segment-fill-h.processed' )
 				.background
-		).toBe( 'var(--sage-subtle)' );
+		).toBe( 'color-mix(in srgb, var(--sage) 40%, var(--paper-3))' );
 	} );
 
 	it( 'leaves every aggregator badge tone to the shared status badge', () => {

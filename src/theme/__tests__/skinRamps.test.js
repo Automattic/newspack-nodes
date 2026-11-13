@@ -2809,6 +2809,46 @@ describe( "CRT's data greens and the true-color variant", () => {
 		}
 	} );
 
+	it( 'sets a caught-up segment apart from its empty track in every skin', () => {
+		const sheet = postcssScss.parse(
+			fs.readFileSync(
+				path.join(
+					ROOT,
+					'src/event-dashboards/styles/worker-status.scss'
+				),
+				'utf8'
+			)
+		);
+		let fill;
+		sheet.walkRules( '&.processed', ( rule ) =>
+			rule.each( ( node ) => {
+				if ( 'decl' === node.type && 'background' === node.prop ) {
+					fill = node.value.replace( /\s*\/\/.*$/, '' );
+				}
+			} )
+		);
+		const faint = {};
+		for ( const slug of skinMaps.keys() ) {
+			const skin = effectiveSkin( slug );
+			const paper = resolvedColor( skin, '--paper' );
+			const track = renderedColor(
+				slug,
+				resolvedColor( skin, '--paper-3' ),
+				paper
+			);
+			const read = renderedColor(
+				slug,
+				resolveCssColor( fill, skin ),
+				track
+			);
+			const ratio = contrast( read, track );
+			if ( ratio < 1.3 ) {
+				faint[ slug ] = Number( ratio.toFixed( 2 ) );
+			}
+		}
+		expect( faint ).toEqual( {} );
+	} );
+
 	it( "paints a crossed backlog crt-color's Newspack red, CRT's own oxide", () => {
 		const sheet = postcssScss.parse(
 			fs.readFileSync(

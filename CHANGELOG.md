@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A caught-up reader's segments stand apart from the empty track again.** The read fill is the track tinted 40% toward the skin's success color, at least 1.3:1 against the track in every skin (1.86:1 on Newspack); the subtle success tint it replaced sat at 1.02 to 1.25:1 on the light skins. A skin test holds the ratio.
+
 ## [2.156.0] - 2026-11-13
 
 ### Changed
