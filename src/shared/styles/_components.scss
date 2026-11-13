@@ -236,6 +236,32 @@
 		border-block-end: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
+	// A composed section's header row: title and description, then actions.
+	.newspack-nodes-composed-section-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: $space-sm;
+		margin: 0 0 $space-sm;
+
+		h2 {
+			margin: 0;
+		}
+
+		// A description sits a short step under its title.
+		p {
+			margin: $space-xs 0 0;
+		}
+	}
+
+	.newspack-nodes-composed-section-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: $space-sm;
+	}
+
 	// Loading container
 	.newspack-nodes-performance-loading {
 		display: flex;
@@ -285,6 +311,45 @@
 		width: 40px;
 		height: 40px;
 		border-radius: 50%;
+	}
+
+	// Loading rows stack in a column, as the rows they stand for do.
+	.newspack-nodes-composed-skeleton-rows {
+		display: flex;
+		flex-direction: column;
+		gap: $space-lg;
+		margin: 0;
+		padding: 0;
+		list-style-type: none;
+
+		li p {
+			margin: $space-xs 0;
+		}
+	}
+
+	// A bar is one line tall and as wide as the part of a row it stands for.
+	.newspack-nodes-skeleton--title,
+	.newspack-nodes-skeleton--meta,
+	.newspack-nodes-skeleton--summary,
+	.newspack-nodes-skeleton--line {
+		display: inline-block;
+		height: 1em;
+	}
+
+	.newspack-nodes-skeleton--title {
+		width: 60%;
+	}
+
+	.newspack-nodes-skeleton--meta {
+		width: 35%;
+	}
+
+	.newspack-nodes-skeleton--summary {
+		width: 90%;
+	}
+
+	.newspack-nodes-skeleton--line {
+		width: 80%;
 	}
 
 	// Empty states
