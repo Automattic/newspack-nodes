@@ -96,6 +96,34 @@ final class CompositionStoreTest extends TestCase {
 		$this->assertSame( 1789000999.75, Composition_Store::read( self::BOARD )['saved_ts'] );
 	}
 
+	public function test_a_saved_layout_holds_a_shared_block_its_context_admits(): void {
+		$this->declare_acme_desk(
+			static function ( array $map ): array {
+				$map['acme-desk']['contexts'][ self::BOARD ]['admits'] = [ 'kea-7710/strip' ];
+				$map['kea-7710']                                       = [
+					'blocks'   => [
+						'kea-7710/strip' => [
+							'title'      => 'Strip',
+							'shared'     => true,
+							'attributes' => [ 'hue' => [ 'type' => 'string', 'default' => 'teal' ] ],
+						],
+					],
+					'contexts' => [],
+				];
+				return $map;
+			}
+		);
+
+		$saved = Composition_Store::save( self::BOARD, '<!-- wp:kea-7710/strip {"hue":"plum"} /-->' );
+		$read  = Composition_Store::read( self::BOARD );
+
+		$this->assertSame( [ 'kea-7710/strip' ], \array_column( $read['blocks'], 'name' ) );
+		$this->assertSame( [ 'hue' => 'plum' ], $read['blocks'][0]['attributes'] );
+		$this->assertSame( $saved, $read );
+		$this->assertSame( '<!-- wp:kea-7710/strip {"hue":"plum"} /-->', self::stored()['markup'] );
+		$this->assertContains( 'kea-7710/strip', $this->checked );
+	}
+
 	public function test_save_answers_what_read_answers(): void {
 		$saved = Composition_Store::save( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"desk-q2"} /-->' );
 

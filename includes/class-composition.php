@@ -12,12 +12,16 @@
  *    => JSON schema with a default }, container?: bool, multiple?: bool }`.
  *    A `container` holds blocks and stands only at the top level;
  *    `multiple: false` lets the block stand once, as block.json's
- *    `supports.multiple` does.
+ *    `supports.multiple` does. `shared: true` takes the place of `contexts`:
+ *    a shared block does not stand on any context of its own, only on those that
+ *    admit it, from any namespace.
  *  - `contexts`: name => `{ default: string, max_blocks: int, check?:
- *    \Closure }`, `default` the absolute path of the consumer's markup file
- *    and `check( string $block, array $attributes, string $context ): void`
- *    a refusal of what the shape cannot see, thrown as a
- *    `\RuntimeException` naming the block and the field.
+ *    \Closure, admits?: list<string> }`, `default` the absolute path of the
+ *    consumer's markup file, `admits` the shared blocks, by name, that stand
+ *    on the context beside its own, and `check( string $block, array
+ *    $attributes, string $context ): void` a refusal of what the shape
+ *    cannot see, thrown as a `\RuntimeException` naming the block and the
+ *    field.
  *
  * Every name sits under `<namespace>/`. A declaration that breaks a rule is
  * a consumer's bug, so it throws `\LogicException`, refusing the whole set;
@@ -33,8 +37,8 @@ namespace Newspack_Nodes;
 /**
  * The declared blocks and contexts, and the one validator of a layout.
  *
- * @phpstan-type Block array{title: string, contexts: list<string>, attributes: array<string,array<string,mixed>>, container: bool, multiple: bool}
- * @phpstan-type Context array{default: string, max_blocks: int, check: \Closure|null}
+ * @phpstan-type Block array{title: string, contexts: list<string>, shared: bool, attributes: array<string,array<string,mixed>>, container: bool, multiple: bool}
+ * @phpstan-type Context array{namespace: string, default: string, max_blocks: int, check: \Closure|null, admits: list<string>}
  * @phpstan-type Declarations array{blocks: array<string,Block>, contexts: array<string,Context>}
  * @phpstan-type Tree list<array{name: string, attributes: array<string,mixed>, inner: list<mixed>}>
  */
@@ -98,7 +102,7 @@ final class Composition {
 		$declared = self::context_of( $context );
 		self::fit( $context, $markup );
 		$singles = [];
-		$tree    = self::nodes( $context, \parse_blocks( $markup ), 0, $singles );
+		$tree    = self::nodes( $context, self::blocks_for( $context ), \parse_blocks( $markup ), 0, $singles );
 		$count   = \count( self::flatten( $tree ) );
 		if ( $count > $declared['max_blocks'] ) {
 			self::refuse( $context, "{$count} blocks, more than the {$declared['max_blocks']} it holds" );
@@ -127,13 +131,14 @@ final class Composition {
 	 * Turn parsed blocks into tree nodes, refusing the first that breaks a
 	 * shape rule. `$singles` carries the `multiple: false` names already seen.
 	 *
-	 * @param array<mixed>      $blocks  What `parse_blocks()` answered, at one depth.
-	 * @param int               $depth   0 at the top level.
-	 * @param array<string,true> $singles Seen single-standing names.
+	 * @param array<string,Block> $standing The blocks that stand on the context.
+	 * @param array<mixed>        $blocks   What `parse_blocks()` answered, at one depth.
+	 * @param int                 $depth    0 at the top level.
+	 * @param array<string,true>  $singles  Seen single-standing names.
 	 * @return Tree
 	 * @throws \RuntimeException On the first rule broken.
 	 */
-	private static function nodes( string $context, array $blocks, int $depth, array &$singles ): array {
+	private static function nodes( string $context, array $standing, array $blocks, int $depth, array &$singles ): array {
 		$declared = self::declarations()['blocks'];
 		$nodes    = [];
 		foreach ( $blocks as $block ) {
@@ -150,7 +155,7 @@ final class Composition {
 			if ( null === $spec ) {
 				self::refuse( $context, "{$name} is not a declared block" );
 			}
-			if ( ! \in_array( $context, $spec['contexts'], true ) ) {
+			if ( ! isset( $standing[ $name ] ) ) {
 				self::refuse( $context, "{$name} does not stand on {$context}" );
 			}
 			foreach ( Core::arr( $block['innerContent'] ?? [] ) as $chunk ) {
@@ -174,7 +179,7 @@ final class Composition {
 			$nodes[] = [
 				'name'       => $name,
 				'attributes' => self::attributes( $context, $name, $block['attrs'] ?? null, $spec['attributes'] ),
-				'inner'      => self::nodes( $context, $inner, $depth + 1, $singles ),
+				'inner'      => self::nodes( $context, $standing, $inner, $depth + 1, $singles ),
 			];
 		}
 		return $nodes;
@@ -300,21 +305,38 @@ final class Composition {
 	public static function schemas( string $context ): array {
 		$declared = self::context_of( $context );
 		$blocks   = [];
-		foreach ( self::declarations()['blocks'] as $name => $block ) {
-			if ( \in_array( $context, $block['contexts'], true ) ) {
-				$blocks[ $name ] = [
-					'title'      => $block['title'],
-					'attributes' => $block['attributes'],
-					'container'  => $block['container'],
-					'multiple'   => $block['multiple'],
-				];
-			}
+		foreach ( self::blocks_for( $context ) as $name => $block ) {
+			$blocks[ $name ] = [
+				'title'      => $block['title'],
+				'attributes' => $block['attributes'],
+				'container'  => $block['container'],
+				'multiple'   => $block['multiple'],
+			];
 		}
 		return [
 			'context'    => $context,
 			'max_blocks' => $declared['max_blocks'],
 			'blocks'     => $blocks,
 		];
+	}
+
+	/**
+	 * The blocks that stand on a context: those declaring it among their
+	 * `contexts`, and the shared blocks it admits.
+	 *
+	 * @param string $context A declared context.
+	 * @return array<string,Block>
+	 * @throws \LogicException When the context is not declared.
+	 */
+	public static function blocks_for( string $context ): array {
+		$admits = self::context_of( $context )['admits'];
+		$blocks = [];
+		foreach ( self::declarations()['blocks'] as $name => $block ) {
+			if ( \in_array( $context, $block['contexts'], true ) || \in_array( $name, $admits, true ) ) {
+				$blocks[ $name ] = $block;
+			}
+		}
+		return $blocks;
 	}
 
 	/**
@@ -410,6 +432,13 @@ final class Composition {
 				$out['blocks'][ $name ] = self::block( $namespace, $name, $block, $out['contexts'] );
 			}
 		}
+		foreach ( $out['contexts'] as $name => $context ) {
+			foreach ( $context['admits'] as $admitted ) {
+				if ( ! ( $out['blocks'][ $admitted ]['shared'] ?? false ) ) {
+					self::refuse_declaration( $context['namespace'], $name, "admits {$admitted}, which is not a shared block" );
+				}
+			}
+		}
 		return $out;
 	}
 
@@ -427,9 +456,20 @@ final class Composition {
 		if ( ! \is_string( $title ) || '' === $title ) {
 			self::refuse_declaration( $namespace, $name, 'declares no title' );
 		}
-		$on = $block['contexts'] ?? null;
-		if ( ! \is_array( $on ) || [] === $on || ! \array_is_list( $on ) ) {
-			self::refuse_declaration( $namespace, $name, 'declares no list of contexts' );
+		if ( isset( $block['shared'] ) && ! \is_bool( $block['shared'] ) ) {
+			self::refuse_declaration( $namespace, $name, 'declares a shared that is not a bool' );
+		}
+		$shared = true === ( $block['shared'] ?? false );
+		$on     = [];
+		if ( $shared ) {
+			if ( \array_key_exists( 'contexts', $block ) ) {
+				self::refuse_declaration( $namespace, $name, 'declares shared and contexts; a shared block stands where a context admits it' );
+			}
+		} else {
+			$on = $block['contexts'] ?? null;
+			if ( ! \is_array( $on ) || [] === $on || ! \array_is_list( $on ) ) {
+				self::refuse_declaration( $namespace, $name, 'declares no list of contexts' );
+			}
 		}
 		foreach ( $on as $context ) {
 			$context = Core::as_string( $context );
@@ -456,6 +496,7 @@ final class Composition {
 		return [
 			'title'      => $title,
 			'contexts'   => \array_map( Core::as_string( ... ), $on ),
+			'shared'     => $shared,
 			'attributes' => $schemas,
 			'container'  => true === ( $block['container'] ?? false ),
 			'multiple'   => false !== ( $block['multiple'] ?? true ),
@@ -508,10 +549,16 @@ final class Composition {
 		if ( null !== $check && ! $check instanceof \Closure ) {
 			self::refuse_declaration( $namespace, $name, 'declares a check that is not a closure' );
 		}
+		$admits = $context['admits'] ?? [];
+		if ( ! \is_array( $admits ) || ! \array_is_list( $admits ) || \array_filter( $admits, 'is_string' ) !== $admits ) {
+			self::refuse_declaration( $namespace, $name, 'declares an admits that is not a list of block names' );
+		}
 		return [
+			'namespace'  => $namespace,
 			'default'    => $default,
 			'max_blocks' => $max_blocks,
 			'check'      => $check,
+			'admits'     => $admits,
 		];
 	}
 

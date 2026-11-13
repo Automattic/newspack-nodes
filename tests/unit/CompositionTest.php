@@ -374,6 +374,124 @@ final class CompositionTest extends TestCase {
 		$this->assertTrue( Composition::schemas( self::BOARD )['blocks']['acme-desk/rail']['container'] );
 	}
 
+	/**
+	 * Declare `kea-7710`'s shared block `strip` and `weka-7711`'s context
+	 * `board`, which admits `$admits`.
+	 *
+	 * @param list<string>              $admits Block names the board admits.
+	 * @param (\Closure(array): array)|null $edit   Edits the shared block's declaration.
+	 */
+	private function declare_shared( array $admits, ?\Closure $edit = null ): void {
+		$strip = [
+			'title'      => 'Strip',
+			'shared'     => true,
+			'attributes' => [ 'hue' => [ 'type' => 'string', 'default' => 'teal' ] ],
+		];
+		$strip = null === $edit ? $strip : $edit( $strip );
+		\add_filter(
+			Composition::FILTER,
+			static fn ( array $declared ): array => $declared + [
+				'kea-7710'  => [
+					'blocks'   => [ 'kea-7710/strip' => $strip ],
+					'contexts' => [],
+				],
+				'weka-7711' => [
+					'blocks'   => [],
+					'contexts' => [
+						'weka-7711/board' => [
+							'default'    => self::fixture( 'digest' ),
+							'max_blocks' => 4,
+							'admits'     => $admits,
+						],
+					],
+				],
+			]
+		);
+		$this->forget_declarations();
+	}
+
+	public function test_a_context_admits_a_shared_block_from_another_namespace(): void {
+		$this->declare_shared( [ 'kea-7710/strip' ] );
+
+		$tree = Composition::validate( 'weka-7711/board', '<!-- wp:kea-7710/strip {"hue":"plum"} /-->' );
+
+		$this->assertSame( 'kea-7710/strip', $tree[0]['name'] );
+		$this->assertSame( [ 'hue' => 'plum' ], $tree[0]['attributes'] );
+		$this->assertSame( [ 'kea-7710/strip' ], \array_keys( Composition::blocks_for( 'weka-7711/board' ) ) );
+	}
+
+	public function test_an_unadmitted_shared_block_is_refused_on_a_context(): void {
+		$this->declare_shared( [] );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'kea-7710/strip does not stand on weka-7711/board' );
+		Composition::validate( 'weka-7711/board', '<!-- wp:kea-7710/strip /-->' );
+	}
+
+	public function test_admitting_an_undeclared_block_refuses_the_declarations(): void {
+		$this->declare_shared( [ 'kea-7710/ghost' ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'composition declaration weka-7711: weka-7711/board admits kea-7710/ghost, which is not a shared block' );
+		Composition::declarations();
+	}
+
+	public function test_admitting_a_block_that_is_not_shared_refuses_the_declarations(): void {
+		$this->declare_shared( [ 'acme-desk/tally' ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'weka-7711/board admits acme-desk/tally, which is not a shared block' );
+		Composition::declarations();
+	}
+
+	public function test_a_block_declaring_shared_and_contexts_is_refused(): void {
+		$this->declare_shared(
+			[],
+			static fn ( array $strip ): array => $strip + [ 'contexts' => [ 'kea-7710/board' ] ]
+		);
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'kea-7710/strip declares shared and contexts' );
+		Composition::declarations();
+	}
+
+	public function test_an_admits_that_is_not_a_list_of_names_is_refused(): void {
+		$this->declare_shared( [ 'strip' => 'kea-7710/strip' ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'weka-7711/board declares an admits that is not a list of block names' );
+		Composition::declarations();
+	}
+
+	public function test_a_shared_that_is_not_a_bool_is_refused(): void {
+		$this->declare_shared(
+			[],
+			static fn ( array $strip ): array => [ 'shared' => 'yes' ] + $strip
+		);
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'kea-7710/strip declares a shared that is not a bool' );
+		Composition::declarations();
+	}
+
+	public function test_schemas_carry_an_admitted_block(): void {
+		$this->declare_shared( [ 'kea-7710/strip' ] );
+
+		$blocks = Composition::schemas( 'weka-7711/board' )['blocks'];
+
+		$this->assertSame(
+			[
+				'kea-7710/strip' => [
+					'title'      => 'Strip',
+					'attributes' => [ 'hue' => [ 'type' => 'string', 'default' => 'teal' ] ],
+					'container'  => false,
+					'multiple'   => true,
+				],
+			],
+			$blocks
+		);
+	}
+
 	/** Log in a user holding `$caps`, `read` filtered onto `edit_posts`. */
 	private function log_in( array $caps ): void {
 		$GLOBALS['_enqueued_scripts']         = [];

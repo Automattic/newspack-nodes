@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A context admits shared blocks from other namespaces.** A block declaring `'shared' => true` in place of `contexts` stands on the contexts that name it in `'admits'`, so one namespace's block can compose on another's page. `Composition::blocks_for( $context )` answers a context's own blocks plus its admitted ones, and `validate()` and `schemas()` read it. A shared block that also declares `contexts`, a block declaring neither, an `admits` that is not a list of names, and an `admits` naming a block that is undeclared or not shared each refuse the declarations with a `\LogicException`.
+
 ## [2.154.2] - 2026-11-12
 
 ### Fixed
