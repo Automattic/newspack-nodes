@@ -17,11 +17,12 @@ import {
 	getBlockTypes,
 	unregisterBlockType,
 } from '@wordpress/blocks';
-import { Core } from '@newspack-nodes/runtime';
+import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { compositionEditor } from '../../editorRegistry';
 import { ASIDE, ComposedPage, useWriteControl } from '..';
 import { mountComposedEditor } from '../mountComposedEditor';
+import { registerSource, useSource } from '../../../sources';
 
 jest.mock( '@wordpress/block-editor', () => {
 	const pass = ( { children } ) => <div>{ children }</div>;
@@ -124,7 +125,48 @@ afterEach( () => {
 	getBlockTypes().forEach( ( { name } ) => unregisterBlockType( name ) );
 } );
 
+registerSource( 'kaka-7734', {
+	kind: 'command',
+	group: 'kaka-desk',
+	ci: 'roost-7734',
+	command: 'perch_count',
+	args: () => [],
+} );
+
+/**
+ * A preview reading the roost's perches through a source.
+ *
+ * @return {import('react').ReactElement} The preview.
+ */
+function SourcedPreview() {
+	const { loading } = useSource( 'kaka-7734' );
+	return (
+		<span data-testid="preview">
+			{ loading ? 'counting perches' : 'perches counted' }
+		</span>
+	);
+}
+
 describe( 'mountComposedEditor', () => {
+	it( 'serves a preview’s sources with no provider of the consumer’s own', async () => {
+		mountComposedEditor( LOCALIZED, VIEWS, {
+			heading: 'Edit the roost at Pier 7734',
+			wrap: ( children ) => (
+				<ComposedPage.Provider value={ PAGE }>
+					{ children }
+				</ComposedPage.Provider>
+			),
+			preview: SourcedPreview,
+		} );
+		const Editor = compositionEditor( CONTEXT );
+		render( <Editor onDone={ jest.fn() } onDirty={ jest.fn() } /> );
+
+		expect( screen.getByTestId( 'preview' ).textContent ).toBe(
+			'counting perches'
+		);
+		expect( await screen.findByText( 'perches counted' ) ).toBeTruthy();
+	} );
+
 	it( 'registers the localized blocks alone, the aside by AsideView', () => {
 		mountComposedEditor( LOCALIZED, VIEWS, { heading: 'Edit the roost' } );
 
@@ -235,5 +277,131 @@ describe( 'mountComposedEditor', () => {
 				heading: 'Edit the roost',
 			} )
 		).toThrow( 'kaka-7730/branch has no view' );
+	} );
+} );
+
+describe( 'a page’s source declarations across its two entries', () => {
+	const HIHI_CONTEXT = 'hihi-7841/canopy';
+
+	/** What `Composition::editor()` localizes for the canopy. */
+	const HIHI_LOCALIZED = {
+		context: HIHI_CONTEXT,
+		max_blocks: 4,
+		blocks: {
+			'hihi-7841/flock': {
+				title: 'Flock',
+				attributes: { tree: { type: 'string', default: '' } },
+				container: false,
+				multiple: true,
+			},
+		},
+		patterns: [],
+	};
+
+	/**
+	 * Load an entry as a bundle of its own: a module copy, with the React,
+	 * renderer and command wire that copy renders and posts through. Its
+	 * renderer registers its own cleanup, so it loads as the suite collects.
+	 *
+	 * @param {string} path The entry.
+	 * @return {Object} Its exports, `rtl` and `wire`.
+	 */
+	function loadEntry( path ) {
+		let entry;
+		jest.isolateModules( () => {
+			entry = {
+				...require( path ),
+				rtl: require( '@testing-library/react' ),
+				wire: require( '@newspack-nodes/shared/test-utils/fakeCommandWire' ),
+			};
+		} );
+		return entry;
+	}
+
+	const reader = loadEntry( './fixtures/hihiReaderEntry' );
+	const editor = loadEntry( './fixtures/hihiEditorEntry' );
+	const bare = loadEntry( './fixtures/hihiEditorEntryWithoutSources' );
+
+	/**
+	 * Answer a copy's commands: the flock's count, and the canopy's default.
+	 *
+	 * @param {Object} entry What `loadEntry()` answered.
+	 */
+	function answer( entry ) {
+		entry.wire.installFakeCommandWire( ( m ) =>
+			'flock' === m[ VALUE ].name
+				? { birds: 23 }
+				: {
+						context: HIHI_CONTEXT,
+						source: 'default',
+						blocks: [],
+						saved_ts: null,
+						actor: null,
+				  }
+		);
+	}
+
+	/**
+	 * Mount an entry's editor, previewing its flock block, and render it.
+	 *
+	 * @param {Object} entry What `loadEntry()` answered.
+	 */
+	function renderEditor( entry ) {
+		const { View } = entry.HIHI_VIEWS[ 'hihi-7841/flock' ];
+		entry.mountComposedEditor( HIHI_LOCALIZED, entry.HIHI_VIEWS, {
+			heading: 'Edit the canopy at Hihi 7841',
+			wrap: ( children ) => (
+				<entry.ComposedPage.Provider
+					value={ { ...PAGE, group: 'hihi-desk' } }
+				>
+					{ children }
+				</entry.ComposedPage.Provider>
+			),
+			preview: () => <View attributes={ { tree: 'rimu-7841' } } />,
+		} );
+		const Editor = entry.compositionEditor( HIHI_CONTEXT );
+		entry.rtl.render(
+			<Editor onDone={ jest.fn() } onDirty={ jest.fn() } />
+		);
+	}
+
+	it( 'serves a block’s source in the editor when both entries import the declarations', async () => {
+		answer( reader );
+		reader.rtl.render(
+			<reader.ComposedLayout
+				layout={ {
+					context: HIHI_CONTEXT,
+					blocks: [
+						{
+							name: 'hihi-7841/flock',
+							attributes: { tree: 'kanuka-7841' },
+							inner: [],
+						},
+					],
+				} }
+				views={ reader.HIHI_VIEWS }
+				page={ { ...PAGE, group: 'hihi-desk' } }
+			/>
+		);
+		expect(
+			await reader.rtl.screen.findByText( '23 birds in kanuka-7841' )
+		).toBeTruthy();
+		reader.rtl.cleanup();
+
+		answer( editor );
+		renderEditor( editor );
+
+		expect(
+			await editor.rtl.screen.findByText( '23 birds in rimu-7841' )
+		).toBeTruthy();
+	} );
+
+	it( 'refuses a block’s source in an editor entry that leaves the declarations to the reader', () => {
+		jest.spyOn( console, 'error' ).mockImplementation( () => {} );
+		answer( bare );
+
+		expect( () => renderEditor( bare ) ).toThrow(
+			"no source is declared as 'hihi-7841'"
+		);
 	} );
 } );

@@ -18,7 +18,7 @@
 import { createPortal, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { SearchControl } from '@wordpress/components';
-import { useLogTailStream } from './hooks/useLogTailStream';
+import { useLogTailStream } from '@newspack-nodes/shared/hooks/useLogTailStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';

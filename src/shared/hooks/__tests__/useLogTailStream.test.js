@@ -10,6 +10,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
+import { Node } from '../../../runtime/node';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -39,11 +40,20 @@ beforeEach( () => {
 import { useLogTailStream } from '../useLogTailStream';
 import { SEEK_START, SEEK_END } from '../../../runtime/sse-in-node';
 
+/** A view of the shape the tail mounts, handed over as a class (ADR-16). */
+class TailViewNode extends Node {
+	constructor() {
+		super();
+		this.controlFrom = '';
+	}
+	fill() {}
+}
+
 // Distinct from every shipped stream, so a hardcoded name cannot pass this.
 const STREAM = {
 	name: 'cachecozy',
 	subscribe: 'cachecozy.p0',
-	viewClass: 'TopicProbeView',
+	viewClass: TailViewNode,
 };
 
 describe( 'useLogTailStream', () => {

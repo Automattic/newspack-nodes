@@ -971,3 +971,63 @@ describe( 'mountExospine — the backbone outlives its owner', () => {
 		expect( Core.rebuildable ).toBe( false );
 	} );
 } );
+
+describe( 'mountExospine — a build that throws', () => {
+	/**
+	 * A build that registers a node, then throws, as a slice whose arguments
+	 * cannot be read does.
+	 *
+	 * @param {{interpreter: CommandInterpreterNode}} spine The backbone.
+	 */
+	const halfBuilt = ( { interpreter } ) => {
+		interpreter.makeNode( 'Tee', 'otter-7822:tee' );
+		throw new Error( 'no burrow named otter-7822' );
+	};
+
+	it( 'rethrows, leaving no mount record, no build node and no backbone', () => {
+		expect( () => mountExospine( halfBuilt ) ).toThrow(
+			'no burrow named otter-7822'
+		);
+
+		expect( Core.backboneMounts ).toHaveLength( 0 );
+		expect( Core.node( 'otter-7822:tee' ) ).toBeNull();
+		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
+	} );
+
+	it( 'leaves a backbone another mount holds standing', () => {
+		const other = mountExospine( ( { interpreter } ) => {
+			interpreter.makeNode( 'Tee', 'stoat-7823:tee' );
+		} );
+
+		expect( () => mountExospine( halfBuilt ) ).toThrow(
+			'no burrow named otter-7822'
+		);
+
+		expect( Core.backboneMounts ).toHaveLength( 1 );
+		expect( Core.node( 'otter-7822:tee' ) ).toBeNull();
+		expect( Core.node( 'stoat-7823:tee' ) ).not.toBeNull();
+		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBe(
+			other.interpreter
+		);
+	} );
+
+	it( 'removes what a rebuild registered before it threw', () => {
+		let fail = false;
+		const spine = mountExospine( ( { interpreter } ) => {
+			interpreter.makeNode( 'Tee', 'otter-7822:tee' );
+			if ( fail ) {
+				throw new Error( 'no burrow named otter-7822' );
+			}
+		} );
+		fail = true;
+
+		expect( () => spine.reinit() ).toThrow( 'no burrow named otter-7822' );
+
+		expect( Core.node( 'otter-7822:tee' ) ).toBeNull();
+		fail = false;
+		spine.reinit();
+		expect( Core.node( 'otter-7822:tee' ) ).not.toBeNull();
+		spine.teardown();
+		expect( Core.backboneMounts ).toHaveLength( 0 );
+	} );
+} );

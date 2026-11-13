@@ -3,7 +3,9 @@
  * under the page it stands on, the aside apart so it can stand in a column
  * of its own, and a stored layout that no longer reads as the shared read
  * error in its place, with no Try again, since a read refuses it again; a
- * curator is offered **Restore default**, which asks first.
+ * curator is offered **Restore default**, which asks first. The layout
+ * stands under one `SourcesProvider`, so its blocks read sources with no
+ * provider of the consumer's own, both columns sharing each one.
  *
  * The reader half of the composition layer: it imports no block library.
  */
@@ -13,6 +15,7 @@ import { __ } from '@wordpress/i18n';
 import CompositionView from '../CompositionView';
 import { useComposition } from '../useComposition';
 import { Confirm } from '../../components/Modal';
+import { SourcesProvider } from '../../sources';
 import Unread from '../../components/Unread';
 import AsideView from './AsideView';
 import { ComposedPage, providedViews } from './pageContext';
@@ -122,20 +125,22 @@ export default function ComposedLayout( { layout, views, page } ) {
 	const aside = layout.blocks.filter( ( node ) => ASIDE === node.name );
 	return (
 		<ComposedPage.Provider value={ page }>
-			<div className="newspack-nodes-composed-layout">
-				<div className="newspack-nodes-composed-layout-main">
+			<SourcesProvider>
+				<div className="newspack-nodes-composed-layout">
+					<div className="newspack-nodes-composed-layout-main">
+						<CompositionView
+							blocks={ main }
+							views={ withAside }
+							renderError={ unreadBlock }
+						/>
+					</div>
 					<CompositionView
-						blocks={ main }
+						blocks={ aside }
 						views={ withAside }
 						renderError={ unreadBlock }
 					/>
 				</div>
-				<CompositionView
-					blocks={ aside }
-					views={ withAside }
-					renderError={ unreadBlock }
-				/>
-			</div>
+			</SourcesProvider>
 		</ComposedPage.Provider>
 	);
 }

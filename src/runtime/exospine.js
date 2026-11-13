@@ -191,6 +191,8 @@ export function aimHttp( target ) {
  *   `reinit()` that rebuilds the build-registered nodes, and a `teardown()` that
  *   additionally removes the backbone — every node but the kept Router — when
  *   this mount is the last out, and unsubscribes the rebuild.
+ * @throws {Error} What `build` threw, once the nodes it registered, this
+ *   mount's record and, when it was the last mount, the backbone are gone.
  */
 export function mountExospine( build, { passenger = false } = {} ) {
 	// Core reads the owner off these records; claimGroups reads the claims.
@@ -378,10 +380,19 @@ export function mountExospine( build, { passenger = false } = {} ) {
 			return;
 		}
 		const before = new Set( Core.nodes.keys() );
-		cleanup = 'function' === typeof build ? build( spine ) : undefined;
-		builtNames = [ ...Core.nodes.keys() ].filter(
-			( name ) => ! before.has( name )
-		);
+		const added = () =>
+			[ ...Core.nodes.keys() ].filter( ( name ) => ! before.has( name ) );
+		try {
+			cleanup = 'function' === typeof build ? build( spine ) : undefined;
+		} catch ( error ) {
+			// A build that throws keeps none of what it registered.
+			for ( const name of added() ) {
+				Core.node( name )?.removeNode();
+			}
+			builtNames = [];
+			throw error;
+		}
+		builtNames = added();
 		// After the snapshot, so a Tap does not count as a node of this build.
 		claimGroups(
 			groupsTargetedBy( builtNames.map( ( name ) => Core.node( name ) ) )
@@ -467,8 +478,19 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		}
 	};
 
-	mountBackbone();
-	runBuild();
+	try {
+		mountBackbone();
+		runBuild();
+	} catch ( error ) {
+		// A mount that failed leaves no record, and no backbone of its own.
+		Core.backboneMounts = Core.backboneMounts.filter(
+			( other ) => other !== mount
+		);
+		if ( 0 === Core.backboneMounts.length ) {
+			teardownBackbone();
+		}
+		throw error;
+	}
 
 	// Only a build-delegated mount has nodes a rebuild signal could rebuild.
 	if ( mount.rebuilds ) {

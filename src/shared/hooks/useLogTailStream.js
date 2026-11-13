@@ -1,8 +1,8 @@
 /**
  * useLogTailStream — the ONE parameterised log tail behind every dashboard
- * whose subscription is DECLARED: the two probe charts and the Config Audit
- * timeline. A dashboard that PICKS its log from a catalog builds its graph
- * through `useLogViewerGraph` instead.
+ * whose subscription is DECLARED: the two probe charts, the Config Audit
+ * timeline and every stream source. A dashboard that PICKS its log from a
+ * catalog builds its graph through `useLogViewerGraph` instead.
  *
  * The two node names, the subscription and the opening seek all come from the
  * caller's declaration, so a new log costs a declaration rather than another
@@ -23,16 +23,17 @@
  * React reads the model via `useNodeField( '<name>:view', 'view' )`.
  */
 
-import { useStreamGraph } from '@newspack-nodes/shared/hooks/useStreamGraph';
+import { useStreamGraph } from './useStreamGraph';
 import { SEEK_START } from '../../runtime/sse-in-node';
-import '../nodes/register';
 
 /**
- * Build the flat `{ <concrete-dir>: position }` seed a mode opens with. A
- * non-glob subscription IS its dir name, so keying the seed on it is exact.
+ * The seek a declared tail first opens at, by its `mode`: 'history' asks for
+ * the start of the log, so the server replays its whole retention, and
+ * 'follow' states none, so it streams from the tail. A non-glob subscription
+ * IS its dir name, so keying the seed on it is exact.
  *
- * An unrecognised mode throws rather than falling through to a tail-seek, which
- * would silently drop the retention replay the caller's view is drawn from.
+ * An unrecognised mode throws rather than falling through to a tail-seek,
+ * which would silently drop the replay the caller's view is drawn from.
  *
  * @param {string} mode      'history' (full replay) or 'follow' (tail).
  * @param {string} subscribe The concrete log dir the link tails.
@@ -46,7 +47,7 @@ function seekForMode( mode, subscribe ) {
 	if ( 'follow' === mode ) {
 		return undefined;
 	}
-	throw new TypeError( `useLogTailStream: unknown mode '${ mode }'` );
+	throw new TypeError( `unknown stream mode '${ mode }'` );
 }
 
 /**

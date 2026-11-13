@@ -19,6 +19,7 @@ import { useEffect } from '@wordpress/element';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { ASIDE, ComposedLayout, Editing, usePage, useWriteControl } from '..';
+import { registerSource, SourcesProvider, useSource } from '../../../sources';
 
 const CONTEXT = 'weka-7711/board';
 
@@ -53,6 +54,26 @@ function Tally( { attributes } ) {
 
 const VIEWS = { 'weka-7711/tally': { View: Tally } };
 
+registerSource( 'weka-7725', {
+	kind: 'command',
+	group: 'kestrel-desk',
+	ci: 'harbor-7725',
+	command: 'sound',
+	args: ( { berth } ) => [ berth ],
+} );
+
+/**
+ * A gauge reading the depth at its berth through a source.
+ *
+ * @param {Object} props
+ * @param {Object} props.attributes Its attributes.
+ * @return {import('react').ReactElement} The gauge.
+ */
+function Gauge( { attributes } ) {
+	const { loading } = useSource( 'weka-7725', { berth: attributes.berth } );
+	return <p data-testid="gauge">{ loading ? 'sounding' : 'sounded' }</p>;
+}
+
 const node = ( name, attributes = {}, inner = [] ) => ( {
 	name,
 	attributes,
@@ -86,6 +107,71 @@ const sent = ( name ) =>
 const WAIT = { timeout: 4000 };
 
 describe( 'ComposedLayout', () => {
+	it( 'shares the sources of a provider above it, one ask for two layouts reading one key', async () => {
+		const layout = {
+			context: CONTEXT,
+			blocks: [ node( 'weka-7711/gauge', { berth: 'south-7726' } ) ],
+		};
+		const views = { ...VIEWS, 'weka-7711/gauge': { View: Gauge } };
+		render(
+			<SourcesProvider>
+				<ComposedLayout
+					layout={ layout }
+					views={ views }
+					page={ page() }
+				/>
+				<div hidden>
+					<ComposedLayout
+						layout={ layout }
+						views={ views }
+						page={ page() }
+					/>
+				</div>
+			</SourcesProvider>
+		);
+
+		await waitFor(
+			() => expect( sent( 'sound' ) ).toHaveLength( 1 ),
+			WAIT
+		);
+		await waitFor(
+			() =>
+				expect(
+					screen
+						.getAllByTestId( 'gauge' )
+						.map( ( gauge ) => gauge.textContent )
+				).toEqual( [ 'sounded', 'sounded' ] ),
+			WAIT
+		);
+		expect( sent( 'sound' ) ).toHaveLength( 1 );
+		expect( sent( 'sound' )[ 0 ].arguments ).toEqual( [ 'south-7726' ] );
+	} );
+
+	it( 'serves its blocks’ sources, one ask for blocks in both columns sharing one', async () => {
+		render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [
+						node( 'weka-7711/gauge', { berth: 'north-7725' } ),
+						node( ASIDE, {}, [
+							node( 'weka-7711/gauge', { berth: 'north-7725' } ),
+						] ),
+					],
+				} }
+				views={ { ...VIEWS, 'weka-7711/gauge': { View: Gauge } } }
+				page={ page() }
+			/>
+		);
+
+		expect( screen.getAllByTestId( 'gauge' ) ).toHaveLength( 2 );
+		await waitFor(
+			() => expect( sent( 'sound' ) ).toHaveLength( 1 ),
+			WAIT
+		);
+		expect( sent( 'sound' )[ 0 ].arguments ).toEqual( [ 'north-7725' ] );
+	} );
+
 	it( 'stands the aside in a column of its own, the other blocks in main', () => {
 		const { container } = render(
 			<ComposedLayout

@@ -17,7 +17,7 @@
  * React reads the model with `useNodeField( '<name>:view', 'view' )`.
  */
 
-import { useLogTailStream } from './useLogTailStream';
+import { useLogTailStream } from '@newspack-nodes/shared/hooks/useLogTailStream';
 import { views } from '../nodes/register';
 
 /**
