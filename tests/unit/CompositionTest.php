@@ -375,13 +375,117 @@ final class CompositionTest extends TestCase {
 	}
 
 	/**
+	 * Give the digest context `$patterns`.
+	 *
+	 * @param array<mixed> $patterns The context's `patterns`.
+	 */
+	private function declare_patterns( array $patterns ): void {
+		$this->declare_acme_desk(
+			static function ( array $map ) use ( $patterns ): array {
+				$map['acme-desk']['contexts']['acme-desk/digest']['patterns'] = $patterns;
+				return $map;
+			}
+		);
+	}
+
+	public function test_schemas_list_a_contexts_patterns_with_their_markup(): void {
+		$this->declare_patterns(
+			[
+				'tui-7720'  => [ 'title' => 'Tui hush', 'file' => self::fixture( 'pattern-tui-7720' ) ],
+				'ruru-7721' => [ 'title' => 'Ruru roost', 'file' => self::fixture( 'pattern-ruru-7721' ) ],
+			]
+		);
+
+		$this->assertSame(
+			[
+				[ 'name' => 'tui-7720', 'title' => 'Tui hush', 'markup' => "<!-- wp:acme-desk/summary {\"tone\":\"hush\"} /-->\n" ],
+				[ 'name' => 'ruru-7721', 'title' => 'Ruru roost', 'markup' => "<!-- wp:acme-desk/tally {\"heading\":\"Ruru roost\",\"limit\":7} /-->\n<!-- wp:acme-desk/summary /-->\n" ],
+			],
+			Composition::schemas( 'acme-desk/digest' )['patterns']
+		);
+	}
+
+	public function test_a_pattern_that_does_not_validate_refuses_the_declarations(): void {
+		$this->declare_patterns( [ 'ruru-7721' => [ 'title' => 'Ruru', 'file' => self::fixture( 'pattern-bad-7722' ) ] ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'composition declaration acme-desk: acme-desk/digest pattern ruru-7721' );
+		Composition::declarations();
+	}
+
+	public function test_a_refused_pattern_leaves_nothing_memoized(): void {
+		$this->declare_patterns( [ 'ruru-7721' => [ 'title' => 'Ruru', 'file' => self::fixture( 'pattern-bad-7722' ) ] ] );
+		try {
+			Composition::declarations();
+			$this->fail( 'the pattern was accepted' );
+		} catch ( \LogicException ) {
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessage( 'pattern ruru-7721' );
+			Composition::declarations();
+		}
+	}
+
+	public function test_a_pattern_may_name_a_shared_block_its_context_admits(): void {
+		$this->declare_shared( [ 'kea-7710/strip' ], null, [ 'tahi-7723' => [ 'title' => 'Tahi', 'file' => self::fixture( 'pattern-strip-7723' ) ] ] );
+
+		$this->assertSame(
+			[ [ 'name' => 'tahi-7723', 'title' => 'Tahi', 'markup' => "<!-- wp:kea-7710/strip {\"hue\":\"plum\"} /-->\n" ] ],
+			Composition::schemas( 'weka-7711/board' )['patterns']
+		);
+	}
+
+	public function test_patterns_declared_as_a_list_are_refused(): void {
+		$this->declare_patterns( [ [ 'title' => 'Ruru', 'file' => self::fixture( 'pattern-ruru-7721' ) ] ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'acme-desk/digest declares patterns that are not a map of slug => { title, file }' );
+		Composition::declarations();
+	}
+
+	public function test_a_pattern_that_is_not_a_map_is_refused(): void {
+		$this->declare_patterns( [ 'ruru-7721' => 'pattern-ruru-7721' ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'pattern ruru-7721 is not a { title, file } map' );
+		Composition::declarations();
+	}
+
+	public function test_a_pattern_naming_a_missing_file_refuses_the_declarations(): void {
+		$this->declare_patterns( [ 'ruru-7721' => [ 'title' => 'Ruru', 'file' => '/nowhere/ruru-7721.html' ] ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'acme-desk/digest pattern ruru-7721 names no layout file' );
+		Composition::declarations();
+	}
+
+	public function test_a_pattern_slug_or_title_that_breaks_a_rule_refuses_the_declarations(): void {
+		$this->declare_patterns( [ 'Ruru_7721' => [ 'title' => 'Ruru', 'file' => self::fixture( 'pattern-ruru-7721' ) ] ] );
+		try {
+			Composition::declarations();
+			$this->fail( 'the slug was accepted' );
+		} catch ( \LogicException $refused ) {
+			$this->assertStringContainsString( 'pattern Ruru_7721 is not a slug', $refused->getMessage() );
+		}
+
+		$this->declare_patterns( [ 'ruru-7721' => [ 'title' => '', 'file' => self::fixture( 'pattern-ruru-7721' ) ] ] );
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'pattern ruru-7721 declares no title' );
+		Composition::declarations();
+	}
+
+	public function test_a_context_without_patterns_lists_none(): void {
+		$this->assertSame( [], Composition::schemas( self::BOARD )['patterns'] );
+	}
+
+	/**
 	 * Declare `kea-7710`'s shared block `strip` and `weka-7711`'s context
 	 * `board`, which admits `$admits`.
 	 *
 	 * @param list<string>              $admits Block names the board admits.
 	 * @param (\Closure(array): array)|null $edit   Edits the shared block's declaration.
+	 * @param array<mixed>                  $patterns The board's patterns.
 	 */
-	private function declare_shared( array $admits, ?\Closure $edit = null ): void {
+	private function declare_shared( array $admits, ?\Closure $edit = null, array $patterns = [] ): void {
 		$strip = [
 			'title'      => 'Strip',
 			'shared'     => true,
@@ -402,6 +506,7 @@ final class CompositionTest extends TestCase {
 							'default'    => self::fixture( 'digest' ),
 							'max_blocks' => 4,
 							'admits'     => $admits,
+							'patterns'   => $patterns,
 						],
 					],
 				],

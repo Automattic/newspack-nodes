@@ -21,7 +21,10 @@
  *    on the context beside its own, and `check( string $block, array
  *    $attributes, string $context ): void` a refusal of what the shape
  *    cannot see, thrown as a `\RuntimeException` naming the block and the
- *    field.
+ *    field. `patterns?: slug => { title: string, file: string }` offers
+ *    named layouts, `slug` matching `[a-z0-9-]+` and `file` the absolute path
+ *    of the pattern's markup, which must pass `validate_shape()` for the
+ *    context.
  *
  * Every name sits under `<namespace>/`. A declaration that breaks a rule is
  * a consumer's bug, so it throws `\LogicException`, refusing the whole set;
@@ -38,7 +41,7 @@ namespace Newspack_Nodes;
  * The declared blocks and contexts, and the one validator of a layout.
  *
  * @phpstan-type Block array{title: string, contexts: list<string>, shared: bool, attributes: array<string,array<string,mixed>>, container: bool, multiple: bool}
- * @phpstan-type Context array{namespace: string, default: string, max_blocks: int, check: \Closure|null, admits: list<string>}
+ * @phpstan-type Context array{namespace: string, default: string, max_blocks: int, check: \Closure|null, admits: list<string>, patterns: list<array{name: string, title: string, markup: string}>}
  * @phpstan-type Declarations array{blocks: array<string,Block>, contexts: array<string,Context>}
  * @phpstan-type Tree list<array{name: string, attributes: array<string,mixed>, inner: list<mixed>}>
  */
@@ -89,135 +92,6 @@ final class Composition {
 	}
 
 	/**
-	 * Every rule `validate()` applies but the context's `check`, for a seed
-	 * written before what `check` reads exists.
-	 *
-	 * @param string $context The context the layout composes.
-	 * @param string $markup  Serialized block markup.
-	 * @return Tree
-	 * @throws \LogicException When the context is not declared.
-	 * @throws \RuntimeException When the markup breaks a rule.
-	 */
-	public static function validate_shape( string $context, string $markup ): array {
-		$declared = self::context_of( $context );
-		self::fit( $context, $markup );
-		$singles = [];
-		$tree    = self::nodes( $context, self::blocks_for( $context ), \parse_blocks( $markup ), 0, $singles );
-		$count   = \count( self::flatten( $tree ) );
-		if ( $count > $declared['max_blocks'] ) {
-			self::refuse( $context, "{$count} blocks, more than the {$declared['max_blocks']} it holds" );
-		}
-		return $tree;
-	}
-
-	/**
-	 * Every node of a tree, each before its children.
-	 *
-	 * @param Tree $tree The tree.
-	 * @return list<array{name: string, attributes: array<string,mixed>, inner: list<mixed>}>
-	 */
-	private static function flatten( array $tree ): array {
-		$nodes = [];
-		foreach ( $tree as $node ) {
-			$nodes[] = $node;
-			/** @var Tree $inner */
-			$inner = $node['inner'];
-			\array_push( $nodes, ...self::flatten( $inner ) );
-		}
-		return $nodes;
-	}
-
-	/**
-	 * Turn parsed blocks into tree nodes, refusing the first that breaks a
-	 * shape rule. `$singles` carries the `multiple: false` names already seen.
-	 *
-	 * @param array<string,Block> $standing The blocks that stand on the context.
-	 * @param array<mixed>        $blocks   What `parse_blocks()` answered, at one depth.
-	 * @param int                 $depth    0 at the top level.
-	 * @param array<string,true>  $singles  Seen single-standing names.
-	 * @return Tree
-	 * @throws \RuntimeException On the first rule broken.
-	 */
-	private static function nodes( string $context, array $standing, array $blocks, int $depth, array &$singles ): array {
-		$declared = self::declarations()['blocks'];
-		$nodes    = [];
-		foreach ( $blocks as $block ) {
-			$block = Core::arr( $block );
-			$name  = $block['blockName'] ?? null;
-			if ( null === $name ) {
-				if ( '' !== \trim( Core::as_string( $block['innerHTML'] ?? '' ) ) ) {
-					self::refuse( $context, 'HTML outside a block; a layout holds no HTML' );
-				}
-				continue;
-			}
-			$name = Core::as_string( $name );
-			$spec = $declared[ $name ] ?? null;
-			if ( null === $spec ) {
-				self::refuse( $context, "{$name} is not a declared block" );
-			}
-			if ( ! isset( $standing[ $name ] ) ) {
-				self::refuse( $context, "{$name} does not stand on {$context}" );
-			}
-			foreach ( Core::arr( $block['innerContent'] ?? [] ) as $chunk ) {
-				if ( \is_string( $chunk ) && '' !== \trim( $chunk ) ) {
-					self::refuse( $context, "{$name} holds HTML; a layout holds no HTML" );
-				}
-			}
-			$inner = Core::arr( $block['innerBlocks'] ?? [] );
-			if ( [] !== $inner && ! $spec['container'] ) {
-				self::refuse( $context, "{$name} holds no blocks" );
-			}
-			if ( $spec['container'] && $depth > 0 ) {
-				self::refuse( $context, "{$name} stands only at the top level" );
-			}
-			if ( ! $spec['multiple'] ) {
-				if ( isset( $singles[ $name ] ) ) {
-					self::refuse( $context, "a second {$name}; it stands once" );
-				}
-				$singles[ $name ] = true;
-			}
-			$nodes[] = [
-				'name'       => $name,
-				'attributes' => self::attributes( $context, $name, $block['attrs'] ?? null, $spec['attributes'] ),
-				'inner'      => self::nodes( $context, $standing, $inner, $depth + 1, $singles ),
-			];
-		}
-		return $nodes;
-	}
-
-	/**
-	 * A block's attributes, each checked against its schema and laid over
-	 * the declared defaults.
-	 *
-	 * @param mixed                              $attrs   The parsed delimiter JSON.
-	 * @param array<string,array<string,mixed>> $schemas The block's attribute schemas.
-	 * @return array<string,mixed>
-	 * @throws \RuntimeException When an attribute is undeclared or its schema refuses it.
-	 */
-	private static function attributes( string $context, string $name, mixed $attrs, array $schemas ): array {
-		if ( ! \is_array( $attrs ) ) {
-			self::refuse( $context, "{$name} carries attributes that are not a JSON object" );
-		}
-		$defaults = [];
-		foreach ( $schemas as $attribute => $schema ) {
-			$defaults[ $attribute ] = $schema['default'];
-		}
-		foreach ( $attrs as $attribute => $value ) {
-			$attribute = (string) $attribute;
-			$schema    = $schemas[ $attribute ] ?? null;
-			if ( null === $schema ) {
-				self::refuse( $context, "{$name} declares no attribute {$attribute}" );
-			}
-			$valid = \rest_validate_value_from_schema( $value, $schema, $attribute );
-			if ( \is_wp_error( $valid ) ) {
-				self::refuse( $context, "{$name} attribute {$attribute}: " . $valid->get_error_message() );
-			}
-			$defaults[ $attribute ] = \rest_sanitize_value_from_schema( $value, $schema, $attribute );
-		}
-		return $defaults;
-	}
-
-	/**
 	 * A validated tree as the layout a context stores: every attribute, no
 	 * whitespace between delimiters, held to `MAX_MARKUP_BYTES` as the
 	 * delimiters escape it.
@@ -230,19 +104,6 @@ final class Composition {
 		$markup = \serialize_blocks( self::parsed( $tree ) );
 		self::fit( $context, $markup );
 		return $markup;
-	}
-
-	/**
-	 * Refuse a layout past `MAX_MARKUP_BYTES`, the one cap on what a caller
-	 * sends and on what a context stores.
-	 *
-	 * @throws \RuntimeException When the layout is past the cap.
-	 */
-	private static function fit( string $context, string $markup ): void {
-		$bytes = \strlen( $markup );
-		if ( $bytes > self::MAX_MARKUP_BYTES ) {
-			self::refuse( $context, "the layout is {$bytes} bytes, more than " . self::MAX_MARKUP_BYTES );
-		}
 	}
 
 	/**
@@ -296,10 +157,11 @@ final class Composition {
 
 	/**
 	 * The editor's page data: the context, its block cap, and every block it
-	 * admits with its title, attribute schemas and the two placement flags.
+	 * admits with its title, attribute schemas and the two placement flags,
+	 * and the patterns it offers with their markup, in declared order.
 	 *
 	 * @param string $context A declared context.
-	 * @return array{context: string, max_blocks: int, blocks: array<string,array{title: string, attributes: array<string,array<string,mixed>>, container: bool, multiple: bool}>}
+	 * @return array{context: string, max_blocks: int, blocks: array<string,array{title: string, attributes: array<string,array<string,mixed>>, container: bool, multiple: bool}>, patterns: list<array{name: string, title: string, markup: string}>}
 	 * @throws \LogicException When the context is not declared.
 	 */
 	public static function schemas( string $context ): array {
@@ -313,30 +175,20 @@ final class Composition {
 				'multiple'   => $block['multiple'],
 			];
 		}
+		$patterns = [];
+		foreach ( $declared['patterns'] as $pattern ) {
+			$patterns[] = [
+				'name'   => $pattern['name'],
+				'title'  => $pattern['title'],
+				'markup' => $pattern['markup'],
+			];
+		}
 		return [
 			'context'    => $context,
 			'max_blocks' => $declared['max_blocks'],
 			'blocks'     => $blocks,
+			'patterns'   => $patterns,
 		];
-	}
-
-	/**
-	 * The blocks that stand on a context: those declaring it among their
-	 * `contexts`, and the shared blocks it admits.
-	 *
-	 * @param string $context A declared context.
-	 * @return array<string,Block>
-	 * @throws \LogicException When the context is not declared.
-	 */
-	public static function blocks_for( string $context ): array {
-		$admits = self::context_of( $context )['admits'];
-		$blocks = [];
-		foreach ( self::declarations()['blocks'] as $name => $block ) {
-			if ( \in_array( $context, $block['contexts'], true ) || \in_array( $name, $admits, true ) ) {
-				$blocks[ $name ] = $block;
-			}
-		}
-		return $blocks;
 	}
 
 	/**
@@ -348,52 +200,7 @@ final class Composition {
 	 *                           the log carries the path and PHP's reason.
 	 */
 	public static function default_markup( string $context ): string {
-		$path = self::context_of( $context )['default'];
-		\error_clear_last();
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- a consumer's own markup file.
-		$markup = @\file_get_contents( $path );
-		if ( false === $markup ) {
-			Core::print_less_often( "composition {$context}: its default layout will not read: ", \error_get_last()['message'] ?? 'no cause reported' );
-			self::refuse( $context, 'its default layout will not read' );
-		}
-		return $markup;
-	}
-
-	/**
-	 * Refuse a layout for `$context`.
-	 *
-	 * @throws \RuntimeException Always.
-	 */
-	private static function refuse( string $context, string $why ): never {
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-		throw new \RuntimeException( "composition {$context}: {$why}" );
-	}
-
-	/**
-	 * A declared context, or a refusal naming it.
-	 *
-	 * @return Context
-	 * @throws \LogicException When the context is not declared.
-	 */
-	public static function context_of( string $context ): array {
-		$declared = self::declarations()['contexts'][ $context ] ?? null;
-		if ( null === $declared ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new \LogicException( "composition context {$context} is not declared" );
-		}
-		return $declared;
-	}
-
-	/**
-	 * The declared blocks and contexts across every namespace, the filter
-	 * applied once a process. A throw, the filter's own or a refusal, stores
-	 * nothing, so the next call applies the filter again.
-	 *
-	 * @return Declarations
-	 * @throws \LogicException When a declaration breaks a rule, naming its namespace and key.
-	 */
-	public static function declarations(): array {
-		return self::$declarations ??= self::declare( \apply_filters( self::FILTER, [] ) );
+		return self::read_file( $context, self::context_of( $context )['default'], 'its default layout' );
 	}
 
 	/**
@@ -559,7 +366,69 @@ final class Composition {
 			'max_blocks' => $max_blocks,
 			'check'      => $check,
 			'admits'     => $admits,
+			'patterns'   => self::patterns( $namespace, $name, $context['patterns'] ?? [] ),
 		];
+	}
+
+	/**
+	 * One context's patterns, each a slug, a title and the markup of an
+	 * existing file, read once here.
+	 *
+	 * @param mixed $patterns Its `patterns`.
+	 * @return list<array{name: string, title: string, markup: string}>
+	 * @throws \LogicException When a pattern breaks a rule.
+	 */
+	private static function patterns( string $namespace, string $context, mixed $patterns ): array {
+		if ( ! \is_array( $patterns ) || ( [] !== $patterns && \array_is_list( $patterns ) ) ) {
+			self::refuse_declaration( $namespace, $context, 'declares patterns that are not a map of slug => { title, file }' );
+		}
+		$out = [];
+		foreach ( $patterns as $slug => $pattern ) {
+			$slug = (string) $slug;
+			if ( 1 !== \preg_match( self::NAMESPACE_PATTERN, $slug ) ) {
+				self::refuse_declaration( $namespace, $context, "pattern {$slug} is not a slug: lowercase letters, digits and hyphens" );
+			}
+			if ( ! \is_array( $pattern ) ) {
+				self::refuse_declaration( $namespace, $context, "pattern {$slug} is not a { title, file } map" );
+			}
+			$title = $pattern['title'] ?? null;
+			if ( ! \is_string( $title ) || '' === $title ) {
+				self::refuse_declaration( $namespace, $context, "pattern {$slug} declares no title" );
+			}
+			$file = $pattern['file'] ?? null;
+			if ( ! \is_string( $file ) || ! \str_starts_with( $file, '/' ) || ! \is_file( $file ) ) {
+				Core::print_less_often( "composition declaration {$namespace}: {$context} pattern {$slug} names no layout file: ", Core::as_string( $file ) );
+				self::refuse_declaration( $namespace, $context, "pattern {$slug} names no layout file" );
+			}
+			try {
+				$markup = self::read_file( $context, $file, "the pattern {$slug}" );
+			} catch ( \RuntimeException ) {
+				self::refuse_declaration( $namespace, $context, "pattern {$slug} will not read" );
+			}
+			$out[] = [
+				'name'   => $slug,
+				'title'  => $title,
+				'markup' => $markup,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * A consumer's markup file, as it holds.
+	 *
+	 * @param string $what What the file is, in the refusal's words.
+	 * @throws \RuntimeException When the file will not read, which names no path.
+	 */
+	private static function read_file( string $context, string $path, string $what ): string {
+		\error_clear_last();
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- a consumer's own markup file.
+		$markup = @\file_get_contents( $path );
+		if ( false === $markup ) {
+			Core::print_less_often( "composition {$context}: {$what} will not read: ", \error_get_last()['message'] ?? 'no cause reported' );
+			self::refuse( $context, "{$what} will not read" );
+		}
+		return $markup;
 	}
 
 	/**
@@ -572,6 +441,236 @@ final class Composition {
 			self::refuse_declaration( $namespace, $name, "sits outside {$namespace}/" );
 		}
 		return $name;
+	}
+
+	/**
+	 * Every rule `validate()` applies but the context's `check`, for a seed
+	 * written before what `check` reads exists.
+	 *
+	 * @param string $context The context the layout composes.
+	 * @param string $markup  Serialized block markup.
+	 * @return Tree
+	 * @throws \LogicException When the context is not declared.
+	 * @throws \RuntimeException When the markup breaks a rule.
+	 */
+	public static function validate_shape( string $context, string $markup ): array {
+		$declared = self::context_of( $context );
+		self::fit( $context, $markup );
+		$singles = [];
+		$tree    = self::nodes( $context, self::blocks_for( $context ), \parse_blocks( $markup ), 0, $singles );
+		$count   = \count( self::flatten( $tree ) );
+		if ( $count > $declared['max_blocks'] ) {
+			self::refuse( $context, "{$count} blocks, more than the {$declared['max_blocks']} it holds" );
+		}
+		return $tree;
+	}
+
+	/**
+	 * Every node of a tree, each before its children.
+	 *
+	 * @param Tree $tree The tree.
+	 * @return list<array{name: string, attributes: array<string,mixed>, inner: list<mixed>}>
+	 */
+	private static function flatten( array $tree ): array {
+		$nodes = [];
+		foreach ( $tree as $node ) {
+			$nodes[] = $node;
+			/** @var Tree $inner */
+			$inner = $node['inner'];
+			\array_push( $nodes, ...self::flatten( $inner ) );
+		}
+		return $nodes;
+	}
+
+	/**
+	 * Turn parsed blocks into tree nodes, refusing the first that breaks a
+	 * shape rule. `$singles` carries the `multiple: false` names already seen.
+	 *
+	 * @param array<string,Block> $standing The blocks that stand on the context.
+	 * @param array<mixed>        $blocks   What `parse_blocks()` answered, at one depth.
+	 * @param int                 $depth    0 at the top level.
+	 * @param array<string,true>  $singles  Seen single-standing names.
+	 * @return Tree
+	 * @throws \RuntimeException On the first rule broken.
+	 */
+	private static function nodes( string $context, array $standing, array $blocks, int $depth, array &$singles ): array {
+		$declared = self::declarations()['blocks'];
+		$nodes    = [];
+		foreach ( $blocks as $block ) {
+			$block = Core::arr( $block );
+			$name  = $block['blockName'] ?? null;
+			if ( null === $name ) {
+				if ( '' !== \trim( Core::as_string( $block['innerHTML'] ?? '' ) ) ) {
+					self::refuse( $context, 'HTML outside a block; a layout holds no HTML' );
+				}
+				continue;
+			}
+			$name = Core::as_string( $name );
+			$spec = $declared[ $name ] ?? null;
+			if ( null === $spec ) {
+				self::refuse( $context, "{$name} is not a declared block" );
+			}
+			if ( ! isset( $standing[ $name ] ) ) {
+				self::refuse( $context, "{$name} does not stand on {$context}" );
+			}
+			foreach ( Core::arr( $block['innerContent'] ?? [] ) as $chunk ) {
+				if ( \is_string( $chunk ) && '' !== \trim( $chunk ) ) {
+					self::refuse( $context, "{$name} holds HTML; a layout holds no HTML" );
+				}
+			}
+			$inner = Core::arr( $block['innerBlocks'] ?? [] );
+			if ( [] !== $inner && ! $spec['container'] ) {
+				self::refuse( $context, "{$name} holds no blocks" );
+			}
+			if ( $spec['container'] && $depth > 0 ) {
+				self::refuse( $context, "{$name} stands only at the top level" );
+			}
+			if ( ! $spec['multiple'] ) {
+				if ( isset( $singles[ $name ] ) ) {
+					self::refuse( $context, "a second {$name}; it stands once" );
+				}
+				$singles[ $name ] = true;
+			}
+			$nodes[] = [
+				'name'       => $name,
+				'attributes' => self::attributes( $context, $name, $block['attrs'] ?? null, $spec['attributes'] ),
+				'inner'      => self::nodes( $context, $standing, $inner, $depth + 1, $singles ),
+			];
+		}
+		return $nodes;
+	}
+
+	/**
+	 * A block's attributes, each checked against its schema and laid over
+	 * the declared defaults.
+	 *
+	 * @param mixed                              $attrs   The parsed delimiter JSON.
+	 * @param array<string,array<string,mixed>> $schemas The block's attribute schemas.
+	 * @return array<string,mixed>
+	 * @throws \RuntimeException When an attribute is undeclared or its schema refuses it.
+	 */
+	private static function attributes( string $context, string $name, mixed $attrs, array $schemas ): array {
+		if ( ! \is_array( $attrs ) ) {
+			self::refuse( $context, "{$name} carries attributes that are not a JSON object" );
+		}
+		$defaults = [];
+		foreach ( $schemas as $attribute => $schema ) {
+			$defaults[ $attribute ] = $schema['default'];
+		}
+		foreach ( $attrs as $attribute => $value ) {
+			$attribute = (string) $attribute;
+			$schema    = $schemas[ $attribute ] ?? null;
+			if ( null === $schema ) {
+				self::refuse( $context, "{$name} declares no attribute {$attribute}" );
+			}
+			$valid = \rest_validate_value_from_schema( $value, $schema, $attribute );
+			if ( \is_wp_error( $valid ) ) {
+				self::refuse( $context, "{$name} attribute {$attribute}: " . $valid->get_error_message() );
+			}
+			$defaults[ $attribute ] = \rest_sanitize_value_from_schema( $value, $schema, $attribute );
+		}
+		return $defaults;
+	}
+
+	/**
+	 * Refuse a layout past `MAX_MARKUP_BYTES`, the one cap on what a caller
+	 * sends and on what a context stores.
+	 *
+	 * @throws \RuntimeException When the layout is past the cap.
+	 */
+	private static function fit( string $context, string $markup ): void {
+		$bytes = \strlen( $markup );
+		if ( $bytes > self::MAX_MARKUP_BYTES ) {
+			self::refuse( $context, "the layout is {$bytes} bytes, more than " . self::MAX_MARKUP_BYTES );
+		}
+	}
+
+	/**
+	 * The blocks that stand on a context: those declaring it among their
+	 * `contexts`, and the shared blocks it admits.
+	 *
+	 * @param string $context A declared context.
+	 * @return array<string,Block>
+	 * @throws \LogicException When the context is not declared.
+	 */
+	public static function blocks_for( string $context ): array {
+		$admits = self::context_of( $context )['admits'];
+		$blocks = [];
+		foreach ( self::declarations()['blocks'] as $name => $block ) {
+			if ( \in_array( $context, $block['contexts'], true ) || \in_array( $name, $admits, true ) ) {
+				$blocks[ $name ] = $block;
+			}
+		}
+		return $blocks;
+	}
+
+	/**
+	 * Refuse a layout for `$context`.
+	 *
+	 * @throws \RuntimeException Always.
+	 */
+	private static function refuse( string $context, string $why ): never {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+		throw new \RuntimeException( "composition {$context}: {$why}" );
+	}
+
+	/**
+	 * A declared context, or a refusal naming it.
+	 *
+	 * @return Context
+	 * @throws \LogicException When the context is not declared.
+	 */
+	public static function context_of( string $context ): array {
+		$declared = self::declarations()['contexts'][ $context ] ?? null;
+		if ( null === $declared ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \LogicException( "composition context {$context} is not declared" );
+		}
+		return $declared;
+	}
+
+	/**
+	 * The declared blocks and contexts across every namespace, the filter
+	 * applied once a process. A throw, the filter's own or a refusal, stores
+	 * nothing, so the next call applies the filter again.
+	 *
+	 * @return Declarations
+	 * @throws \LogicException When a declaration breaks a rule, naming its namespace and key.
+	 */
+	public static function declarations(): array {
+		if ( null !== self::$declarations ) {
+			return self::$declarations;
+		}
+		$declared           = self::declare( \apply_filters( self::FILTER, [] ) );
+		// Read by validate_shape() in the pattern pass; a throw clears it.
+		self::$declarations = $declared;
+		try {
+			self::check_patterns( $declared['contexts'] );
+		} catch ( \Throwable $refused ) {
+			self::$declarations = null;
+			throw $refused;
+		}
+		return $declared;
+	}
+
+	/**
+	 * Hold every context's patterns to `validate_shape()`, which reads the
+	 * declarations standing, so the pass runs once they are stored.
+	 *
+	 * @param array<string,Context> $contexts Every context declared.
+	 * @throws \LogicException On the first pattern that will not read or validate.
+	 */
+	private static function check_patterns( array $contexts ): void {
+		foreach ( $contexts as $name => $context ) {
+			foreach ( $context['patterns'] as $pattern ) {
+				$slug = $pattern['name'];
+				try {
+					self::validate_shape( $name, $pattern['markup'] );
+				} catch ( \RuntimeException $refused ) {
+					self::refuse_declaration( $context['namespace'], $name, "pattern {$slug} breaks the layout rules: " . $refused->getMessage() );
+				}
+			}
+		}
 	}
 
 	/**
