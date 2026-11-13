@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.156.0] - 2026-11-13
+
 ### Changed
 
 - **A command may declare a WordPress capability.** A command's `capability` may be `wp:<capability>`, such as `'wp:edit_posts'`, in place of a role. `Capabilities::require_command()` admits it when a signed-in user holds that capability through `current_user_can()`, which neither the session's ceiling nor the `allowed_users` list narrows, and refuses it in a worker with `permission denied: <capability> requires a signed-in user`; a user without it is refused with `permission denied: <capability> capability required`, and a name after `wp:` outside `Capabilities::NAME_PATTERN` throws. A role-declared command is gated as before.
