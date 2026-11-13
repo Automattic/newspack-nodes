@@ -626,6 +626,29 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'Prior Desk', \Newspack_Nodes\Capabilities::$session_label );
 	}
 
+	/** A command's session handle belongs to that command; interpret() restores the one before it. */
+	public function test_interpret_restores_the_handle_that_stood_before(): void {
+		\Newspack_Nodes\Capabilities::$session_handle = 'aaaa1111aaaa1111aaaa1111aaaa1111';
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
+		$seen                   = null;
+		$interpreter->authorize = static function (): bool {
+			\Newspack_Nodes\Capabilities::$session_handle = 'bbbb2222bbbb2222bbbb2222bbbb2222';
+			return true;
+		};
+		$interpreter->commands( [ 'kakapo' => static function () use ( &$seen ): string {
+			$seen = \Newspack_Nodes\Capabilities::$session_handle;
+			return 'kakapo-7732';
+		} ] );
+
+		$interpreter->fill( $this->command_message( 'kakapo', '' ) );
+
+		$this->assertSame( 'bbbb2222bbbb2222bbbb2222bbbb2222', $seen, 'the handler ran under the command\'s handle' );
+		$this->assertSame( 'aaaa1111aaaa1111aaaa1111aaaa1111', \Newspack_Nodes\Capabilities::$session_handle );
+		\Newspack_Nodes\Capabilities::$session_handle = null;
+	}
+
 	public function test_static_default_authorize_can_refuse_even_with_local(): void {
 		Command_Interpreter_Node::$default_authorize = static fn ( Command_Interpreter_Node $ci, array $m ): bool => false;
 		$interpreter = new Command_Interpreter_Node();

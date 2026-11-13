@@ -34,8 +34,9 @@ class CommandAuthScopeTest extends TestCase {
 		Command_Auth::$claim_nonce   = null;
 		Cache_Backend::$apcu_usable  = static fn (): bool => false;
 		Capabilities::$session_scope = null;
-		Capabilities::$session_label = null;
-		Core::$memd                  = $this->prev_memd;
+		Capabilities::$session_label  = null;
+		Capabilities::$session_handle = null;
+		Core::$memd                   = $this->prev_memd;
 		parent::tearDown();
 	}
 
@@ -148,6 +149,43 @@ class CommandAuthScopeTest extends TestCase {
 
 		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 		$this->assertNull( Capabilities::$session_label );
+	}
+
+	/** A verified session installs its handle, so a command can tell one session of a user from another. */
+	public function test_verifying_a_session_command_installs_its_handle(): void {
+		$session = Command_Auth::mint_session( Capabilities::TUNE );
+		Command_Auth::remember_session( 'agent', $session['handle'], $session['secret'] );
+
+		$m = $this->command();
+		Command_Auth::sign_for( 'agent', $m );
+
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
+		$this->assertSame( $session['handle'], Capabilities::$session_handle );
+	}
+
+	/** The per-site secret names no session, so it clears a handle left standing. */
+	public function test_verifying_a_secret_signed_command_clears_a_stale_handle(): void {
+		Capabilities::$session_handle = 'feedfacefeedfacefeedfacefeedface';
+
+		$m = $this->command();
+		Command_Auth::sign( $m );
+
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
+		$this->assertNull( Capabilities::$session_handle );
+	}
+
+	/** A refusal leaves no handle behind. */
+	public function test_a_refused_command_clears_the_handle(): void {
+		Capabilities::$session_handle = 'feedfacefeedfacefeedfacefeedface';
+
+		$m = $this->command();
+		Command_Auth::sign( $m );
+		$value                   = $m[ Message::VALUE ];
+		$value['auth']['handle'] = 'deadbeefdeadbeefdeadbeefdeadbeef';
+		$m[ Message::VALUE ]     = $value;
+
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
+		$this->assertNull( Capabilities::$session_handle );
 	}
 
 	/** A refusal leaves no label behind, as it leaves no ceiling. */

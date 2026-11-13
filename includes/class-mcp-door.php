@@ -433,8 +433,9 @@ abstract class Mcp_Door {
 			// Whose authority is being spent. The scope only ever narrows it.
 			\wp_set_current_user( $record['user'] );
 		}
-		Capabilities::$session_scope = $record['scope'];
-		Capabilities::$session_label = $record['label'];
+		Capabilities::$session_scope  = $record['scope'];
+		Capabilities::$session_label  = $record['label'];
+		Capabilities::$session_handle = $m[1];
 		// After the credential, so an unauthenticated flood spends no slots.
 		return match ( Rate_Limit::claim( "mcp:{$this->rest_namespace()}:{$m[1]}", self::RATE_LIMIT_BURST, self::RATE_LIMIT_WINDOW_S ) ) {
 			Rate_Limit::ADMITTED    => true,
