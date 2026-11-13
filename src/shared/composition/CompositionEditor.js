@@ -5,8 +5,10 @@
  * It edits a fresh `compositions get`, never the page's own copy, which
  * another editor's save may have outdated. The canvas admits the consumer's
  * blocks alone; a 320 px inspector holds the selected block's Controls; the
- * heading row carries the page's `preview` and the three ways out. Discarding
- * changes and restoring the default lose work, so each asks first.
+ * heading row carries the page's `preview`, a "Start from" picker of the
+ * context's patterns where it offers any, and the three ways out. A pattern
+ * replaces the canvas unsaved, asking first when a change is pending; Restore
+ * default always asks.
  *
  * `onDone( answer, verb )` hands the page the layout it renders next and the
  * write that produced it: `save` or `restore`, or null for Cancel and Back,
@@ -23,8 +25,8 @@
  */
 
 import { BlockInspector, Inserter } from '@wordpress/block-editor';
-import { createBlock, serializeRawBlock } from '@wordpress/blocks';
-import { Notice, Spinner } from '@wordpress/components';
+import { createBlock, parse, serializeRawBlock } from '@wordpress/blocks';
+import { Notice, SelectControl, Spinner } from '@wordpress/components';
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import BlockCanvas from '../components/BlockCanvas';
@@ -124,16 +126,39 @@ function refusedName( refusal, context, schemas ) {
 }
 
 /**
+ * Every block name in a list of editor blocks, depth first.
+ *
+ * @param {Array} blocks Editor blocks.
+ * @return {string[]} Their names.
+ */
+function namesIn( blocks ) {
+	return blocks.flatMap( ( { name, innerBlocks } ) => [
+		name,
+		...namesIn( innerBlocks ),
+	] );
+}
+
+/**
+ * A pattern the context offers, as `Composition::schemas()` lists it.
+ *
+ * @typedef {Object} CompositionPattern
+ * @property {string} name   Its slug.
+ * @property {string} title  The picker's name for it.
+ * @property {string} markup The layout it starts from.
+ */
+
+/**
  * The layout editor.
  *
  * @param {Object}                                                                         props
- * @param {string}                                                                         props.group     The surface the commands are sent for.
- * @param {string}                                                                         props.context   The context edited, `<namespace>/<name>`.
- * @param {string}                                                                         props.heading   The editor's heading, in the consumer's words.
- * @param {Object<string,import('./registerCompositionBlocks').CompositionSchema>}         props.schemas   The blocks the context admits; pass a stable object, since a new one reselects a refused block.
- * @param {import('react').ReactNode}                                                      [props.preview] What the blocks preview with, beside the buttons.
- * @param {(answer: ?import('./useComposition').CompositionAnswer, verb: ?string) => void} props.onDone    Takes the layout the page renders next and the write behind it.
- * @param {(dirty: boolean) => void}                                                       [props.onDirty] Told whether the layout holds a change not yet saved, as that turns.
+ * @param {string}                                                                         props.group      The surface the commands are sent for.
+ * @param {string}                                                                         props.context    The context edited, `<namespace>/<name>`.
+ * @param {string}                                                                         props.heading    The editor's heading, in the consumer's words.
+ * @param {Object<string,import('./registerCompositionBlocks').CompositionSchema>}         props.schemas    The blocks the context admits; pass a stable object, since a new one reselects a refused block.
+ * @param {CompositionPattern[]}                                                           [props.patterns] The layouts the context offers to start from.
+ * @param {import('react').ReactNode}                                                      [props.preview]  What the blocks preview with, beside the buttons.
+ * @param {(answer: ?import('./useComposition').CompositionAnswer, verb: ?string) => void} props.onDone     Takes the layout the page renders next and the write behind it.
+ * @param {(dirty: boolean) => void}                                                       [props.onDirty]  Told whether the layout holds a change not yet saved, as that turns.
  * @return {import('react').ReactElement} The editor.
  */
 export default function CompositionEditor( {
@@ -141,12 +166,15 @@ export default function CompositionEditor( {
 	context,
 	heading,
 	schemas,
+	patterns = [],
 	preview,
 	onDone,
 	onDirty,
 } ) {
 	const narrow = useWidthBelow( EDITOR_MIN_PX );
-	const [ asking, setAsking ] = useState( null );
+	const [ asking, setAsking ] = useState(
+		/** @type {null|'restore'|{then: ?CompositionPattern}} */ ( null )
+	);
 	const { answer, error, save, restore, refusal, writing } = useComposition(
 		group,
 		context,
@@ -199,7 +227,28 @@ export default function CompositionEditor( {
 		setSelection( null );
 		onDone( answer, null );
 	};
-	const cancel = () => ( dirty ? setAsking( 'discard' ) : leave() );
+	const cancel = () => ( dirty ? setAsking( { then: null } ) : leave() );
+	const start = ( pattern ) => {
+		const parsed = parse( pattern.markup );
+		const stray = namesIn( parsed ).find(
+			( name ) => ! Object.hasOwn( schemas, name )
+		);
+		if ( undefined !== stray ) {
+			throw new Error(
+				`pattern ${ pattern.name } names ${ stray }, which ${ context } does not offer`
+			);
+		}
+		setAsking( null );
+		edit( parsed );
+	};
+	const choose = ( name ) => {
+		const pattern = patterns.find( ( one ) => name === one.name );
+		if ( dirty ) {
+			setAsking( { then: pattern } );
+		} else {
+			start( pattern );
+		}
+	};
 
 	let body = null;
 	if ( narrow ) {
@@ -251,6 +300,31 @@ export default function CompositionEditor( {
 					{ heading }
 				</h2>
 				{ preview }
+				{ 0 < patterns.length && (
+					<SelectControl
+						__next40pxDefaultSize
+						__nextHasNoMarginBottom
+						label={ __( 'Start from', 'newspack-nodes' ) }
+						labelPosition="side"
+						value=""
+						disabled={ writing }
+						options={ [
+							{
+								value: '',
+								label: __(
+									'Choose a pattern',
+									'newspack-nodes'
+								),
+								disabled: true,
+							},
+							...patterns.map( ( { name, title } ) => ( {
+								value: name,
+								label: title,
+							} ) ),
+						] }
+						onChange={ choose }
+					/>
+				) }
 				<button
 					type="button"
 					className="button"
@@ -287,7 +361,7 @@ export default function CompositionEditor( {
 				</Notice>
 			) }
 			{ body }
-			{ 'discard' === asking && (
+			{ null !== asking && 'restore' !== asking && (
 				<Confirm
 					title={ __(
 						'Discard your changes to this layout?',
@@ -295,7 +369,9 @@ export default function CompositionEditor( {
 					) }
 					yes={ __( 'Discard changes', 'newspack-nodes' ) }
 					no={ __( 'Keep editing', 'newspack-nodes' ) }
-					onYes={ leave }
+					onYes={ () =>
+						asking.then ? start( asking.then ) : leave()
+					}
 					onNo={ () => setAsking( null ) }
 				/>
 			) }

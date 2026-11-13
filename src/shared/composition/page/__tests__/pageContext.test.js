@@ -9,6 +9,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import {
 	ComposedPage,
 	Editing,
+	providedViews,
 	usePage,
 	useWriteControl,
 } from '../pageContext';
@@ -85,5 +86,79 @@ describe( 'usePage', () => {
 		} finally {
 			error.mockRestore();
 		}
+	} );
+} );
+
+describe( 'providedViews', () => {
+	/**
+	 * A View holding a write control one component down.
+	 *
+	 * @param {Object}                    props
+	 * @param {Object}                    props.attributes Its attributes.
+	 * @param {import('react').ReactNode} props.children   What it holds.
+	 * @return {import('react').ReactElement} The block.
+	 */
+	const Pier = ( { attributes, children } ) => (
+		<section data-testid="pier" data-berth={ attributes.berth }>
+			<Archive onArchive={ attributes.onArchive } />
+			{ children }
+		</section>
+	);
+	const Controls = () => null;
+
+	it( 'keeps each view’s Controls and hands its View every prop', () => {
+		const { 'weka-7711/pier': view } = providedViews( {
+			'weka-7711/pier': { View: Pier, Controls },
+		} );
+		render(
+			<view.View attributes={ { berth: 'B-7712' } } editing={ false }>
+				<i data-testid="moored">Moored</i>
+			</view.View>
+		);
+
+		expect( view.Controls ).toBe( Controls );
+		expect( screen.getByTestId( 'pier' ).dataset.berth ).toBe( 'B-7712' );
+		expect( screen.getByTestId( 'moored' ) ).toBeTruthy();
+	} );
+
+	it( 'leaves a nested write control inert under editing', () => {
+		const onArchive = jest.fn();
+		const { 'weka-7711/pier': view } = providedViews( {
+			'weka-7711/pier': { View: Pier },
+		} );
+		render( <view.View attributes={ { onArchive } } editing={ true } /> );
+		const button = screen.getByRole( 'button', { name: 'Archive' } );
+
+		fireEvent.click( button );
+
+		expect( onArchive ).not.toHaveBeenCalled();
+		expect( button.getAttribute( 'aria-disabled' ) ).toBe( 'true' );
+	} );
+
+	it( 'leaves a nested write control live without editing, whatever stands above', () => {
+		const onArchive = jest.fn();
+		const { 'weka-7711/pier': view } = providedViews( {
+			'weka-7711/pier': { View: Pier },
+		} );
+		render(
+			<Editing.Provider value={ true }>
+				<view.View attributes={ { onArchive } } editing={ false } />
+			</Editing.Provider>
+		);
+
+		fireEvent.click( screen.getByRole( 'button', { name: 'Archive' } ) );
+
+		expect( onArchive ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'wraps one View once, whichever map carries it', () => {
+		const first = providedViews( { 'weka-7711/pier': { View: Pier } } );
+		const second = providedViews( {
+			'weka-7711/jetty': { View: Pier, Controls },
+		} );
+
+		expect( second[ 'weka-7711/jetty' ].View ).toBe(
+			first[ 'weka-7711/pier' ].View
+		);
 	} );
 } );

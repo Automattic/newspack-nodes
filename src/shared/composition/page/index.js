@@ -10,6 +10,7 @@ export { default as AsideView } from './AsideView';
 export {
 	ComposedPage,
 	Editing,
+	providedViews,
 	useEditing,
 	usePage,
 	useWriteControl,

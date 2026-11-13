@@ -1194,7 +1194,25 @@ schemas preview onDone onDirty? />`, the canvas over a fresh `get`, which saves
 `restore` after a write, null after Cancel or Back. `onDirty( dirty )` is told
 whether the layout holds a change not yet saved, as that turns, so a page asks
 before leaving only once there is one. The page shows the
-"Layout saved." snackbar, because the editor is gone by then.
+"Layout saved." snackbar, because the editor is gone by then. Given
+`patterns`, the list `schemas()` localizes, and at least one in it, the
+editor's header offers **Start from**: a chosen pattern's markup, parsed by
+`parse()`, replaces the canvas unsaved, after the discard confirmation when a
+change is pending.
+
+The page frame in `@newspack-nodes/shared/composition/page` carries both
+halves. Its reader half, which `page/index.js` exports, includes
+`providedViews( views )`, each View wrapped to provide its `editing` prop as
+the `Editing` context nested write controls read, which `ComposedLayout`
+applies to the views it is given. Its editor half is
+`page/mountComposedEditor`, imported by path:
+`mountComposedEditor( localized, views, { heading, wrap?, preview? } )` takes
+the `NewspackNodesComposition` object, registers its blocks against the
+provided `views`, the substrate's aside among them, throwing on a localized
+block that has no view, and registers an editor that renders
+`CompositionEditor` inside `wrap( children, slotProps )`, sending for the
+`group` of the `ComposedPage` it reads there, with
+`<preview { ...slotProps } />` beside the buttons.
 
 Every `Command_Interpreter_Node` separately exposes `dump_metadata` for the
 per-node canvas snapshot the topology console renders, keyed by node name:

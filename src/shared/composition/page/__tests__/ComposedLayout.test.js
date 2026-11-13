@@ -15,9 +15,10 @@ import {
 	waitFor,
 	within,
 } from '@testing-library/react';
+import { useEffect } from '@wordpress/element';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import { ASIDE, ComposedLayout, usePage } from '..';
+import { ASIDE, ComposedLayout, Editing, usePage, useWriteControl } from '..';
 
 const CONTEXT = 'weka-7711/board';
 
@@ -122,6 +123,59 @@ describe( 'ComposedLayout', () => {
 				.getAllByTestId( 'tally' )
 				.map( ( p ) => p.textContent )
 		).toEqual( [ 'Dock count at Kestrel' ] );
+	} );
+
+	it( 'keeps each block mounted across renders handed a fresh views map', () => {
+		const mounts = jest.fn();
+		const Buoy = () => {
+			useEffect( () => mounts(), [] );
+			return <p data-testid="buoy">Buoy 7714</p>;
+		};
+		const Page = ( { tide } ) => (
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [ node( 'weka-7711/buoy' ) ],
+				} }
+				views={ { 'weka-7711/buoy': { View: Buoy } } }
+				page={ page( { harbor: tide } ) }
+			/>
+		);
+		const { rerender } = render( <Page tide="Ebb" /> );
+
+		rerender( <Page tide="Flood" /> );
+		rerender( <Page tide="Slack" /> );
+
+		expect( mounts ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'provides each View’s editing to the write controls it holds', () => {
+		const onMoor = jest.fn();
+		const Moor = () => (
+			<button type="button" { ...useWriteControl( onMoor ) }>
+				Moor at B-7713
+			</button>
+		);
+		const Berth = () => <Moor />;
+		// An edited frame above the layout, which its read blocks must not inherit.
+		render(
+			<Editing.Provider value={ true }>
+				<ComposedLayout
+					layout={ {
+						context: CONTEXT,
+						blocks: [ node( 'weka-7711/berth' ) ],
+					} }
+					views={ { 'weka-7711/berth': { View: Berth } } }
+					page={ page() }
+				/>
+			</Editing.Provider>
+		);
+		const button = screen.getByRole( 'button', { name: 'Moor at B-7713' } );
+
+		fireEvent.click( button );
+
+		expect( onMoor ).toHaveBeenCalledTimes( 1 );
+		expect( button.hasAttribute( 'aria-disabled' ) ).toBe( false );
 	} );
 
 	it( 'renders a block that cannot render by the renderError given', () => {

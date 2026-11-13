@@ -124,6 +124,20 @@ const SAVED = {
 const RESAVED = { ...SAVED, saved_ts: 1912349999.75 };
 const DEFAULTED = { ...SAVED, source: 'default', blocks: [], actor: null };
 
+// Two patterns the context offers, as `Composition::schemas()` lists them.
+const PATTERNS = [
+	{
+		name: 'tui-7720',
+		title: 'Tui at dawn',
+		markup: '<!-- wp:acme-desk/tally {"max":3,"label":"Tui"} /-->',
+	},
+	{
+		name: 'ruru-7721',
+		title: 'Ruru roost',
+		markup: '<!-- wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {"max":9,"label":"Ruru"} /-->\n<!-- /wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {"label":"Kea"} /-->',
+	},
+];
+
 const WAIT = { timeout: 4000 };
 
 let replyFor;
@@ -513,5 +527,152 @@ describe( 'CompositionEditor', () => {
 		expect( onDone ).not.toHaveBeenCalled();
 		fireEvent.click( button( 'Discard changes' ) );
 		expect( onDone ).toHaveBeenCalledWith( SAVED, null );
+	} );
+
+	describe( 'Start from', () => {
+		const picker = () =>
+			screen.getByRole( 'combobox', { name: 'Start from' } );
+		const choose = ( name ) =>
+			fireEvent.change( picker(), { target: { value: name } } );
+		// A canvas block as its name, attributes and children.
+		const shape = ( { name, attributes, innerBlocks, isValid } ) => ( {
+			name,
+			attributes,
+			isValid,
+			innerBlocks: innerBlocks.map( shape ),
+		} );
+
+		it( 'lists every pattern the context offers by its title', async () => {
+			await mountLoaded( { patterns: PATTERNS } );
+			expect(
+				within( picker() )
+					.getAllByRole( 'option' )
+					.map( ( option ) => [ option.value, option.textContent ] )
+					.filter( ( [ value ] ) => '' !== value )
+			).toEqual( [
+				[ 'tui-7720', 'Tui at dawn' ],
+				[ 'ruru-7721', 'Ruru roost' ],
+			] );
+		} );
+
+		it( 'puts a chosen pattern’s blocks on the canvas, unsaved', async () => {
+			const onDirty = jest.fn();
+			await mountLoaded( { patterns: PATTERNS, onDirty } );
+
+			choose( 'ruru-7721' );
+
+			expect( mockProvider.props.value.map( shape ) ).toEqual( [
+				{
+					name: 'acme-desk/column',
+					attributes: {},
+					isValid: true,
+					innerBlocks: [
+						{
+							name: 'acme-desk/tally',
+							attributes: { max: 9, label: 'Ruru' },
+							isValid: true,
+							innerBlocks: [],
+						},
+					],
+				},
+				{
+					name: 'acme-desk/tally',
+					attributes: { max: 10, label: 'Kea' },
+					isValid: true,
+					innerBlocks: [],
+				},
+			] );
+			expect( onDirty ).toHaveBeenLastCalledWith( true );
+			expect( screen.queryByRole( 'dialog' ) ).toBeNull();
+			expect( sent( 'save' ) ).toEqual( [] );
+		} );
+
+		it( 'asks before a pattern replaces a change, and keeps the canvas on no', async () => {
+			await mountLoaded( { patterns: PATTERNS } );
+			const [ , tally ] = mockProvider.props.value;
+			const edited = [ tally ];
+			edit( edited );
+
+			choose( 'tui-7720' );
+			expect( screen.getByRole( 'dialog' ).textContent ).toContain(
+				'Discard your changes to this layout?'
+			);
+			fireEvent.click( button( 'Keep editing' ) );
+			expect( screen.queryByRole( 'dialog' ) ).toBeNull();
+			expect( mockProvider.props.value ).toBe( edited );
+
+			choose( 'tui-7720' );
+			fireEvent.click( button( 'Discard changes' ) );
+			expect( mockProvider.props.value.map( shape ) ).toEqual( [
+				{
+					name: 'acme-desk/tally',
+					attributes: { max: 3, label: 'Tui' },
+					isValid: true,
+					innerBlocks: [],
+				},
+			] );
+			expect( sent( 'save' ) ).toEqual( [] );
+		} );
+
+		it( 'saves a chosen pattern once Save layout is pressed', async () => {
+			const onDone = await mountLoaded( { patterns: PATTERNS } );
+
+			choose( 'ruru-7721' );
+			fireEvent.click( button( 'Save layout' ) );
+			await waitFor(
+				() => expect( onDone ).toHaveBeenCalledTimes( 1 ),
+				WAIT
+			);
+
+			expect( sent( 'save' ) ).toEqual( [
+				expect.objectContaining( {
+					arguments: [
+						CONTEXT,
+						'<!-- wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {"max":9,"label":"Ruru"} /-->\n<!-- /wp:acme-desk/column --><!-- wp:acme-desk/tally {"max":10,"label":"Kea"} /-->',
+					],
+				} ),
+			] );
+		} );
+
+		it( 'refuses a pattern naming a block the context does not offer', async () => {
+			// A block the editor registered, which these schemas do not offer.
+			const stray = {
+				name: 'kea-7724',
+				title: 'Kea at the board',
+				markup: '<!-- wp:acme-desk/column --><!-- wp:acme-desk/board /--><!-- /wp:acme-desk/column -->',
+			};
+			await mountLoaded( { patterns: [ ...PATTERNS, stray ] } );
+			const read = mockProvider.props.value;
+			// React reports a handler's throw to the window, not to fireEvent.
+			const thrown = [];
+			const onError = ( event ) => {
+				thrown.push( event.error );
+				event.preventDefault();
+			};
+			window.addEventListener( 'error', onError );
+			const error = jest
+				.spyOn( console, 'error' )
+				.mockImplementation( () => {} );
+			try {
+				choose( 'kea-7724' );
+			} finally {
+				window.removeEventListener( 'error', onError );
+				error.mockRestore();
+			}
+			// React's development build reports one handler throw twice.
+			expect( [
+				...new Set( thrown.map( ( e ) => e.message ) ),
+			] ).toEqual( [
+				'pattern kea-7724 names acme-desk/board, which acme-desk/board does not offer',
+			] );
+			expect( mockProvider.props.value ).toBe( read );
+		} );
+
+		it( 'is not offered where the context offers no pattern', async () => {
+			await mountLoaded( { patterns: [] } );
+			expect(
+				screen.queryByRole( 'combobox', { name: 'Start from' } )
+			).toBeNull();
+		} );
 	} );
 } );

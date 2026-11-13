@@ -15,7 +15,7 @@ import { useComposition } from '../useComposition';
 import { Confirm } from '../../components/Modal';
 import Unread from '../../components/Unread';
 import AsideView from './AsideView';
-import { ComposedPage } from './pageContext';
+import { ComposedPage, providedViews } from './pageContext';
 
 /** The one block split into the aside column. */
 export const ASIDE = 'newspack-nodes/aside';
@@ -96,7 +96,7 @@ function RestoreDefault( { context, page } ) {
 /**
  * @param {Object}                                                                         props
  * @param {import('../useComposition').CompositionAnswer|{context: string, error: string}} props.layout        What `Composition_Store::page_data()` answered for the page's context.
- * @param {Object<string,import('../CompositionView').CompositionBlockView>}               props.views         Block name => view; the substrate supplies the aside's view.
+ * @param {Object<string,import('../CompositionView').CompositionBlockView>}               props.views         Block name => view, each View handed `editing`. The substrate supplies the aside's view.
  * @param {import('./pageContext').ComposedPageValue}                                      props.page          The page the blocks stand on.
  * @param {(error: Error) => import('react').ReactNode}                                    [props.renderError] Renders a block that could not render.
  * @return {?import('react').ReactElement} The layout, or nothing for an empty one.
@@ -120,7 +120,10 @@ export default function ComposedLayout( {
 	if ( 0 === layout.blocks.length ) {
 		return null;
 	}
-	const withAside = { ...views, [ ASIDE ]: { View: AsideView } };
+	const withAside = {
+		...providedViews( views ),
+		[ ASIDE ]: { View: AsideView },
+	};
 	const main = layout.blocks.filter( ( node ) => ASIDE !== node.name );
 	const aside = layout.blocks.filter( ( node ) => ASIDE === node.name );
 	return (

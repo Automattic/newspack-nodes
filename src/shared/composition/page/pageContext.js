@@ -3,7 +3,8 @@
  * stands on, which the consumer shapes and the substrate never reads past
  * `canTune`, `onRestored` and `group`; and whether its layout is being
  * edited, in which case every write control the block holds is inert, so
- * editing a layout writes nothing else.
+ * editing a layout writes nothing else. `providedViews()` hands each View's
+ * `editing` prop to that context.
  */
 
 import { createContext, useContext } from '@wordpress/element';
@@ -65,4 +66,50 @@ export function useWriteControl( onClick ) {
 	return useEditing()
 		? { 'aria-disabled': true, onClick: nothing }
 		: { onClick };
+}
+
+/**
+ * Each View's provided wrapper, so one View always yields one component and
+ * its blocks stay mounted whatever map carries it.
+ *
+ * @type {WeakMap<import('react').ComponentType<any>, import('react').ComponentType<any>>}
+ */
+const PROVIDED = new WeakMap();
+
+/**
+ * A View that provides its `editing` prop as `Editing`.
+ *
+ * @param {import('react').ComponentType<any>} View A block's View.
+ * @return {import('react').ComponentType<any>} The View, provided.
+ */
+function provided( View ) {
+	if ( ! PROVIDED.has( View ) ) {
+		/**
+		 * @param {{attributes: Object, editing: boolean, children?: import('react').ReactNode}} props The View's props.
+		 * @return {import('react').ReactElement} The block.
+		 */
+		const Provided = ( props ) => (
+			<Editing.Provider value={ props.editing }>
+				<View { ...props } />
+			</Editing.Provider>
+		);
+		PROVIDED.set( View, Provided );
+	}
+	return PROVIDED.get( View );
+}
+
+/**
+ * Each view with a View that provides its `editing` prop as `Editing`, so a
+ * write control any depth inside reads it through `useWriteControl()`.
+ *
+ * @param {Object<string,import('../CompositionView').CompositionBlockView>} views Block name => view.
+ * @return {Object<string,import('../CompositionView').CompositionBlockView>} The same views, provided.
+ */
+export function providedViews( views ) {
+	return Object.fromEntries(
+		Object.entries( views ).map( ( [ name, view ] ) => [
+			name,
+			{ ...view, View: provided( view.View ) },
+		] )
+	);
 }
