@@ -1,5 +1,5 @@
 /**
- * The Aggregator Status dashboard's two slice views, declared rather than
+ * The Aggregator station tab's two slice views, declared rather than
  * subclassed.
  *
  * Each owns one command of the hub-side `aggregator` interpreter and publishes it
@@ -13,8 +13,10 @@
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 
 /**
- * The view classes. `useAggregatorStatusGraph` hands `makeNode` the class
- * itself rather than the name, because the station mounts this tab against
+ * The view classes. The `nodes/aggregator-summary` and
+ * `nodes/aggregator-servers` sources in `aggregatorSources.js` hand
+ * `makeNode` the class itself rather than the name, because the station
+ * mounts this tab against
  * an interpreter from another bundle and `includeNodes` is a per-bundle static
  * ([ADR-16](../../../docs/architecture-decisions.md)). Registering the names
  * still serves TSL and the console palette.

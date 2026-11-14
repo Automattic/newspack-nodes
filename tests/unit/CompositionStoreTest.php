@@ -440,6 +440,49 @@ final class CompositionStoreTest extends TestCase {
 		);
 	}
 
+	/**
+	 * A refused declaration set is every context's refusal, in place, and
+	 * one report line, so the page around the layouts still loads.
+	 */
+	public function test_page_data_answers_a_refused_declaration_set_in_place(): void {
+		$this->declare_acme_desk(
+			static function ( array $map ): array {
+				$map['acme-desk']['contexts']['acme-desk/board']['admits'] = [ 'newspack-nodes/aside' ];
+				return $map;
+			}
+		);
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+		$stderr = $this->capture_stderr();
+		$why    = 'composition declaration acme-desk: acme-desk/board admits newspack-nodes/aside, which is not a shared block';
+
+		$page = Composition_Store::page_data( [ self::BOARD, self::DIGEST ] );
+
+		$this->assertSame(
+			[
+				self::BOARD  => [ 'context' => self::BOARD, 'error' => $why ],
+				self::DIGEST => [ 'context' => self::DIGEST, 'error' => $why ],
+			],
+			$page
+		);
+		$lines = self::stderr_lines( $stderr, $why );
+		$this->assertCount( 1, $lines );
+		$this->assertStringContainsString( "composition: declarations: {$why} (", $lines[0] );
+	}
+
+	/** An undeclared context is its own refusal, in place. */
+	public function test_page_data_answers_an_undeclared_context_in_place(): void {
+		$page = Composition_Store::page_data( [ 'acme-desk/ledger-4471', self::DIGEST ] );
+
+		$this->assertSame(
+			[
+				'context' => 'acme-desk/ledger-4471',
+				'error'   => 'composition context acme-desk/ledger-4471 is not declared',
+			],
+			$page['acme-desk/ledger-4471']
+		);
+		$this->assertSame( Composition_Store::read( self::DIGEST ), $page[ self::DIGEST ] );
+	}
+
 	/** What the board's `read()` threw. */
 	private function read_refusal(): \RuntimeException {
 		try {

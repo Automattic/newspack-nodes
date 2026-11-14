@@ -543,8 +543,13 @@ final class Composition {
 	 * @param string               $handle    The editor bundle's script handle.
 	 * @param string               $build_dir The build directory.
 	 * @param string               $build_url The build directory's URL.
+	 * A page's enqueue is a top-level boundary, so an editor that will not
+	 * load, a refused declaration set among the causes, is reported to
+	 * stderr and loads nothing; the page's data shows the refusal.
+	 *
 	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
-	 * @return bool What `editor()` answered, false when nothing was asked of it.
+	 * @return bool What `editor()` answered, false when nothing was asked of it
+	 *              or it refused.
 	 */
 	public static function enqueue_editor( array $pages, string $handle, string $build_dir, string $build_url ): bool {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- names which page's editor to load; the editor's writes are command-gated.
@@ -556,7 +561,14 @@ final class Composition {
 		$deps    = \array_map( Core::as_string( ... ), \array_values( Core::arr( $asset['dependencies'] ) ) );
 		$version = Core::as_string( $asset['version'] );
 		\wp_register_script( $handle, "{$build_url}/layout-editor.js", $deps, $version, true );
-		$loaded = self::editor( $pages[ $edit ], $handle );
+		try {
+			$loaded = self::editor( $pages[ $edit ], $handle );
+		} catch ( Worker_Should_Stop $stop ) {
+			throw $stop;
+		} catch ( \Throwable $refused ) {
+			Worker_Should_Stop::report( 'composition', [ $pages[ $edit ] => $refused ] );
+			return false;
+		}
 		if ( $loaded && \file_exists( "{$build_dir}/layout-editor.css" ) ) {
 			\wp_enqueue_style( $handle, "{$build_url}/layout-editor.css", [ 'wp-components', 'wp-block-editor' ], $version );
 			\wp_style_add_data( $handle, 'rtl', 'replace' );

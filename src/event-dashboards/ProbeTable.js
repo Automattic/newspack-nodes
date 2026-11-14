@@ -21,7 +21,7 @@ import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
  * @param {Object}               props           Component props.
  * @param {Array<ProbeColumn>}   props.columns   The columns, in order.
  * @param {Array<Object>}        props.rows      The rows, already sorted.
- * @param {( row: * ) => string} props.rowKey    A row's identity.
+ * @param {( row: * ) => string} props.getItemId A row's identity, as `DataViewsList` names it.
  * @param {string}               props.keyAttr   The data attribute carrying that identity, e.g. `data-job-key`.
  * @param {*}                    [props.context] Handed to every cell beside its row.
  * @param {string}               props.emptyText What reads in place of a table with no rows.
@@ -30,7 +30,7 @@ import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
 export function ProbeTable( {
 	columns,
 	rows,
-	rowKey,
+	getItemId,
 	keyAttr,
 	context,
 	emptyText,
@@ -53,7 +53,7 @@ export function ProbeTable( {
 			</thead>
 			<tbody>
 				{ rows.map( ( row ) => {
-					const key = rowKey( row );
+					const key = getItemId( row );
 					return (
 						<tr key={ key } { ...{ [ keyAttr ]: key } }>
 							{ columns.map( ( c ) => (

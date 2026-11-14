@@ -79,3 +79,57 @@ it( 'pick selects AND reflects the key into the URL param', () => {
 	expect( select ).toHaveBeenCalledWith( 'gate' );
 	expect( window.location.search ).toContain( 'source=gate' );
 } );
+
+it( 'pushes a Back entry for each pick', () => {
+	const push = jest.spyOn( window.history, 'pushState' );
+	const select = jest.fn();
+	const { result, unmount } = mount( {
+		keys: [ 'php', 'gate' ],
+		selected: 'php',
+		select,
+	} );
+	act( () => result.current( 'gate' ) );
+	expect( push ).toHaveBeenCalledTimes( 1 );
+	expect( window.location.search ).toBe( '?source=gate' );
+	unmount();
+	push.mockRestore();
+} );
+
+it( 'selects the key the entry Back lands on names', () => {
+	const select = jest.fn();
+	const { result, unmount } = mount( {
+		keys: [ 'php', 'gate', 'kea-7926' ],
+		selected: 'php',
+		select,
+	} );
+	act( () => result.current( 'kea-7926' ) );
+	select.mockClear();
+
+	act( () => {
+		window.history.replaceState( null, '', '/?source=gate' );
+		window.dispatchEvent( new window.PopStateEvent( 'popstate' ) );
+	} );
+
+	expect( select ).toHaveBeenCalledTimes( 1 );
+	expect( select ).toHaveBeenCalledWith( 'gate' );
+	unmount();
+} );
+
+it( 'leaves the selection where Back lands on a key the catalog lacks', () => {
+	const select = jest.fn();
+	const { result, unmount } = mount( {
+		keys: [ 'php', 'gate' ],
+		selected: 'php',
+		select,
+	} );
+	act( () => result.current( 'gate' ) );
+	select.mockClear();
+
+	act( () => {
+		window.history.replaceState( null, '', '/?source=ghost-7926' );
+		window.dispatchEvent( new window.PopStateEvent( 'popstate' ) );
+	} );
+
+	expect( select ).not.toHaveBeenCalled();
+	unmount();
+} );

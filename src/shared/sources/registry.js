@@ -141,7 +141,8 @@ function sameDeclaration( a, b ) {
  * answering false leaves its tile out. A `rows` field a log stream lists
  * may declare `cell( row )`, its cell's content, `width`, its column's grid
  * track, and `tooltip`, its header's hover text. A source's `caption( model )` names
- * what a stats row shows, as the row's hover title. `params` names
+ * what a stats row shows, as the row's hover title, and its `rowKey` the
+ * field a table keys each row by, as a string, else `id`. `params` names
  * the page-state keys a block reads its params from, each param named as its
  * key, and `label` the words a block's inspector names the source by, its
  * name when it declares none. Two fields of one kind may not share a label,
@@ -151,7 +152,8 @@ function sameDeclaration( a, b ) {
  * @param {Object} decl `{ kind: 'poll', group, ci, command, args?, transform?,
  *                      viewClass?, transformClass?, intervalMs, cadence?,
  *                      retry?, scope? }`,
- *                      `{ kind: 'command', group, ci, command, args }`, `{
+ *                      `{ kind: 'command', group, ci, command, args,
+ *                      retry?, scope? }`, `{
  *                      kind: 'stream', subscribe, viewClass, mode, group?,
  *                      browse?, cadence?, clearOnOpen?, count?, rate?,
  *                      placeholder?, empty?, columnsKey? }` or `{
@@ -163,8 +165,9 @@ function sameDeclaration( a, b ) {
  *                      milliseconds that key holds, outside its params, so a
  *                      new cadence re-arms the same fetch, and one declaring
  *                      `retry: false` asks once however long its answer
- *                      takes. While a poll's or a derived source's new key
- *                      loads, a reader sees the model it last showed under
+ *                      takes, as a command declaring it does. While a new
+ *                      key of a poll, a command or a derived source loads,
+ *                      a reader sees the model it last showed under
  *                      the declaration, as stale, when `scope( params )`
  *                      answers the same for both keys, a derived source
  *                      declaring none reading its inputs' scopes, so a new

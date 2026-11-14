@@ -11,7 +11,8 @@
  * page's own and ahead of the ⋯ menu, which always stands last. While the
  * editor holds a change, an in-page
  * leave a `guardLeave` answers asks first, through the shared `Confirm`; a
- * page leave the editor guards itself.
+ * page leave the editor guards itself. A `layout` the caller hands it anew,
+ * a read that has just answered, replaces the one it shows.
  *
  * A consumer's bundle renders this with its own views, so the providers and
  * the blocks come from that one bundle.
@@ -50,7 +51,7 @@ const EditSlot = /** @type {import('react').ComponentType<Object>} */ (
  * @param {string}                                                           props.group                The surface the page's commands are sent for.
  * @param {boolean}                                                          props.canTune              Whether the reader may curate.
  * @param {boolean}                                                          props.canManage            Whether the reader is an operator.
- * @param {Object}                                                           props.layout               The layout or refusal the page read.
+ * @param {Object}                                                           props.layout               The layout or refusal the page read; a new one replaces the one shown.
  * @param {Object<string,import('../CompositionView').CompositionBlockView>} props.views                Every block's view.
  * @param {Object}                                                           [props.standing]           What the page's blocks stand on beside the frame's own `group`, `canTune`, `operator` and `onRestored`.
  * @param {?Element}                                                         [props.headerControlsSlot] The header's slot; null withholds the controls, undefined renders them inline.
@@ -75,6 +76,11 @@ export default function ComposedPageFrame( {
 	guardLeave = null,
 } ) {
 	const [ layout, setLayout ] = useState( read );
+	const [ handed, setHanded ] = useState( read );
+	if ( read !== handed ) {
+		setHanded( read );
+		setLayout( read );
+	}
 	const [ editing, setEditing ] = useState(
 		() =>
 			canTune &&

@@ -6,7 +6,8 @@
  * `useBatchedPoll` and `addSliceFetcher`, a command by `useCommandRead`, a
  * stream by `useLogTailStream`, whose readers also get its view node and
  * controls, and a derived source by reading its inputs as a block would. A
- * poll's readers also get `refresh()`, which asks again at once. A hook
+ * poll's and a command's readers also get `refresh()`, which asks again at
+ * once. A hook
  * runs only inside a component, so a `SourcesProvider` renders one host per
  * held key inside the page's own tree, under its StrictMode and its
  * boundaries, built by this bundle's hooks. A block only holds its key and
@@ -74,7 +75,7 @@ import {
  * @property {boolean}        loading   Whether its first answer is owed.
  * @property {boolean}        stale     Whether a remembered answer stands in.
  * @property {StreamControls} [stream]  A stream's view node and controls.
- * @property {() => void}     [refresh] A poll's re-ask, now.
+ * @property {() => void}     [refresh] A poll's or a command's re-ask, now.
  */
 
 /**
@@ -202,22 +203,25 @@ function usePollSource( { decl, params, prefix }, paused ) {
 /**
  * A command: one read, asked once and again only when it went missing, its
  * remembered answer standing in, stale, while a fresh one is owed.
+ * `retry: false` declines that re-ask, as a poll's does, and `refresh()`
+ * asks the same question again at once.
  *
  * @param {Entry} entry The live source.
  * @return {SourceState} What it shows.
  */
 function useCommandSource( { decl, params, prefix } ) {
 	const [ tokens ] = useState( () => decl.args( params ) );
-	const { answer, error, loading, stale } = useCommandRead( {
+	const { answer, error, loading, stale, refresh } = useCommandRead( {
 		group: decl.group,
 		ci: decl.ci,
 		scope: prefix,
 		command: decl.command,
 		args: tokens,
+		retry: false !== decl.retry,
 	} );
 	return useMemo(
-		() => ( { model: answer, error, loading, stale } ),
-		[ answer, error, loading, stale ]
+		() => ( { model: answer, error, loading, stale, refresh } ),
+		[ answer, error, loading, stale, refresh ]
 	);
 }
 
@@ -511,11 +515,11 @@ export function useSource( name, params = {} ) {
 }
 
 /**
- * A poll's or a derived source's state as a reader shows it: while a new key
- * loads, the model the reader last showed under the declaration, stale,
- * unless the source's scope (`scopeOf()`) differs under the new params,
- * so a reader keeps its rows and its figures on screen across a new
- * question. A command keeps its own remembered answers.
+ * A source's state as a reader shows it: while a new key loads, the model
+ * the reader last showed under the declaration, stale, unless the source's
+ * scope (`scopeOf()`) differs under the new params, so a reader keeps its
+ * rows and its figures on screen across a new question. A stream's view is
+ * its own subscription's, so a stream keeps none.
  *
  * @param {string}      name   The source.
  * @param {Object}      params What it is read with.
@@ -525,7 +529,7 @@ export function useSource( name, params = {} ) {
 function useLastModel( name, params, state ) {
 	const decl = sourceDeclaration( name );
 	const scope = scopeOf( decl, params );
-	const keeps = 'poll' === decl.kind || 'derived' === decl.kind;
+	const keeps = 'stream' !== decl.kind;
 	const last = useRef( null );
 	if ( keeps && null !== state.model ) {
 		last.current = { name, scope, model: state.model };

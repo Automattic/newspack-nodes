@@ -6,6 +6,25 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Every bundle that inlines `queryParams.js` ships in this release.** The
+  bar store in `@newspack-nodes/shared/utils/queryParams` keeps one page-wide
+  record under `window.__newspackNodesBar`, and stamps `newspackNodesBar` into
+  `history.state`; every bundle on a page shares both, so a consumer bundle
+  built against an earlier substrate disagrees with the substrate's own about
+  their shape. Rebuild each bundle that imports `utils/queryParams`, or a hook
+  built on it (`useQueryParamState`, page state, `TabHost`,
+  `useDeepLinkedSelection`), against this release, deploy it with this
+  release, and raise the plugin's floor to it.
+- **Every consumer's layout editor bundle rebuilds against this release and
+  deploys with it.** `Composition::schemas()`, which `Composition::editor()`
+  localizes as `NewspackNodesComposition`, changed shape: each pattern is
+  `{ name, title, blocks }`, `blocks` the validated tree, where it carried
+  `markup`; the payload adds `inline`, the elements a text block keeps, and
+  each block entry adds `core` and `text`; and every context's `blocks` holds
+  the nine core blocks every context admits. An editor bundle built against
+  an earlier substrate reads a pattern's `markup` that is not there and offers
+  no core block, so rebuild every editor bundle, deploy it with this release,
+  and raise the plugin's floor to it.
 - **`Composition::declare_aside()` is `Composition::declare_substrate_blocks()`.**
   It declares the six shared blocks. A test seeding the composition filter by
   hand names the new method; the old name is gone, with no alias.

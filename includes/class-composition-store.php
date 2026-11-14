@@ -116,17 +116,25 @@ final class Composition_Store {
 	/**
 	 * Each context's `read()`, or `{ context, error }` in its place for one
 	 * refused, so a page renders the refusal where the layout would stand,
-	 * worded as `Core::caller_message()` lets this caller read it. Enqueues
-	 * core's `wp-block-library` styles, which a layout's core blocks wear.
+	 * worded as `Core::caller_message()` lets this caller read it. A page's
+	 * enqueue is a top-level boundary, so a refused declaration set, or an
+	 * undeclared context, is reported to stderr and answered in place too,
+	 * and the page around the layouts still loads. Enqueues core's
+	 * `wp-block-library` styles, which a layout's core blocks wear.
 	 *
-	 * @param list<string> $contexts Declared contexts.
+	 * @param list<string> $contexts The contexts a page lays out.
 	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
 	 * @return array<string,Layout|array{context: string, error: string}>
-	 * @throws \LogicException When a context is not declared.
 	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
 	public static function page_data( array $contexts ): array {
 		\wp_enqueue_style( 'wp-block-library' );
+		try {
+			Composition::declarations();
+		} catch ( \Throwable $refused ) {
+			Worker_Should_Stop::report( 'composition', [ 'declarations' => $refused ] );
+			return \array_combine( $contexts, \array_map( static fn ( string $context ): array => self::refusal( $context, $refused ), $contexts ) );
+		}
 		$page = [];
 		foreach ( $contexts as $context ) {
 			try {
@@ -134,10 +142,10 @@ final class Composition_Store {
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \RuntimeException $refused ) {
-				$page[ $context ] = [
-					'context' => $context,
-					'error'   => Core::caller_message( $refused, "composition {$context}" ),
-				];
+				$page[ $context ] = self::refusal( $context, $refused );
+			} catch ( \LogicException $undeclared ) {
+				Worker_Should_Stop::report( 'composition', [ $context => $undeclared ] );
+				$page[ $context ] = self::refusal( $context, $undeclared );
 			}
 		}
 		return $page;
@@ -233,6 +241,19 @@ final class Composition_Store {
 			'blocks'   => $tree,
 			'saved_ts' => $ts,
 			'actor'    => $actor,
+		];
+	}
+
+	/**
+	 * A context's refusal, as a page renders it where the layout would stand.
+	 *
+	 * @return array{context: string, error: string}
+	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
+	 */
+	private static function refusal( string $context, \Throwable $refused ): array {
+		return [
+			'context' => $context,
+			'error'   => Core::caller_message( $refused, "composition {$context}" ),
 		];
 	}
 }

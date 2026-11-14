@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-11-13T20:09:26+00:00\n"
+"POT-Creation-Date: 2026-11-14T09:32:05+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -35,178 +35,178 @@ msgstr ""
 msgid "https://newspack.com/"
 msgstr ""
 
-#: includes/admin/class-admin.php:366
+#: includes/admin/class-admin.php:372
 msgid "Number of log partitions for parallel processing."
 msgstr ""
 
-#: includes/admin/class-admin.php:371
+#: includes/admin/class-admin.php:377
 msgid "Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:376
+#: includes/admin/class-admin.php:382
 msgid "Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:381
+#: includes/admin/class-admin.php:387
 msgid "True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments)."
 msgstr ""
 
-#: includes/admin/class-admin.php:386
+#: includes/admin/class-admin.php:392
 msgid "Maximum segment size in bytes."
 msgstr ""
 
-#: includes/admin/class-admin.php:391
+#: includes/admin/class-admin.php:397
 msgid "Floor for the count rule: keep segments younger than this many seconds even when over num segments. 0 = pure count-based."
 msgstr ""
 
-#: includes/admin/class-admin.php:396
+#: includes/admin/class-admin.php:402
 msgid "Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning)."
 msgstr ""
 
-#: includes/admin/class-admin.php:401
+#: includes/admin/class-admin.php:407
 msgid "Count-rule target: number of log segments to keep on remote servers (2-16)."
 msgstr ""
 
-#: includes/admin/class-admin.php:406
+#: includes/admin/class-admin.php:412
 msgid "Floor for the age rule: keep at least this many segments on remote servers even when pruning by lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:411
+#: includes/admin/class-admin.php:417
 msgid "Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled."
 msgstr ""
 
-#: includes/admin/class-admin.php:416
+#: includes/admin/class-admin.php:422
 msgid "True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments)."
 msgstr ""
 
-#: includes/admin/class-admin.php:421
+#: includes/admin/class-admin.php:427
 msgid "Segment size on remote servers in bytes (1MB-4GB)."
 msgstr ""
 
-#: includes/admin/class-admin.php:426
+#: includes/admin/class-admin.php:432
 msgid "Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based)."
 msgstr ""
 
-#: includes/admin/class-admin.php:431
+#: includes/admin/class-admin.php:437
 msgid "Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag."
 msgstr ""
 
-#: includes/admin/class-admin.php:436
+#: includes/admin/class-admin.php:442
 msgid "Warn when more than this many dead-letter records are quarantined. 0 = warn on the first."
 msgstr ""
 
-#: includes/admin/class-admin.php:441
+#: includes/admin/class-admin.php:447
 msgid "Minimum seconds between alert-action emission bursts (rate limit)."
 msgstr ""
 
 #. translators: %s: label of the setting this one follows
-#: includes/admin/class-admin.php:480
+#: includes/admin/class-admin.php:486
 #, php-format
 msgid "Blank follows %s."
 msgstr ""
 
-#: includes/admin/class-admin.php:751
+#: includes/admin/class-admin.php:757
 msgid "Base directory for logs, locks, and offsets."
 msgstr ""
 
 #. translators: %s: comma-separated default server list.
-#: includes/admin/class-admin.php:780
+#: includes/admin/class-admin.php:786
 #, php-format
 msgid "Memcache servers (one per line, format: host:port). Used for stats aggregation and SSE. Default: %s"
 msgstr ""
 
-#: includes/admin/class-admin.php:803
+#: includes/admin/class-admin.php:809
 msgid "Extra log sources for the Log Viewer (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included."
 msgstr ""
 
 #. translators: %s: the backend a blank setting resolves to.
-#: includes/admin/class-admin.php:822
+#: includes/admin/class-admin.php:828
 #, php-format
 msgid "Default (%s)"
 msgstr ""
 
-#: includes/admin/class-admin.php:824
+#: includes/admin/class-admin.php:830
 msgid "Where command sessions live: sqlite, a file on this host, or wpdb, a database table every web host shares. Changing it drops every open session; dashboards and MCP clients mint a new one."
 msgstr ""
 
 #. translators: 1: segment size in MB, 2: hard-cap segment count, 3: number of on-disk log partitions
-#: includes/admin/class-admin.php:877
+#: includes/admin/class-admin.php:883
 #, php-format
 msgid "Calculated as: %1$s MB segment × %2$s hard-cap segments × %3$s log partitions"
 msgstr ""
 
 #. translators: 1: number of active fleet alerts, 2: worst severity (warning|critical).
-#: includes/admin/class-admin.php:1235
+#: includes/admin/class-admin.php:1241
 #, php-format
 msgid "Newspack Nodes: %1$d fleet alert(s), worst severity %2$s."
 msgstr ""
 
-#: includes/admin/class-admin.php:1244
+#: includes/admin/class-admin.php:1250
 msgid "View fleet health"
 msgstr ""
 
-#: includes/admin/class-admin.php:1261
+#: includes/admin/class-admin.php:1267
 msgid "Nodes Station"
 msgstr ""
 
-#: includes/admin/class-admin.php:1262
+#: includes/admin/class-admin.php:1268
 msgid "Nodes"
 msgstr ""
 
-#: includes/admin/class-admin.php:1292
-#: includes/admin/class-admin.php:1333
+#: includes/admin/class-admin.php:1298
+#: includes/admin/class-admin.php:1339
 msgid "You do not have permission to access this page."
 msgstr ""
 
-#: includes/admin/class-admin.php:1309
-#: includes/admin/class-admin.php:1340
+#: includes/admin/class-admin.php:1315
+#: includes/admin/class-admin.php:1346
 msgid "Nodes Runtime Settings"
 msgstr ""
 
-#: includes/admin/class-admin.php:1310
+#: includes/admin/class-admin.php:1316
 msgid "Nodes Runtime"
 msgstr ""
 
-#: includes/admin/class-admin.php:1345
+#: includes/admin/class-admin.php:1351
 msgid "Caches flushed; every live worker was asked to restart."
 msgstr ""
 
-#: includes/admin/class-admin.php:1355
+#: includes/admin/class-admin.php:1361
 msgid "Save Settings"
 msgstr ""
 
-#: includes/admin/class-admin.php:1358
+#: includes/admin/class-admin.php:1364
 msgid "Reset to Defaults"
 msgstr ""
 
-#: includes/admin/class-admin.php:1359
+#: includes/admin/class-admin.php:1365
 msgid "Are you sure you want to reset all substrate settings to defaults? This cannot be undone."
 msgstr ""
 
-#: includes/admin/class-admin.php:1364
+#: includes/admin/class-admin.php:1370
 msgid "Flush Caches"
 msgstr ""
 
-#: includes/admin/class-admin.php:1401
-#: includes/admin/class-admin.php:1435
+#: includes/admin/class-admin.php:1407
+#: includes/admin/class-admin.php:1441
 #: includes/admin/class-oauth-consent.php:189
 msgid "Security check failed."
 msgstr ""
 
-#: includes/admin/class-admin.php:1404
-#: includes/admin/class-admin.php:1438
+#: includes/admin/class-admin.php:1410
+#: includes/admin/class-admin.php:1444
 msgid "You do not have permission to perform this action."
 msgstr ""
 
-#: includes/admin/class-admin.php:1608
+#: includes/admin/class-admin.php:1614
 msgid "Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker."
 msgstr ""
 
-#: includes/admin/class-admin.php:1613
+#: includes/admin/class-admin.php:1619
 msgid "Storage geometry pushed to remote spokes (may differ from hub settings). Blank fields use the config-file default."
 msgstr ""
 
-#: includes/admin/class-admin.php:1617
+#: includes/admin/class-admin.php:1623
 msgid "Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each fleet sweep; no worker restart. Blank fields use the config-file default."
 msgstr ""
 
@@ -526,8 +526,8 @@ msgid "Debug Overlay"
 msgstr ""
 
 #: src/debug-overlay/tabs/index.js:28
-#: src/event-dashboards/tabs.js:31
-#: src/event-dashboards/__tests__/tabs.test.js:27
+#: src/event-dashboards/tabs.js:35
+#: src/event-dashboards/__tests__/tabs.test.js:29
 msgid "Overview"
 msgstr ""
 
@@ -541,217 +541,369 @@ msgstr ""
 msgid "The graph and REPL live in this page's own Console tab. Switch to Overview to watch this browser's <nb>I/O</nb>."
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:141
+#: src/debug-overlay/tabs/OverviewTab.js:119
 msgid "Messages (this browser)"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:201
-#: src/debug-overlay/tabs/OverviewTab.js:268
+#: src/debug-overlay/tabs/OverviewTab.js:180
+#: src/debug-overlay/tabs/OverviewTab.js:247
 msgid "Byte Rate"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:209
-#: src/debug-overlay/tabs/OverviewTab.js:261
+#: src/debug-overlay/tabs/OverviewTab.js:188
+#: src/debug-overlay/tabs/OverviewTab.js:240
 msgid "Message Rate"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:217
+#: src/debug-overlay/tabs/OverviewTab.js:196
 msgid "Total Messages"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:225
+#: src/debug-overlay/tabs/OverviewTab.js:204
 msgid "Total Bytes"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:233
+#: src/debug-overlay/tabs/OverviewTab.js:212
 msgid "Warnings"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:238
-#: src/event-dashboards/Jobs.js:194
-#: src/event-dashboards/Tables.js:179
+#: src/debug-overlay/tabs/OverviewTab.js:217
+#: src/event-dashboards/blocks/probe-table.js:178
+#: src/event-dashboards/views.js:251
 msgid "Errors"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:243
-#: src/shared/components/LogStreamViewer.js:387
+#: src/debug-overlay/tabs/OverviewTab.js:222
+#: src/shared/components/LogStreamViewer.js:391
 msgid "Debug"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:248
+#: src/debug-overlay/tabs/OverviewTab.js:227
 msgid "Client Uptime"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:253
+#: src/debug-overlay/tabs/OverviewTab.js:232
 msgid "SSE Uptime"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:262
-#: src/event-dashboards/Overview.js:363
+#: src/debug-overlay/tabs/OverviewTab.js:241
+#: src/event-dashboards/views.js:166
 #: src/topology-console/components/Inspector.js:2655
 msgid "Messages"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:269
-#: src/event-dashboards/Overview.js:371
+#: src/debug-overlay/tabs/OverviewTab.js:248
+#: src/event-dashboards/views.js:174
 msgid "Bytes"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:281
+#: src/debug-overlay/tabs/OverviewTab.js:260
 msgid "Reset stats"
 msgstr ""
 
+#: src/event-aggregator/aggregatorSources.js:52
+msgid "Aggregator summary"
+msgstr ""
+
+#: src/event-aggregator/aggregatorSources.js:62
+msgid "Spokes connected"
+msgstr ""
+
+#: src/event-aggregator/aggregatorSources.js:67
+msgid "Spokes idle"
+msgstr ""
+
+#: src/event-aggregator/aggregatorSources.js:72
+msgid "Spokes"
+msgstr ""
+
+#: src/event-aggregator/aggregatorSources.js:80
+msgid "Aggregator servers"
+msgstr ""
+
+#. translators: %s: formatted time of the last update.
+#: src/event-aggregator/AggregatorTab.js:54
+#, js-format
+msgid "Updated %s"
+msgstr ""
+
+#: src/event-aggregator/AggregatorTab.js:57
+#: src/topology-console/components/Inspector.js:2321
+#: src/topology-console/components/TriageView.js:326
+msgid "Loading…"
+msgstr ""
+
+#: src/event-aggregator/AggregatorTab.js:64
+msgid "up"
+msgstr ""
+
+#. translators: %d: number of spokes between streams.
+#: src/event-aggregator/AggregatorTab.js:69
+#, js-format
+msgid "%d idle"
+msgstr ""
+
 #. translators: %d: number of seconds since the last update.
-#: src/event-aggregator/AggregatorStatus.js:105
+#: src/event-aggregator/blocks/server-cards.js:71
 #, js-format
 msgid "%ds ago"
 msgstr ""
 
 #. translators: %d: number of minutes since the last update.
 #. translators: %d: minutes since last activity.
-#: src/event-aggregator/AggregatorStatus.js:112
+#: src/event-aggregator/blocks/server-cards.js:78
 #: src/topology-console/components/Inspector.js:336
 #, js-format
 msgid "%dm ago"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:196
+#: src/event-aggregator/blocks/server-cards.js:162
 msgid "timed out"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:199
+#: src/event-aggregator/blocks/server-cards.js:165
 msgid "stream ended"
 msgstr ""
 
 #. translators: %d: seconds until the stream reopens.
-#: src/event-aggregator/AggregatorStatus.js:223
+#: src/event-aggregator/blocks/server-cards.js:189
 #, js-format
 msgid "in %ds"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:282
+#: src/event-aggregator/blocks/server-cards.js:248
 msgid "Reconnects"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:285
+#: src/event-aggregator/blocks/server-cards.js:251
 #: src/topology-console/utils/streamStatus.js:15
 msgid "Connected"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:286
+#: src/event-aggregator/blocks/server-cards.js:252
 msgid "Attempt"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:387
+#: src/event-aggregator/blocks/server-cards.js:353
 msgid "Server HB"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:393
+#: src/event-aggregator/blocks/server-cards.js:359
 msgid "Round trip"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:414
-#: src/event-dashboards/Jobs.js:93
-#: src/vault/VaultAdmin.js:625
+#: src/event-aggregator/blocks/server-cards.js:380
+#: src/event-dashboards/blocks/probe-table.js:65
+#: src/vault/VaultAdmin.js:619
 msgid "Status"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:437
+#: src/event-aggregator/blocks/server-cards.js:403
 msgid "HTTP"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:461
-#: src/event-aggregator/AggregatorStatus.js:638
+#: src/event-aggregator/blocks/server-cards.js:427
+#: src/event-aggregator/blocks/server-cards.js:605
 msgid "Probing…"
 msgstr ""
 
 #. translators: 1: live, 2: stale, 3: held, 4: idle, 5: down workers.
-#: src/event-aggregator/AggregatorStatus.js:485
+#: src/event-aggregator/blocks/server-cards.js:451
 #, js-format
 msgid "Workers %1$d live / %2$d stale / %3$d held / %4$d idle / %5$d down"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:498
+#: src/event-aggregator/blocks/server-cards.js:464
 msgid "Worst lag unknown"
 msgstr ""
 
 #. translators: %d: worst consumer lag in bytes.
-#: src/event-aggregator/AggregatorStatus.js:501
+#: src/event-aggregator/blocks/server-cards.js:467
 #, js-format
 msgid "Worst lag %d B"
 msgstr ""
 
 #. translators: %d: number of quarantined dead-letter segments.
-#: src/event-aggregator/AggregatorStatus.js:508
+#: src/event-aggregator/blocks/server-cards.js:474
 #, js-format
 msgid "DLQ %d"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:540
+#: src/event-aggregator/blocks/server-cards.js:506
 msgid "lag unknown"
 msgstr ""
 
 #. translators: 1: partitions up (idle counts), 2: all partitions.
 #. translators: %1$d: live partitions; %2$d: total.
-#: src/event-aggregator/AggregatorStatus.js:606
+#: src/event-aggregator/blocks/server-cards.js:573
 #: src/event-dashboards/TopologyRow.js:339
 #, js-format
 msgid "%1$d/%2$d up"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:639
+#: src/event-aggregator/blocks/server-cards.js:606
+#: src/event-dashboards/blocks/probe-table.js:282
 msgid "Probe"
 msgstr ""
 
-#. translators: %s: formatted time of the last update.
-#: src/event-aggregator/AggregatorStatus.js:696
-#, js-format
-msgid "Updated %s"
-msgstr ""
-
-#: src/event-aggregator/AggregatorStatus.js:699
-#: src/station/lazyTabs.js:62
-#: src/topology-console/components/Inspector.js:2321
-#: src/topology-console/components/OpenTopologyModal.js:61
-#: src/topology-console/components/TriageView.js:326
-msgid "Loading…"
-msgstr ""
-
-#: src/event-aggregator/AggregatorStatus.js:706
-msgid "up"
-msgstr ""
-
-#. translators: %d: number of spokes between streams.
-#: src/event-aggregator/AggregatorStatus.js:711
-#, js-format
-msgid "%d idle"
-msgstr ""
-
-#: src/event-aggregator/AggregatorStatus.js:722
-msgid "Refresh interval"
-msgstr ""
-
-#: src/event-aggregator/AggregatorStatus.js:741
-msgid "Loading server status…"
-msgstr ""
-
 #. translators: 1: topology name, 2: why it will not read.
-#: src/event-aggregator/AggregatorStatus.js:751
+#: src/event-aggregator/blocks/server-cards.js:648
 #, js-format
 msgid "Topology %1$s will not read, so its servers are not listed: %2$s"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:783
+#: src/event-aggregator/blocks/server-cards.js:678
 msgid "No servers configured. Add a server in the Vault tab, then wire a Remote_Source into an active topology."
 msgstr ""
 
-#: src/event-aggregator/tabMeta.js:17
+#: src/event-aggregator/tabMeta.js:21
 #: src/event-aggregator/__tests__/tabs.test.js:21
 msgid "Aggregator"
 msgstr ""
 
 #: src/event-dashboards/AlertModal.js:78
 msgid "OK"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:39
+msgid "Job"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:44
+#: src/event-dashboards/views.js:244
+msgid "Runs"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:47
+msgid "Failures"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:49
+#: src/event-dashboards/blocks/probe-table.js:159
+msgid "Avg"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:53
+#: src/event-dashboards/blocks/probe-table.js:163
+msgid "Max"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:57
+msgid "Last"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:61
+msgid "Queued"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:75
+msgid "Message"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:83
+msgid "Last run"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:109
+#: src/event-dashboards/TopologyRow.js:99
+#: src/shared/utils/formatters.js:220
+msgid "stalled"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:130
+#: src/event-dashboards/TopologyRow.js:98
+msgid "behind"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:131
+msgid "no"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:142
+msgid "Table"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:146
+msgid "Backend"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:148
+#: src/event-dashboards/views.js:277
+#: src/event-dashboards/views.js:285
+msgid "Ops"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:152
+msgid "Hit %"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:167
+#: src/event-dashboards/views.js:202
+#: src/event-dashboards/views.js:307
+msgid "Size"
+msgstr ""
+
+#. translators: 1: bytes the files hold, 2: disk they take.
+#: src/event-dashboards/blocks/probe-table.js:172
+#, js-format
+msgid "%1$s (%2$s on disk)"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:180
+msgid "Purged"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:187
+msgid "Purge behind"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:192
+msgid "WAL"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:220
+#: src/event-dashboards/tabs.js:46
+#: src/event-dashboards/__tests__/tabs.test.js:57
+msgid "Jobs"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:225
+msgid "No job activity yet."
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:228
+#: src/event-dashboards/tabs.js:57
+#: src/event-dashboards/__tests__/tabs.test.js:106
+msgid "Tables"
+msgstr ""
+
+#: src/event-dashboards/blocks/probe-table.js:233
+msgid "No Table has reported yet."
+msgstr ""
+
+#: src/event-dashboards/blocks/topology-rows.js:273
+msgid "Fold all"
+msgstr ""
+
+#: src/event-dashboards/blocks/topology-rows.js:280
+msgid "Unfold all"
+msgstr ""
+
+#: src/event-dashboards/blocks/topology-rows.js:307
+#: src/event-dashboards/TopologyRow.js:407
+msgid "Stopped"
+msgstr ""
+
+#. translators: %s: topology name.
+#: src/event-dashboards/blocks/topology-rows.js:337
+#, js-format
+msgid "Activated “%s”, with a warning"
+msgstr ""
+
+#. translators: %s: topology name.
+#: src/event-dashboards/blocks/topology-rows.js:345
+#, js-format
+msgid "Couldn’t update “%s”"
 msgstr ""
 
 #. translators: 1: matching changes, 2: total changes.
@@ -779,8 +931,8 @@ msgid "Filter option names…"
 msgstr ""
 
 #: src/event-dashboards/ConfigAudit.js:155
-#: src/event-dashboards/tabs.js:69
-#: src/event-dashboards/__tests__/tabs.test.js:90
+#: src/event-dashboards/tabs.js:79
+#: src/event-dashboards/__tests__/tabs.test.js:92
 msgid "Config Audit"
 msgstr ""
 
@@ -810,84 +962,6 @@ msgstr ""
 
 #: src/event-dashboards/ConfigAudit.js:187
 msgid "New"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:67
-msgid "Job"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:72
-#: src/event-dashboards/Jobs.js:186
-msgid "Runs"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:75
-msgid "Failures"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:77
-#: src/event-dashboards/Tables.js:160
-msgid "Avg"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:81
-#: src/event-dashboards/Tables.js:164
-msgid "Max"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:85
-msgid "Last"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:89
-msgid "Queued"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:103
-msgid "Message"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:111
-msgid "Last run"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:185
-msgid "Job Runs Rate"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:193
-msgid "Job Errors Rate"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:201
-msgid "Job Backlog"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:202
-#: src/event-dashboards/Overview.js:379
-#: src/event-dashboards/SummaryCards.js:177
-msgid "Backlog"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:209
-msgid "Job Queue Latency"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:210
-#: src/event-dashboards/Tables.js:261
-msgid "Latency"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:220
-msgid "Job statistics"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:224
-msgid "Job backlog"
-msgstr ""
-
-#: src/event-dashboards/Jobs.js:234
-msgid "No job activity yet."
 msgstr ""
 
 #: src/event-dashboards/LogViewer.js:91
@@ -927,8 +1001,8 @@ msgstr ""
 #: src/event-dashboards/LogViewer.js:111
 #: src/shared/components/LogStreamViewer.js:118
 #: src/topology-console/components/Inspector.js:1800
-#: src/vault/VaultAdmin.js:332
-#: src/vault/VaultAdmin.js:616
+#: src/vault/VaultAdmin.js:333
+#: src/vault/VaultAdmin.js:610
 msgid "ID"
 msgstr ""
 
@@ -957,8 +1031,8 @@ msgid "Record payload"
 msgstr ""
 
 #: src/event-dashboards/LogViewer.js:312
-#: src/event-dashboards/tabs.js:58
-#: src/event-dashboards/__tests__/tabs.test.js:73
+#: src/event-dashboards/tabs.js:68
+#: src/event-dashboards/__tests__/tabs.test.js:75
 msgid "Log Viewer"
 msgstr ""
 
@@ -971,103 +1045,13 @@ msgid "Browse a log"
 msgstr ""
 
 #: src/event-dashboards/LogViewer.js:341
+#: src/shared/blocks/log-stream.js:234
 msgid "Select columns"
 msgstr ""
 
 #: src/event-dashboards/LogViewer.js:343
+#: src/shared/blocks/log-stream.js:236
 msgid "Cols"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:362
-msgid "Topics Messages Read"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:370
-msgid "Topics Bytes Read"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:378
-msgid "Topics Backlog"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:386
-msgid "Topics Cache Size"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:387
-msgid "Cache Size"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:394
-msgid "Partition Size"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:395
-#: src/event-dashboards/Tables.js:168
-#: src/event-dashboards/Tables.js:269
-msgid "Size"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:402
-#: src/event-dashboards/Tables.js:277
-msgid "On Disk"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:403
-msgid "Disk"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:416
-msgid "+ New Topology"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:434
-msgid "Disconnected — retrying…"
-msgstr ""
-
-#. translators: 1: topology name, 2: why it will not read.
-#: src/event-dashboards/Overview.js:441
-#, js-format
-msgid "Topology %1$s will not read, so this board leaves it out: %2$s"
-msgstr ""
-
-#. translators: 1: log producer template, 2: why it was refused.
-#: src/event-dashboards/Overview.js:455
-#, js-format
-msgid "The log catalog leaves out %1$s, and the log sweep refuses to run: %2$s"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:465
-msgid "Consumer rows"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:469
-msgid "Topics charts"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:488
-msgid "Fold all"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:495
-msgid "Unfold all"
-msgstr ""
-
-#: src/event-dashboards/Overview.js:522
-#: src/event-dashboards/TopologyRow.js:407
-msgid "Stopped"
-msgstr ""
-
-#. translators: %s: topology name.
-#: src/event-dashboards/Overview.js:552
-#, js-format
-msgid "Activated “%s”, with a warning"
-msgstr ""
-
-#. translators: %s: topology name.
-#: src/event-dashboards/Overview.js:560
-#, js-format
-msgid "Couldn’t update “%s”"
 msgstr ""
 
 #. translators: 1: segment id, 2: formatted segment size.
@@ -1076,187 +1060,46 @@ msgstr ""
 msgid "Segment %1$d: %2$s"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:102
-#: src/event-dashboards/TopologyRow.js:97
-msgid "ok"
+#: src/event-dashboards/stationTabs.js:33
+msgid "Disconnected — retrying…"
 msgstr ""
 
-#. translators: %d: number of stalled topologies.
-#: src/event-dashboards/SummaryCards.js:106
+#. translators: 1: topology name, 2: why it will not read.
+#: src/event-dashboards/stationTabs.js:40
 #, js-format
-msgid "%d stalled"
-msgid_plural "%d stalled"
-msgstr[0] ""
-msgstr[1] ""
+msgid "Topology %1$s will not read, so this board leaves it out: %2$s"
+msgstr ""
 
-#. translators: %d: number of lagging topologies.
-#: src/event-dashboards/SummaryCards.js:117
+#. translators: 1: log producer template, 2: why it was refused.
+#: src/event-dashboards/stationTabs.js:54
 #, js-format
-msgid "%d behind"
-msgid_plural "%d behind"
-msgstr[0] ""
-msgstr[1] ""
-
-#. translators: %1$d: total topologies; %2$d: active count.
-#: src/event-dashboards/SummaryCards.js:128
-#, js-format
-msgid "%1$d · %2$d active"
+msgid "The log catalog leaves out %1$s, and the log sweep refuses to run: %2$s"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:132
-msgid "Topologies"
+#: src/event-dashboards/stationTabs.js:64
+msgid "Consumer rows"
 msgstr ""
 
-#. translators: %1$d: running workers; %2$d: expected workers.
-#: src/event-dashboards/SummaryCards.js:138
-#, js-format
-msgid "%1$d / %2$d up"
+#: src/event-dashboards/stationTabs.js:68
+msgid "Topics charts"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:142
-msgid "Workers"
+#: src/event-dashboards/stationTabs.js:93
+msgid "+ New Topology"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:147
-#: src/topology-console/components/TopologySettingsPanel.js:332
-msgid "Partitions"
+#: src/event-dashboards/stationTabs.js:117
+#: src/event-dashboards/views.js:237
+msgid "Job statistics"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:153
-msgid "Health"
+#: src/event-dashboards/stationTabs.js:121
+msgid "Job backlog"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:158
-msgid "Read"
-msgstr ""
-
-#: src/event-dashboards/SummaryCards.js:163
-msgid "Write"
-msgstr ""
-
-#: src/event-dashboards/SummaryCards.js:170
-msgid "Msgs read/s"
-msgstr ""
-
-#: src/event-dashboards/SummaryCards.js:182
-msgid "Msgs read · 24h"
-msgstr ""
-
-#: src/event-dashboards/SummaryCards.js:187
-msgid "Bytes read · 24h"
-msgstr ""
-
-#: src/event-dashboards/SummaryCards.js:194
-msgid "Total Cache"
-msgstr ""
-
-#: src/event-dashboards/SummaryCards.js:201
-msgid "Total Size"
-msgstr ""
-
-#: src/event-dashboards/SummaryCards.js:208
-msgid "Total On Disk"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:110
-#: src/event-dashboards/TopologyRow.js:99
-#: src/shared/utils/formatters.js:220
-msgid "stalled"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:131
-#: src/event-dashboards/TopologyRow.js:98
-msgid "behind"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:132
-msgid "no"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:143
-msgid "Table"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:147
-msgid "Backend"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:149
-#: src/event-dashboards/Tables.js:237
-#: src/event-dashboards/Tables.js:245
-msgid "Ops"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:153
-msgid "Hit %"
-msgstr ""
-
-#. translators: 1: bytes the files hold, 2: disk they take.
-#: src/event-dashboards/Tables.js:173
-#, js-format
-msgid "%1$s (%2$s on disk)"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:181
-msgid "Purged"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:188
-msgid "Purge behind"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:193
-msgid "WAL"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:236
-msgid "Table Ops Rate"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:244
-msgid "Table Operation Rate"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:252
-msgid "Table Miss Rate"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:253
-msgid "Misses"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:260
-msgid "Table Latency"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:268
-msgid "Table Size"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:276
-msgid "Table On Disk"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:302
+#: src/event-dashboards/stationTabs.js:143
+#: src/event-dashboards/views.js:269
 msgid "Table statistics"
-msgstr ""
-
-#: src/event-dashboards/Tables.js:312
-msgid "No Table has reported yet."
-msgstr ""
-
-#: src/event-dashboards/tabs.js:40
-#: src/event-dashboards/__tests__/tabs.test.js:55
-msgid "Jobs"
-msgstr ""
-
-#: src/event-dashboards/tabs.js:49
-#: src/event-dashboards/__tests__/tabs.test.js:104
-msgid "Tables"
-msgstr ""
-
-#: src/event-dashboards/TopicsChart.js:114
-msgid "Total"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:57
@@ -1277,7 +1120,7 @@ msgid "Edit this topology in the console"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:80
-#: src/vault/VaultAdmin.js:199
+#: src/vault/VaultAdmin.js:200
 msgid "Edit"
 msgstr ""
 
@@ -1287,6 +1130,11 @@ msgstr ""
 
 #: src/event-dashboards/TopologyRow.js:75
 msgid "user"
+msgstr ""
+
+#: src/event-dashboards/TopologyRow.js:97
+#: src/event-dashboards/views.js:121
+msgid "ok"
 msgstr ""
 
 #: src/event-dashboards/TopologyRow.js:227
@@ -1334,174 +1182,398 @@ msgid "ETA %s"
 msgstr ""
 
 #: src/event-dashboards/TreeEntity.js:455
-#: src/shared/hooks/useLogPositions.js:343
+#: src/shared/hooks/useLogPositions.js:369
 msgid "No segments"
 msgstr ""
 
+#. translators: %d: number of stalled topologies.
+#: src/event-dashboards/views.js:105
+#, js-format
+msgid "%d stalled"
+msgid_plural "%d stalled"
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: %d: number of lagging topologies.
+#: src/event-dashboards/views.js:117
+#, js-format
+msgid "%d behind"
+msgid_plural "%d behind"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/event-dashboards/views.js:137
+msgid "Worker status"
+msgstr ""
+
+#: src/event-dashboards/views.js:148
+#: src/event-dashboards/views.js:341
+msgid "Topologies"
+msgstr ""
+
+#: src/event-dashboards/views.js:158
+msgid "Topic probe"
+msgstr ""
+
+#: src/event-dashboards/views.js:165
+msgid "Messages read"
+msgstr ""
+
+#: src/event-dashboards/views.js:173
+msgid "Bytes read"
+msgstr ""
+
+#: src/event-dashboards/views.js:181
+#: src/event-dashboards/views.js:218
+#: src/event-dashboards/views.js:396
+msgid "Backlog"
+msgstr ""
+
+#: src/event-dashboards/views.js:188
+msgid "Cache size"
+msgstr ""
+
+#: src/event-dashboards/views.js:189
+msgid "Cache Size"
+msgstr ""
+
+#: src/event-dashboards/views.js:201
+msgid "Partition size"
+msgstr ""
+
+#: src/event-dashboards/views.js:209
+msgid "Partition on disk"
+msgstr ""
+
+#: src/event-dashboards/views.js:210
+msgid "Disk"
+msgstr ""
+
+#: src/event-dashboards/views.js:217
+msgid "Jobs backlog"
+msgstr ""
+
+#: src/event-dashboards/views.js:258
+msgid "Queue latency"
+msgstr ""
+
+#: src/event-dashboards/views.js:259
+#: src/event-dashboards/views.js:298
+msgid "Latency"
+msgstr ""
+
+#: src/event-dashboards/views.js:276
+msgid "Ops per Table"
+msgstr ""
+
+#: src/event-dashboards/views.js:284
+msgid "Ops per operation"
+msgstr ""
+
+#: src/event-dashboards/views.js:291
+msgid "Misses"
+msgstr ""
+
+#: src/event-dashboards/views.js:314
+msgid "On Disk"
+msgstr ""
+
+#: src/event-dashboards/views.js:324
+msgid "Fleet board"
+msgstr ""
+
+#: src/event-dashboards/views.js:331
+msgid "Fleet"
+msgstr ""
+
+#. translators: %1$d: total topologies; %2$d: active count.
+#: src/event-dashboards/views.js:347
+#, js-format
+msgid "%1$d · %2$d active"
+msgstr ""
+
+#: src/event-dashboards/views.js:353
+msgid "Workers"
+msgstr ""
+
+#. translators: %1$d: running workers; %2$d: expected workers.
+#: src/event-dashboards/views.js:359
+#, js-format
+msgid "%1$d / %2$d up"
+msgstr ""
+
+#: src/event-dashboards/views.js:365
+#: src/topology-console/components/TopologySettingsPanel.js:332
+msgid "Partitions"
+msgstr ""
+
+#: src/event-dashboards/views.js:371
+msgid "Health"
+msgstr ""
+
+#: src/event-dashboards/views.js:378
+msgid "Read"
+msgstr ""
+
+#: src/event-dashboards/views.js:384
+msgid "Write"
+msgstr ""
+
+#: src/event-dashboards/views.js:390
+msgid "Msgs read/s"
+msgstr ""
+
+#: src/event-dashboards/views.js:402
+msgid "Msgs read · 24h"
+msgstr ""
+
+#: src/event-dashboards/views.js:408
+msgid "Bytes read · 24h"
+msgstr ""
+
+#: src/event-dashboards/views.js:414
+msgid "Total Cache"
+msgstr ""
+
+#: src/event-dashboards/views.js:420
+msgid "Total Size"
+msgstr ""
+
+#: src/event-dashboards/views.js:426
+msgid "Total On Disk"
+msgstr ""
+
 #. translators: %s: revocation error message.
-#: src/sessions/SessionsAdmin.js:50
+#: src/sessions/SessionsAdmin.js:51
 #, js-format
 msgid "Revoke failed: %s"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:61
+#: src/sessions/SessionsAdmin.js:62
 msgid "Issuing…"
 msgstr ""
 
 #. translators: %s: error message.
-#: src/sessions/SessionsAdmin.js:64
-#: src/vault/VaultAdmin.js:89
+#: src/sessions/SessionsAdmin.js:65
+#: src/vault/VaultAdmin.js:90
 #, js-format
 msgid "Error: %s"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:130
-#: src/sessions/SessionsAdmin.js:154
+#: src/sessions/SessionsAdmin.js:131
+#: src/sessions/SessionsAdmin.js:155
 msgid "Revoke"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:147
-#: src/sessions/SessionsAdmin.js:430
-#: src/shared/composition/CompositionEditor.js:342
-#: src/shared/composition/CompositionEditor.js:389
-#: src/shared/composition/page/ComposedLayout.js:84
+#: src/sessions/SessionsAdmin.js:148
+#: src/sessions/SessionsAdmin.js:431
+#: src/shared/composition/CompositionEditor.js:384
+#: src/shared/composition/CompositionEditor.js:431
+#: src/shared/composition/page/ComposedLayout.js:86
 #: src/topology-console/components/Inspector.js:1433
 #: src/topology-console/components/Inspector.js:1620
 #: src/topology-console/components/Inspector.js:1827
 #: src/topology-console/components/Modal.js:266
 #: src/topology-console/components/Modal.js:322
 #: src/topology-console/components/Modal.js:475
-#: src/topology-console/components/OpenTopologyModal.js:121
+#: src/topology-console/components/OpenTopologyModal.js:118
 #: src/topology-console/TopologyConsole.js:1959
 #: src/topology-console/TopologyConsole.js:2035
-#: src/vault/VaultAdmin.js:66
-#: src/vault/VaultAdmin.js:520
+#: src/vault/VaultAdmin.js:67
+#: src/vault/VaultAdmin.js:521
 msgid "Cancel"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:181
+#: src/sessions/SessionsAdmin.js:182
 msgid "(unlabelled)"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:193
+#: src/sessions/SessionsAdmin.js:194
 msgid "Revoke session"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:194
+#: src/sessions/SessionsAdmin.js:195
 msgid "Revoking stops this key verifying immediately. Anything holding it will need a new one."
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:232
+#: src/sessions/SessionsAdmin.js:233
 msgid "Revoke connection"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:233
+#: src/sessions/SessionsAdmin.js:234
 msgid "Revoking ends this connection and every session it minted. The client must sign in again to reconnect."
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:338
+#: src/sessions/SessionsAdmin.js:339
 msgid "A label is required — it is how you will recognise this later."
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:352
+#: src/sessions/SessionsAdmin.js:353
 msgid "Issue a Session"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:360
-#: src/sessions/SessionsAdmin.js:573
+#: src/sessions/SessionsAdmin.js:361
+#: src/sessions/SessionsAdmin.js:567
 msgid "Label"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:378
-#: src/sessions/SessionsAdmin.js:574
-#: src/sessions/SessionsAdmin.js:596
+#: src/sessions/SessionsAdmin.js:379
+#: src/sessions/SessionsAdmin.js:568
+#: src/sessions/SessionsAdmin.js:590
 msgid "Scope"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:395
+#: src/sessions/SessionsAdmin.js:396
 msgid "A scope is a ceiling: it can only subtract from what your own account may do."
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:405
+#: src/sessions/SessionsAdmin.js:406
 msgid "Lifetime (seconds)"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:418
+#: src/sessions/SessionsAdmin.js:419
 msgid "The key stays recoverable while it lives — verification recomputes an HMAC from it — so keep this short."
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:438
+#: src/sessions/SessionsAdmin.js:439
 msgid "Issue Session"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:464
+#: src/sessions/SessionsAdmin.js:465
 msgid "Session key"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:468
+#: src/sessions/SessionsAdmin.js:469
 msgid "Copy this now. It is shown once and cannot be recovered from the listing."
 msgstr ""
 
 #. translators: 1: scope name, 2: lifetime in seconds.
-#: src/sessions/SessionsAdmin.js:481
+#: src/sessions/SessionsAdmin.js:482
 #, js-format
 msgid "Scope %1$s, expires in %2$d seconds."
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:495
+#: src/sessions/SessionsAdmin.js:496
 msgid "Done"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:557
+#: src/sessions/SessionsAdmin.js:551
 msgid "+ Issue Session"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:569
+#: src/sessions/SessionsAdmin.js:563
 msgid "Issued sessions"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:575
+#: src/sessions/SessionsAdmin.js:569
 msgid "Issued"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:576
-#: src/sessions/SessionsAdmin.js:598
+#: src/sessions/SessionsAdmin.js:570
+#: src/sessions/SessionsAdmin.js:592
 msgid "Expires"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:577
-#: src/sessions/SessionsAdmin.js:599
-#: src/vault/VaultAdmin.js:628
+#: src/sessions/SessionsAdmin.js:571
+#: src/sessions/SessionsAdmin.js:593
+#: src/vault/VaultAdmin.js:622
 msgid "Actions"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:579
+#: src/sessions/SessionsAdmin.js:573
 msgid "No sessions issued."
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:590
+#: src/sessions/SessionsAdmin.js:584
 msgid "Connections"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:594
+#: src/sessions/SessionsAdmin.js:588
 msgid "Connection"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:595
+#: src/sessions/SessionsAdmin.js:589
 msgid "Client"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:597
+#: src/sessions/SessionsAdmin.js:591
 msgid "Approved"
 msgstr ""
 
-#: src/sessions/SessionsAdmin.js:601
+#: src/sessions/SessionsAdmin.js:595
 msgid "No connections approved."
 msgstr ""
 
 #: src/sessions/tabMeta.js:31
 #: src/sessions/__tests__/tabs.test.js:18
 msgid "Sessions"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:61
+msgid "Title"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:62
+msgid "Description"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:63
+msgid "Tiles per row"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:64
+msgid "Rows per page"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:65
+#: src/shared/components/AreaTimeChart.js:479
+msgid "Stack the series"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:66
+msgid "Toolbar"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:72
+msgid "In the block"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:73
+msgid "In the page header"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:365
+msgid "Choose a source in the block settings."
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:399
+msgid "Source"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:403
+msgid "Choose a source"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:418
+msgid "Fields"
+msgstr ""
+
+#: src/shared/blocks/sourceBlock.js:443
+msgid "Field"
+msgstr ""
+
+#. translators: %s: the first field's label.
+#: src/shared/blocks/sourceBlock.js:449
+#, js-format
+msgid "The first: %s"
+msgstr ""
+
+#: src/shared/blocks/table.js:91
+msgid "Nothing to show yet."
+msgstr ""
+
+#: src/shared/blocks/time-chart.js:122
+msgid "Total"
 msgstr ""
 
 #. translators: 1: the caller's label for the bucket, 2: its count.
@@ -1518,10 +1590,6 @@ msgstr ""
 
 #: src/shared/components/AreaTimeChart.js:478
 msgid "Overlay the series"
-msgstr ""
-
-#: src/shared/components/AreaTimeChart.js:479
-msgid "Stack the series"
 msgstr ""
 
 #. translators: 1: this page, 2: the pages there are.
@@ -1664,20 +1732,20 @@ msgstr ""
 msgid "Paste a message ID (seg:offset:len) or a bare offset."
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:185
+#: src/shared/components/LogStreamViewer.js:186
 msgid "Browse a source"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:245
+#: src/shared/components/LogStreamViewer.js:247
 msgid "Paused"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:246
+#: src/shared/components/LogStreamViewer.js:248
 msgid "Waiting for log lines…"
 msgstr ""
 
 #. translators: 1: number of lines shown, 2: total number of lines.
-#: src/shared/components/LogStreamViewer.js:257
+#: src/shared/components/LogStreamViewer.js:259
 #, js-format
 msgid "%1$d / %2$d line"
 msgid_plural "%1$d / %2$d lines"
@@ -1685,7 +1753,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of lines.
-#: src/shared/components/LogStreamViewer.js:269
+#: src/shared/components/LogStreamViewer.js:271
 #, js-format
 msgid "%d line"
 msgid_plural "%d lines"
@@ -1693,70 +1761,74 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %s: lines-per-second rate (one decimal place).
-#: src/shared/components/LogStreamViewer.js:283
+#: src/shared/components/LogStreamViewer.js:285
 #, js-format
 msgid "%s lines/s"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:324
+#: src/shared/components/LogStreamViewer.js:327
 msgid "Filter the stream"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:326
+#: src/shared/components/LogStreamViewer.js:329
 msgid "Filter…"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:338
+#: src/shared/components/LogStreamViewer.js:342
 msgid "Jump to an offset"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:339
+#: src/shared/components/LogStreamViewer.js:343
 msgid "seg:offset"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:345
+#: src/shared/components/LogStreamViewer.js:349
 msgid "Jump: paste a message ID (seg:off:len) or a bare offset, Enter pauses and steps that message"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:357
+#: src/shared/components/LogStreamViewer.js:361
 msgid "Resume streaming"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:358
+#: src/shared/components/LogStreamViewer.js:362
 msgid "Pause streaming"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:369
+#: src/shared/components/LogStreamViewer.js:373
 #: src/topology-console/components/TimeTravelPanel.js:331
 msgid "Step one message"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:370
+#: src/shared/components/LogStreamViewer.js:374
 msgid "Step one message (paused only)"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:382
+#: src/shared/components/LogStreamViewer.js:386
 msgid "Debug rows: ID · KEY · VALUE, pretty structs, full lines"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:395
+#: src/shared/components/LogStreamViewer.js:399
 msgid "Clear all lines"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:397
+#: src/shared/components/LogStreamViewer.js:401
 msgid "Clear"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:408
+#: src/shared/components/LogStreamViewer.js:412
 msgid "Hide the browse rail"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:409
+#: src/shared/components/LogStreamViewer.js:413
 msgid "Show the browse rail"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:430
+#: src/shared/components/LogStreamViewer.js:434
 msgid "Connection lost. Reconnecting…"
+msgstr ""
+
+#: src/shared/components/RefreshPicker.js:38
+msgid "Refresh interval"
 msgstr ""
 
 #: src/shared/components/Skeleton.js:32
@@ -1791,59 +1863,66 @@ msgstr ""
 msgid "This could not be read just now."
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:258
+#: src/shared/composition/CompositionEditor.js:300
 msgid "Edit the layout on a wider screen."
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:269
+#: src/shared/composition/CompositionEditor.js:311
 msgid "Back"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:307
+#: src/shared/composition/CompositionEditor.js:349
 msgid "Start from"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:314
+#: src/shared/composition/CompositionEditor.js:356
 msgid "Choose a pattern"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:334
-#: src/shared/composition/CompositionEditor.js:388
-#: src/shared/composition/page/ComposedLayout.js:65
-#: src/shared/composition/page/ComposedLayout.js:83
+#: src/shared/composition/CompositionEditor.js:376
+#: src/shared/composition/CompositionEditor.js:430
+#: src/shared/composition/page/ComposedLayout.js:67
+#: src/shared/composition/page/ComposedLayout.js:85
 msgid "Restore default"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:350
+#: src/shared/composition/CompositionEditor.js:392
 #: src/topology-console/components/CanvasFrame.js:111
 msgid "Save layout"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:366
+#: src/shared/composition/CompositionEditor.js:408
+#: src/shared/composition/page/ComposedPageFrame.js:165
 msgid "Discard your changes to this layout?"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:370
+#: src/shared/composition/CompositionEditor.js:412
+#: src/shared/composition/page/ComposedPageFrame.js:169
 msgid "Discard changes"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:371
+#: src/shared/composition/CompositionEditor.js:413
+#: src/shared/composition/page/ComposedPageFrame.js:170
 #: src/topology-console/TopologyConsole.js:1932
 msgid "Keep editing"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:380
-#: src/shared/composition/page/ComposedLayout.js:75
+#: src/shared/composition/CompositionEditor.js:422
+#: src/shared/composition/page/ComposedLayout.js:77
 msgid "Restore the default layout?"
 msgstr ""
 
-#: src/shared/composition/CompositionEditor.js:384
-#: src/shared/composition/page/ComposedLayout.js:79
+#: src/shared/composition/CompositionEditor.js:426
+#: src/shared/composition/page/ComposedLayout.js:81
 msgid "Everyone who opens this page will see the default."
 msgstr ""
 
-#: src/shared/composition/page/ComposedLayout.js:55
+#: src/shared/composition/page/ComposedLayout.js:57
 msgid "This layout names a block or a setting this version does not have."
+msgstr ""
+
+#: src/shared/composition/page/ComposedPageFrame.js:128
+msgid "Layout actions"
 msgstr ""
 
 #: src/shared/composition/page/editMode.js:99
@@ -1862,22 +1941,30 @@ msgstr ""
 msgid "Expand %s"
 msgstr ""
 
-#: src/shared/hooks/useLogPositions.js:303
+#: src/shared/hooks/useLogPositions.js:317
 msgid "Pick a source to jump within."
 msgstr ""
 
-#: src/shared/hooks/useLogPositions.js:311
+#: src/shared/hooks/useLogPositions.js:325
 msgid "Nothing to jump to: paste a message ID (seg:offset:len), or a bare offset once a segment is streaming."
 msgstr ""
 
 #. translators: %d: log segment number.
-#: src/shared/hooks/useLogPositions.js:337
+#: src/shared/hooks/useLogPositions.js:363
 #, js-format
 msgid "Segment %d"
 msgstr ""
 
-#: src/shared/hooks/useLogPositions.js:342
+#: src/shared/hooks/useLogPositions.js:368
 msgid "Segments"
+msgstr ""
+
+#: src/shared/hooks/useStreamGraph.js:581
+msgid "All partitions (live)"
+msgstr ""
+
+#: src/shared/hooks/useStreamGraph.js:601
+msgid "Browse a partition"
 msgstr ""
 
 #: src/shared/tabs/TabBar.js:152
@@ -1885,7 +1972,7 @@ msgstr ""
 msgid "View"
 msgstr ""
 
-#: src/shared/tabs/TabHost.js:181
+#: src/shared/tabs/TabHost.js:226
 msgid "Developer tools"
 msgstr ""
 
@@ -1959,6 +2046,22 @@ msgstr ""
 
 #: src/station/Station.js:77
 msgid "No tools registered yet."
+msgstr ""
+
+#: src/station/stationEditor.js:19
+msgid "Edit the Overview layout"
+msgstr ""
+
+#: src/station/stationEditor.js:20
+msgid "Edit the Jobs layout"
+msgstr ""
+
+#: src/station/stationEditor.js:21
+msgid "Edit the Tables layout"
+msgstr ""
+
+#: src/station/stationEditor.js:23
+msgid "Edit the Aggregator layout"
 msgstr ""
 
 #: src/topology-console/components/CanvasFrame.js:106
@@ -2630,19 +2733,19 @@ msgstr ""
 msgid "A node path cannot hold a space."
 msgstr ""
 
-#: src/topology-console/components/OpenTopologyModal.js:54
+#: src/topology-console/components/OpenTopologyModal.js:55
 msgid "Open topology"
 msgstr ""
 
-#: src/topology-console/components/OpenTopologyModal.js:66
+#: src/topology-console/components/OpenTopologyModal.js:63
 msgid "Failed to load list."
 msgstr ""
 
-#: src/topology-console/components/OpenTopologyModal.js:71
+#: src/topology-console/components/OpenTopologyModal.js:68
 msgid "No topologies registered."
 msgstr ""
 
-#: src/topology-console/components/OpenTopologyModal.js:100
+#: src/topology-console/components/OpenTopologyModal.js:97
 msgid "active"
 msgstr ""
 
@@ -2958,8 +3061,8 @@ msgid "Requeue"
 msgstr ""
 
 #: src/topology-console/components/TriageView.js:477
-#: src/vault/VaultAdmin.js:74
-#: src/vault/VaultAdmin.js:208
+#: src/vault/VaultAdmin.js:75
+#: src/vault/VaultAdmin.js:209
 msgid "Remove"
 msgstr ""
 
@@ -2975,7 +3078,7 @@ msgstr ""
 msgid "Purge"
 msgstr ""
 
-#: src/topology-console/components/VerbStats.js:82
+#: src/topology-console/components/VerbStats.js:93
 msgid "No calls since the Table was built or reset."
 msgstr ""
 
@@ -3158,155 +3261,155 @@ msgstr ""
 msgid "Vault"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:55
+#: src/vault/VaultAdmin.js:56
 msgid "Remove server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:59
+#: src/vault/VaultAdmin.js:60
 msgid "Are you sure you want to remove this server?"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:100
+#: src/vault/VaultAdmin.js:101
 msgid "Adding…"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:101
+#: src/vault/VaultAdmin.js:102
 msgid "Saving…"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:103
+#: src/vault/VaultAdmin.js:104
 msgid "Testing…"
 msgstr ""
 
 #. translators: %s: connection error message.
-#: src/vault/VaultAdmin.js:106
+#: src/vault/VaultAdmin.js:107
 #, js-format
 msgid "Failed: %s"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:107
+#: src/vault/VaultAdmin.js:108
 msgid "Connected!"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:110
+#: src/vault/VaultAdmin.js:111
 msgid "Working…"
 msgstr ""
 
 #. translators: %s: removal error message.
-#: src/vault/VaultAdmin.js:113
+#: src/vault/VaultAdmin.js:114
 #, js-format
 msgid "Remove failed: %s"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:190
+#: src/vault/VaultAdmin.js:191
 msgid "Test"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:235
+#: src/vault/VaultAdmin.js:236
 msgid "ID is required"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:238
+#: src/vault/VaultAdmin.js:239
 msgid "ID may hold only letters, digits, - and _ (at most 64)"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:244
+#: src/vault/VaultAdmin.js:245
 msgid "Server URL is required"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:247
+#: src/vault/VaultAdmin.js:248
 msgid "URL must start with https://"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:250
+#: src/vault/VaultAdmin.js:251
 msgid "Group may hold only letters, digits, - and _ (at most 64)"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:281
+#: src/vault/VaultAdmin.js:282
 msgid "Add New Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:282
+#: src/vault/VaultAdmin.js:283
 msgid "Edit Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:346
+#: src/vault/VaultAdmin.js:347
 msgid "Letters, digits, hyphen, underscore."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:351
+#: src/vault/VaultAdmin.js:352
 msgid "Renaming unlinks topologies that name it."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:361
+#: src/vault/VaultAdmin.js:362
 msgid "Server URL"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:374
+#: src/vault/VaultAdmin.js:375
 msgid "HTTPS URL the credential goes to."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:384
-#: src/vault/VaultAdmin.js:622
+#: src/vault/VaultAdmin.js:385
+#: src/vault/VaultAdmin.js:616
 msgid "Group"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:397
+#: src/vault/VaultAdmin.js:398
 msgid "Topologies reach servers by group."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:407
+#: src/vault/VaultAdmin.js:408
 msgid "Username"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:421
+#: src/vault/VaultAdmin.js:422
 msgid "Set it for Basic auth."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:431
+#: src/vault/VaultAdmin.js:432
 msgid "Application Password"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:449
+#: src/vault/VaultAdmin.js:450
 msgid "Application Password or API token."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:453
+#: src/vault/VaultAdmin.js:454
 msgid "Blank keeps the stored one."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:463
+#: src/vault/VaultAdmin.js:464
 msgid "Credential header"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:478
+#: src/vault/VaultAdmin.js:479
 msgid "Token header when Username is blank."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:488
+#: src/vault/VaultAdmin.js:489
 msgid "Scheme"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:503
+#: src/vault/VaultAdmin.js:504
 msgid "Token prefix, or blank for none."
 msgstr ""
 
-#: src/vault/VaultAdmin.js:529
+#: src/vault/VaultAdmin.js:530
 msgid "Add Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:530
+#: src/vault/VaultAdmin.js:531
 msgid "Save Changes"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:600
+#: src/vault/VaultAdmin.js:594
 msgid "+ Add Server"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:619
+#: src/vault/VaultAdmin.js:613
 msgid "URL"
 msgstr ""
 
-#: src/vault/VaultAdmin.js:648
+#: src/vault/VaultAdmin.js:642
 msgid "No servers configured."
 msgstr ""

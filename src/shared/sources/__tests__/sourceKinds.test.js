@@ -8,7 +8,7 @@
  * a hold that keeps every source still, as a row drag needs.
  */
 
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import {
 	Core,
 	TO,
@@ -121,6 +121,33 @@ registerSource( 'nodes/kereru-7876', {
 	intervalMs: 60000,
 } );
 
+registerSource( 'nodes/tui-7880', {
+	kind: 'command',
+	group: 'canopy-7880',
+	ci: 'reed-7880',
+	command: 'sip',
+	args: ( { flower } ) => [ flower ],
+	scope: ( { valley } ) => valley,
+	params: [ 'flower', 'valley' ],
+} );
+
+registerSource( 'nodes/tui-7881', {
+	kind: 'command',
+	group: 'canopy-7881',
+	ci: 'reed-7881',
+	command: 'warble',
+	args: () => [],
+	retry: false,
+} );
+
+registerSource( 'nodes/tui-7882', {
+	kind: 'command',
+	group: 'canopy-7882',
+	ci: 'reed-7882',
+	command: 'trill',
+	args: () => [],
+} );
+
 registerSource( 'nodes/marsh-7872', {
 	kind: 'derived',
 	from: [ 'nodes/pukeko-7870', 'nodes/kahu-7871' ],
@@ -132,8 +159,11 @@ registerSource( 'nodes/marsh-7872', {
 /** Each tree's answer to `perch`; one left out goes unanswered. */
 let perches = {};
 
+/** Each flower's answer to `sip`; one left out goes unanswered. */
+let nectar = {};
+
 /** The commands the server routes onward and never answers. */
-const UNANSWERED = new Set( [ 'hoot', 'screech' ] );
+const UNANSWERED = new Set( [ 'hoot', 'screech', 'warble', 'trill' ] );
 
 let wire;
 let clock;
@@ -153,6 +183,7 @@ beforeEach( () => {
 	clock = steppedClock();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	perches = { 'miro-7876': { birds: 7 }, 'tawa-7876': { birds: 11 } };
+	nectar = { 'kowhai-7880': { sips: 3 }, 'harakeke-7880': { sips: 13 } };
 	replies = {
 		graze: { roost: 'raupo' },
 		soar: { thermal: 'Ruapehu' },
@@ -163,6 +194,9 @@ beforeEach( () => {
 		}
 		if ( 'perch' === m[ VALUE ].name ) {
 			return perches[ m[ VALUE ].arguments[ 0 ] ];
+		}
+		if ( 'sip' === m[ VALUE ].name ) {
+			return nectar[ m[ VALUE ].arguments[ 0 ] ];
 		}
 		return m[ VALUE ].name in replies ? replies[ m[ VALUE ].name ] : null;
 	} );
@@ -591,5 +625,112 @@ describe( 'a derived source declaring no scope', () => {
 		);
 		await clock.tick( 2 );
 		expect( screen.getByText( 'no grove' ) ).toBeTruthy();
+	} );
+} );
+
+/**
+ * Read the tui's nectar under a flower and a valley.
+ *
+ * @param {{flower: string, valley: string, onState?: Function}} props What it reads.
+ * @return {import('react').ReactElement} The sips.
+ */
+function Sip( { flower, valley, onState } ) {
+	const state = useSource( 'nodes/tui-7880', { flower, valley } );
+	onState?.( state );
+	return <p>{ state.model ? `sips ${ state.model.sips }` : 'no sips' }</p>;
+}
+
+describe( 'a command whose params change', () => {
+	it( 'shows its last model, stale, until the new key answers', async () => {
+		let state;
+		const { rerender } = render(
+			<SourcesProvider>
+				<Sip flower="kowhai-7880" valley="hollyford-7880" />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'sips 3' );
+		delete nectar[ 'harakeke-7880' ];
+		rerender(
+			<SourcesProvider>
+				<Sip
+					flower="harakeke-7880"
+					valley="hollyford-7880"
+					onState={ ( one ) => ( state = one ) }
+				/>
+			</SourcesProvider>
+		);
+		await clock.tick( 2 );
+		expect( screen.getByText( 'sips 3' ) ).toBeTruthy();
+		expect( state ).toMatchObject( { stale: true, loading: true } );
+	} );
+
+	it( 'shows nothing of another scope while the new key loads', async () => {
+		const { rerender } = render(
+			<SourcesProvider>
+				<Sip flower="kowhai-7880" valley="hollyford-7880" />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'sips 3' );
+		delete nectar[ 'harakeke-7880' ];
+		rerender(
+			<SourcesProvider>
+				<Sip flower="harakeke-7880" valley="eglinton-7880" />
+			</SourcesProvider>
+		);
+		await clock.tick( 2 );
+		expect( screen.getByText( 'no sips' ) ).toBeTruthy();
+	} );
+} );
+
+describe( 'a command whose answer never comes', () => {
+	/**
+	 * Read one source, handing its state on.
+	 *
+	 * @param {{name: string, onState?: Function}} props The source.
+	 * @return {null} Nothing.
+	 */
+	function Waits( { name, onState } ) {
+		const state = useSource( name );
+		onState?.( state );
+		return null;
+	}
+
+	it( 'asks again once its retry window has passed', async () => {
+		render(
+			<SourcesProvider>
+				<Waits name="nodes/tui-7882" />
+			</SourcesProvider>
+		);
+		await waitFor( () => expect( sent( 'trill' ) ).toHaveLength( 1 ) );
+		await clock.tick( 20 );
+		await clock.tick( 1 );
+		expect( sent( 'trill' ).length ).toBeGreaterThan( 1 );
+	} );
+
+	it( 'asks once when it declares retry: false', async () => {
+		render(
+			<SourcesProvider>
+				<Waits name="nodes/tui-7881" />
+			</SourcesProvider>
+		);
+		await waitFor( () => expect( sent( 'warble' ) ).toHaveLength( 1 ) );
+		await clock.tick( 20 );
+		await clock.tick( 1 );
+		expect( sent( 'warble' ) ).toHaveLength( 1 );
+	} );
+
+	it( 'asks again at once on refresh()', async () => {
+		let state;
+		render(
+			<SourcesProvider>
+				<Waits
+					name="nodes/tui-7881"
+					onState={ ( one ) => ( state = one ) }
+				/>
+			</SourcesProvider>
+		);
+		await waitFor( () => expect( sent( 'warble' ) ).toHaveLength( 1 ) );
+		await act( async () => state.refresh() );
+		await waitFor( () => expect( sent( 'warble' ) ).toHaveLength( 2 ) );
 	} );
 } );

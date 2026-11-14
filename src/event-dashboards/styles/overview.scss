@@ -1,9 +1,9 @@
 /**
- * Overview station tab — the merged board. SummaryCards + Topics panels over a
- * fold-all/unfold-all toolbar and one TopologyRow per active topology (its
- * own `.nodes-tm__*` styles, folded or unfolded), in the user's drag order;
- * stopped topologies sink into a de-emphasized chip group. Palette tracks the
- * event-dashboards dark theme (base.scss).
+ * The topology-rows block — a fold-all/unfold-all toolbar over one
+ * TopologyRow per active topology (its own `.nodes-tm__*` styles, folded or
+ * unfolded), in the user's drag order; stopped topologies sink into a
+ * de-emphasized chip group. Colours come from the shared tokens base.scss
+ * forwards.
  */
 
 @use "base";

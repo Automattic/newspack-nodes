@@ -963,6 +963,32 @@ final class CompositionTest extends TestCase {
 		$this->assertSame( [], $GLOBALS['_localized_scripts'] );
 	}
 
+	/**
+	 * A refused declaration set loads no editor and raises nothing past the
+	 * page's enqueue: the refusal reaches stderr, and the page data shows it.
+	 */
+	public function test_enqueue_editor_reports_a_refused_declaration_set_and_loads_nothing(): void {
+		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
+		$this->declare_acme_desk(
+			static function ( array $map ): array {
+				$map['acme-desk']['contexts']['acme-desk/board']['admits'] = [ 'newspack-nodes/aside' ];
+				return $map;
+			}
+		);
+		$stderr = $this->capture_stderr();
+		$this->with_edit(
+			'board',
+			function (): void {
+				$this->assertFalse( Composition::enqueue_editor( self::PAGES, 'acme-fx-editor', self::BUILD, 'https://x.test/b' ) );
+			}
+		);
+		$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
+		$this->assertSame( [], $GLOBALS['_localized_scripts'] );
+		$lines = self::stderr_lines( $stderr, 'admits newspack-nodes/aside' );
+		$this->assertCount( 1, $lines );
+		$this->assertStringStartsWith( 'composition: acme-desk/board: composition declaration acme-desk: acme-desk/board admits newspack-nodes/aside, which is not a shared block (', $lines[0] );
+	}
+
 	public function test_enqueue_editor_loads_nothing_when_the_bundle_is_unbuilt(): void {
 		$this->log_in( [ 'edit_posts' => true, 'manage_options' => true ] );
 		$this->with_edit(

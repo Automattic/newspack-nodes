@@ -7,8 +7,15 @@
  * change, a tab switch asks before it discards it.
  */
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
-import { Core } from '@newspack-nodes/runtime';
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from '@testing-library/react';
+import { Core, VALUE } from '@newspack-nodes/runtime';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { registerCompositionEditor } from '@newspack-nodes/shared/composition/editorRegistry';
 import { editSearch } from '@newspack-nodes/shared/composition/page';
 import TabHost from '@newspack-nodes/shared/tabs/TabHost';
@@ -190,6 +197,88 @@ it( 'refuses to render without the page data a station load localizes', () => {
 	expect( () =>
 		render( <StationLayout page="station-jobs" views={ VIEWS } /> )
 	).toThrow( /NewspackNodesStationPages/ );
+} );
+
+it( 'renders a refusal the load inlined in its layout’s place, under its chrome', () => {
+	localize( false );
+	window.NewspackNodesStationPages.canManage = true;
+	window.NewspackNodesStationPages.compositions[
+		'newspack-nodes/station-jobs'
+	] = {
+		context: 'newspack-nodes/station-jobs',
+		error: 'composition declaration kiwi-7924: kiwi-7924/board admits newspack-nodes/aside, which is not a shared block',
+	};
+	render(
+		<StationLayout page="station-jobs" views={ VIEWS }>
+			<p>chrome 7924</p>
+		</StationLayout>
+	);
+	expect( screen.getByText( 'chrome 7924' ) ).toBeTruthy();
+	expect(
+		screen.getByText( /kiwi-7924\/board admits newspack-nodes\/aside/ )
+	).toBeTruthy();
+} );
+
+describe( 'a tab whose layout the load did not inline', () => {
+	let replyFor;
+
+	beforeEach( () => {
+		replyFor = jest.fn( ( m ) =>
+			layout( m[ VALUE ].arguments[ 0 ], 'ruru-7925' )
+		);
+		installFakeCommandWire( ( m ) => replyFor( m ) );
+	} );
+
+	/** @return {Object[]} Every `compositions get` the wire answered. */
+	const gets = () =>
+		replyFor.mock.calls
+			.map( ( [ m ] ) => m[ VALUE ] )
+			.filter( ( value ) => 'get' === value.name );
+
+	it( 'reads its layout once as it opens, under its chrome', async () => {
+		localize( false );
+		render(
+			<StationLayout page="station-tables" views={ VIEWS }>
+				<p>chrome 7925</p>
+			</StationLayout>
+		);
+		expect( screen.getByText( 'chrome 7925' ) ).toBeTruthy();
+		expect(
+			await screen.findByText( 'weka ruru-7925', {}, { timeout: 4000 } )
+		).toBeTruthy();
+		expect( gets() ).toEqual( [
+			expect.objectContaining( {
+				arguments: [ 'newspack-nodes/station-tables' ],
+			} ),
+		] );
+	} );
+
+	it( 'renders a refused read in its layout’s place', async () => {
+		localize( false );
+		window.NewspackNodesStationPages.canManage = true;
+		replyFor.mockImplementation(
+			() =>
+				new Error(
+					'composition newspack-nodes/station-tables: the stored layout is malformed'
+				)
+		);
+		render( <StationLayout page="station-tables" views={ VIEWS } /> );
+		expect(
+			await screen.findByText(
+				/station-tables: the stored layout is malformed/,
+				{},
+				{ timeout: 4000 }
+			)
+		).toBeTruthy();
+	} );
+
+	it( 'reads nothing for the tab the load inlined', async () => {
+		localize( false );
+		render( <StationLayout page="station-jobs" views={ VIEWS } /> );
+		expect( screen.getByText( 'weka kia-ora-7920' ) ).toBeTruthy();
+		await act( () => Core.node( '_router' )?.fireCb?.() );
+		await waitFor( () => expect( gets() ).toEqual( [] ) );
+	} );
 } );
 
 describe( 'a tab switch away from the layout editor', () => {

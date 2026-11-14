@@ -1881,6 +1881,55 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertSame( 'station', $GLOBALS['_localized_scripts'][ $handle ]['data']['tree'] );
 	}
 
+	/**
+	 * A consumer whose declaration admits an undeclared block
+	 * fails no part of the station: its composed tabs read the refusal in
+	 * place, and its other tabs, the Vault among them, still load.
+	 */
+	public function test_a_refused_declaration_set_leaves_the_station_and_its_vault_tab_standing(): void {
+		$this->assertFileExists( \NEWSPACK_NODES_DIR . 'build/vault/index.js', 'vault build asset missing — run `npm run build` before tests' );
+		$_GET                                 = [ 'page' => Admin::STATION_MENU_SLUG ];
+		$GLOBALS['_inline_scripts']           = [];
+		$GLOBALS['_wp_test_current_user_id']  = 7;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$this->declare_station_pages();
+		$kiwi = static fn ( array $declared ): array => $declared + [
+			'kiwi-desk' => [
+				'blocks'   => [],
+				'contexts' => [
+					'kiwi-desk/board' => [
+						'default'    => \dirname( __DIR__, 2 ) . '/fixtures/compositions/board.html',
+						'max_blocks' => 3,
+						'admits'     => [ 'newspack-nodes/aside' ],
+					],
+				],
+			],
+		];
+		\add_filter( Composition::FILTER, $kiwi );
+		$admin = new Admin();
+		try {
+			$admin->enqueue_station_assets();
+			$admin->enqueue_station_tab_bundles();
+		} finally {
+			\remove_action( Composition::FILTER, $kiwi );
+			( new \ReflectionProperty( Composition::class, 'declarations' ) )->setValue( null, null );
+		}
+
+		$prefix = 'window.' . \Newspack_Nodes\Station_Pages::GLOBAL . ' = ';
+		$set    = \array_values( \array_filter( $GLOBALS['_inline_scripts'], static fn ( array $one ): bool => \str_starts_with( $one[1], $prefix ) ) );
+		$data   = \json_decode( \substr( $set[0][1], \strlen( $prefix ), -1 ), true );
+		$this->assertSame(
+			[
+				'context' => 'newspack-nodes/station-overview',
+				'error'   => 'composition declaration kiwi-desk: kiwi-desk/board admits newspack-nodes/aside, which is not a shared block',
+			],
+			$data['compositions']['newspack-nodes/station-overview']
+		);
+		$lazy = $GLOBALS['_localized_scripts']['newspack-nodes-station'];
+		$this->assertSame( 'NewspackNodesLazyTabs', $lazy['object_name'] );
+		$this->assertArrayHasKey( 'newspack-nodes-vault', $lazy['data'] );
+	}
+
 	public function test_enqueue_station_assets_sets_the_composed_pages_data_before_the_bundle(): void {
 		$_GET                       = [ 'page' => Admin::STATION_MENU_SLUG ];
 		$GLOBALS['_inline_scripts'] = [];

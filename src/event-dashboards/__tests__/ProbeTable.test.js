@@ -28,7 +28,7 @@ describe( 'ProbeTable', () => {
 			<ProbeTable
 				columns={ columns }
 				rows={ rows }
-				rowKey={ ( row ) => row.key }
+				getItemId={ ( row ) => row.key }
 				keyAttr="data-kea-key"
 				context={ { now: 4500 } }
 				emptyText="Nothing swept yet."

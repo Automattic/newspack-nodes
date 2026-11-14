@@ -18,6 +18,7 @@ use Newspack_Nodes\Station_Pages;
 use Newspack_Nodes\Tests\Helpers\Composes_Acme_Desk;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 #[CoversClass( Station_Pages::class )]
 final class StationPagesTest extends TestCase {
@@ -113,13 +114,52 @@ final class StationPagesTest extends TestCase {
 		$this->assertSame( 'newspack-nodes/topology-rows', \end( $tree )['name'] );
 	}
 
-	public function test_page_data_says_who_may_tune_and_holds_every_layout(): void {
+	public function test_page_data_says_who_may_tune_and_holds_the_active_tabs_layout_alone(): void {
 		$this->log_in( [ 'manage_options' => true ] );
-		$data = Station_Pages::page_data();
+		$_GET['tab'] = 'jobs';
+		$data        = Station_Pages::page_data();
 		$this->assertTrue( $data['canTune'] );
 		$this->assertTrue( $data['canManage'] );
-		$this->assertSame( \array_values( self::CONTEXTS ), \array_keys( $data['compositions'] ) );
+		$this->assertSame( [ 'newspack-nodes/station-jobs' ], \array_keys( $data['compositions'] ) );
 		$this->assertSame( Composition_Store::read( 'newspack-nodes/station-jobs' ), $data['compositions']['newspack-nodes/station-jobs'] );
+	}
+
+	/** @return array<string,array{0:mixed}> */
+	public static function unnamed_tabs(): array {
+		return [
+			'no tab'    => [ null ],
+			'an empty'  => [ '' ],
+			'a list'    => [ [ 'jobs' ] ],
+		];
+	}
+
+	/**
+	 * A load naming no tab lands on the Overview, the first tab, and inlines
+	 * its layout; the browser reads `?tab[]=` as no tab too.
+	 */
+	#[DataProvider( 'unnamed_tabs' )]
+	public function test_page_data_inlines_the_overview_for_a_load_naming_no_tab( mixed $tab ): void {
+		$this->log_in( [ 'manage_options' => true ] );
+		if ( null !== $tab ) {
+			$_GET['tab'] = $tab;
+		}
+		$this->assertSame( [ 'newspack-nodes/station-overview' ], \array_keys( Station_Pages::page_data()['compositions'] ) );
+	}
+
+	/** @return array<string,array{0:mixed}> */
+	public static function uncomposed_tabs(): array {
+		return [
+			'the vault'         => [ 'vault' ],
+			'a tab nothing has' => [ 'station-jobs' ],
+		];
+	}
+
+	/** A tab that is not a composed page inlines no layout. */
+	#[DataProvider( 'uncomposed_tabs' )]
+	public function test_page_data_inlines_no_layout_for_a_tab_composing_none( mixed $tab ): void {
+		$this->log_in( [ 'manage_options' => true ] );
+		$_GET['tab'] = $tab;
+		$this->assertSame( [], Station_Pages::page_data()['compositions'] );
 	}
 
 	public function test_page_data_withholds_tune_from_a_reader(): void {
@@ -145,6 +185,7 @@ final class StationPagesTest extends TestCase {
 
 	public function test_the_page_data_cannot_close_its_script_element(): void {
 		$this->log_in( [ 'manage_options' => true ] );
+		$_GET['tab'] = 'jobs';
 		\update_option( 'newspack_nodes_composition:newspack-nodes/station-jobs', [ 'markup' => '<!-- wp:paragraph --><p><strong>kea 7931</strong></p><!-- /wp:paragraph -->', 'actor' => 'kea', 'ts' => 1.5 ] );
 		$GLOBALS['_inline_scripts'] = [];
 		try {
@@ -155,6 +196,46 @@ final class StationPagesTest extends TestCase {
 		$script = $GLOBALS['_inline_scripts'][0][1];
 		$this->assertStringContainsString( 'kea 7931', $script );
 		$this->assertStringNotContainsString( '<', $script );
+	}
+
+	/** Declare a consumer whose context admits an undeclared block. */
+	private function declare_a_consumer_admitting_the_aside(): void {
+		$this->declare_acme_desk(
+			static function ( array $map ): array {
+				$map['acme-desk']['contexts']['acme-desk/board']['admits'] = [ 'newspack-nodes/aside' ];
+				return $map;
+			}
+		);
+	}
+
+	/**
+	 * A consumer's refused declaration fails no station load: each composed
+	 * page reads the refusal where its layout would stand, the edit loads
+	 * no editor, and the refusal reaches stderr.
+	 */
+	public function test_a_refused_declaration_set_reads_in_place_and_loads_no_editor(): void {
+		$this->log_in( [ 'manage_options' => true ] );
+		$this->declare_a_consumer_admitting_the_aside();
+		$build = $this->make_temp_dir( 'station-refused-' );
+		\mkdir( "{$build}/station-editor" );
+		\file_put_contents( "{$build}/station-editor/layout-editor.js", 'x' );
+		\file_put_contents( "{$build}/station-editor/layout-editor.asset.php", "<?php return [ 'dependencies' => [ 'wp-element' ], 'version' => 'kaka-7930' ];" );
+		$_GET['edit']               = 'station-tables';
+		$GLOBALS['_inline_scripts'] = [];
+		$stderr                     = $this->capture_stderr();
+		$why                        = 'composition declaration acme-desk: acme-desk/board admits newspack-nodes/aside, which is not a shared block';
+
+		Station_Pages::enqueue( 'newspack-nodes-station', $build, 'https://kaka-7930.test/build' );
+
+		$prefix = 'window.' . Station_Pages::GLOBAL . ' = ';
+		$data   = \json_decode( \substr( $GLOBALS['_inline_scripts'][0][1], \strlen( $prefix ), -1 ), true );
+		$this->assertNotSame( [], $data['compositions'] );
+		foreach ( $data['compositions'] as $context => $layout ) {
+			$this->assertSame( [ 'context' => $context, 'error' => $why ], $layout );
+		}
+		$this->assertArrayNotHasKey( Station_Pages::DASHBOARDS_EDITOR, $GLOBALS['_enqueued_scripts'] );
+		$this->assertNotSame( [], self::stderr_lines( $stderr, $why ) );
+		$this->rmdir_recursive( $build );
 	}
 
 	public function test_enqueue_loads_the_dashboards_editor_on_its_pages_edit(): void {

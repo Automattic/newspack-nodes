@@ -292,11 +292,16 @@ the substrate ships. Two exceptions, for that same reason. Item 2's reserved
 names: a value compiled into an old bundle still has to answer a new substrate.
 And the page globals `__newspackNodesCore`, `__newspackNodesTabs`,
 `__newspackNodesIoTelemetry`, `__newspackNodesOverviewSamplerTimer`,
-`__newspackNodesCompositionEditors`, `__newspackNodesPageshow` and
-`__newspackNodesSourceOrdinals`: the first bundle on a page creates each and
-every other bundle shares it, so a consumer
-bundle and the substrate's bundles on one page must be built against releases
-that agree on their shape. A release that changes one says so in
+`__newspackNodesCompositionEditors`, `__newspackNodesPageshow`,
+`__newspackNodesSourceOrdinals` and `__newspackNodesBar`, the bar store's pop
+record, whose fields are `doc`, `shownUrl`, `shownIndex`, `traversal`,
+`vetoes`, `publishers`, `listener` and `guards`, the leave guards by surface,
+where the station's leave guard stands under `station`; and the
+`newspackNodesBar` stamp, `{ doc, at }`, that the bar store writes into
+`history.state` on each entry it pushes and on the one the page loaded on.
+The first bundle on a page creates each and every other bundle shares it, so a
+consumer bundle and the substrate's bundles on one page must be built against
+releases that agree on their shape. A release that changes one says so in
 [upgrading.md](upgrading.md), and its consumers raise their floor and deploy
 with it.
 

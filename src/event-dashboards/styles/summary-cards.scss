@@ -1,7 +1,8 @@
 /**
- * SummaryCards + TopologyControls — the fleet-vitals health card and the shared
- * per-topology action cluster, used by BOTH the Overview and Topologies station tabs
- * so the two carry identical chrome, in the shared health palette.
+ * The fleet tile's health modifiers, which the `nodes/fleet` source's
+ * figures name, the header's + New buttons, and `TopologyControls`, the
+ * per-topology action cluster each topology row carries, in the shared
+ * health palette.
  */
 
 $health-ok: var(--sage-text);

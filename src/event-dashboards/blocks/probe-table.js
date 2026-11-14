@@ -258,7 +258,7 @@ function View( { attributes: { source } } ) {
 			<ProbeTable
 				columns={ table.columns }
 				rows={ rows }
-				rowKey={ byKey }
+				getItemId={ byKey }
 				keyAttr={ table.keyAttr }
 				context={ context }
 				emptyText={ table.empty }

@@ -12,10 +12,31 @@
  * only a user's pick is written back. A default the catalog picks for itself
  * stays out of the URL, so a bare link keeps meaning "whatever this dashboard
  * opens on".
+ *
+ * The param is one of the bundle's bar store, which `useQueryParamState`
+ * reads too: a pick pushes a Back entry, and a Back or Forward landing on an
+ * entry that names a key the catalog holds selects that key.
  */
 
-import { useCallback, useEffect, useRef } from '@wordpress/element';
-import { getQueryParam, setQueryParam } from '../utils/queryParams';
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useSyncExternalStore,
+} from '@wordpress/element';
+import { openParam, setParam, subscribeParam } from '../utils/queryParams';
+
+/**
+ * The param's codec: the key as the bar spells it, null for none, and each
+ * pick a Back entry.
+ *
+ * @type {import('../utils/queryParams').ParamCodec}
+ */
+const PICK = {
+	parse: ( raw ) => raw || null,
+	format: ( key ) => key,
+	push: true,
+};
 
 /**
  * Own the URL half of a picker's selection.
@@ -41,26 +62,32 @@ export default function useDeepLinkedSelection( {
 	selected,
 	select,
 } ) {
-	// Captured before the first pick can rewrite the param under it.
-	const urlKeyRef = useRef( getQueryParam( param ) );
-	const seededRef = useRef( false );
+	const entry = openParam( param, PICK );
+	const linked = useSyncExternalStore(
+		useCallback(
+			( listener ) => subscribeParam( entry, listener ),
+			[ entry ]
+		),
+		() => entry.value
+	);
+	// The bar's key last acted on; undefined until a catalog has loaded.
+	const actedRef = useRef( undefined );
 
 	useEffect( () => {
-		if ( seededRef.current || 0 === keys.length ) {
+		if ( 0 === keys.length || linked === actedRef.current ) {
 			return;
 		}
-		seededRef.current = true;
-		const urlKey = urlKeyRef.current;
-		if ( urlKey && keys.includes( urlKey ) && urlKey !== selected ) {
-			select( urlKey );
+		actedRef.current = linked;
+		if ( linked && keys.includes( linked ) && linked !== selected ) {
+			select( linked );
 		}
-	}, [ keys, selected, select ] );
+	}, [ keys, linked, selected, select ] );
 
 	return useCallback(
 		( key ) => {
 			select( key );
-			setQueryParam( param, key );
+			setParam( entry, key );
 		},
-		[ param, select ]
+		[ entry, select ]
 	);
 }

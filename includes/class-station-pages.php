@@ -8,13 +8,14 @@
  * the three blocks the substrate owns for what no shared block shows: the
  * topology rows, a probe log's identity table and the spokes' server cards.
  * `Composition::declare_substrate_blocks()` declares them with the shared
- * blocks. A station load sets `page_data()` before the station bundle, as
- * an inline script of its own, so the tab bundles that render after it read
- * it from one global no other bundle's localize replaces, and
- * loads the layout editor of the page `?edit=` names, the Overview's, Jobs'
- * and Tables' from the `station-editor` bundle, the Aggregator's from the
- * `aggregator-editor` bundle, because each page's blocks come from the tab
- * bundle that draws them.
+ * blocks. A station load sets `page_data()`, holding the layout of the tab
+ * it opens on alone, before the station bundle, as an inline script of its
+ * own, so the tab bundles that render after it read it from one global no
+ * other bundle's localize replaces; a tab opened later reads its own. It
+ * loads the layout editor of the page `?edit=` names: the editors of the
+ * Overview, Jobs and Tables from the `station-editor` bundle, and the
+ * Aggregator editor from the `aggregator-editor` bundle, because each page's
+ * blocks come from the tab bundle that draws them.
  *
  * @package Newspack_Nodes
  */
@@ -30,6 +31,9 @@ final class Station_Pages {
 
 	/** The global a station load sets to `page_data()`. */
 	public const GLOBAL = 'NewspackNodesStationPages';
+
+	/** The page a load naming no tab opens on: the Overview, ordered first. */
+	private const LANDING = 'station-overview';
 
 	/** The editor bundle drawing the blocks of the Overview, Jobs and Tables. */
 	public const DASHBOARDS_EDITOR = 'newspack-nodes-station-editor';
@@ -100,8 +104,7 @@ final class Station_Pages {
 	 * @param string $handle    The station bundle's script handle.
 	 * @param string $build_dir The plugin's build directory.
 	 * @param string $build_url Its URL.
-	 * @throws \LogicException Through `Composition`, on a declaration that breaks a rule.
-	 * @throws \RuntimeException When the page data will not encode, or an editor's pattern no longer validates.
+	 * @throws \RuntimeException When the page data will not encode.
 	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
 	public static function enqueue( string $handle, string $build_dir, string $build_url ): void {
@@ -117,19 +120,33 @@ final class Station_Pages {
 
 	/**
 	 * What a station page reads: whether the caller may curate its layout
-	 * and read a refusal's own words, and every context's layout or its
-	 * refusal.
+	 * and read a refusal's own words, and the layout of the tab the load
+	 * opens on, or its refusal. Every other tab reads its own layout through
+	 * `compositions get` as it opens, so a load reads one layout, not four.
 	 *
 	 * @return array{canTune: bool, canManage: bool, compositions: array<string,mixed>}
-	 * @throws \LogicException When a context is not declared.
 	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
 	public static function page_data(): array {
+		$page = self::opened_page();
 		return [
 			'canTune'      => Capabilities::can( Capabilities::TUNE ),
 			'canManage'    => Capabilities::can( Capabilities::MANAGE ),
-			'compositions' => Composition_Store::page_data( \array_values( self::PAGES ) ),
+			'compositions' => Composition_Store::page_data( null === $page ? [] : [ self::PAGES[ $page ] ] ),
 		];
+	}
+
+	/**
+	 * The composed page the load opens on: the one `?tab=` names, its slug
+	 * the page's without `station-`, else for a load naming no tab the
+	 * Overview, which the station orders first; null for a tab composing
+	 * none.
+	 */
+	private static function opened_page(): ?string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- names which tab's layout to inline; the read is capability-gated.
+		$tab = isset( $_GET['tab'] ) && \is_string( $_GET['tab'] ) ? \sanitize_text_field( \wp_unslash( $_GET['tab'] ) ) : '';
+		$page = '' === $tab ? self::LANDING : "station-{$tab}";
+		return isset( self::PAGES[ $page ] ) ? $page : null;
 	}
 
 	/**
