@@ -13,7 +13,10 @@ import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCo
 import { steppedClock } from '@newspack-nodes/shared/test-utils/steppedClock';
 import { registerSource, SourcesProvider } from '../../sources';
 import { definePageState } from '../../composition/page/pageState';
-import { providedViews } from '../../composition/page/pageContext';
+import {
+	ComposedPage,
+	providedViews,
+} from '../../composition/page/pageContext';
 import { LogStreamViewNode } from '../../nodes/log-stream-view-node';
 import CompositionView from '../../composition/CompositionView';
 import { SUBSTRATE_VIEWS } from '..';
@@ -91,6 +94,68 @@ registerSource( 'tui-7844', {
 	fields: { text: { label: 'Line 7844', kind: 'rows' } },
 } );
 
+/**
+ * The count the hoiho's toolbar names, as its declaration words it.
+ *
+ * @param {{total: number}} stats The ring's stats.
+ * @return {string} The count.
+ */
+const hoihoCount = ( { total } ) => `${ total } penguins 7970`;
+
+/**
+ * The rate the hoiho's toolbar names.
+ *
+ * @param {number} lps Lines per second.
+ * @return {string} The rate.
+ */
+const hoihoRate = ( lps ) => `${ lps.toFixed( 2 ) } dives/s 7970`;
+
+/**
+ * A hoiho's tag cell, its tag linked, as its declared cell draws it.
+ *
+ * @param {{tag: string}} row The row.
+ * @return {import('react').ReactElement} The cell.
+ */
+const tagCell = ( row ) => (
+	<span role="cell" data-band="7970">
+		<a href={ `#tag-${ row.tag }` }>{ row.tag }</a>
+	</span>
+);
+
+registerSource( 'hoiho-7970', {
+	label: 'Hoiho colony 7970',
+	kind: 'stream',
+	subscribe: () => 'hoiho.p4',
+	viewClass: TuiViewNode,
+	mode: 'follow',
+	count: hoihoCount,
+	rate: hoihoRate,
+	placeholder: 'Filter penguins 7970…',
+	empty: 'No penguins ashore 7970.',
+	columnsKey: 'hoiho-columns-7970',
+	fields: {
+		tag: {
+			label: 'Tag 7970',
+			tooltip: 'Band number 7970',
+			width: '91px',
+			kind: 'rows',
+			cell: tagCell,
+		},
+		text: { label: 'Call 7970', kind: 'rows', width: '173px' },
+		nest: { label: 'Nest 7970', kind: 'rows' },
+	},
+} );
+
+registerSource( 'tawaki-7971', {
+	kind: 'stream',
+	group: 'alpine-7971',
+	subscribe: () => 'tawaki.*',
+	viewClass: TuiViewNode,
+	mode: 'follow',
+	browse: true,
+	fields: { text: { label: 'Call 7971', kind: 'rows' } },
+} );
+
 /** How often the karoro's span was derived, to show it is derived once a model. */
 let spans = 0;
 
@@ -146,6 +211,7 @@ registerSource( 'kotare-7882', {
 
 let wire;
 let replyFor;
+let clock;
 
 class FakeEventSource {
 	addEventListener() {}
@@ -154,7 +220,7 @@ class FakeEventSource {
 
 beforeEach( () => {
 	Core.reset();
-	steppedClock();
+	clock = steppedClock();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	global.EventSource = FakeEventSource;
 	Object.defineProperty( document, 'visibilityState', {
@@ -207,6 +273,35 @@ function renderBlock( name, attributes, editing = false ) {
 				<View attributes={ attributes } editing={ editing } />
 			</SourcesProvider>
 		</PageState>
+	);
+}
+
+/**
+ * One block by its view, standing on a page that offers a header slot and
+ * the controls it hands each source's block.
+ *
+ * @param {string} name       The block.
+ * @param {Object} attributes Its attributes.
+ * @param {Object} page       The page's own fields beside the frame's.
+ * @return {Object} What `render` answers.
+ */
+function renderOnPage( name, attributes, page ) {
+	const { View } = VIEWS[ name ];
+	return render(
+		<ComposedPage.Provider
+			value={ {
+				group: 'alpine-7973',
+				canTune: false,
+				onRestored: () => {},
+				...page,
+			} }
+		>
+			<PageState>
+				<SourcesProvider>
+					<View attributes={ attributes } editing={ false } />
+				</SourcesProvider>
+			</PageState>
+		</ComposedPage.Provider>
 	);
 }
 
@@ -557,6 +652,204 @@ describe( 'the log-stream block', () => {
 		).toBeTruthy();
 	} );
 
+	it( 'heads each column by its label and tooltip, and draws each row as its fields declare', async () => {
+		renderBlock( 'newspack-nodes/log-stream', {
+			source: 'hoiho-7970',
+			columns: [],
+			title: '',
+		} );
+		await act( async () => {} );
+		const header = screen.getByRole( 'columnheader', { name: 'Tag 7970' } );
+		expect( header.getAttribute( 'title' ) ).toBe( 'Band number 7970' );
+		expect(
+			header
+				.closest( '.newspack-nodes-log-stream-block__columns' )
+				.style.getPropertyValue( '--log-columns' )
+		).toBe( '91px 173px auto' );
+
+		const renderRow = logRow( namedFields( 'hoiho-7970', [], 'rows' ) );
+		render( renderRow( { id: 3, tag: 'yellow-7970', text: 'trill' } ) );
+		const row = screen.getAllByRole( 'row' ).at( -1 );
+		expect( row.style.gridTemplateColumns ).toBe( '91px 173px auto' );
+		expect(
+			within( row ).getByRole( 'link', { name: 'yellow-7970' } )
+		).toBeTruthy();
+		const cells = within( row ).getAllByRole( 'cell' );
+		expect( cells ).toHaveLength( 3 );
+		expect( cells[ 0 ].dataset.band ).toBe( '7970' );
+	} );
+
+	it( 'names its region, its counts, its filter and its empty list as its source declares', async () => {
+		renderBlock( 'newspack-nodes/log-stream', {
+			source: 'hoiho-7970',
+			columns: [],
+			title: '',
+		} );
+		await act( async () => {} );
+		expect(
+			screen.getByRole( 'region', { name: 'Hoiho colony 7970' } )
+		).toBeTruthy();
+		expect( screen.getByText( '0 penguins 7970' ) ).toBeTruthy();
+		expect( screen.getByText( '0.00 dives/s 7970' ) ).toBeTruthy();
+		expect(
+			screen.getByPlaceholderText( 'Filter penguins 7970…' )
+		).toBeTruthy();
+		expect( screen.getByText( 'No penguins ashore 7970.' ) ).toBeTruthy();
+	} );
+
+	it( 'offers the columns it does not name through Cols, kept under its source’s key', async () => {
+		window.localStorage.clear();
+		renderBlock( 'newspack-nodes/log-stream', {
+			source: 'hoiho-7970',
+			columns: [ 'tag', 'text' ],
+			title: '',
+		} );
+		await act( async () => {} );
+		expect(
+			screen.queryByRole( 'columnheader', { name: 'Nest 7970' } )
+		).toBeNull();
+
+		fireEvent.click( screen.getByRole( 'button', { name: 'Cols' } ) );
+		fireEvent.click(
+			screen.getByRole( 'checkbox', { name: 'Nest 7970' } )
+		);
+
+		expect(
+			screen.getByRole( 'columnheader', { name: 'Nest 7970' } )
+		).toBeTruthy();
+		expect(
+			JSON.parse( window.localStorage.getItem( 'hoiho-columns-7970' ) )
+		).toEqual( [ 'tag', 'text', 'nest' ] );
+	} );
+
+	it( 'offers no Cols when it names every column', async () => {
+		renderBlock( 'newspack-nodes/log-stream', {
+			source: 'hoiho-7970',
+			columns: [],
+			title: '',
+		} );
+		await act( async () => {} );
+		expect( screen.queryByRole( 'button', { name: 'Cols' } ) ).toBeNull();
+	} );
+
+	it( 'browses its source’s glob: the partition picker, then the rail and the step', async () => {
+		replyFor = ( m ) =>
+			'list_logs' === m[ VALUE ].name
+				? [
+						{ key: 'tawaki.p1', label: 'tawaki.p1' },
+						{ key: 'tawaki.p6', label: 'tawaki.p6' },
+				  ]
+				: { segments: [ { id: 7971, size: 77 } ] };
+		renderBlock( 'newspack-nodes/log-stream', {
+			source: 'tawaki-7971',
+			columns: [],
+			title: 'Tawaki 7971',
+		} );
+		await clock.tick( 1 );
+		const picker = await screen.findByRole( 'combobox', {
+			name: 'Browse a partition',
+		} );
+		expect(
+			within( picker )
+				.getAllByRole( 'option' )
+				.map( ( option ) => option.value )
+		).toEqual( [ '', 'tawaki.p1', 'tawaki.p6' ] );
+		expect(
+			screen.queryByRole( 'button', { name: 'Step one message' } )
+		).toBeNull();
+
+		fireEvent.change( picker, { target: { value: 'tawaki.p6' } } );
+
+		expect(
+			await screen.findByRole( 'button', { name: 'Step one message' } )
+		).toBeTruthy();
+		expect(
+			screen.getByRole( 'button', { name: 'Show the browse rail' } )
+		).toBeTruthy();
+		expect(
+			screen.getByRole( 'textbox', { name: 'Jump to an offset' } )
+		).toBeTruthy();
+	} );
+
+	it( 'puts its toolbar in the page’s header slot when it says so, and keeps it otherwise', async () => {
+		const slot = document.createElement( 'div' );
+		document.body.appendChild( slot );
+		const { container } = renderOnPage(
+			'newspack-nodes/log-stream',
+			{ source: 'hoiho-7970', columns: [], title: '', toolbar: 'header' },
+			{ headerSlot: slot }
+		);
+		await act( async () => {} );
+		expect( slot.textContent ).toContain( '0 penguins 7970' );
+		expect( container.textContent ).not.toContain( '0 penguins 7970' );
+		expect(
+			within( container ).getByRole( 'table', {
+				name: 'Hoiho colony 7970',
+			} )
+		).toBeTruthy();
+		slot.remove();
+	} );
+
+	it( 'keeps its toolbar inline when its toolbar is not the header’s', async () => {
+		const slot = document.createElement( 'div' );
+		const { container } = renderOnPage(
+			'newspack-nodes/log-stream',
+			{ source: 'hoiho-7970', columns: [], title: '', toolbar: 'inline' },
+			{ headerSlot: slot }
+		);
+		await act( async () => {} );
+		expect( slot.textContent ).toBe( '' );
+		expect( container.textContent ).toContain( '0 penguins 7970' );
+	} );
+
+	it( 'draws the control its page hands its source, just ahead of Cols', async () => {
+		renderOnPage(
+			'newspack-nodes/log-stream',
+			{ source: 'hoiho-7970', columns: [ 'tag' ], title: '' },
+			{
+				sourceControls: {
+					'hoiho-7970': <button type="button">Tide 7972</button>,
+				},
+			}
+		);
+		await act( async () => {} );
+		const labels = screen
+			.getAllByRole( 'button' )
+			.map( ( button ) => button.textContent );
+		expect( labels.indexOf( 'Tide 7972' ) ).toBe(
+			labels.indexOf( 'Cols' ) - 1
+		);
+	} );
+
+	it( 'filters only a source that names its filter', async () => {
+		renderBlock( 'newspack-nodes/log-stream', {
+			source: 'tui-7844',
+			columns: [],
+			title: 'Tail 7974',
+		} );
+		await act( async () => {} );
+		expect( screen.queryByRole( 'searchbox' ) ).toBeNull();
+	} );
+
+	it( 'draws an existing row once as new rows arrive above it', () => {
+		const drawn = [];
+		const renderRow = logRow( [
+			{
+				key: 'tag',
+				label: 'Tag 7975',
+				cell: ( row ) => {
+					drawn.push( row.tag );
+					return <span role="cell">{ row.tag }</span>;
+				},
+			},
+		] );
+		const kea = { id: 1, isEven: false, tag: 'kea-7975' };
+		const weka = { id: 2, isEven: true, tag: 'weka-7975' };
+		const { rerender } = render( <>{ [ kea ].map( renderRow ) }</> );
+		rerender( <>{ [ weka, kea ].map( renderRow ) }</> );
+		expect( drawn ).toEqual( [ 'kea-7975', 'weka-7975' ] );
+	} );
+
 	it( 'draws a row’s named fields, each formatted as declared', () => {
 		const renderRow = logRow( [
 			{ key: 'text', label: 'Line 7844', format: ( v ) => `«${ v }»` },
@@ -641,6 +934,16 @@ describe( 'a block’s settings', () => {
 		},
 		'newspack-nodes/sparkline': { source: TEXT, field: TEXT, title: TEXT },
 		'newspack-nodes/section': { title: TEXT, description: TEXT },
+		'newspack-nodes/log-stream': {
+			source: TEXT,
+			columns: NAMES,
+			title: TEXT,
+			toolbar: {
+				type: 'string',
+				enum: [ 'inline', 'header' ],
+				default: 'inline',
+			},
+		},
 	};
 
 	/**
@@ -662,6 +965,21 @@ describe( 'a block’s settings', () => {
 		);
 		return setAttributes;
 	}
+
+	it( 'offers the log stream’s toolbar places by name, writing the one picked', () => {
+		const set = renderControls( 'newspack-nodes/log-stream', {
+			source: 'hoiho-7970',
+			columns: [],
+			title: '',
+			toolbar: 'inline',
+		} );
+		const toolbar = screen.getByRole( 'combobox', { name: 'Toolbar' } );
+		expect(
+			[ ...toolbar.options ].map( ( one ) => one.textContent )
+		).toEqual( [ 'In the block', 'In the page header' ] );
+		fireEvent.change( toolbar, { target: { value: 'header' } } );
+		expect( set ).toHaveBeenCalledWith( { toolbar: 'header' } );
+	} );
 
 	it( 'names a source by its declared label, and one with none by its name', () => {
 		renderControls( 'newspack-nodes/stats', {

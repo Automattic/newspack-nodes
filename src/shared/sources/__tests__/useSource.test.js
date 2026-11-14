@@ -278,6 +278,25 @@ describe( 'registerSource', () => {
 		).toThrow( /source 'tieke-7830' is already declared/ );
 	} );
 
+	it.each( [
+		[ 'cell', () => 'tui-7866' ],
+		[ 'width', '97px' ],
+		[ 'tooltip', 'Chorus height 7866' ],
+	] )(
+		'refuses a declaration whose field draws another %s',
+		( part, value ) => {
+			const declared = tieke( 'Song 7830' );
+			expect( () =>
+				registerSource( 'tieke-7830', {
+					...declared,
+					fields: {
+						height: { ...declared.fields.height, [ part ]: value },
+					},
+				} )
+			).toThrow( /source 'tieke-7830' is already declared/ );
+		}
+	);
+
 	it( 'refuses a declaration whose label reads otherwise', () => {
 		expect( () =>
 			registerSource( 'tieke-7830', {

@@ -1,8 +1,9 @@
 /**
  * useLogTailStream — the ONE parameterised log tail behind every dashboard
  * whose subscription is DECLARED: the two probe charts, the Config Audit
- * timeline and every stream source. A dashboard that PICKS its log from a
- * catalog builds its graph through `useLogViewerGraph` instead.
+ * timeline and every stream source, a browsed glob's among them. A dashboard
+ * that PICKS its log from a catalog builds its graph through
+ * `useLogViewerGraph` instead.
  *
  * The two node names, the subscription and the opening seek all come from the
  * caller's declaration, so a new log costs a declaration rather than another
@@ -53,18 +54,20 @@ function seekForMode( mode, subscribe ) {
 /**
  * Mount one declared log tail for the calling component's lifetime.
  *
- * A declared tail offers no seek or step, so a dashboard that drives those
- * calls `useStreamGraph` itself, and one that shows skipped lines hands its
- * subscription to `UnparseableLinesNotice`. The `useStreamGraph` handle it
- * answers pauses, filters and clears the view.
+ * The `useStreamGraph` handle it answers pauses, filters and clears the view,
+ * and a caller browsing a glob hands it to `useGlobBrowse`, which seeks and
+ * steps through it, as a stream source declaring `browse` does. One that
+ * shows skipped lines hands its subscription to `UnparseableLinesNotice`.
  *
- * @param {Object} o
- * @param {string} o.name      Stream name; the two node names derive from it.
- * @param {string} o.subscribe The concrete log dir to tail (e.g. `jobstats.p0`).
- * @param {any}    o.viewClass The view-model node's class, handed over rather
- *                             than named (ADR-16).
- * @param {string} [o.mode]    'history' (retention replay) or 'follow' (tail,
- *                             the default). Any other value throws.
+ * @param {Object}  o
+ * @param {string}  o.name          Stream name; the two node names derive from it.
+ * @param {string}  o.subscribe     The log dir or glob to tail (e.g. `jobstats.p0`).
+ * @param {any}     o.viewClass     The view-model node's class, handed over rather
+ *                                  than named (ADR-16).
+ * @param {string}  [o.mode]        'history' (retention replay) or 'follow' (tail,
+ *                                  the default). Any other value throws.
+ * @param {string}  [o.group]       The group whose Tap the graph's reads pass.
+ * @param {boolean} [o.clearOnOpen] Empty the view before every open.
  * @return {ReturnType<typeof useStreamGraph>} The stream graph's handle.
  */
 export function useLogTailStream( {
@@ -72,11 +75,15 @@ export function useLogTailStream( {
 	subscribe,
 	viewClass,
 	mode = 'follow',
+	group,
+	clearOnOpen = false,
 } ) {
 	return useStreamGraph( {
 		prefix: name,
+		group,
 		subscribe,
 		viewClass,
 		openAt: seekForMode( mode, subscribe ),
+		clearOnOpen,
 	} );
 }

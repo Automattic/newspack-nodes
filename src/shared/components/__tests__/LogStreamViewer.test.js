@@ -241,7 +241,11 @@ it( 'the picker is named even when the caller declares nothing', () => {
 // a `title` repeating the name is announced a second time as its description.
 it( 'names every toolbar control, and repeats none of them', () => {
 	const { container } = render(
-		<LogStreamViewer { ...BASE } onJump={ () => {} } />
+		<LogStreamViewer
+			{ ...BASE }
+			onJump={ () => {} }
+			onFilter={ () => {} }
+		/>
 	);
 	const named = [
 		'.newspack-nodes-select',
@@ -433,17 +437,27 @@ it( 're-sends the filter when the graph is rebuilt', () => {
 	expect( onFilter ).toHaveBeenLastCalledWith( 'zebra' );
 } );
 
-it( 'types without an onFilter consumer rather than throwing', () => {
-	// Published through @newspack-nodes/shared, where knip cannot see a
-	// changed export: an adopter passing no onFilter must not die on a keystroke.
-	const { container } = render( <LogStreamViewer { ...BASE } /> );
+it( 'draws no filter for a consumer that filters nothing', () => {
+	const { container, rerender } = render( <LogStreamViewer { ...BASE } /> );
+	expect( container.querySelector( 'input[type="search"]' ) ).toBeNull();
 
-	expect( () =>
-		fireEvent.change(
-			container.querySelector( '.newspack-nodes-search-input input' ),
-			{ target: { value: 'x' } }
-		)
-	).not.toThrow();
+	rerender( <LogStreamViewer { ...BASE } onFilter={ () => {} } /> );
+	expect( container.querySelector( 'input[type="search"]' ) ).not.toBeNull();
+} );
+
+it( 'holds the header and the rows in one table its label names', () => {
+	const { getByRole } = render(
+		<LogStreamViewer
+			{ ...BASE }
+			ariaLabel="Kotuku 7990"
+			listHeader={ <div role="row">Heads 7990</div> }
+		/>
+	);
+	const table = getByRole( 'table', { name: 'Kotuku 7990' } );
+	expect( table.textContent ).toContain( 'Heads 7990' );
+	expect(
+		table.querySelector( '[data-testid="log-row-list"]' )
+	).not.toBeNull();
 } );
 
 describe( 'the jump box', () => {

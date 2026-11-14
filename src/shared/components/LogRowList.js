@@ -70,7 +70,10 @@ const STATS_INTERVAL_MS = 250;
 export const DEBUG_MAX_ROWS = 500;
 
 /**
- * The ring-backed view node this list windows over.
+ * The ring-backed view node this list windows over. A row with a numeric `id`
+ * belongs to a ring, whose new rows glide in above the reader; a snapshot view,
+ * which replaces its rows each refresh, keys them otherwise, and the list
+ * redraws whenever its newest row is another object.
  *
  * @typedef  {Object}                LogRowSource
  * @property {number}                linesCount Rows the ring holds.
@@ -157,7 +160,7 @@ export default function LogRowList( {
 		visible: -1,
 		start: -1,
 		end: -1,
-		topId: -1,
+		topRow: undefined,
 		node: null,
 	} );
 	// Change-detect AND time-throttled (STATS_INTERVAL_MS since `at`).
@@ -188,7 +191,7 @@ export default function LogRowList( {
 			visible: -1,
 			start: -1,
 			end: -1,
-			topId: -1,
+			topRow: undefined,
 			node: null,
 		};
 		if ( contentRef.current ) {
@@ -241,9 +244,9 @@ export default function LogRowList( {
 			// Ingest filters, so the display count is the ring total.
 			const visible = total;
 
-			// Monotonic top id: it detects new rows, and a full ring rotating.
+			// A numeric top id detects new rows; a snapshot's ids never glide.
 			const topRow = node?.lineAt( 0 );
-			const topId = topRow ? topRow.id : 0;
+			const topId = 'number' === typeof topRow?.id ? topRow.id : 0;
 
 			// First sight of a full ring baselines it — never glides it.
 			if ( 0 === lastTopIdRef.current && topId > 0 ) {
@@ -265,7 +268,7 @@ export default function LogRowList( {
 					node !== pushed2.node ||
 					visible !== pushed2.visible ||
 					end !== pushed2.end ||
-					topId !== pushed2.topId
+					topRow !== pushed2.topRow
 				) {
 					const debugRows = [];
 					for ( let i = 0; i < end; i++ ) {
@@ -278,7 +281,7 @@ export default function LogRowList( {
 					pushed2.visible = visible;
 					pushed2.start = 0;
 					pushed2.end = end;
-					pushed2.topId = topId;
+					pushed2.topRow = topRow;
 					setModel( {
 						rows: debugRows,
 						spacerTop: 0,
@@ -370,7 +373,7 @@ export default function LogRowList( {
 				visible !== pushed.visible ||
 				start !== pushed.start ||
 				end !== pushed.end ||
-				topId !== pushed.topId
+				topRow !== pushed.topRow
 			) {
 				const rows = [];
 				for ( let i = start; i < end; i++ ) {
@@ -383,7 +386,7 @@ export default function LogRowList( {
 				pushed.visible = visible;
 				pushed.start = start;
 				pushed.end = end;
-				pushed.topId = topId;
+				pushed.topRow = topRow;
 				// The offset commits with its rows; it never leads them.
 				setModel( {
 					rows,

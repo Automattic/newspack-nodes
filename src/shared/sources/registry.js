@@ -69,6 +69,9 @@ const FIELD_PARTS = [
 	'axis',
 	'modifier',
 	'shown',
+	'cell',
+	'width',
+	'tooltip',
 ];
 
 /**
@@ -135,7 +138,9 @@ function sameDeclaration( a, b ) {
  * `value( model )` derives a field the model does not hold, once per model
  * (`fieldValue()`), a figure's `modifier( value )` names the
  * `nodes-card--<modifier>` its tile wears, and its `shown( value )`
- * answering false leaves its tile out. A source's `caption( model )` names
+ * answering false leaves its tile out. A `rows` field a log stream lists
+ * may declare `cell( row )`, its cell's content, `width`, its column's grid
+ * track, and `tooltip`, its header's hover text. A source's `caption( model )` names
  * what a stats row shows, as the row's hover title. `params` names
  * the page-state keys a block reads its params from, each param named as its
  * key, and `label` the words a block's inspector names the source by, its
@@ -147,7 +152,9 @@ function sameDeclaration( a, b ) {
  *                      viewClass?, transformClass?, intervalMs, cadence?,
  *                      retry?, scope? }`,
  *                      `{ kind: 'command', group, ci, command, args }`, `{
- *                      kind: 'stream', subscribe, viewClass, mode }` or `{
+ *                      kind: 'stream', subscribe, viewClass, mode, group?,
+ *                      browse?, cadence?, clearOnOpen?, count?, rate?,
+ *                      placeholder?, empty?, columnsKey? }` or `{
  *                      kind: 'derived', from, derive }`; `args` and
  *                      `subscribe` read the params. A poll naming a
  *                      `viewClass` shows that view's model, with a
@@ -164,7 +171,15 @@ function sameDeclaration( a, b ) {
  *                      subject never shows another's model; `args` answering
  *                      null asks nothing; a derived source
  *                      shows `derive( models, params )` over the models of
- *                      the sources `from` names.
+ *                      the sources `from` names. A stream declaring `browse`
+ *                      browses its glob's partitions through the `raw-logs`
+ *                      CI under its `group`; one naming a `cadence` key sends
+ *                      its view a `snapshot` control at that key's
+ *                      milliseconds; `clearOnOpen` empties its view before
+ *                      each open; and its log stream's chrome reads
+ *                      `count( stats )`, `rate( lps )`, `placeholder`,
+ *                      `empty` and the `columnsKey` a reader's columns are
+ *                      kept under.
  * @throws {TypeError} On an empty name, one declared otherwise, a
  *                     field declaring no kind it knows, or two fields of one
  *                     kind sharing a label.

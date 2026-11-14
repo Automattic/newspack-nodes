@@ -42,18 +42,21 @@
  * `subscribe` at all: the graph rides nothing until a catalog names one
  * through `resubscribe`.
  *
- * `useSteppedRead` and `useLogCatalog` sit beside it because they are the same
- * graph's other halves: the single record a paused stream steps by, and the
- * polled list its subscription is named from.
+ * `useSteppedRead`, `useLogCatalog` and `useGlobBrowse` sit beside it because
+ * they are the same graph's other halves: the single record a paused stream
+ * steps by, the polled list its subscription is named from, and the partition
+ * pick a glob subscription browses by.
  */
 
 import {
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import {
 	CommandInterpreterNode,
 	mountExospine,
@@ -65,9 +68,14 @@ import { useBatchedPoll } from './useBatchedPoll';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
 import { egressPath } from '../helpers/egressPath';
 import { CatalogListViewNode } from '../nodes/catalog-list-view-node';
-import { stepPosition } from './useLogPositions';
+import {
+	RAW_LOGS_CI,
+	stepPosition,
+	useLogStatusSegments,
+	useSegmentBrowse,
+} from './useLogPositions';
 import { controlMsg } from '../helpers/controlMsg';
-import { browseControl } from '../nodes/seekTracker';
+import { LIVE, browseControl } from '../nodes/seekTracker';
 
 /**
  * Which of a catalog's rows a dashboard offers.
@@ -478,5 +486,132 @@ export function useLogCatalog( { graph, ci, command, keep } ) {
 	return useMemo(
 		() => ( keep ? rows.filter( keep ) : rows ),
 		[ rows, keep ]
+	);
+}
+
+/**
+ * The partition pick a glob subscription browses by, on top of the shared
+ * segment browsing. An empty `selectedPartition` is the whole glob tailed
+ * live: the picker's empty row, and no rail. A concrete dir such as
+ * `errors.p3` narrows the stream to that ONE partition and brings the rail,
+ * the Live / Replay / per-segment seeks and the offset jump, which are
+ * `useSegmentBrowse`. A sole partition auto-selects, because one dir already
+ * IS the whole live glob.
+ *
+ * Selecting a partition RESUBSCRIBES the stream to that dir alone, so the
+ * picker is a subscription control and not a filter over records already in
+ * the view. The `raw-logs` CI answers all three questions, `list_logs` for
+ * the dirs, `dump_log` for one dir's segments and `read_message` for a
+ * paused step, each on its own nodes, so every reply lands on the node that
+ * asked for it (ADR-7).
+ *
+ * @param {Object} o       Hook options.
+ * @param {string} o.glob  The subscription glob (e.g. `errors.*`).
+ * @param {Object} o.graph The `useStreamGraph` handle this browses, whose
+ *                         group's Tap its reads pass.
+ * @return {{ pickerOptions: Object[], pickerLabel: string,
+ *   selectedPartition: string, selectPartition: (key: string) => void,
+ *   jump: ?(text: string) => ?string, sidebar: ?import('react').ReactElement,
+ *   step: (() => void)|undefined }}
+ *   The toolbar picker, and only once a dir is selected the segment rail, the
+ *   offset jump into it and the paused step, which walks within one dir; one
+ *   object until one of them moves.
+ */
+export function useGlobBrowse( { glob, graph } ) {
+	const globPrefix = glob.endsWith( '*' ) ? glob.slice( 0, -1 ) : glob;
+	const { prefix, control, resubscribe, seek, setPaused } = graph;
+	const step = useSteppedRead( {
+		graph,
+		ci: RAW_LOGS_CI,
+		command: 'read_message',
+	} );
+
+	const [ selectedPartition, setSelectedPartition ] = useState( '' );
+	const selectedRef = useRef( selectedPartition );
+	selectedRef.current = selectedPartition;
+
+	// The view's seek model (mode, received segment), not the click state.
+	const viewModel = useNodeField( `${ prefix }:view`, 'view' );
+
+	const inGlob = useCallback(
+		( row ) =>
+			'string' === typeof row?.key && row.key.startsWith( globPrefix ),
+		[ globPrefix ]
+	);
+	const partitions = useLogCatalog( {
+		graph,
+		ci: RAW_LOGS_CI,
+		command: 'list_logs',
+		keep: inGlob,
+	} );
+
+	const { source, refresh } = useLogStatusSegments( {
+		sub: selectedPartition,
+		scope: `${ prefix }-segments`,
+		graph,
+	} );
+
+	const selectPartition = useCallback(
+		( key ) => {
+			setSelectedPartition( key );
+			control( { action: 'select', dir: key } );
+			resubscribe( key ? [ key ] : [ glob ], null );
+		},
+		[ glob, control, resubscribe ]
+	);
+
+	// @longform
+	// A sole partition auto-selects BEFORE PAINT: a passive effect would paint
+	// the picker first at a value that does not match any row. The catalog
+	// only ever fills from a command reply, so it never arrives populated on
+	// the first render this layout effect runs in.
+	useLayoutEffect( () => {
+		if ( 1 === partitions.length && '' === selectedRef.current ) {
+			selectPartition( partitions[ 0 ].key );
+		}
+	}, [ partitions, selectPartition ] );
+
+	// The empty row widens back to the glob; a sole dir gets none.
+	const pickerOptions = useMemo( () => {
+		if ( partitions.length < 2 ) {
+			return partitions;
+		}
+		const all = {
+			key: '',
+			label: __( 'All partitions (live)', 'newspack-nodes' ),
+		};
+		return [ all, ...partitions ];
+	}, [ partitions ] );
+
+	const { jump, sidebar } = useSegmentBrowse( {
+		sub: selectedPartition,
+		source,
+		refresh,
+		railName: `${ prefix }-rail:timer`,
+		mode: viewModel?.mode ?? LIVE,
+		lastReceivedSegment: viewModel?.lastReceivedSegment ?? null,
+		seek,
+		setPaused,
+		step,
+	} );
+
+	return useMemo(
+		() => ( {
+			pickerOptions,
+			pickerLabel: __( 'Browse a partition', 'newspack-nodes' ),
+			selectedPartition,
+			selectPartition,
+			jump: selectedPartition ? jump : undefined,
+			sidebar: selectedPartition ? sidebar : null,
+			step: selectedPartition ? step : undefined,
+		} ),
+		[
+			pickerOptions,
+			selectedPartition,
+			selectPartition,
+			jump,
+			sidebar,
+			step,
+		]
 	);
 }

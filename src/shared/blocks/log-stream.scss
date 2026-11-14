@@ -1,0 +1,61 @@
+/**
+ * The log-stream block's geometry: the viewer a bounded column of its own,
+ * the rail beside the pane, and each row and the header on one grid of its
+ * columns' declared widths. A page that gives the block its whole height
+ * lets it grow; the row, header and rail looks are the shared log roles.
+ */
+
+.newspack-nodes-log-stream-block {
+	display: flex;
+	flex-direction: column;
+	height: 70vh;
+	min-height: 0;
+
+	.newspack-nodes-log-row:not(.is-debug) {
+		display: grid;
+		gap: 12px;
+		align-items: center;
+	}
+}
+
+.newspack-nodes-log-stream-block__body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+}
+
+.newspack-nodes-log-stream-block__main {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+// The column picker's boxes stand a step apart.
+.newspack-nodes-log-stream-block .newspack-nodes-column-picker {
+	gap: 12px;
+}
+
+// The header row is the grid; its wrapper takes no box of its own.
+.newspack-nodes-log-stream-block__columns {
+	display: contents;
+
+	.newspack-nodes-log-header {
+		display: grid;
+		grid-template-columns: var(--log-columns);
+		gap: 12px;
+	}
+}
+
+// A narrower screen tightens the rows, header and cells by one step.
+@media (max-width: 1200px) {
+	.newspack-nodes-log-stream-block .newspack-nodes-log-row {
+		gap: 8px;
+		padding: 0 10px;
+	}
+
+	.newspack-nodes-log-stream-block__columns .newspack-nodes-log-header {
+		gap: 8px;
+	}
+}

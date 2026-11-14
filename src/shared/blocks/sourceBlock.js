@@ -41,6 +41,9 @@ import Unread from '../components/Unread';
  * @property {(model: Object) => *}  [value]     Derives the field from the model.
  * @property {(value: *) => string}  [modifier]  Names a tile's `nodes-card--<modifier>`.
  * @property {(value: *) => boolean} [shown]     False leaves the figure out.
+ * @property {(row: Object) => *}    [cell]      A log column's whole cell.
+ * @property {string}                [width]     A log column's grid track.
+ * @property {string}                [tooltip]   A log column's header hover text.
  */
 
 /**
@@ -59,6 +62,15 @@ const SETTING_LABELS = {
 	columns: __( 'Tiles per row', 'newspack-nodes' ),
 	perPage: __( 'Rows per page', 'newspack-nodes' ),
 	stacked: __( 'Stack the series', 'newspack-nodes' ),
+	toolbar: __( 'Toolbar', 'newspack-nodes' ),
+};
+
+/** The words each choice of a setting with a fixed set of values reads as. */
+const SETTING_CHOICES = {
+	toolbar: {
+		inline: __( 'In the block', 'newspack-nodes' ),
+		header: __( 'In the page header', 'newspack-nodes' ),
+	},
 };
 
 /** What every control in a block's inspector takes. */
@@ -212,8 +224,8 @@ function boundedNumber( typed, schema ) {
 
 /**
  * A control for each setting named, by the type its declared schema names:
- * a toggle for a boolean, a number box held to its bounds for an integer, a
- * text box otherwise.
+ * a toggle for a boolean, a select of its choices for an enum, a number box
+ * held to its bounds for an integer, a text box otherwise.
  *
  * @param {Object}                 props
  * @param {string[]}               props.names         The settings.
@@ -238,6 +250,21 @@ export function SettingControls( {
 					__nextHasNoMarginBottom
 					label={ label }
 					checked={ attributes[ name ] }
+					onChange={ ( next ) => setAttributes( { [ name ]: next } ) }
+				/>
+			);
+		}
+		if ( declared.enum ) {
+			return (
+				<SelectControl
+					key={ name }
+					{ ...CONTROL }
+					label={ label }
+					value={ attributes[ name ] }
+					options={ declared.enum.map( ( value ) => ( {
+						label: SETTING_CHOICES[ name ]?.[ value ] ?? value,
+						value,
+					} ) ) }
 					onChange={ ( next ) => setAttributes( { [ name ]: next } ) }
 				/>
 			);

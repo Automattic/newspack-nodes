@@ -14,10 +14,12 @@ import { createContext, useContext } from '@wordpress/element';
  * at least the first three.
  *
  * @typedef {Object} ComposedPageValue
- * @property {string}                   group      The surface the page's commands are sent for.
- * @property {boolean}                  canTune    Whether the reader may curate the layout.
- * @property {(layout: Object) => void} onRestored Takes the default a curator's restore answers.
- * @property {boolean}                  [operator] Whether the reader may read a refusal's own words, which each `Unread` on the page shows.
+ * @property {string}                                    group            The surface the page's commands are sent for.
+ * @property {boolean}                                   canTune          Whether the reader may curate the layout.
+ * @property {(layout: Object) => void}                  onRestored       Takes the default a curator's restore answers.
+ * @property {boolean}                                   [operator]       Whether the reader may read a refusal's own words, which each `Unread` on the page shows.
+ * @property {?Element}                                  [headerSlot]     The page header's slot, as `HeaderSlot` reads one, which `ComposedPageFrame` offers its blocks.
+ * @property {Object<string, import('react').ReactNode>} [sourceControls] A control the page hands each source's log-stream block, by source.
  */
 
 /** Does nothing, as a write control does while its layout is edited. */

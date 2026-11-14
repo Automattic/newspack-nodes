@@ -416,6 +416,11 @@ final class Composition {
 				'source'  => self::NAME_ATTRIBUTE,
 				'columns' => self::NAMES_ATTRIBUTE,
 				'title'   => self::NAME_ATTRIBUTE,
+				'toolbar' => [
+					'type'    => 'string',
+					'enum'    => [ 'inline', 'header' ],
+					'default' => 'inline',
+				],
 			],
 		],
 		'newspack-nodes/sparkline'  => [

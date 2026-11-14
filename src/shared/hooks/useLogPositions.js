@@ -24,7 +24,13 @@
  * the rail itself.
  */
 
-import { useState, useEffect, useCallback, useRef } from '@wordpress/element';
+import {
+	useState,
+	useEffect,
+	useCallback,
+	useMemo,
+	useRef,
+} from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import LogBrowser from '../components/LogBrowser';
@@ -49,7 +55,7 @@ import { useCommandOnce } from './useCommandOnce';
  */
 
 /** The substrate service CI that catalogs and reads the on-disk logs. */
-const RAW_LOGS_CI = 'raw-logs';
+export const RAW_LOGS_CI = 'raw-logs';
 
 /**
  * How often the rail re-catalogs, in milliseconds. Segments rotate and grow
@@ -246,7 +252,8 @@ export function useLogStatusSegments( { sub, scope, graph } ) {
  * @param {(paused: boolean) => void} o.setPaused           Pause the stream for time travel.
  * @param {() => void}                o.step                Deliver one record while paused.
  * @return {{ jump: (text: string) => ?string, sidebar: import('react').ReactElement }}
- *   The offset-input handler, answering why it refuses a jump, and the rail.
+ *   The offset-input handler, answering why it refuses a jump, and the rail,
+ *   one object until one of them moves.
  */
 export function useSegmentBrowse( {
 	sub,
@@ -286,63 +293,94 @@ export function useSegmentBrowse( {
 	}, [ lastReceivedSegment, segments, refresh ] );
 
 	// An empty `sub` would point the stream at an empty subscription.
-	const seekWithin = ( positions, row ) => sub && seek( sub, positions, row );
-
-	// Time-travel: a past segment pauses; Step walks it, Play streams.
-	const handleBrowseSegment = ( segment ) => {
-		if ( ! sub ) {
-			return;
-		}
-		setPaused( true );
-		seekWithin( browseSegment( segment.id ), source );
-	};
-
-	// A full ID or a bare offset pauses and steps that one message.
-	const jump = ( text ) => {
-		if ( ! sub ) {
-			return __( 'Pick a source to jump within.', 'newspack-nodes' );
-		}
-		const position = parseOffsetJump(
-			text,
-			lastReceivedSegment ??
-				( 'number' === typeof segmentId ? segmentId : null )
-		);
-		if ( ! position ) {
-			return __(
-				'Nothing to jump to: paste a message ID (seg:offset:len), or a bare offset once a segment is streaming.',
-				'newspack-nodes'
-			);
-		}
-		setPaused( true );
-		// browseSegment lights the rail; the jump carries its own offset.
-		browseSegment( position.segment );
-		seekWithin( { [ sub ]: position }, source );
-		step();
-		return null;
-	};
-
-	const sidebar = (
-		<LogBrowser
-			mode={ mode }
-			onFollow={ () => seekWithin( follow() ) }
-			onReplay={ () => seekWithin( replay(), source ) }
-			items={ segments }
-			selectedKey={ segmentId }
-			activeKey={ lastReceivedSegment }
-			onSelectItem={ handleBrowseSegment }
-			itemKey={ ( s ) => s.id }
-			itemLabel={ ( s ) =>
-				sprintf(
-					// translators: %d: log segment number.
-					__( 'Segment %d', 'newspack-nodes' ),
-					s.id
-				)
-			}
-			itemMeta={ ( s ) => formatBytes( s.size ) }
-			title={ __( 'Segments', 'newspack-nodes' ) }
-			emptyLabel={ __( 'No segments', 'newspack-nodes' ) }
-		/>
+	const seekWithin = useCallback(
+		( positions, row ) => sub && seek( sub, positions, row ),
+		[ sub, seek ]
 	);
 
-	return { jump, sidebar };
+	// Time-travel: a past segment pauses; Step walks it, Play streams.
+	const handleBrowseSegment = useCallback(
+		( segment ) => {
+			if ( ! sub ) {
+				return;
+			}
+			setPaused( true );
+			seekWithin( browseSegment( segment.id ), source );
+		},
+		[ sub, setPaused, seekWithin, browseSegment, source ]
+	);
+
+	// A full ID or a bare offset pauses and steps that one message.
+	const jump = useCallback(
+		( text ) => {
+			if ( ! sub ) {
+				return __( 'Pick a source to jump within.', 'newspack-nodes' );
+			}
+			const position = parseOffsetJump(
+				text,
+				lastReceivedSegment ??
+					( 'number' === typeof segmentId ? segmentId : null )
+			);
+			if ( ! position ) {
+				return __(
+					'Nothing to jump to: paste a message ID (seg:offset:len), or a bare offset once a segment is streaming.',
+					'newspack-nodes'
+				);
+			}
+			setPaused( true );
+			// browseSegment lights the rail; the jump carries its own offset.
+			browseSegment( position.segment );
+			seekWithin( { [ sub ]: position }, source );
+			step();
+			return null;
+		},
+		[
+			sub,
+			lastReceivedSegment,
+			segmentId,
+			setPaused,
+			browseSegment,
+			seekWithin,
+			source,
+			step,
+		]
+	);
+
+	const sidebar = useMemo(
+		() => (
+			<LogBrowser
+				mode={ mode }
+				onFollow={ () => seekWithin( follow() ) }
+				onReplay={ () => seekWithin( replay(), source ) }
+				items={ segments }
+				selectedKey={ segmentId }
+				activeKey={ lastReceivedSegment }
+				onSelectItem={ handleBrowseSegment }
+				itemKey={ ( s ) => s.id }
+				itemLabel={ ( s ) =>
+					sprintf(
+						// translators: %d: log segment number.
+						__( 'Segment %d', 'newspack-nodes' ),
+						s.id
+					)
+				}
+				itemMeta={ ( s ) => formatBytes( s.size ) }
+				title={ __( 'Segments', 'newspack-nodes' ) }
+				emptyLabel={ __( 'No segments', 'newspack-nodes' ) }
+			/>
+		),
+		[
+			mode,
+			seekWithin,
+			follow,
+			replay,
+			source,
+			segments,
+			segmentId,
+			lastReceivedSegment,
+			handleBrowseSegment,
+		]
+	);
+
+	return useMemo( () => ( { jump, sidebar } ), [ jump, sidebar ] );
 }

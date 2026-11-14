@@ -41,6 +41,8 @@ import { useBatchedPoll } from '../hooks/useBatchedPoll';
 import { usePageState } from '../composition/page/pageState';
 import { useCommandRead } from '../hooks/useCommandRead';
 import { useLogTailStream } from '../hooks/useLogTailStream';
+import { useGlobBrowse } from '../hooks/useStreamGraph';
+import useRouterTick from '../hooks/useRouterTick';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
 import { egressPath } from '../helpers/egressPath';
 import { sliceView } from '../nodes/slice-view-node';
@@ -84,6 +86,14 @@ import {
  * @property {(paused: boolean) => void} setPaused Pause or resume the stream.
  * @property {(term: string) => void}    setFilter Admit only rows matching a term.
  * @property {() => void}                clear     Empty the view.
+ * @property {string[]}                  subscribe The subscription it tails.
+ * @property {?Object}                   browse    A browsed stream's partition
+ *                                                 pick, rail and jump
+ *                                                 (`useGlobBrowse`); null
+ *                                                 for one that browses none.
+ * @property {(() => void)|undefined}    step      Deliver one record while
+ *                                                 paused, once a browsed
+ *                                                 stream has picked a dir.
  */
 
 /** What a key shows before its host publishes anything. */
@@ -213,23 +223,48 @@ function useCommandSource( { decl, params, prefix } ) {
 
 /**
  * A stream: one declared tail riding the page's stream link on the key's
- * subscription, opened where its mode says.
+ * subscription, opened where its mode says, its view emptied before each open
+ * when it declares `clearOnOpen`. One declaring `browse` browses its glob
+ * and steps a picked dir (`useGlobBrowse`), its readers getting the browse
+ * model and the step, under the `group` it names. One naming a `cadence`
+ * page-state key sends its view a `snapshot` control as it arms and at the
+ * milliseconds that key holds.
  *
  * @param {Entry} entry The live source.
  * @return {SourceState} What it shows.
  */
 function useStreamSource( { decl, params, prefix } ) {
 	const [ subscription ] = useState( () => decl.subscribe( params ) );
-	const { viewRef, setPaused, setFilter, clear } = useLogTailStream( {
+	const graph = useLogTailStream( {
 		name: prefix,
 		subscribe: subscription,
 		viewClass: decl.viewClass,
 		mode: decl.mode,
+		group: decl.group,
+		clearOnOpen: decl.clearOnOpen ?? false,
 	} );
+	const { viewRef, setPaused, setFilter, clear, control } = graph;
+	const browse = decl.browse
+		? // eslint-disable-next-line react-hooks/rules-of-hooks -- fixed per declaration
+		  useGlobBrowse( { glob: subscription, graph } )
+		: null;
+	if ( decl.cadence ) {
+		// eslint-disable-next-line react-hooks/rules-of-hooks -- fixed per declaration
+		useSnapshots( decl, prefix, control );
+	}
 	const view = useNodeField( `${ prefix }:view`, 'view' );
+	const node = useCallback( () => viewRef.current, [ viewRef ] );
 	const stream = useMemo(
-		() => ( { node: () => viewRef.current, setPaused, setFilter, clear } ),
-		[ viewRef, setPaused, setFilter, clear ]
+		() => ( {
+			node,
+			setPaused,
+			setFilter,
+			clear,
+			subscribe: [ subscription ],
+			browse,
+			step: browse?.step,
+		} ),
+		[ node, setPaused, setFilter, clear, subscription, browse ]
 	);
 	return useMemo(
 		() => ( {
@@ -241,6 +276,27 @@ function useStreamSource( { decl, params, prefix } ) {
 		} ),
 		[ view, stream ]
 	);
+}
+
+/**
+ * Send a stream's view a `snapshot` control as the cadence its declaration's
+ * page-state key holds arms, and at that cadence after, so a page shows the
+ * view's first snapshot without waiting out an interval.
+ *
+ * @param {Object}                  decl    The stream's declaration.
+ * @param {string}                  prefix  Names the timer.
+ * @param {(value: Object) => void} control Mints a control into the view.
+ */
+function useSnapshots( decl, prefix, control ) {
+	const intervalMs = useCadence( decl );
+	const onTick = useCallback(
+		() => control( { action: 'snapshot' } ),
+		[ control ]
+	);
+	useRouterTick( { name: `${ prefix }:timer`, onTick, intervalMs } );
+	useEffect( () => {
+		onTick();
+	}, [ onTick, intervalMs ] );
 }
 
 /**

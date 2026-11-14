@@ -1939,6 +1939,28 @@
 	gap: 12px;
 }
 
+// A dashboard shell's header names its page whole, and its controls take the
+// squeeze, wrapping to a second row; an overlay panel's header still yields.
+.newspack-nodes-page-surface > .topology-header {
+	> .topology-subtitle {
+		flex-shrink: 0;
+	}
+
+	> .topology-header__controls {
+		flex-wrap: wrap;
+		padding-block: 8px;
+	}
+
+	// Unboxed, a toolbar's controls wrap one by one instead of overflowing.
+	.newspack-nodes-toolbar {
+		display: contents;
+	}
+
+	.newspack-nodes-search-input {
+		flex: none;
+	}
+}
+
 .topology-overlay-mode {
 	display: inline-flex;
 	margin-left: 4px;

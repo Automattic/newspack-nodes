@@ -139,7 +139,7 @@ const DEBUG_HEADER = (
  *
  * @param {Object}                    props                      Props.
  * @param {string}                    props.className            Root class; the body wrapper is `${className}__body`.
- * @param {string}                    props.ariaLabel            The region's accessible name.
+ * @param {string}                    props.ariaLabel            The region's accessible name, and the table's its header and rows stand in.
  * @param {?Element}                  [props.headerControlsSlot] Station shared-header slot to portal the controls into; null renders none, undefined renders them inline.
  * @param {?Array<Object>}            [props.pickerOptions]
  *                                                               `{ key?, label, disabled? }` rows for the source dropdown; a row
@@ -163,10 +163,11 @@ const DEBUG_HEADER = (
  * @param {RenderRow}                 props.renderRow            One-row renderer, forwarded to `LogRowList`.
  * @param {number}                    props.rowHeight            Fixed row height in px.
  * @param {string}                    [props.listClassName]      Extra `LogRowList` class.
- * @param {(term: string) => void}    [props.onFilter]           Send the view's `filter` control; the node gates INGEST on it, so the ring holds only what is displayed.
+ * @param {(term: string) => void}    [props.onFilter]           Send the view's `filter` control; the node gates INGEST on it, so the ring holds only what is displayed. Absent draws no filter.
  * @param {string}                    [props.filterPlaceholder]  Filter input placeholder override.
  * @param {(stats: Object) => string} [props.renderCount]        Count-label override, taking `{ total, visible, lps }`; the default counts lines.
  * @param {(lps: number) => string}   [props.renderRate]         Rate-label override; the default reads lines per second.
+ * @param {string}                    [props.emptyLabel]         What the list says while it holds nothing and the stream runs; the default waits for log lines.
  * @param {*}                         [props.toolbarExtras]      Extra toolbar controls, placed before Clear.
  * @param {*}                         [props.belowToolbar]       Panel under the banner, such as a column picker.
  * @param {*}                         [props.listHeader]         Header row above the list.
@@ -199,6 +200,7 @@ export default function LogStreamViewer( {
 	filterPlaceholder,
 	renderCount,
 	renderRate,
+	emptyLabel: waitingLabel,
 	toolbarExtras,
 	belowToolbar,
 	listHeader,
@@ -243,7 +245,7 @@ export default function LogStreamViewer( {
 
 	const emptyLabel = isPaused
 		? __( 'Paused', 'newspack-nodes' )
-		: __( 'Waiting for log lines…', 'newspack-nodes' );
+		: waitingLabel ?? __( 'Waiting for log lines…', 'newspack-nodes' );
 
 	// HeaderSlot places these: portalled, inline, or withheld by the host.
 	const controls = (
@@ -319,18 +321,20 @@ export default function LogStreamViewer( {
 				)
 			) }
 
-			<SearchControl
-				className="newspack-nodes-search-input"
-				label={ __( 'Filter the stream', 'newspack-nodes' ) }
-				placeholder={
-					filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
-				}
-				value={ filter }
-				onChange={ ( term ) => {
-					setFilter( term );
-					onFilter?.( term );
-				} }
-			/>
+			{ onFilter && (
+				<SearchControl
+					className="newspack-nodes-search-input"
+					label={ __( 'Filter the stream', 'newspack-nodes' ) }
+					placeholder={
+						filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
+					}
+					value={ filter }
+					onChange={ ( term ) => {
+						setFilter( term );
+						onFilter( term );
+					} }
+				/>
+			) }
 
 			{ onJump && (
 				<CommitInput
@@ -462,6 +466,8 @@ export default function LogStreamViewer( {
 				     refs would replay the whole ring as one glide. */ }
 				<div
 					className={ `${ className }__main newspack-nodes-log-main` }
+					role="table"
+					aria-label={ ariaLabel }
 				>
 					{ activeHeader }
 					{ list }

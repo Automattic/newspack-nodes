@@ -652,3 +652,61 @@ it( 'mounting over an already-full ring starts at rest — no glide', () => {
 	const m = ( content.style.transform || '' ).match( /,(-?[\d.]+)px,/ );
 	expect( m ? parseFloat( m[ 1 ] ) : 0 ).toBe( 0 );
 } );
+
+describe( 'a snapshot view', () => {
+	// A view that replaces its rows each refresh, keyed by name, not by count.
+	function snapshot( names ) {
+		return names.map( ( name, i ) => ( {
+			id: name,
+			content: name,
+			isEven: 0 === i % 2,
+		} ) );
+	}
+
+	it( 'redraws a refresh that keeps the count and the newest row’s key', () => {
+		let lines = snapshot( [ 'kea-7960', 'kaka-7961' ] );
+		const node = makeNode( [] );
+		node.lineAt = ( i ) => lines[ i ];
+		Object.defineProperty( node, 'linesCount', {
+			get: () => lines.length,
+		} );
+		const { container } = render(
+			<LogRowList
+				getNode={ () => node }
+				rowHeight={ 18 }
+				renderRow={ renderRow }
+			/>
+		);
+		tickFrame();
+		lines = snapshot( [ 'kea-7960', 'weka-7962' ] );
+		tickFrame();
+		expect(
+			[ ...container.querySelectorAll( '.row' ) ].map(
+				( row ) => row.dataset.content
+			)
+		).toEqual( [ 'kea-7960', 'weka-7962' ] );
+	} );
+
+	it( 'never glides: a refresh replaces its rows rather than adding above them', () => {
+		let lines = snapshot( [ 'kea-7963' ] );
+		const node = makeNode( [] );
+		node.lineAt = ( i ) => lines[ i ];
+		Object.defineProperty( node, 'linesCount', {
+			get: () => lines.length,
+		} );
+		const { container } = render(
+			<LogRowList
+				getNode={ () => node }
+				rowHeight={ 18 }
+				renderRow={ renderRow }
+			/>
+		);
+		tickFrame();
+		lines = snapshot( [ 'weka-7964', 'kea-7963' ] );
+		tickFrame();
+		const content = container.querySelector(
+			'.newspack-nodes-log-rows__content'
+		);
+		expect( content.style.transform ).toBe( '' );
+	} );
+} );

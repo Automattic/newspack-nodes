@@ -696,6 +696,7 @@ final class CompositionTest extends TestCase {
 						'source'  => $source,
 						'columns' => $names,
 						'title'   => $source,
+						'toolbar' => [ 'type' => 'string', 'enum' => [ 'inline', 'header' ], 'default' => 'inline' ],
 					]
 				),
 				'newspack-nodes/sparkline'  => $block(

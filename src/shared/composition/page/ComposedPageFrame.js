@@ -6,7 +6,10 @@
  * and every block share each source's one fetch. On a load whose `edit`
  * names the page, for a `tune` reader, the context's editor takes the
  * layout's place, and its answer is the layout the page reads next; a page
- * left mid-edit drops the edit. While the editor holds a change, an in-page
+ * left mid-edit drops the edit. Its blocks read a box in the header as their
+ * page's `headerSlot`, so a block may put its own controls there, after the
+ * page's own and ahead of the ⋯ menu, which always stands last. While the
+ * editor holds a change, an in-page
  * leave a `guardLeave` answers asks first, through the shared `Confirm`; a
  * page leave the editor guards itself.
  *
@@ -24,6 +27,9 @@ import { Confirm } from '../../components/Modal';
 import ComposedLayout from './ComposedLayout';
 import { editLayoutControl, editTarget, leaveEdit } from './editMode';
 import { PageStateProvider } from './pageState';
+
+/** The box blocks put header controls in, which the header's row lays out. */
+const BLOCK_SLOT = { display: 'contents' };
 
 /** The edit slot, which hands every prop past `context` to the editor. */
 const EditSlot = /** @type {import('react').ComponentType<Object>} */ (
@@ -75,6 +81,7 @@ export default function ComposedPageFrame( {
 			page === editTarget( window.location.search, pages )?.page
 	);
 	const [ dirty, setDirty ] = useState( false );
+	const [ blockSlot, setBlockSlot ] = useState( null );
 	const [ leaving, setLeaving ] = useState(
 		/** @type {?FrameLeave} */ ( null )
 	);
@@ -108,6 +115,7 @@ export default function ComposedPageFrame( {
 			<SourcesProvider>
 				<HeaderSlot slot={ headerControlsSlot }>
 					{ controls }
+					<div ref={ setBlockSlot } style={ BLOCK_SLOT } />
 					{ canTune && (
 						<DropdownMenu
 							icon="ellipsis"
@@ -138,6 +146,10 @@ export default function ComposedPageFrame( {
 								canTune,
 								operator: canManage,
 								onRestored: setLayout,
+								headerSlot:
+									undefined === headerControlsSlot
+										? undefined
+										: blockSlot,
 							} }
 						/>
 					</>

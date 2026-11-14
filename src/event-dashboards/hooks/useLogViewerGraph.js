@@ -20,10 +20,8 @@ import {
 	useSteppedRead,
 	useLogCatalog,
 } from '@newspack-nodes/shared/hooks/useStreamGraph';
+import { RAW_LOGS_CI } from '@newspack-nodes/shared/hooks/useLogPositions';
 import { views } from '../nodes/register';
-
-/** The service CI carrying `list_logs`, `dump_log` and `read_message`. */
-const RAW_LOGS_CI = 'raw-logs';
 
 /** Names every node this graph owns: `<PREFIX>:stream` and `:view`. */
 const PREFIX = 'log-viewer';
