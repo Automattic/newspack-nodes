@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.157.0] - 2026-11-14
+
 ### Added
 
 - **A table keys its rows by the field its source names, shows a null answer as no rows, pages up to a thousand, and a dialog hands focus back to its trigger.** A source declaration may name `rowKey`, and the `newspack-nodes/table` block keys each row by that field, as a string, else by its `id`. Every source block renders a source that answered `null` through its own view as an empty model, the table as its empty state, and shows its loading line only while an answer is owed and no model stands. The table's `perPage` takes up to 1000 (`Composition::MAX_TABLE_PAGE`), so a page can list a schema's every class on one page. `Modal` takes a `returnFocus` ref, and `useFocusTrap( ref, returnFocus )` hands focus on close to the element it holds, over whatever held focus as the dialog opened.

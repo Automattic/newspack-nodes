@@ -6,6 +6,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+## 2.65.7 – 2.157.0
+
 - **Every bundle that inlines `queryParams.js` ships in this release.** The
   bar store in `@newspack-nodes/shared/utils/queryParams` keeps one page-wide
   record under `window.__newspackNodesBar`, and stamps `newspackNodesBar` into
