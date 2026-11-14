@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.157.0\n"
+"Project-Id-Version: Newspack Nodes 2.158.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-11-14T10:07:14+00:00\n"
+"POT-Creation-Date: 2026-11-14T16:25:59+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -1303,7 +1303,7 @@ msgid "%1$d / %2$d up"
 msgstr ""
 
 #: src/event-dashboards/views.js:365
-#: src/topology-console/components/TopologySettingsPanel.js:332
+#: src/topology-console/components/TopologySettingsPanel.js:331
 msgid "Partitions"
 msgstr ""
 
@@ -1509,61 +1509,61 @@ msgstr ""
 msgid "Sessions"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:61
+#: src/shared/blocks/sourceBlock.js:63
 msgid "Title"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:62
+#: src/shared/blocks/sourceBlock.js:64
 msgid "Description"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:63
+#: src/shared/blocks/sourceBlock.js:65
 msgid "Tiles per row"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:64
+#: src/shared/blocks/sourceBlock.js:66
 msgid "Rows per page"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:65
+#: src/shared/blocks/sourceBlock.js:67
 #: src/shared/components/AreaTimeChart.js:479
 msgid "Stack the series"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:66
+#: src/shared/blocks/sourceBlock.js:68
 msgid "Toolbar"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:72
+#: src/shared/blocks/sourceBlock.js:74
 msgid "In the block"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:73
+#: src/shared/blocks/sourceBlock.js:75
 msgid "In the page header"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:365
+#: src/shared/blocks/sourceBlock.js:367
 msgid "Choose a source in the block settings."
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:399
+#: src/shared/blocks/sourceBlock.js:401
 msgid "Source"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:403
+#: src/shared/blocks/sourceBlock.js:405
 msgid "Choose a source"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:418
+#: src/shared/blocks/sourceBlock.js:420
 msgid "Fields"
 msgstr ""
 
-#: src/shared/blocks/sourceBlock.js:443
+#: src/shared/blocks/sourceBlock.js:445
 msgid "Field"
 msgstr ""
 
 #. translators: %s: the first field's label.
-#: src/shared/blocks/sourceBlock.js:449
+#: src/shared/blocks/sourceBlock.js:451
 #, js-format
 msgid "The first: %s"
 msgstr ""
@@ -1593,21 +1593,21 @@ msgid "Overlay the series"
 msgstr ""
 
 #. translators: 1: this page, 2: the pages there are.
-#: src/shared/components/DataViewsList.js:101
+#: src/shared/components/DataViewsList.js:102
 #, js-format
 msgid "Page %1$d of %2$d"
 msgstr ""
 
-#: src/shared/components/DataViewsList.js:112
+#: src/shared/components/DataViewsList.js:113
 msgid "Previous"
 msgstr ""
 
-#: src/shared/components/DataViewsList.js:121
+#: src/shared/components/DataViewsList.js:122
 msgid "Next"
 msgstr ""
 
 #. translators: 1: how many items the checked run holds, 2: how many of them are on this page.
-#: src/shared/components/DataViewsList.js:154
+#: src/shared/components/DataViewsList.js:155
 #, js-format
 msgid "%1$d Item selected, %2$d on this page"
 msgid_plural "%1$d Items selected, %2$d on this page"
@@ -1615,7 +1615,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: how many items the checked run holds.
-#: src/shared/components/DataViewsList.js:167
+#: src/shared/components/DataViewsList.js:168
 #, js-format
 msgid "%d Item selected"
 msgid_plural "%d Items selected"
@@ -1623,7 +1623,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: 1: the items on this page, 2: the items on every page.
-#: src/shared/components/DataViewsList.js:179
+#: src/shared/components/DataViewsList.js:180
 #, js-format
 msgid "%1$d of %2$d Item"
 msgid_plural "%1$d of %2$d Items"
@@ -1631,26 +1631,26 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: the items on this page.
-#: src/shared/components/DataViewsList.js:191
+#: src/shared/components/DataViewsList.js:192
 #, js-format
 msgid "%d Item"
 msgid_plural "%d Items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/shared/components/DataViewsList.js:272
+#: src/shared/components/DataViewsList.js:273
 msgid "Deselect all"
 msgstr ""
 
-#: src/shared/components/DataViewsList.js:273
+#: src/shared/components/DataViewsList.js:274
 msgid "Select all"
 msgstr ""
 
-#: src/shared/components/DataViewsList.js:317
+#: src/shared/components/DataViewsList.js:318
 msgid "Clear selection"
 msgstr ""
 
-#: src/shared/components/DataViewsList.js:653
+#: src/shared/components/DataViewsList.js:655
 msgid "Item"
 msgstr ""
 
@@ -1660,8 +1660,8 @@ msgstr ""
 
 #: src/shared/components/Header.js:141
 #: src/shared/components/Header.js:142
-#: src/shared/components/Modal.js:82
-#: src/topology-console/components/TopologySettingsPanel.js:322
+#: src/shared/components/Modal.js:80
+#: src/topology-console/components/TopologySettingsPanel.js:321
 msgid "Close"
 msgstr ""
 
@@ -1971,7 +1971,7 @@ msgstr ""
 msgid "Browse a partition"
 msgstr ""
 
-#: src/shared/tabs/TabBar.js:152
+#: src/shared/tabs/TabBar.js:153
 #: src/topology-console/components/TriageView.js:445
 msgid "View"
 msgstr ""
@@ -2261,7 +2261,7 @@ msgstr ""
 #. translators: %s: target node name to remove.
 #. translators: %s: variable name.
 #: src/topology-console/components/Inspector.js:742
-#: src/topology-console/components/TopologySettingsPanel.js:503
+#: src/topology-console/components/TopologySettingsPanel.js:502
 #, js-format
 msgid "Remove %s"
 msgstr ""
@@ -2711,12 +2711,12 @@ msgid "Add %s"
 msgstr ""
 
 #: src/topology-console/components/Modal.js:442
-#: src/topology-console/components/TopologySettingsPanel.js:515
+#: src/topology-console/components/TopologySettingsPanel.js:514
 msgid "name"
 msgstr ""
 
 #: src/topology-console/components/Modal.js:482
-#: src/topology-console/components/TopologySettingsPanel.js:537
+#: src/topology-console/components/TopologySettingsPanel.js:536
 msgid "Add"
 msgstr ""
 
@@ -2905,110 +2905,110 @@ msgstr ""
 msgid "Fast-forward to next frame"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:262
+#: src/topology-console/components/TopologySettingsPanel.js:263
 msgid "Name must start with a letter or underscore and use only letters, numbers, and underscores."
 msgstr ""
 
 #. translators: %s: variable name.
-#: src/topology-console/components/TopologySettingsPanel.js:276
+#: src/topology-console/components/TopologySettingsPanel.js:277
 #, js-format
 msgid "\"%s\" is already in use."
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:283
+#: src/topology-console/components/TopologySettingsPanel.js:284
 msgid "Value cannot be empty."
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:314
-#: src/topology-console/components/TopologySettingsPanel.js:317
+#: src/topology-console/components/TopologySettingsPanel.js:313
+#: src/topology-console/components/TopologySettingsPanel.js:316
 msgid "Topology settings"
 msgstr ""
 
 #. translators: %d: configured default partition count.
-#: src/topology-console/components/TopologySettingsPanel.js:350
+#: src/topology-console/components/TopologySettingsPanel.js:349
 #, js-format
 msgid "Empty = config default (%d). Max 16."
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:363
+#: src/topology-console/components/TopologySettingsPanel.js:362
 msgid "Stale timeout (s)"
 msgstr ""
 
 #. translators: %d: default stale timeout in seconds.
-#: src/topology-console/components/TopologySettingsPanel.js:380
+#: src/topology-console/components/TopologySettingsPanel.js:379
 #, js-format
 msgid "Empty = default (%d)."
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:390
+#: src/topology-console/components/TopologySettingsPanel.js:389
 msgid "Idle window (s)"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:405
+#: src/topology-console/components/TopologySettingsPanel.js:404
 msgid "0 = resident. Above 0, the worker exits after that long with every reporter idle, and a write to a partition it tails brings it back."
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:413
+#: src/topology-console/components/TopologySettingsPanel.js:412
 msgid "Max runtime (s)"
 msgstr ""
 
 #. translators: %d: default worker lifetime in seconds.
-#: src/topology-console/components/TopologySettingsPanel.js:427
+#: src/topology-console/components/TopologySettingsPanel.js:426
 #, js-format
 msgid "Empty = default (%d). 0 = the worker never recycles, so new code reaches it on a restart or `shutdown`."
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:440
+#: src/topology-console/components/TopologySettingsPanel.js:439
 msgid "Secure level"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:447
+#: src/topology-console/components/TopologySettingsPanel.js:446
 msgid "Not declared"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:450
+#: src/topology-console/components/TopologySettingsPanel.js:449
 msgid "insecure — no restrictions"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:453
+#: src/topology-console/components/TopologySettingsPanel.js:452
 msgid "secure — climb one level"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:456
+#: src/topology-console/components/TopologySettingsPanel.js:455
 msgid "1 — no graph construction"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:459
+#: src/topology-console/components/TopologySettingsPanel.js:458
 msgid "2 — also no reply_to"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:462
+#: src/topology-console/components/TopologySettingsPanel.js:461
 msgid "3 — also no re-wiring"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:466
+#: src/topology-console/components/TopologySettingsPanel.js:465
 msgid "Written as the last line. Undeclared logs a warning each tick."
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:475
+#: src/topology-console/components/TopologySettingsPanel.js:474
 msgid "Other variables"
 msgstr ""
 
 #. translators: %s: variable name.
-#: src/topology-console/components/TopologySettingsPanel.js:487
+#: src/topology-console/components/TopologySettingsPanel.js:486
 #, js-format
 msgid "Value for %s"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:516
+#: src/topology-console/components/TopologySettingsPanel.js:515
 msgid "New variable name"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:525
+#: src/topology-console/components/TopologySettingsPanel.js:524
 msgid "value"
 msgstr ""
 
-#: src/topology-console/components/TopologySettingsPanel.js:526
+#: src/topology-console/components/TopologySettingsPanel.js:525
 msgid "New variable value"
 msgstr ""
 

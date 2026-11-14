@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.158.0] - 2026-11-14
+
 ### Added
 
 - **`SKIN_ROOT_CLASSES`**, exported from `shared/components/ThemedRoot`, is the one spelling of the three classes a skinned root wears, `newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui`. `ThemedRoot`, `ModalPortal`, `DataViewsList`'s action modal and the body-portalled topology settings panel compose from it, and a consumer's portalled modal frame does the same.
