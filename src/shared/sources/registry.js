@@ -49,8 +49,34 @@ const declared = new Map();
  *                                          first reader or loses its last.
  */
 
+/** The kinds a field may declare: a figure, a series map, a line, a column. */
+const FIELD_KINDS = [ 'value', 'series', 'line', 'rows' ];
+
 /**
- * Whether two declarations name the same values, field by field.
+ * Whether two declarations' fields read alike: the same keys, each with the
+ * same label, kind and formatters.
+ *
+ * @param {Object<string,Object>} a One's fields.
+ * @param {Object<string,Object>} b The other's.
+ * @return {boolean} Whether they do.
+ */
+function sameFields( a = {}, b = {} ) {
+	const keys = Object.keys( a );
+	return (
+		keys.length === Object.keys( b ).length &&
+		keys.every(
+			( key ) =>
+				Object.hasOwn( b, key ) &&
+				[ 'label', 'kind', 'format', 'formatFor' ].every(
+					( part ) => a[ key ][ part ] === b[ key ][ part ]
+				)
+		)
+	);
+}
+
+/**
+ * Whether two declarations name the same values: `params` by their JSON,
+ * `fields` field by field, and every other key by identity.
  *
  * @param {Object} a One.
  * @param {Object} b The other.
@@ -60,33 +86,98 @@ function sameDeclaration( a, b ) {
 	const keys = Object.keys( a );
 	return (
 		keys.length === Object.keys( b ).length &&
-		keys.every( ( key ) => a[ key ] === b[ key ] )
+		keys.every( ( key ) => {
+			if ( 'params' === key ) {
+				return stableJson( a.params ) === stableJson( b.params );
+			}
+			if ( 'fields' === key ) {
+				return sameFields( a.fields, b.fields );
+			}
+			return a[ key ] === b[ key ];
+		} )
 	);
 }
 
 /**
  * Declare a source under a name this bundle's blocks read it by.
  *
- * The same declaration again, field for field, is taken; a different one
- * under a name already declared throws, because two readers of one name
+ * The same declaration again is taken, and the first stands; a different
+ * one under a name already declared throws, because two readers of one name
  * would each get the other's data.
+ *
+ * Any kind may add `fields`, `{ key: { label, kind, format?, formatFor? } }`,
+ * the fields of its model a block shows, each by its label. A field's
+ * `kind` names the blocks that show it: `value`, a figure a stat tile shows;
+ * `series`, a series map a time chart draws; `line`, a list of numbers a
+ * sparkline draws; `rows`, a column of the rows a table or a log stream
+ * lists. `format( value )` answers what a block shows, and a chart field's
+ * `formatFor( peak )` the axis formatter for the peak drawn. `params` names
+ * the page-state keys a block reads its params from, each param named as its
+ * key, and `label` the words a block's inspector names the source by, its
+ * name when it declares none. Two fields of one kind may not share a label,
+ * because a block's inspector finds a field by its label.
  *
  * @param {string} name A name holding no `/`, which would split its node paths.
  * @param {Object} decl `{ kind: 'poll', group, ci, command, args, transform?,
  *                      intervalMs }`, `{ kind: 'command', group, ci, command,
  *                      args }` or `{ kind: 'stream', subscribe, viewClass,
  *                      mode }`; `args` and `subscribe` read the params.
- * @throws {TypeError} On a name holding `/`, or one declared otherwise.
+ * @throws {TypeError} On a name holding `/`, one declared otherwise, a
+ *                     field declaring no kind it knows, or two fields of one
+ *                     kind sharing a label.
  */
 export function registerSource( name, decl ) {
 	if ( 'string' !== typeof name || '' === name || name.includes( '/' ) ) {
 		throw new TypeError( `a source name holds no '/': '${ name }'` );
 	}
+	const labelled = new Map();
+	for ( const [ key, field ] of Object.entries( decl.fields ?? {} ) ) {
+		const twin = labelled.get( `${ field.kind } ${ field.label }` );
+		if ( twin ) {
+			throw new TypeError(
+				`${ name } fields '${ twin }' and '${ key }' are both labelled '${ field.label }'`
+			);
+		}
+		labelled.set( `${ field.kind } ${ field.label }`, key );
+		if ( ! FIELD_KINDS.includes( field.kind ) ) {
+			throw new TypeError(
+				`${ name } field '${ key }' declares no kind of ${ FIELD_KINDS.slice(
+					0,
+					-1
+				).join( ', ' ) } or ${ FIELD_KINDS.at( -1 ) }`
+			);
+		}
+	}
 	const prior = declared.get( name );
-	if ( prior && ! sameDeclaration( prior, decl ) ) {
-		throw new TypeError( `source '${ name }' is already declared` );
+	if ( prior ) {
+		if ( ! sameDeclaration( prior, decl ) ) {
+			throw new TypeError( `source '${ name }' is already declared` );
+		}
+		return;
 	}
 	declared.set( name, decl );
+}
+
+/**
+ * Every source this bundle declares, as `[ name, declaration ]`.
+ *
+ * @return {Array<[string, Object]>} They, in declared order.
+ */
+export const declaredSources = () => [ ...declared.entries() ];
+
+/**
+ * What this bundle declares under `name`.
+ *
+ * @param {string} name A source.
+ * @return {Object} Its declaration.
+ * @throws {TypeError} When this bundle declares no `name`.
+ */
+export function sourceDeclaration( name ) {
+	const decl = declared.get( name );
+	if ( ! decl ) {
+		throw new TypeError( `no source is declared as '${ name }'` );
+	}
+	return decl;
 }
 
 /**
@@ -95,7 +186,7 @@ export function registerSource( name, decl ) {
  * @param {*} value The params, or any part of them.
  * @return {string} The JSON.
  */
-function stableJson( value ) {
+export function stableJson( value ) {
 	if ( Array.isArray( value ) ) {
 		return `[${ value.map( stableJson ).join( ',' ) }]`;
 	}
@@ -176,10 +267,7 @@ function moved( sources ) {
  * @throws {TypeError} When this bundle declares no `name`.
  */
 export function acquire( sources, name, params ) {
-	const decl = declared.get( name );
-	if ( ! decl ) {
-		throw new TypeError( `no source is declared as '${ name }'` );
-	}
+	const decl = sourceDeclaration( name );
 	const key = sourceKey( name, params );
 	let entry = sources.entries.get( key );
 	if ( ! entry ) {

@@ -1,4 +1,5 @@
-import { topicChartSeries, byKey, bySource, maxOf } from '../topicProbeSeries';
+import { topicChartSeries, byKey, bySource } from '../topicProbeSeries';
+import { maxOf } from '@newspack-nodes/shared/utils/buildAlignedSeries';
 import { bucketsFrom } from './bucketTestUtils';
 
 // The two groupings a caller declares.

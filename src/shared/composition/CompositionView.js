@@ -27,8 +27,8 @@ import { Component } from '@wordpress/element';
  * Controls its inspector holds.
  *
  * @typedef {Object} CompositionBlockView
- * @property {import('react').ComponentType<{attributes: Object, editing: boolean, children?: import('react').ReactNode}>} View       The block's rendering.
- * @property {import('react').ComponentType<{attributes: Object, setAttributes: (next: Object) => void}>}                  [Controls] Its inspector controls.
+ * @property {import('react').ComponentType<{attributes: Object, editing: boolean, children?: import('react').ReactNode}>}                View       The block's rendering.
+ * @property {import('react').ComponentType<{attributes: Object, setAttributes: (next: Object) => void, schema?: Object<string,Object>}>} [Controls] Its inspector controls, handed each attribute's declared schema.
  */
 
 /**

@@ -14,7 +14,7 @@ const PUBLISH_THROTTLE_MS = 500;
 // Evict a key unseen this long; measured by arrival, not record ts.
 const ENTRY_TTL_MS = 300000; // 5 min
 
-/** Bucket width in seconds: a day is 480 buckets, under TopicsChart's 500. */
+/** Bucket width in seconds: a day is 480 buckets, under TimeChart's 500. */
 export const BUCKET_S = 180;
 
 /**

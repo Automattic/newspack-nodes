@@ -65,6 +65,15 @@ describe( 'Overview message list layout', () => {
 		} );
 	} );
 
+	it( 'heads the list in the shared stat-label role, keeping only its margin', () => {
+		const { messages } = renderPanel();
+		const heading = messages.querySelector( 'h3' );
+		expect(
+			heading.classList.contains( 'newspack-nodes-stat-label' )
+		).toBe( true );
+		expect( declarations( heading ) ).toEqual( { margin: '0 0 8px' } );
+	} );
+
 	it( 'scrolls the list within that space, uncapped', () => {
 		const { list } = renderPanel();
 		const d = declarations( list );

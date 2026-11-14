@@ -1,14 +1,14 @@
 /**
- * TopicsChart — one Topics panel: the aligned probe model handed to the shared
+ * TimeChart — one panel: the aligned series model handed to the shared
  * `AreaTimeChart`, ranked busiest first and coloured by rank.
  *
  * Real d3 against jsdom, as the shared chart's own suite runs it; only the
  * tooltip is stubbed, to read the rows it would have printed.
  */
 
-jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => ( {
+jest.mock( '../../hooks/useTimeChart', () => ( {
 	__esModule: true,
-	...jest.requireActual( '@newspack-nodes/shared/hooks/useTimeChart' ),
+	...jest.requireActual( '../../hooks/useTimeChart' ),
 	setupTooltip: jest.fn(),
 } ) );
 
@@ -17,17 +17,9 @@ import { resolve as resolvePath } from 'path';
 import * as sass from 'sass';
 import postcss from 'postcss';
 import { render, fireEvent, act } from '@testing-library/react';
-import {
-	TopicsChart,
-	TopicsPanels,
-	ProbeTable,
-	errorsColumn,
-} from '../TopicsChart';
-import {
-	chartColor,
-	setupTooltip,
-} from '@newspack-nodes/shared/hooks/useTimeChart';
-import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
+import { TimeChart, TimeChartPanels } from '../time-chart';
+import { chartColor, setupTooltip } from '../../hooks/useTimeChart';
+import { axisDuration } from '../../utils/axis-ticks';
 
 const legendRows = ( container ) => [
 	...container.querySelectorAll( '.newspack-nodes-chart-legend li' ),
@@ -65,7 +57,7 @@ const series = {
 
 const mount = ( props = {} ) =>
 	render(
-		<TopicsChart
+		<TimeChart
 			title="Rate"
 			storageKey="test:topics-rate"
 			series={ series }
@@ -79,7 +71,7 @@ beforeEach( () => {
 	window.localStorage.clear();
 } );
 
-describe( 'TopicsChart', () => {
+describe( 'TimeChart', () => {
 	it( 'is a card carrying the shared chart, titled', () => {
 		const { container } = mount();
 		const panel = container.querySelector( '.nodes-topics' );
@@ -152,7 +144,7 @@ describe( 'TopicsChart', () => {
 		const { container, rerender } = mount();
 		expect( bands( container ) ).toHaveLength( 2 );
 		rerender(
-			<TopicsChart
+			<TimeChart
 				title="Rate"
 				storageKey="test:topics-rate"
 				series={ {} }
@@ -204,7 +196,7 @@ describe( 'TopicsChart', () => {
 
 	it( 'ticks a latency panel peaking at 1.4 s in one unit, from its formatFor', () => {
 		const { container } = render(
-			<TopicsChart
+			<TimeChart
 				title="Latency"
 				storageKey="test:topics-latency"
 				series={ {
@@ -243,15 +235,28 @@ describe( 'TopicsChart', () => {
 		).toBe( '1' );
 	} );
 
-	it( 'offers no stack toggle when the caller marks the series unstackable', () => {
-		const { container } = mount( { stackable: false } );
+	it( 'offers no stack toggle over means, which never add up', () => {
+		const mean = { fill: 'zero', agg: 'mean' };
+		const { container } = mount( {
+			series: {
+				'low.p0': { ...series[ 'low.p0' ], mode: mean },
+				'high.p0': { ...series[ 'high.p0' ], mode: mean },
+			},
+		} );
 		expect(
 			container.querySelector( '.newspack-nodes-chart__stack' )
 		).toBeNull();
 	} );
+
+	it( 'offers the stack toggle over rates', () => {
+		const { container } = mount();
+		expect(
+			container.querySelector( '.newspack-nodes-chart__stack' )
+		).not.toBeNull();
+	} );
 } );
 
-describe( 'TopicsChart axis cap', () => {
+describe( 'TimeChart axis cap', () => {
 	// A half-row panel is about 900px, so 500 slots keep each above a pixel.
 	it( 'buckets a long window into at most 500 slots', () => {
 		const points = Array.from( { length: 4000 }, ( _, i ) => ( {
@@ -265,7 +270,7 @@ describe( 'TopicsChart axis cap', () => {
 	} );
 } );
 
-describe( 'TopicsPanels', () => {
+describe( 'TimeChartPanels', () => {
 	const gapped = ( mode ) => ( {
 		'gap.p0': {
 			points: [
@@ -285,7 +290,7 @@ describe( 'TopicsPanels', () => {
 		...over,
 	} );
 	const mountPanels = ( panels ) =>
-		render( <TopicsPanels panels={ panels } /> );
+		render( <TimeChartPanels panels={ panels } /> );
 	const midRows = () => {
 		const { formatEntry } = setupTooltip.mock.calls.at( -1 )[ 1 ];
 		return formatEntry( 1 );
@@ -341,10 +346,27 @@ describe( 'TopicsPanels', () => {
 		expect( midRows() ).toEqual( [] );
 	} );
 
+	it( 'never stacks means, though asked to: overlaid bands and no total', () => {
+		mountPanels( [
+			panel( {
+				title: 'Mean 7863',
+				stacked: true,
+				series: gapped( { fill: 'zero', agg: 'mean' } ),
+			} ),
+		] );
+		const [ first ] = setupTooltip.mock.calls
+			.at( -1 )[ 1 ]
+			.formatEntry( 0 );
+		expect( first.label ).toBe( 'gap.p0' );
+	} );
+
 	it( 'totals stacked panels alone', () => {
 		mountPanels( [
 			panel( { stacked: true } ),
-			panel( { title: 'Mean', stackable: false } ),
+			panel( {
+				title: 'Mean',
+				series: gapped( { fill: 'zero', agg: 'mean' } ),
+			} ),
 		] );
 		const [ stacked, mean ] = setupTooltip.mock.calls.map(
 			( c ) => c[ 1 ].formatEntry( 0 )[ 0 ].label
@@ -354,8 +376,8 @@ describe( 'TopicsPanels', () => {
 	} );
 } );
 
-describe( 'Topics panel grid', () => {
-	const sheet = resolvePath( __dirname, '../styles/topics-chart.scss' );
+describe( 'TimeChart panel grid', () => {
+	const sheet = resolvePath( __dirname, '../time-chart.scss' );
 	const rule = ( selector ) => {
 		const found = {};
 		postcss
@@ -370,11 +392,8 @@ describe( 'Topics panel grid', () => {
 
 	it( 'ships with the component that renders it', () => {
 		expect(
-			readFileSync(
-				resolvePath( __dirname, '../TopicsChart.js' ),
-				'utf8'
-			)
-		).toContain( "import './styles/topics-chart.scss';" );
+			readFileSync( resolvePath( __dirname, '../time-chart.js' ), 'utf8' )
+		).toContain( "import './time-chart.scss';" );
 	} );
 
 	it( 'lays the panels in columns that a drawn chart cannot widen', () => {
@@ -393,83 +412,5 @@ describe( 'Topics panel grid', () => {
 
 	it( 'pads each panel inside its card', () => {
 		expect( rule( '.nodes-topics' ) ).toEqual( { padding: '9px 11px' } );
-	} );
-} );
-
-describe( 'ProbeTable', () => {
-	const columns = [
-		{
-			label: 'Name',
-			cell: ( row ) => row.key,
-			td: () => ( { className: 'nodes-probe-tab__name' } ),
-		},
-		{
-			label: 'Age',
-			cell: ( row, ctx ) => `${ ctx.now - row.ts }s`,
-			td: ( row ) => ( { title: `at ${ row.ts }` } ),
-		},
-	];
-	const rows = [
-		{ key: 'lab-7:kea.p3', ts: 4400 },
-		{ key: 'lab-7:owl.p3', ts: 4471 },
-	];
-	const mountTable = ( over = {} ) =>
-		render(
-			<ProbeTable
-				columns={ columns }
-				rows={ rows }
-				rowKey={ ( row ) => row.key }
-				keyAttr="data-kea-key"
-				context={ { now: 4500 } }
-				emptyText="Nothing swept yet."
-				{ ...over }
-			/>
-		);
-
-	it( 'heads the canonical table with each column label', () => {
-		const { container } = mountTable();
-		const table = container.querySelector( 'table' );
-		expect( table.className ).toBe(
-			'nodes-probe-tab__table newspack-nodes-table'
-		);
-		expect(
-			[ ...table.querySelectorAll( 'th' ) ].map( ( h ) => h.textContent )
-		).toEqual( [ 'Name', 'Age' ] );
-	} );
-
-	it( 'renders a row per entry, keyed on the attribute it names', () => {
-		const { container } = mountTable();
-		const row = container.querySelector( '[data-kea-key="lab-7:owl.p3"]' );
-		const cells = [ ...row.children ];
-		expect( cells.map( ( c ) => c.textContent ) ).toEqual( [
-			'lab-7:owl.p3',
-			'29s',
-		] );
-		expect( cells[ 0 ].className ).toBe( 'nodes-probe-tab__name' );
-		expect( cells[ 1 ].title ).toBe( 'at 4471' );
-	} );
-
-	it( 'shows its empty text in place of a table with no rows', () => {
-		const { container } = mountTable( { rows: [] } );
-		expect( container.querySelector( 'table' ) ).toBeNull();
-		const empty = container.querySelector( '.nodes-probe-tab__empty' );
-		expect( empty.className ).toBe(
-			'newspack-nodes-empty-state nodes-probe-tab__empty'
-		);
-		expect( empty.textContent ).toBe( 'Nothing swept yet.' );
-	} );
-} );
-
-describe( 'errorsColumn', () => {
-	it( 'marks a nonzero count, and only a nonzero one', () => {
-		const col = errorsColumn( 'Failures' );
-		expect( col.label ).toBe( 'Failures' );
-		expect( col.cell( { windowed: { errors: 4321 } } ) ).toBe( '4,321' );
-		expect( col.td( { windowed: { errors: 7 } } ).className ).toBe(
-			'nodes-probe-tab__count is-nonzero'
-		);
-		expect( col.td( { windowed: { errors: 0 } } ).className ).toBe(
-			'nodes-probe-tab__count'
-		);
 	} );
 } );

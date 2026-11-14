@@ -1,0 +1,8 @@
+/** The sparkline block's geometry: its caption over its line. */
+
+.newspack-nodes-sparkline-block {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 0 0 12px;
+}

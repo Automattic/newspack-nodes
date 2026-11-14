@@ -1,12 +1,12 @@
 /**
  * Tables — the station's per-Table operation board over the durable
  * tablestats.p0 log. useProbeStream (link) is stubbed; the view model is fed
- * via useNodeField. TopicsChart (d3) is stubbed to capture each panel's props.
+ * via useNodeField. TimeChart (d3) is stubbed to capture each panel's props.
  */
 
 import { render } from '@testing-library/react';
 import Tables from '../Tables';
-import { buildAlignedSeries } from '../buildAlignedSeries';
+import { buildAlignedSeries } from '@newspack-nodes/shared/utils/buildAlignedSeries';
 import { bucketsFrom } from './bucketTestUtils';
 import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import { useProbeStream } from '../hooks/useProbeStream';
@@ -21,9 +21,9 @@ jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
 	useNodeField: jest.fn(),
 } ) );
-jest.mock( '../TopicsChart', () => {
+jest.mock( '@newspack-nodes/shared/blocks/time-chart', () => {
 	const el = require( '@wordpress/element' );
-	const TopicsChart = ( props ) => {
+	const TimeChart = ( props ) => {
 		( globalThis.__tablesPanels ||= [] ).push( props );
 		return el.createElement(
 			'div',
@@ -32,11 +32,11 @@ jest.mock( '../TopicsChart', () => {
 		);
 	};
 	return {
-		...jest.requireActual( '../TopicsChart' ),
-		TopicsChart,
-		TopicsPanels: ( { panels } ) =>
+		...jest.requireActual( '@newspack-nodes/shared/blocks/time-chart' ),
+		TimeChart,
+		TimeChartPanels: ( { panels } ) =>
 			panels.map( ( p ) =>
-				el.createElement( TopicsChart, { key: p.storageKey, ...p } )
+				el.createElement( TimeChart, { key: p.storageKey, ...p } )
 			),
 	};
 } );
@@ -229,7 +229,9 @@ describe( 'Tables', () => {
 			expect( p ).not.toHaveProperty( 'metric' );
 			expect( p ).not.toHaveProperty( 'totalLabel' );
 		}
-		expect( globalThis.__tablesPanels[ 3 ].stackable ).toBe( false );
+		expect( globalThis.__tablesPanels[ 3 ] ).not.toHaveProperty(
+			'stackable'
+		);
 		expect( Object.keys( globalThis.__tablesPanels[ 0 ].series ) ).toEqual(
 			expect.arrayContaining( [
 				'flame-stats:url.p0',

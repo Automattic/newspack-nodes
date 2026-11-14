@@ -21,7 +21,10 @@
  */
 
 import { BUCKET_S } from './nodes/probe-stream-view-node';
-import { RATE_MODE } from './buildAlignedSeries';
+import {
+	RATE_MODE,
+	maxOf,
+} from '@newspack-nodes/shared/utils/buildAlignedSeries';
 
 /** A LEVEL gauge: a bucket keeps its last reading, and a gap carries it. */
 const LEVEL = { fill: 'hold', agg: 'last' };
@@ -183,15 +186,6 @@ export const byKey = ( c ) => c.key;
  * @return {string} Its source partition.
  */
 export const bySource = ( c ) => c.source;
-
-/**
- * The largest value among some points, the max a chart ranks its series by.
- *
- * @param {Array<{value:number}>} points One series' points.
- * @return {number} The largest value; 0 for none.
- */
-export const maxOf = ( points ) =>
-	points.reduce( ( m, p ) => Math.max( m, p.value ), 0 );
 
 /**
  * Per-group time series for ONE metric, one point per bucket, its entries'

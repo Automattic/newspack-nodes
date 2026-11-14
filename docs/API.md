@@ -1214,7 +1214,8 @@ Component )`, a registry on the `__newspackNodesCompositionEditors` window
 key, and nothing before. The editor half, which a consumer builds as the
 second entry `Composition::editor()` enqueues, is `registerCompositionBlocks(
 schemas, views )`, registering each localized schema as a dynamic block whose
-edit is `CompositionBlockEdit`, and `<CompositionEditor group context heading
+edit is `CompositionBlockEdit`, which hands the block's Controls its
+attribute schemas as `schema`, and `<CompositionEditor group context heading
 schemas preview onDone onDirty? />`, the canvas over a fresh `get`, which saves
 `serializeLayout( blocks )` and calls `onDone( answer, verb )`: `save` or
 `restore` after a write, null after Cancel or Back. `onDirty( dirty )` is told
@@ -1225,6 +1226,13 @@ before leaving only once there is one. The page shows the
 editor's header offers **Start from**: a chosen pattern's markup, parsed by
 `parse()`, replaces the canvas unsaved, after the discard confirmation when a
 change is pending.
+
+The substrate declares six shared blocks beside the aside, through
+`Composition::declare_substrate_blocks()` at priority 5: `newspack-nodes/stats`,
+`time-chart`, `table`, `log-stream`, `sparkline`, and `section`, a container.
+Each of the first five reads the source its `source` attribute names, and a
+consumer admits whichever it wants on a context and spreads `SUBSTRATE_VIEWS`,
+from `@newspack-nodes/shared/blocks`, into the views it hands the frame.
 
 The page frame in `@newspack-nodes/shared/composition/page` carries both
 halves. Its reader half, which `page/index.js` exports, includes

@@ -6,6 +6,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Composition::declare_aside()` is `Composition::declare_substrate_blocks()`.**
+  It declares the aside and the six shared blocks. A test seeding the
+  composition filter by hand names the new method; the old name is gone, with
+  no alias.
 - **A tab descriptor declares `params`, a list, in place of `param`.**
   `registerTab( { …, param: 'log' } )` is `registerTab( { …, params: [ 'log' ]
   } )`; list every query param the tab reads, because the host clears only the

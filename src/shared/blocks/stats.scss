@@ -1,0 +1,16 @@
+/**
+ * The stat tile row's geometry. The grid, the card surface and the value and
+ * label type come from the shared stats-grid, card and stat-tile roles.
+ */
+
+.nodes-cards {
+	margin: 4px 0 18px;
+}
+
+.nodes-card {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 104px;
+	padding: 11px 15px;
+}

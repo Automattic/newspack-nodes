@@ -84,6 +84,7 @@ export function registerCompositionBlocks( schemas, views ) {
 					{ ...props }
 					view={ view }
 					allowedBlocks={ allowedBlocks }
+					schema={ schema.attributes }
 				/>
 			),
 			save: SAVES_NOTHING,

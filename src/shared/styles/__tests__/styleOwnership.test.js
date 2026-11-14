@@ -86,6 +86,10 @@ const CANONICAL_BUTTON_CLASSES = new Set( [
 ] );
 const REQUIRED_ROLE_PAIRS = [
 	[ 'nodes-card', 'newspack-nodes-card' ],
+	[ 'nodes-card', 'newspack-nodes-stat-tile' ],
+	[ 'nodes-cards', 'newspack-nodes-stats-grid' ],
+	[ 'nodes-card__value', 'newspack-nodes-stat-value' ],
+	[ 'nodes-card__label', 'newspack-nodes-stat-label' ],
 	[ 'nodes-topics', 'newspack-nodes-card' ],
 	[ 'newspack-nodes-chart__tooltip', 'newspack-nodes-card' ],
 	[ 'newspack-nodes-chart__tooltip', 'newspack-nodes-card--elevated' ],
@@ -1766,16 +1770,8 @@ describe( 'canonical appearance ownership', () => {
 
 	it( 'preserves prior Nodes card boxes without local border ownership', () => {
 		const cases = [
-			[
-				'event-dashboards/styles/summary-cards.scss',
-				'.nodes-card',
-				'11px 15px',
-			],
-			[
-				'event-dashboards/styles/topics-chart.scss',
-				'.nodes-topics',
-				'9px 11px',
-			],
+			[ 'shared/blocks/stats.scss', '.nodes-card', '11px 15px' ],
+			[ 'shared/blocks/time-chart.scss', '.nodes-topics', '9px 11px' ],
 			[
 				'event-dashboards/styles/topology-row.scss',
 				'.nodes-tm__topology',

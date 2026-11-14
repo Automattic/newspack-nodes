@@ -12,7 +12,13 @@ import { StrictMode } from '@wordpress/element';
 import { Core, Node, TO, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { steppedClock } from '@newspack-nodes/shared/test-utils/steppedClock';
-import { registerSource, useSource, SourcesProvider } from '..';
+import {
+	declaredSources,
+	registerSource,
+	sourceDeclaration,
+	useSource,
+	SourcesProvider,
+} from '..';
 
 /** The poll source's cadence, distinct from every default. */
 const KEA_MS = 7000;
@@ -62,6 +68,54 @@ registerSource( 'takahe-7813', {
 } );
 
 registerSource( 'kiwi-7816', { kind: 'swoop' } );
+
+/**
+ * Formats a perch's height, one function for every declaration of it.
+ *
+ * @param {number} v The height.
+ * @return {string} It, in metres.
+ */
+const metres = ( v ) => `${ v } m`;
+
+/** The tieke's args, one function for every declaration of it. */
+const silent = () => [];
+
+/**
+ * The tieke's declaration, built afresh on every call.
+ *
+ * @param {string} label The height's label.
+ * @return {Object} The declaration.
+ */
+const tieke = ( label ) => ( {
+	kind: 'command',
+	group: 'alpine-7830',
+	ci: 'tern-7830',
+	command: 'sing',
+	args: silent,
+	params: [ 'grove' ],
+	fields: { height: { label, kind: 'value', format: metres } },
+} );
+
+registerSource( 'tieke-7830', tieke( 'Song 7830' ) );
+
+/** A stream view recording every message it is handed. */
+class HihiViewNode extends Node {
+	constructor() {
+		super();
+		this.controlFrom = '';
+		this.filled = [];
+	}
+	fill( message ) {
+		this.filled.push( message );
+	}
+}
+
+registerSource( 'hihi-7831', {
+	kind: 'stream',
+	subscribe: ( { log } ) => `${ log }.p5`,
+	viewClass: HihiViewNode,
+	mode: 'follow',
+} );
 
 registerSource( 'ruru-7817', {
 	kind: 'poll',
@@ -212,6 +266,52 @@ describe( 'registerSource', () => {
 		).not.toThrow();
 	} );
 
+	it( 'takes an equal declaration again, its params and fields built afresh', () => {
+		expect( () =>
+			registerSource( 'tieke-7830', tieke( 'Song 7830' ) )
+		).not.toThrow();
+	} );
+
+	it( 'refuses a declaration whose field reads otherwise', () => {
+		expect( () =>
+			registerSource( 'tieke-7830', tieke( 'Chorus 7830' ) )
+		).toThrow( /source 'tieke-7830' is already declared/ );
+	} );
+
+	it( 'refuses a declaration whose label reads otherwise', () => {
+		expect( () =>
+			registerSource( 'tieke-7830', {
+				...tieke( 'Song 7830' ),
+				label: 'Saddleback 7865',
+			} )
+		).toThrow( /source 'tieke-7830' is already declared/ );
+	} );
+
+	it( 'refuses two fields of one kind sharing a label, naming both', () => {
+		expect( () =>
+			registerSource( 'piwakawaka-7866', {
+				kind: 'command',
+				fields: {
+					fan: { label: 'Flit 7866', kind: 'value' },
+					tail: { label: 'Flit 7866', kind: 'value' },
+				},
+			} )
+		).toThrow(
+			/piwakawaka-7866 fields 'fan' and 'tail' are both labelled 'Flit 7866'/
+		);
+	} );
+
+	it( 'refuses a field declaring no kind it knows', () => {
+		expect( () =>
+			registerSource( 'kotare-7833', {
+				kind: 'command',
+				fields: { dive: { label: 'Dive 7833', kind: 'splash' } },
+			} )
+		).toThrow(
+			/kotare-7833 field 'dive' declares no kind of value, series, line or rows/
+		);
+	} );
+
 	it( 'refuses a second, different declaration under one name', () => {
 		expect( () =>
 			registerSource( 'kea-7810', {
@@ -250,6 +350,30 @@ describe( 'registerSource', () => {
 			expect( entry.decl ).toBe( fixture.TUI );
 		}
 		expect( copies[ 0 ].fixture.TUI ).not.toBe( copies[ 1 ].fixture.TUI );
+	} );
+} );
+
+describe( 'sourceDeclaration', () => {
+	it( 'answers what a name declares, its fields among it', () => {
+		expect( sourceDeclaration( 'tieke-7830' ).fields ).toEqual( {
+			height: { label: 'Song 7830', kind: 'value', format: metres },
+		} );
+	} );
+
+	it( 'refuses a name nothing declares', () => {
+		expect( () => sourceDeclaration( 'piopio-7832' ) ).toThrow(
+			/no source is declared as 'piopio-7832'/
+		);
+	} );
+} );
+
+describe( 'declaredSources', () => {
+	it( 'lists every name this bundle declares with its declaration', () => {
+		const listed = new Map( declaredSources() );
+		expect( listed.get( 'tieke-7830' ) ).toBe(
+			sourceDeclaration( 'tieke-7830' )
+		);
+		expect( listed.has( 'kea-7810' ) ).toBe( true );
 	} );
 } );
 
@@ -687,6 +811,31 @@ describe( 'useSource on a stream', () => {
 		expect( forget ).toHaveBeenCalledWith( [ 'moa.p3' ] );
 		expect( viewsOn( 'moa.p3' ) ).toEqual( [] );
 		expect( nodesOf( 'weka-7811' ) ).toEqual( [] );
+	} );
+
+	it( 'hands its readers its view node and the controls that reach it', async () => {
+		let stream;
+		function Controls() {
+			stream = useSource( 'hihi-7831', { log: 'kereru' } ).stream;
+			return null;
+		}
+		renderSources( <Controls /> );
+		await act( async () => {} );
+		const view = stream.node();
+		expect( view ).toBe( Core.node( view.name ) );
+		expect( view.name ).toMatch( /^hihi-7831:\d+:view$/ );
+
+		act( () => stream.setFilter( 'kereru-7831' ) );
+		act( () => stream.clear() );
+		act( () => stream.setPaused( true ) );
+
+		expect( view.filled.map( ( m ) => m[ VALUE ].action ) ).toEqual( [
+			'filter',
+			'clear',
+			'pause',
+		] );
+		expect( view.filled[ 0 ][ VALUE ].term ).toBe( 'kereru-7831' );
+		expect( view.filled[ 2 ][ VALUE ].paused ).toBe( true );
 	} );
 
 	it( 'answers a source that cannot open with its error, leaving the others running', async () => {

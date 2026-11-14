@@ -26,7 +26,7 @@ module.exports = createJestConfig( {
 		'^d3$': path.resolve( __dirname, '../../node_modules/d3' ),
 	},
 	// d3 and @noble/hashes ship ESM-only and arrive transitively: d3 through
-	// TopicsChart, which the debug overlay's Overview tab draws with, and
+	// TimeChart, which the debug overlay's Overview tab draws with, and
 	// @noble/hashes through @newspack-nodes/runtime's command signer. Both,
 	// and their own ESM deps, opt OUT of the node_modules transform skip, or a
 	// test importing either fails to parse.

@@ -1,8 +1,8 @@
 /**
- * Overview-tab styles, co-located with OverviewTab.js. The tab borrows the
- * station's card/panel sheets for its base look; everything HERE is overlay-only
- * and scoped under the panel so none of it bleeds into the station dashboard's
- * identical class names when both load on one page.
+ * Overview-tab styles, co-located with OverviewTab.js. Its tiles and charts
+ * bring their own sheets from the shared blocks; everything HERE is
+ * overlay-only and scoped under the panel so none of it bleeds into the
+ * station dashboard's identical class names when both load on one page.
  */
 @use "../../shared/styles/tokens";
 
@@ -16,15 +16,8 @@
 		flex-direction: column;
 		margin: 18px 0 4px;
 
-		// Match the stat-card labels: small uppercase muted heading rather
-		// than the browser-default serif h3 (reads unthemed in the overlay).
 		h3 {
 			margin: 0 0 8px;
-			font-size: var(--np-text-2xs);
-			font-weight: 600;
-			letter-spacing: 0.04em;
-			text-transform: uppercase;
-			color: var(--ink-3);
 		}
 
 		ul {
@@ -74,6 +67,7 @@
 		// "Reset stats" button, right-aligned below the charts.
 		&__toolbar {
 			display: flex;
+			gap: 8px;
 			justify-content: flex-end;
 			margin: 0;
 		}

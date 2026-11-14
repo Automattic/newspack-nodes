@@ -28,7 +28,8 @@ import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { topicChartSeries, byKey } from './topicProbeSeries';
 import { OP_PREFIX } from './nodes/tablestats-view-node';
-import { TopicsPanels, ProbeTable, errorsColumn } from './TopicsChart';
+import { TimeChartPanels } from '@newspack-nodes/shared/blocks/time-chart';
+import { ProbeTable, errorsColumn } from './ProbeTable';
 import {
 	formatBytes,
 	formatGroupedCount,
@@ -136,7 +137,7 @@ function purgeBehindLabel( t, live ) {
  * The Table table's columns. `ctx.head` is the stream head a level's
  * freshness is judged against.
  *
- * @type {Array<import('./TopicsChart').ProbeColumn>}
+ * @type {Array<import('./ProbeTable').ProbeColumn>}
  */
 const COLUMNS = [
 	{
@@ -261,7 +262,6 @@ export default function Tables() {
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latency,
 			formatFor: axisDuration,
-			stackable: false,
 		},
 		{
 			storageKey: 'newspack-nodes:tables:chart:size',
@@ -302,7 +302,7 @@ export default function Tables() {
 				source={ __( 'Table statistics', 'newspack-nodes' ) }
 				subscribe={ [ probeLog( 'tablestats' ) ] }
 			/>
-			<TopicsPanels panels={ panels } />
+			<TimeChartPanels panels={ panels } />
 			<ProbeTable
 				columns={ COLUMNS }
 				rows={ rows }

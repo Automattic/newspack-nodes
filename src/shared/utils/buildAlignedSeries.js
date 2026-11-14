@@ -23,7 +23,17 @@
  * here infers it from a metric name. A series with none reads as a RATE.
  */
 
-import { LIVE_WINDOW_S } from './liveSample';
+/** Seconds a sampled reading stays current, four 15-second probe sweeps. */
+export const LIVE_WINDOW_S = 60;
+
+/**
+ * The largest value among some points, the max a chart ranks its series by.
+ *
+ * @param {Array<{value:number}>} points One series' points.
+ * @return {number} The largest value; 0 for none.
+ */
+export const maxOf = ( points ) =>
+	points.reduce( ( m, p ) => Math.max( m, p.value ), 0 );
 
 /** The Topic_Probe sweep cadence, and so the narrowest useful bucket. */
 const BUCKET_BASE_S = 15;
@@ -47,7 +57,7 @@ const AGGREGATES = {
  * Build one Topics panel's draw-ready model: rank the topics by peak, then fill
  * every bucket of the shared grid for each of them.
  *
- * The ranking is load-bearing. `TopicsChart` indexes the palette and the legend
+ * The ranking is load-bearing. `TimeChart` indexes the palette and the legend
  * by position, so the busiest topic takes the first color and heads the legend.
  *
  * Fill mode:

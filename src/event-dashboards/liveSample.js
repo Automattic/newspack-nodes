@@ -15,8 +15,7 @@
  * keeps its last head, and with it the readers fresh relative to that head.
  */
 
-/** Seconds a probe sample stays current, four 15-second probe sweeps. */
-export const LIVE_WINDOW_S = 60;
+import { LIVE_WINDOW_S } from '@newspack-nodes/shared/utils/buildAlignedSeries';
 
 /**
  * The stream head: the newest sample timestamp any reader in the map reports.

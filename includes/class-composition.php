@@ -14,7 +14,8 @@
  *    `multiple: false` lets the block stand once, as block.json's
  *    `supports.multiple` does. `shared: true` takes the place of `contexts`:
  *    a shared block does not stand on any context of its own, only on those that
- *    admit it, from any namespace.
+ *    admit it, from any namespace. The substrate declares its own shared
+ *    blocks under `newspack-nodes/` through `declare_substrate_blocks()`.
  *  - `contexts`: name => `{ default: string, max_blocks: int, check?:
  *    \Closure, admits?: list<string> }`, `default` the absolute path of the
  *    consumer's markup file, `admits` the shared blocks, by name, that stand
@@ -56,8 +57,120 @@ final class Composition {
 	/** The global the editor bundle reads its page data from. */
 	public const EDITOR_GLOBAL = 'NewspackNodesComposition';
 
-	/** The substrate's one shared block: a column beside a page's main one. */
+	/** The substrate's shared container: a column beside a page's main one. */
 	public const ASIDE = 'newspack-nodes/aside';
+
+	/** A string attribute, empty by default. */
+	private const NAME_ATTRIBUTE = [
+		'type'    => 'string',
+		'default' => '',
+	];
+
+	/** A block attribute naming a source's fields, all of them when empty. */
+	private const NAMES_ATTRIBUTE = [
+		'type'    => 'array',
+		'items'   => [ 'type' => 'string' ],
+		'default' => [],
+	];
+
+	/**
+	 * The substrate's shared blocks: the aside, the five that each read one
+	 * declared source, and the section, a container heading the blocks it
+	 * holds. Block name => declaration, as `FILTER` takes one.
+	 */
+	private const SUBSTRATE_BLOCKS = [
+		self::ASIDE                 => [
+			'title'      => 'Aside',
+			'shared'     => true,
+			'container'  => true,
+			'multiple'   => false,
+			'attributes' => [],
+		],
+		'newspack-nodes/stats'      => [
+			'title'      => 'Stats',
+			'shared'     => true,
+			'attributes' => [
+				'source'  => self::NAME_ATTRIBUTE,
+				'fields'  => self::NAMES_ATTRIBUTE,
+				'columns' => [
+					'type'    => 'integer',
+					'minimum' => 0,
+					'maximum' => 12,
+					'default' => 0,
+				],
+			],
+		],
+		'newspack-nodes/time-chart' => [
+			'title'      => 'Time chart',
+			'shared'     => true,
+			'attributes' => [
+				'source'  => self::NAME_ATTRIBUTE,
+				'metrics' => self::NAMES_ATTRIBUTE,
+				'stacked' => [
+					'type'    => 'boolean',
+					'default' => false,
+				],
+				'title'   => self::NAME_ATTRIBUTE,
+			],
+		],
+		'newspack-nodes/table'      => [
+			'title'      => 'Table',
+			'shared'     => true,
+			'attributes' => [
+				'source'  => self::NAME_ATTRIBUTE,
+				'columns' => self::NAMES_ATTRIBUTE,
+				'sort'    => [
+					'type'                 => 'object',
+					'properties'           => [
+						'field'     => [ 'type' => 'string' ],
+						'direction' => [
+							'type' => 'string',
+							'enum' => [ 'asc', 'desc' ],
+						],
+					],
+					'additionalProperties' => false,
+					'default'              => [
+						'field'     => '',
+						'direction' => 'desc',
+					],
+				],
+				'perPage' => [
+					'type'    => 'integer',
+					'minimum' => 1,
+					'maximum' => 100,
+					'default' => 20,
+				],
+				'title'   => self::NAME_ATTRIBUTE,
+			],
+		],
+		'newspack-nodes/log-stream' => [
+			'title'      => 'Log stream',
+			'shared'     => true,
+			'attributes' => [
+				'source'  => self::NAME_ATTRIBUTE,
+				'columns' => self::NAMES_ATTRIBUTE,
+				'title'   => self::NAME_ATTRIBUTE,
+			],
+		],
+		'newspack-nodes/sparkline'  => [
+			'title'      => 'Sparkline',
+			'shared'     => true,
+			'attributes' => [
+				'source' => self::NAME_ATTRIBUTE,
+				'field'  => self::NAME_ATTRIBUTE,
+				'title'  => self::NAME_ATTRIBUTE,
+			],
+		],
+		'newspack-nodes/section'    => [
+			'title'      => 'Section',
+			'shared'     => true,
+			'container'  => true,
+			'attributes' => [
+				'title'       => self::NAME_ATTRIBUTE,
+				'description' => self::NAME_ATTRIBUTE,
+			],
+		],
+	];
 
 	/** A namespace, as block.json spells one. */
 	private const NAMESPACE_PATTERN = '/^[a-z0-9-]+$/D';
@@ -238,27 +351,22 @@ final class Composition {
 	}
 
 	/**
-	 * Declare the substrate's own shared block, the aside, on `FILTER` at
-	 * priority 5, so a consumer at the default priority can admit it.
+	 * Declare the substrate's shared blocks on `FILTER` at priority 5, so a
+	 * consumer at the default priority can admit them: the aside, the stats,
+	 * time-chart, table, log-stream and sparkline blocks, each reading the
+	 * source its `source` attribute names, and the section, a container, so
+	 * it stands only at the top level.
 	 *
 	 * @param array<mixed> $declared What the filter holds so far.
 	 * @return array<mixed>
 	 * @throws \LogicException When an earlier filter declared `newspack-nodes`.
 	 */
-	public static function declare_aside( array $declared ): array {
+	public static function declare_substrate_blocks( array $declared ): array {
 		if ( isset( $declared['newspack-nodes'] ) ) {
-			self::refuse_declaration( 'newspack-nodes', 'newspack-nodes', 'belongs to the substrate, which declares only ' . self::ASIDE );
+			self::refuse_declaration( 'newspack-nodes', 'newspack-nodes', 'belongs to the substrate, which declares its own blocks there' );
 		}
 		$declared['newspack-nodes'] = [
-			'blocks'   => [
-				self::ASIDE => [
-					'title'      => 'Aside',
-					'shared'     => true,
-					'container'  => true,
-					'multiple'   => false,
-					'attributes' => [],
-				],
-			],
+			'blocks'   => self::SUBSTRATE_BLOCKS,
 			'contexts' => [],
 		];
 		return $declared;

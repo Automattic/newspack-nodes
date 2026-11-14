@@ -35,10 +35,10 @@ jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
 	useNodeField: jest.fn(),
 } ) );
-// TopicsChart (d3, own suite) stubbed to capture the props each panel is fed.
-jest.mock( '../TopicsChart', () => {
+// TimeChart (d3, own suite) stubbed to capture the props each panel is fed.
+jest.mock( '@newspack-nodes/shared/blocks/time-chart', () => {
 	const el = require( '@wordpress/element' );
-	const TopicsChart = ( props ) => {
+	const TimeChart = ( props ) => {
 		( globalThis.__topicsPanels ||= [] ).push( props );
 		return el.createElement(
 			'div',
@@ -51,11 +51,11 @@ jest.mock( '../TopicsChart', () => {
 		);
 	};
 	return {
-		...jest.requireActual( '../TopicsChart' ),
-		TopicsChart,
-		TopicsPanels: ( { panels } ) =>
+		...jest.requireActual( '@newspack-nodes/shared/blocks/time-chart' ),
+		TimeChart,
+		TimeChartPanels: ( { panels } ) =>
 			panels.map( ( p ) =>
-				el.createElement( TopicsChart, { key: p.storageKey, ...p } )
+				el.createElement( TimeChart, { key: p.storageKey, ...p } )
 			),
 	};
 } );

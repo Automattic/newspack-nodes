@@ -1,7 +1,7 @@
 /**
  * Jobs — the station's per-handler job-outcome board over the durable jobstats.p0 log.
  * useProbeStream (link) is stubbed; the view model is fed via useNodeField.
- * TopicsChart (d3) is stubbed to capture the rate panels each metric is fed.
+ * TimeChart (d3) is stubbed to capture the rate panels each metric is fed.
  */
 
 import { render } from '@testing-library/react';
@@ -20,9 +20,9 @@ jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
 	useNodeField: jest.fn(),
 } ) );
-jest.mock( '../TopicsChart', () => {
+jest.mock( '@newspack-nodes/shared/blocks/time-chart', () => {
 	const el = require( '@wordpress/element' );
-	const TopicsChart = ( props ) => {
+	const TimeChart = ( props ) => {
 		( globalThis.__jobsPanels ||= [] ).push( props );
 		return el.createElement(
 			'div',
@@ -31,11 +31,11 @@ jest.mock( '../TopicsChart', () => {
 		);
 	};
 	return {
-		...jest.requireActual( '../TopicsChart' ),
-		TopicsChart,
-		TopicsPanels: ( { panels } ) =>
+		...jest.requireActual( '@newspack-nodes/shared/blocks/time-chart' ),
+		TimeChart,
+		TimeChartPanels: ( { panels } ) =>
 			panels.map( ( p ) =>
-				el.createElement( TopicsChart, { key: p.storageKey, ...p } )
+				el.createElement( TimeChart, { key: p.storageKey, ...p } )
 			),
 	};
 } );
@@ -302,7 +302,7 @@ describe( 'Jobs', () => {
 		).toBeTruthy();
 	} );
 
-	it( 'feeds runs, errors, backlog and latency panels to TopicsChart', () => {
+	it( 'feeds runs, errors, backlog and latency panels to TimeChart', () => {
 		useNodeField.mockReturnValue( model() );
 		render( <Jobs /> );
 		const titles = globalThis.__jobsPanels.map( ( p ) => p.title );
@@ -357,7 +357,8 @@ describe( 'Jobs', () => {
 		expect(
 			latency.series[ 'cron:films' ].points.map( ( p ) => p.value )
 		).toEqual( [ ( 1200 + 6000 ) / ( 30 + 75 ) ] );
-		expect( latency.stackable ).toBe( false );
+		expect( latency ).not.toHaveProperty( 'stackable' );
+		expect( latency.series[ 'cron:films' ].mode.agg ).toBe( 'mean' );
 		// A duration axis picks one unit from the panel's peak.
 		expect( latency.formatFor ).toBe( axisDuration );
 		expect( latency ).not.toHaveProperty( 'formatValue' );

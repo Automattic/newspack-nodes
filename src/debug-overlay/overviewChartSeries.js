@@ -1,10 +1,10 @@
 /**
- * Reshape IoTelemetry's rate ring into the series model TopicsChart draws, so
- * the debug overlay's Overview tab reuses the event dashboards' chart instead
- * of growing a second one. The shape matches `topicChartSeries` —
- * `{ [label]: { points:[{ts,value}], max } }` — over two fixed labels, In
- * and Out, where the dashboards carry one label per topic, and over two panels,
- * message rate and byte rate.
+ * Reshape IoTelemetry's rate ring into the series model `TimeChart` draws, so
+ * the debug overlay's Overview tab draws its rates through the shared
+ * `TimeChart` instead of growing a chart of its own. The shape matches
+ * `topicChartSeries` — `{ [label]: { points:[{ts,value}], max } }` — over two
+ * fixed labels, In and Out, where the dashboards carry one label per topic,
+ * and over two panels, message rate and byte rate.
  *
  * A ring row is `[ t, msgInRate, msgOutRate, byteInRate, byteOutRate ]`: one
  * row per 5-second sample, each rate already divided by IoTelemetry. The series
@@ -17,7 +17,7 @@
  * array itself would never see a new sample.
  */
 
-import { maxOf } from '../event-dashboards/topicProbeSeries';
+import { maxOf } from '@newspack-nodes/shared/utils/buildAlignedSeries';
 
 /** Ring column: the sample instant, in whole seconds. */
 const T = 0;
@@ -35,11 +35,11 @@ const BYTE_IN = 3;
 const BYTE_OUT = 4;
 
 /**
- * Build one TopicsChart series from a single ring column.
+ * Build one TimeChart series from a single ring column.
  *
  * `buildAlignedSeries` ranks a panel's series by `max`, so the busier direction
  * draws first. An empty ring yields empty points with a zero max, which
- * TopicsChart renders as a blank panel.
+ * TimeChart renders as a blank panel.
  *
  * @param {Array<Array<number>>} ring The rate ring, oldest row first.
  * @param {number}               col  Column index to read from each row.

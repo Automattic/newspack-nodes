@@ -28,7 +28,8 @@ import { probeLog, useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { topicChartSeries, byKey, bySource } from './topicProbeSeries';
-import { TopicsPanels, ProbeTable, errorsColumn } from './TopicsChart';
+import { TimeChartPanels } from '@newspack-nodes/shared/blocks/time-chart';
+import { ProbeTable, errorsColumn } from './ProbeTable';
 import {
 	formatBytes,
 	formatGroupedCount,
@@ -60,7 +61,7 @@ const NO_CONSUMERS = {};
  * The identity table's columns. A mean or max over a window with no runs is
  * null, which `formatDuration` reads as '-'; `ctx.nowSec` dates the last run.
  *
- * @type {Array<import('./TopicsChart').ProbeColumn>}
+ * @type {Array<import('./ProbeTable').ProbeColumn>}
  */
 const COLUMNS = [
 	{
@@ -210,7 +211,6 @@ export default function Jobs() {
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latencySeries,
 			formatFor: axisDuration,
-			stackable: false,
 		},
 	];
 
@@ -224,7 +224,7 @@ export default function Jobs() {
 				source={ __( 'Job backlog', 'newspack-nodes' ) }
 				subscribe={ [ probeLog( 'topicprobe' ) ] }
 			/>
-			<TopicsPanels panels={ panels } />
+			<TimeChartPanels panels={ panels } />
 			<ProbeTable
 				columns={ COLUMNS }
 				rows={ rows }

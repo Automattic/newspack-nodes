@@ -8,6 +8,14 @@ beforeEach( () => {
 	window.localStorage.clear();
 } );
 
+/**
+ * One tile, by the field it shows.
+ *
+ * @param {string} id The field.
+ * @return {?Element} The tile.
+ */
+const tile = ( id ) => document.querySelector( `.nodes-card--${ id }` );
+
 function renderTab( props = {} ) {
 	return render( <OverviewTab publishHeader={ () => {} } { ...props } /> );
 }
@@ -27,7 +35,7 @@ test( 'renders the metric cards and both rate-chart panels', () => {
 		'sse-uptime',
 	];
 	for ( const id of ids ) {
-		expect( getByTestId( `overview-card-${ id }` ) ).toBeTruthy();
+		expect( tile( id ) ).toBeTruthy();
 	}
 	const titles = [
 		...container.querySelectorAll( '.newspack-nodes-chart__title' ),
@@ -43,6 +51,52 @@ test( 'renders the metric cards and both rate-chart panels', () => {
 	).toBe( true );
 } );
 
+test( 'draws the shared stat tiles and time-chart panels, unmocked', () => {
+	const { container } = renderTab();
+	const grid = container.querySelector( '.newspack-nodes-stats-grid' );
+	expect( grid.classList.contains( 'is-flow' ) ).toBe( true );
+	const tiles = [ ...grid.querySelectorAll( '.newspack-nodes-stat-tile' ) ];
+	expect( tiles ).toHaveLength( 9 );
+	expect(
+		tiles.map(
+			( one ) =>
+				one.querySelector( '.newspack-nodes-stat-label' ).textContent
+		)
+	).toEqual( [
+		'Byte Rate',
+		'Message Rate',
+		'Total Messages',
+		'Total Bytes',
+		'Warnings',
+		'Errors',
+		'Debug',
+		'Client Uptime',
+		'SSE Uptime',
+	] );
+	expect(
+		container.querySelectorAll( '.nodes-topics-panels > .nodes-topics' )
+	).toHaveLength( 2 );
+} );
+
+test( 'keeps each rate chart’s corner choices under the overlay’s own keys', () => {
+	const { container } = renderTab();
+	const [ messages, bytes ] = container.querySelectorAll(
+		'.newspack-nodes-chart__expand'
+	);
+	fireEvent.click( messages );
+	fireEvent.click( bytes );
+	expect(
+		window.localStorage.getItem(
+			'newspack-nodes:debug:chart:message-rate:expanded'
+		)
+	).toBe( '1' );
+	expect(
+		window.localStorage.getItem(
+			'newspack-nodes:debug:chart:byte-rate:expanded'
+		)
+	).toBe( '1' );
+} );
+
 test( 'titles each rate chart Y-axis with the quantity it plots', () => {
 	const now = Math.floor( Date.now() / 1000 );
 	IoTelemetry.sample( now - 1 );
@@ -55,8 +109,8 @@ test( 'titles each rate chart Y-axis with the quantity it plots', () => {
 } );
 
 test( 'shows a client uptime card (time since the page loaded)', () => {
-	const { getByTestId } = renderTab();
-	const card = getByTestId( 'overview-card-client-uptime' );
+	renderTab();
+	const card = tile( 'client-uptime' );
 	expect( card ).toBeTruthy();
 	// Just-loaded in jsdom → a small "Ns" age, never the "-" empty sentinel.
 	expect( card.textContent ).toMatch( /\d/ );
@@ -65,33 +119,27 @@ test( 'shows a client uptime card (time since the page loaded)', () => {
 
 test( 'shows an SSE uptime card reading "-" while the stream is disconnected', () => {
 	IoTelemetry.markSseDisconnected();
-	const { getByTestId } = renderTab();
-	const card = getByTestId( 'overview-card-sse-uptime' );
+	renderTab();
+	const card = tile( 'sse-uptime' );
 	expect( card.textContent ).toContain( 'SSE Uptime' );
 	expect( card.textContent ).toContain( '-' );
 } );
 
 test( 'the SSE uptime card shows an age once the stream is connected', () => {
 	IoTelemetry.markSseConnected( Math.floor( Date.now() / 1000 ) - 5 );
-	const { getByTestId } = renderTab();
-	expect( getByTestId( 'overview-card-sse-uptime' ).textContent ).toMatch(
-		/\d/
-	);
+	renderTab();
+	expect( tile( 'sse-uptime' ).textContent ).toMatch( /\d/ );
 } );
 
 test( 'in/out card values render each number in its own right-aligned io cell', () => {
-	const { getByTestId } = renderTab();
+	renderTab();
 	// byte-rate shows ↓in/↑out in min-width cells so arrows don't shift.
 	expect(
-		getByTestId( 'overview-card-byte-rate' ).querySelectorAll(
-			'.nodes-card__io'
-		)
+		tile( 'byte-rate' ).querySelectorAll( '.nodes-card__io' )
 	).toHaveLength( 2 );
 	// Single-value cards (warnings) have none.
 	expect(
-		getByTestId( 'overview-card-warnings' ).querySelectorAll(
-			'.nodes-card__io'
-		)
+		tile( 'warnings' ).querySelectorAll( '.nodes-card__io' )
 	).toHaveLength( 0 );
 } );
 
@@ -100,14 +148,10 @@ test( 'shows the live cumulative warning/error/debug counts', () => {
 	IoTelemetry.recordWarning();
 	IoTelemetry.recordError( 3 );
 	IoTelemetry.recordDebug();
-	const { getByTestId } = renderTab();
-	expect( getByTestId( 'overview-card-warnings' ).textContent ).toContain(
-		'2'
-	);
-	expect( getByTestId( 'overview-card-errors' ).textContent ).toContain(
-		'3'
-	);
-	expect( getByTestId( 'overview-card-debug' ).textContent ).toContain( '1' );
+	renderTab();
+	expect( tile( 'warnings' ).textContent ).toContain( '2' );
+	expect( tile( 'errors' ).textContent ).toContain( '3' );
+	expect( tile( 'debug' ).textContent ).toContain( '1' );
 } );
 
 test( 'lists the classified messages below the charts (newest first)', () => {

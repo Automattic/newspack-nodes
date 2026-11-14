@@ -11,7 +11,7 @@ const { createJestConfig } = require( './src/build-kit/jest.cjs' );
 module.exports = createJestConfig( {
 	aliasBase: path.resolve( __dirname, 'src' ),
 	testPathIgnorePatterns: [ '/node_modules/', '/examples/' ],
-	// d3 (Overview's TopicsChart via the shared useTimeChart) and @noble/hashes
+	// d3 (the shared TimeChart via useTimeChart) and @noble/hashes
 	// (the synchronous command signer) ship ESM-only, so they + their ESM deps
 	// must opt OUT of the node_modules transform skip — else a test that
 	// transitively imports one fails to parse.

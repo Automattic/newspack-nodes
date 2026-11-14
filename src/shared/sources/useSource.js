@@ -4,7 +4,8 @@
  *
  * A live source is built by the substrate's own hooks: a poll by
  * `useBatchedPoll` and `addSliceFetcher`, a command by `useCommandRead`, a
- * stream by `useLogTailStream`. A hook runs only inside a component, so a
+ * stream by `useLogTailStream`, whose readers also get its view node and
+ * controls. A hook runs only inside a component, so a
  * `SourcesProvider` renders one host per held key inside the page's own
  * tree, under its StrictMode and its boundaries, built by this bundle's
  * hooks. A block only holds its key and reads what the host publishes, so a
@@ -61,10 +62,22 @@ import {
  * owed, and whether the model is a remembered one standing in.
  *
  * @typedef  {Object}  SourceState
- * @property {*}       model   The view model, null until an answer lands.
- * @property {?string} error   The refusal, or null.
- * @property {boolean} loading Whether its first answer is owed.
- * @property {boolean} stale   Whether a remembered answer stands in.
+ * @property {*}              model    The view model, null until an answer lands.
+ * @property {?string}        error    The refusal, or null.
+ * @property {boolean}        loading  Whether its first answer is owed.
+ * @property {boolean}        stale    Whether a remembered answer stands in.
+ * @property {StreamControls} [stream] A stream's view node and controls.
+ */
+
+/**
+ * A stream source's view node and the controls its readers send it, shared
+ * by every reader of the key.
+ *
+ * @typedef  {Object}                     StreamControls
+ * @property {() => ?Object}             node      The view node holding the ring.
+ * @property {(paused: boolean) => void} setPaused Pause or resume the stream.
+ * @property {(term: string) => void}    setFilter Admit only rows matching a term.
+ * @property {() => void}                clear     Empty the view.
  */
 
 /** What a key shows before its host publishes anything. */
@@ -146,21 +159,26 @@ function useCommandSource( { decl, params, prefix } ) {
  */
 function useStreamSource( { decl, params, prefix } ) {
 	const [ subscription ] = useState( () => decl.subscribe( params ) );
-	useLogTailStream( {
+	const { viewRef, setPaused, setFilter, clear } = useLogTailStream( {
 		name: prefix,
 		subscribe: subscription,
 		viewClass: decl.viewClass,
 		mode: decl.mode,
 	} );
 	const view = useNodeField( `${ prefix }:view`, 'view' );
+	const stream = useMemo(
+		() => ( { node: () => viewRef.current, setPaused, setFilter, clear } ),
+		[ viewRef, setPaused, setFilter, clear ]
+	);
 	return useMemo(
 		() => ( {
 			model: view ?? null,
 			error: null,
 			loading: undefined === view,
 			stale: false,
+			stream,
 		} ),
-		[ view ]
+		[ view, stream ]
 	);
 }
 

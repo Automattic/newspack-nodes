@@ -69,6 +69,22 @@ describe( 'CompositionBlockEdit', () => {
 		expect( setAttributes ).toHaveBeenCalledWith( { heading: 'Moorings' } );
 	} );
 
+	it( 'hands the Controls the attribute schemas it was registered with', () => {
+		const seen = jest.fn( () => null );
+		const schema = {
+			depth: { type: 'integer', minimum: 2, maximum: 9, default: 4 },
+		};
+		render(
+			<CompositionBlockEdit
+				attributes={ { depth: 4 } }
+				setAttributes={ () => {} }
+				view={ { View, Controls: seen } }
+				schema={ schema }
+			/>
+		);
+		expect( seen.mock.calls[ 0 ][ 0 ].schema ).toBe( schema );
+	} );
+
 	it( 'renders no inspector for a block with no Controls', () => {
 		render(
 			<CompositionBlockEdit

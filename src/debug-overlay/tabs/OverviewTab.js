@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-// Reuse the station's d3 rate panel (pulls in d3) over a reimplementation.
-import { TopicsPanels } from '../../event-dashboards/TopicsChart';
+import { StatTile, StatTiles } from '@newspack-nodes/shared/blocks/stats';
+import { TimeChartPanels } from '@newspack-nodes/shared/blocks/time-chart';
 import {
 	formatBytes,
 	formatByteRate,
@@ -12,9 +12,6 @@ import {
 import { useOverviewStats } from '../useOverviewStats';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 import { Core } from '../../runtime/core';
-// Ship the station's card and overview styles so the overlay stands alone.
-import '../../event-dashboards/styles/summary-cards.scss';
-import '../../event-dashboards/styles/overview.scss';
 // Overlay-only additions, panel-scoped so they can't bleed into the station.
 import './overview-tab.scss';
 
@@ -34,33 +31,10 @@ const MSG_LEVELS = [
 ];
 
 /**
- * One metric card, on the station SummaryCards markup: `newspack-nodes-card` for
- * the canonical surface role and `nodes-card` for the value/label layout, so
- * the overlay inherits the station's card look instead of restating it.
- *
- * @param {Object}                    props
- * @param {string}                    props.id    Card id; names both the `nodes-card--<id>` modifier and the test id.
- * @param {string}                    props.label Caption under the value.
- * @param {import('react').ReactNode} props.value Formatted value, either a plain string or an `inOut` pair.
- * @return {import('react').ReactElement} The card.
- */
-function Card( { id, label, value } ) {
-	return (
-		<div
-			className={ `newspack-nodes-card nodes-card nodes-card--${ id }` }
-			data-testid={ `overview-card-${ id }` }
-		>
-			<span className="nodes-card__value">{ value }</span>
-			<span className="nodes-card__label">{ label }</span>
-		</div>
-	);
-}
-
-/**
- * A compact in/out card value: the inbound number carrying ↓, the outbound
+ * A compact in/out tile value: the inbound number carrying ↓, the outbound
  * carrying ↑. Each sits in its own fixed-width right-aligned `nodes-card__io`
- * cell, so the arrows hold their column as the digit count changes rather than
- * sliding around under them.
+ * cell, so the arrows hold their column as the digit count changes rather
+ * than sliding around under them.
  *
  * @param {string} inbound  Formatted inbound value.
  * @param {string} outbound Formatted outbound value.
@@ -82,20 +56,23 @@ function inOut( inbound, outbound ) {
 }
 
 /**
- * The Overview tab — the debug overlay's at-a-glance I/O board. The cards carry
+ * The Overview tab — the debug overlay's at-a-glance I/O board. The tiles carry
  * the live in/out byte and message rates, the cumulative in/out byte and message
  * totals, the warning, error and debug counts, and the client and SSE uptimes.
- * Under them sit the same two Tachikoma-style rate panels the station Overview shows
- * (Message Rate, Byte Rate) with In/Out series in place of per-topic, a button
- * that zeroes the telemetry, and the lines this browser classified, newest
- * first, behind err/warn/dbg chips. Those lines come from the overlay itself, never
- * from the server, which is what the "Messages (this browser)" heading says out loud.
+ * Under them sit the two rate panels (Message Rate, Byte Rate) with In/Out
+ * series, a button that zeroes the telemetry, and the lines this browser
+ * classified, newest first, behind err/warn/dbg chips. Those lines come from
+ * the overlay itself, never from the server, which is what the "Messages
+ * (this browser)" heading says out loud.
+ *
+ * The tiles and panels are the shared `StatTile` and `TimeChart`, the ones the
+ * station and the stats and time-chart blocks draw, fed straight from
+ * `useOverviewStats`, which the always-on IoTelemetry sampler feeds.
  *
  * Header-less: the panel owns the one shared header above the tab bar, so this
- * tab renders only the scrolling body, on the station's card, panel and chart
- * classes plus the panel-scoped additions in `overview-tab.scss`. It publishes
- * nothing to that header, because the Overview has no graph cwd to navigate.
- * Data comes from `useOverviewStats`, fed by the always-on IoTelemetry sampler.
+ * tab renders only the scrolling body, plus the panel-scoped additions in
+ * `overview-tab.scss`. It publishes nothing to that header, because the
+ * Overview has no graph cwd to navigate.
  *
  * @param {Object}   props
  * @param {Function} props.publishHeader Publish header extras to the panel's shared Header; the Overview clears them.
@@ -117,7 +94,7 @@ export default function OverviewTab( { publishHeader } ) {
 		levels[ level ] ? 1 : 0
 	).join( '' );
 
-	// Uptimes read at render so they tick with the cards' 20Hz refresh.
+	// Uptimes read at render so they tick with the tiles' 20Hz refresh.
 	const nowSec = Math.floor( Date.now() / 1000 );
 	const clientUptime = formatAge(
 		Math.floor( performance.timeOrigin / 1000 ),
@@ -138,7 +115,9 @@ export default function OverviewTab( { publishHeader } ) {
 				className="nodes-overview__messages"
 				data-testid="overview-messages"
 			>
-				<h3>{ __( 'Messages (this browser)', 'newspack-nodes' ) }</h3>
+				<h3 className="newspack-nodes-stat-label">
+					{ __( 'Messages (this browser)', 'newspack-nodes' ) }
+				</h3>
 				<div className="nodes-overview__msg-filters">
 					{ MSG_LEVELS.map( ( { level, label } ) => (
 						<button
@@ -195,8 +174,8 @@ export default function OverviewTab( { publishHeader } ) {
 				overflowY: 'auto',
 			} }
 		>
-			<div className="nodes-cards">
-				<Card
+			<StatTiles>
+				<StatTile
 					id="byte-rate"
 					label={ __( 'Byte Rate', 'newspack-nodes' ) }
 					value={ inOut(
@@ -204,7 +183,7 @@ export default function OverviewTab( { publishHeader } ) {
 						formatByteRate( rates.byteOut )
 					) }
 				/>
-				<Card
+				<StatTile
 					id="message-rate"
 					label={ __( 'Message Rate', 'newspack-nodes' ) }
 					value={ inOut(
@@ -212,7 +191,7 @@ export default function OverviewTab( { publishHeader } ) {
 						formatMsgRate( rates.msgOut )
 					) }
 				/>
-				<Card
+				<StatTile
 					id="total-messages"
 					label={ __( 'Total Messages', 'newspack-nodes' ) }
 					value={ inOut(
@@ -220,7 +199,7 @@ export default function OverviewTab( { publishHeader } ) {
 						formatCount( totals.msgsOut )
 					) }
 				/>
-				<Card
+				<StatTile
 					id="total-bytes"
 					label={ __( 'Total Bytes', 'newspack-nodes' ) }
 					value={ inOut(
@@ -228,33 +207,33 @@ export default function OverviewTab( { publishHeader } ) {
 						formatBytes( totals.bytesOut )
 					) }
 				/>
-				<Card
+				<StatTile
 					id="warnings"
 					label={ __( 'Warnings', 'newspack-nodes' ) }
 					value={ formatCount( totals.warnings ) }
 				/>
-				<Card
+				<StatTile
 					id="errors"
 					label={ __( 'Errors', 'newspack-nodes' ) }
 					value={ formatCount( totals.errors ) }
 				/>
-				<Card
+				<StatTile
 					id="debug"
 					label={ __( 'Debug', 'newspack-nodes' ) }
 					value={ formatCount( totals.debug ) }
 				/>
-				<Card
+				<StatTile
 					id="client-uptime"
 					label={ __( 'Client Uptime', 'newspack-nodes' ) }
 					value={ clientUptime }
 				/>
-				<Card
+				<StatTile
 					id="sse-uptime"
 					label={ __( 'SSE Uptime', 'newspack-nodes' ) }
 					value={ sseUptime }
 				/>
-			</div>
-			<TopicsPanels
+			</StatTiles>
+			<TimeChartPanels
 				panels={ [
 					{
 						storageKey: 'newspack-nodes:debug:chart:message-rate',

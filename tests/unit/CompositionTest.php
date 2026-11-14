@@ -601,35 +601,132 @@ final class CompositionTest extends TestCase {
 		);
 	}
 
-	public function test_the_substrate_declares_a_shared_aside_container(): void {
+	public function test_the_substrate_declares_its_shared_blocks(): void {
 		$registered = \array_values(
 			\array_filter(
 				$GLOBALS['_wp_initial_action_registrations'][ Composition::FILTER ] ?? [],
-				static fn ( array $one ): bool => [ Composition::class, 'declare_aside' ] === $one['callback']
+				static fn ( array $one ): bool => [ Composition::class, 'declare_substrate_blocks' ] === $one['callback']
 			)
 		);
 		$this->assertCount( 1, $registered );
 		$this->assertSame( 5, $registered[0]['priority'] );
 
-		$this->declare_shared( [ 'kea-7710/strip', Composition::ASIDE ] );
+		$this->declare_shared( [ 'kea-7710/strip', Composition::ASIDE, 'newspack-nodes/section', 'newspack-nodes/stats' ] );
 
+		$source = [ 'type' => 'string', 'default' => '' ];
+		$names  = [
+			'type'    => 'array',
+			'items'   => [ 'type' => 'string' ],
+			'default' => [],
+		];
+		$block  = static fn ( string $title, array $attributes, bool $container = false, bool $multiple = true ): array => [
+			'title'      => $title,
+			'contexts'   => [],
+			'shared'     => true,
+			'attributes' => $attributes,
+			'container'  => $container,
+			'multiple'   => $multiple,
+		];
 		$this->assertSame(
 			[
-				'title'      => 'Aside',
-				'contexts'   => [],
-				'shared'     => true,
-				'attributes' => [],
-				'container'  => true,
-				'multiple'   => false,
+				'newspack-nodes/aside'      => $block( 'Aside', [], true, false ),
+				'newspack-nodes/stats'      => $block(
+					'Stats',
+					[
+						'source'  => $source,
+						'fields'  => $names,
+						'columns' => [ 'type' => 'integer', 'minimum' => 0, 'maximum' => 12, 'default' => 0 ],
+					]
+				),
+				'newspack-nodes/time-chart' => $block(
+					'Time chart',
+					[
+						'source'  => $source,
+						'metrics' => $names,
+						'stacked' => [ 'type' => 'boolean', 'default' => false ],
+						'title'   => $source,
+					]
+				),
+				'newspack-nodes/table'      => $block(
+					'Table',
+					[
+						'source'  => $source,
+						'columns' => $names,
+						'sort'    => [
+							'type'                 => 'object',
+							'properties'           => [
+								'field'     => [ 'type' => 'string' ],
+								'direction' => [ 'type' => 'string', 'enum' => [ 'asc', 'desc' ] ],
+							],
+							'additionalProperties' => false,
+							'default'              => [ 'field' => '', 'direction' => 'desc' ],
+						],
+						'perPage' => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 100, 'default' => 20 ],
+						'title'   => $source,
+					]
+				),
+				'newspack-nodes/log-stream' => $block(
+					'Log stream',
+					[
+						'source'  => $source,
+						'columns' => $names,
+						'title'   => $source,
+					]
+				),
+				'newspack-nodes/sparkline'  => $block(
+					'Sparkline',
+					[
+						'source' => $source,
+						'field'  => $source,
+						'title'  => $source,
+					]
+				),
+				'newspack-nodes/section'    => $block(
+					'Section',
+					[
+						'title'       => $source,
+						'description' => $source,
+					],
+					true
+				),
 			],
-			Composition::declarations()['blocks']['newspack-nodes/aside']
+			\array_filter(
+				Composition::declarations()['blocks'],
+				static fn ( string $name ): bool => \str_starts_with( $name, 'newspack-nodes/' ),
+				\ARRAY_FILTER_USE_KEY
+			)
 		);
+
+		$tree = Composition::validate(
+			'weka-7711/board',
+			'<!-- wp:newspack-nodes/section {"title":"Moa 7712"} --><!-- wp:newspack-nodes/stats {"source":"moa-7712","fields":["height"],"columns":3} /--><!-- /wp:newspack-nodes/section -->'
+		);
+		$this->assertSame( 'newspack-nodes/section', $tree[0]['name'] );
+		$this->assertSame(
+			[
+				'source'  => 'moa-7712',
+				'fields'  => [ 'height' ],
+				'columns' => 3,
+			],
+			$tree[0]['inner'][0]['attributes']
+		);
+
 		$tree = Composition::validate(
 			'weka-7711/board',
 			'<!-- wp:newspack-nodes/aside --><!-- wp:kea-7710/strip {"hue":"plum"} /--><!-- /wp:newspack-nodes/aside -->'
 		);
-		$this->assertSame( 'newspack-nodes/aside', $tree[0]['name'] );
 		$this->assertSame( [ 'hue' => 'plum' ], $tree[0]['inner'][0]['attributes'] );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'newspack-nodes/section stands only at the top level' );
+		Composition::validate(
+			'weka-7711/board',
+			'<!-- wp:newspack-nodes/aside --><!-- wp:newspack-nodes/section /--><!-- /wp:newspack-nodes/aside -->'
+		);
+	}
+
+	public function test_the_aside_stands_once(): void {
+		$this->declare_shared( [ Composition::ASIDE ] );
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'a second newspack-nodes/aside; it stands once' );
@@ -650,12 +747,12 @@ final class CompositionTest extends TestCase {
 					'contexts' => [],
 				],
 			],
-			[ Composition::class, 'declare_aside' ],
+			[ Composition::class, 'declare_substrate_blocks' ],
 		];
 		$this->forget_declarations();
 
 		$this->expectException( \LogicException::class );
-		$this->expectExceptionMessage( 'composition declaration newspack-nodes: newspack-nodes belongs to the substrate, which declares only newspack-nodes/aside' );
+		$this->expectExceptionMessage( 'composition declaration newspack-nodes: newspack-nodes belongs to the substrate, which declares its own blocks there' );
 		Composition::declarations();
 	}
 

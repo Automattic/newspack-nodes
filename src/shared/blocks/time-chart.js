@@ -1,22 +1,22 @@
 /**
- * One Topics panel: the shared `AreaTimeChart` over each topic's aligned
- * series, ranked by peak and coloured by rank.
+ * The time-chart block, and `TimeChart`, the one panel every dashboard time
+ * chart draws: the shared `AreaTimeChart` over each series' aligned points,
+ * ranked by peak and coloured by rank.
  *
  * Nothing here knows which metric it draws, so one component serves the
- * Overview dashboard's four panels (message rate, byte rate, backlog, cache
- * size), the Jobs dashboard's four, the Tables tab's five (ops rate, operation
- * rate, miss rate, latency, size), and the debug overlay's two. The metric
- * arrives as data: the `series` to draw, each carrying the `mode` saying how a
- * slot aggregates its points and what an empty one holds, plus the `step` of
- * the bucket grid its points sit on, the `yLabel` naming the quantity, and the
- * formatter its axis ticks and tooltip rows print through: a fixed
- * `formatValue`, or a `formatFor( peak )` that picks one unit for the whole
- * axis from what the panel draws, as `axisDuration` does for a latency.
+ * station's Overview, Jobs and Tables panels, the debug overlay's two and
+ * every time-chart block. The metric arrives as data: the `series` to draw,
+ * each carrying the `mode` saying how a slot aggregates its points and what
+ * an empty one holds, plus the `step` of the bucket grid its points sit on,
+ * the `yLabel` naming the quantity, and the formatter its axis ticks and
+ * tooltip rows print through: a fixed `formatValue`, or a `formatFor( peak )`
+ * that picks one unit for the whole axis from what the panel draws, as
+ * `axisDuration` does for a latency. A panel holding a `mean` series never
+ * stacks, because means never add up.
  * `topicChartSeries` builds the series on the dashboards,
- * `overviewChartSeries` in the overlay.
- *
- * `ProbeTable` beside it renders the probe tabs' per-identity tables from a
- * column declaration, so Jobs and Tables write out no table shell.
+ * `overviewChartSeries` in the overlay, and a block's source names them as
+ * the metrics it declares: each metric's model is a series map, and the
+ * block draws the series of every metric it names.
  *
  * `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket grid
  * first, because each worker runs its own `Topic_Probe` on an independent 15s
@@ -30,13 +30,14 @@
 
 import { memo, useCallback, useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { chartColor } from '@newspack-nodes/shared/hooks/useTimeChart';
-import AreaTimeChart from '@newspack-nodes/shared/components/AreaTimeChart';
-import { buildAlignedSeries } from './buildAlignedSeries';
-import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
-import './styles/topics-chart.scss';
+import { chartColor } from '../hooks/useTimeChart';
+import AreaTimeChart from '../components/AreaTimeChart';
+import { buildAlignedSeries } from '../utils/buildAlignedSeries';
+import { formatGroupedCount } from '../utils/formatters';
+import { sourceBlock } from './sourceBlock';
+import './time-chart.scss';
 
-/** @typedef {import('@newspack-nodes/shared/utils/axis-ticks').AxisFormatter} AxisFormatter */
+/** @typedef {import('../utils/axis-ticks').AxisFormatter} AxisFormatter */
 
 /** Total SVG height of one panel, in pixels, axis margins included. */
 const HEIGHT = 200;
@@ -59,9 +60,9 @@ const MAX_POINTS = 500;
  */
 const rankColor = ( _label, index ) => chartColor( index );
 
-export const TopicsChart = memo(
+export const TimeChart = memo(
 	/**
-	 * One Topics panel: ranked areas over a shared aligned time axis.
+	 * One panel: ranked areas over a shared aligned time axis.
 	 *
 	 * The JSDoc rides this inner function because `memo()` on the const infers
 	 * the props as `{}`. The `memo` keeps the redraw off unrelated renders: a
@@ -79,10 +80,9 @@ export const TopicsChart = memo(
 	 * @param {AxisFormatter}                     [props.formatValue] Formats a value for the Y-axis ticks and the tooltip rows, whatever the peak; a `tickValues` property on it ticks the axis in its own unit.
 	 * @param {( peak: number ) => AxisFormatter} [props.formatFor]   Builds that formatter from the peak drawn, in place of `formatValue`.
 	 * @param {boolean}                           [props.stacked]     Stack the series by default, for series that add up into a total; the corner toggle still flips it.
-	 * @param {boolean}                           [props.stackable]   Offer the stack toggle; `false` for means, which never add up.
 	 * @return {import('react').ReactElement} The rendered panel.
 	 */
-	function TopicsChart( {
+	function TimeChart( {
 		title,
 		storageKey,
 		yLabel,
@@ -90,11 +90,14 @@ export const TopicsChart = memo(
 		formatValue,
 		formatFor,
 		stacked = false,
-		stackable = true,
 	} ) {
 		const chartState = useMemo(
 			() => buildAlignedSeries( series, MAX_POINTS ),
 			[ series ]
+		);
+		// Means never add up, so a panel holding one never stacks.
+		const stackable = ! Object.values( series ?? {} ).some(
+			( one ) => 'mean' === one.mode?.agg
 		);
 		const fixed = useCallback( () => formatValue, [ formatValue ] );
 		const yFormatFor = formatFor ?? fixed;
@@ -109,7 +112,7 @@ export const TopicsChart = memo(
 					storageKey={ storageKey }
 					yLabel={ yLabel }
 					height={ HEIGHT }
-					stacked={ stacked }
+					stacked={ stackable && stacked }
 					stackable={ stackable }
 					totalLabel={ __( 'Total', 'newspack-nodes' ) }
 				/>
@@ -119,10 +122,10 @@ export const TopicsChart = memo(
 );
 
 /**
- * A tab's Topics panels, one `TopicsChart` per declaration.
+ * A tab's panels, one `TimeChart` per declaration.
  *
  * A declaration is `{ title, storageKey, yLabel, series, formatValue |
- * formatFor, stacked?, stackable? }`, keyed by its `storageKey`, since a
+ * formatFor, stacked? }`, keyed by its `storageKey`, since a
  * translated title can repeat. The array may be rebuilt per render, but each
  * `series` must stay a memoized object, and a `formatFor` a module-level
  * function, or the chart's memo redraws.
@@ -131,95 +134,69 @@ export const TopicsChart = memo(
  * @param {Array<Object>} props.panels Panel declarations, drawn in order.
  * @return {import('react').ReactElement} The charts, two to a grid row.
  */
-export function TopicsPanels( { panels } ) {
+export function TimeChartPanels( { panels } ) {
 	return (
 		<div className="nodes-topics-panels">
 			{ panels.map( ( panel ) => (
-				<TopicsChart key={ panel.storageKey } { ...panel } />
+				<TimeChart key={ panel.storageKey } { ...panel } />
 			) ) }
 		</div>
 	);
 }
 
 /**
- * One column of a `ProbeTable`: its header, its cell, and optionally the
- * attributes its `<td>` takes.
+ * The block: one panel over the series of every metric it names, every
+ * declared series when it names nothing, the axis named by the first metric's label and
+ * printed through its `formatFor`, else its `format`. A metric's model is a series map; with
+ * more than one metric, each series is named after its metric too, and the
+ * panel redraws whenever the model moves.
  *
- * @typedef {Object} ProbeColumn
- * @property {string}                         label Header text, and the cell's React key.
- * @property {( row: *, ctx: * ) => *}        cell  The cell's content for one row.
- * @property {( row: * ) => Object<string,*>} [td]  Attributes for the cell's `<td>`.
+ * @param {Object}                               props
+ * @param {Object}                               props.attributes `{ source, metrics, stacked, title }`.
+ * @param {Object}                               props.model      The source's model.
+ * @param {import('./sourceBlock').BlockField[]} props.fields     The metrics drawn.
+ * @return {import('react').ReactElement} The panel.
  */
-
-/**
- * A probe tab's per-identity table, or its empty state while it has no rows.
- *
- * @param {Object}               props           Component props.
- * @param {Array<ProbeColumn>}   props.columns   The columns, in order.
- * @param {Array<Object>}        props.rows      The rows, already sorted.
- * @param {( row: * ) => string} props.rowKey    A row's identity.
- * @param {string}               props.keyAttr   The data attribute carrying that identity, e.g. `data-job-key`.
- * @param {*}                    [props.context] Handed to every cell beside its row.
- * @param {string}               props.emptyText What reads in place of a table with no rows.
- * @return {import('react').ReactElement} The table or the empty state.
- */
-export function ProbeTable( {
-	columns,
-	rows,
-	rowKey,
-	keyAttr,
-	context,
-	emptyText,
-} ) {
-	if ( 0 === rows.length ) {
-		return (
-			<p className="newspack-nodes-empty-state nodes-probe-tab__empty">
-				{ emptyText }
-			</p>
-		);
-	}
+function TimeChartBlock( { attributes, model, fields } ) {
+	const { source, stacked, title } = attributes;
+	// One metric's map passes as held, so a moving model redraws nothing.
+	const drawn = 1 === fields.length ? model[ fields[ 0 ].key ] : model;
+	const series = useMemo(
+		() =>
+			1 === fields.length
+				? drawn ?? {}
+				: Object.fromEntries(
+						fields.flatMap( ( field ) =>
+							Object.entries( model[ field.key ] ?? {} ).map(
+								( [ label, one ] ) => [
+									`${ field.label }: ${ label }`,
+									one,
+								]
+							)
+						)
+				  ),
+		[ drawn, fields, model ]
+	);
+	const [ first ] = fields;
 	return (
-		<table className="nodes-probe-tab__table newspack-nodes-table">
-			<thead>
-				<tr>
-					{ columns.map( ( c ) => (
-						<th key={ c.label }>{ c.label }</th>
-					) ) }
-				</tr>
-			</thead>
-			<tbody>
-				{ rows.map( ( row ) => {
-					const key = rowKey( row );
-					return (
-						<tr key={ key } { ...{ [ keyAttr ]: key } }>
-							{ columns.map( ( c ) => (
-								<td key={ c.label } { ...c.td?.( row ) }>
-									{ c.cell( row, context ) }
-								</td>
-							) ) }
-						</tr>
-					);
-				} ) }
-			</tbody>
-		</table>
+		<TimeChart
+			title={
+				title || fields.map( ( field ) => field.label ).join( ' · ' )
+			}
+			storageKey={ `newspack-nodes:time-chart:${ source }:${ fields
+				.map( ( field ) => field.key )
+				.join( ',' ) }` }
+			yLabel={ first.label }
+			series={ series }
+			formatValue={ first.format ?? formatGroupedCount }
+			formatFor={ first.formatFor }
+			stacked={ stacked }
+		/>
 	);
 }
 
-/**
- * The window's error count as a column, marked when it is not zero.
- *
- * @param {string} label The column header.
- * @return {ProbeColumn} The column, reading `row.windowed.errors`.
- */
-export function errorsColumn( label ) {
-	return {
-		label,
-		cell: ( row ) => formatGroupedCount( row.windowed.errors ),
-		td: ( row ) => ( {
-			className:
-				row.windowed.errors > 0
-					? 'nodes-probe-tab__count is-nonzero'
-					: 'nodes-probe-tab__count',
-		} ),
-	};
-}
+export default sourceBlock( TimeChartBlock, {
+	kind: 'series',
+	list: 'metrics',
+	settings: [ 'title', 'stacked' ],
+} );

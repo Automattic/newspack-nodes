@@ -60,7 +60,7 @@ import { useTopologyManager } from './hooks/useTopologyManager';
 import { probeLog, useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import { topicChartSeries, bySource } from './topicProbeSeries';
-import { TopicsPanels } from './TopicsChart';
+import { TimeChartPanels } from '@newspack-nodes/shared/blocks/time-chart';
 import { consoleHref, TopologyRow } from './TopologyRow';
 import {
 	formatBytes,
@@ -477,7 +477,7 @@ export default function Overview( { headerControlsSlot } ) {
 				consumers={ consumers }
 				partitions={ partitions }
 			/>
-			<TopicsPanels panels={ panels } />
+			<TimeChartPanels panels={ panels } />
 			{ actives.length > 0 && (
 				<div className="nodes-overview__toolbar">
 					<button

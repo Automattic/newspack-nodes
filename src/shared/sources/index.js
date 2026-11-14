@@ -4,5 +4,10 @@
  * params make one fetch.
  */
 
-export { registerSource } from './registry';
+export {
+	declaredSources,
+	registerSource,
+	sourceDeclaration,
+	stableJson,
+} from './registry';
 export { SourcesProvider, useSource } from './useSource';

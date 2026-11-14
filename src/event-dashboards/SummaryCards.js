@@ -38,43 +38,17 @@ import {
 	formatMsgRate,
 	formatCount,
 } from '@newspack-nodes/shared/utils/formatters';
+import { StatTile, StatTiles } from '@newspack-nodes/shared/blocks/stats';
 import './styles/summary-cards.scss';
-
-/**
- * One card: a big value over a muted label.
- *
- * `mod` is the card's identity, naming both the BEM modifier the stylesheet
- * targets and the selector the unit tests query, so the two move together.
- * Both class names are load-bearing: `newspack-nodes-card` is the shared
- * surface — background, border, radius — every Newspack card wears, and
- * `nodes-card` carries this row's own layout and typography.
- *
- * @param {Object} props
- * @param {string} props.mod          Card identity, appended to `nodes-card--`.
- * @param {string} props.value        The big value line, already formatted.
- * @param {string} props.label        The muted caption beneath it.
- * @param {string} [props.extraClass] Further classes, concatenated verbatim, so a caller supplies its own leading space.
- * @return {import('react').ReactElement} The card.
- */
-function Card( { mod, value, label, extraClass = '' } ) {
-	return (
-		<div
-			className={ `newspack-nodes-card nodes-card nodes-card--${ mod }${ extraClass }` }
-		>
-			<span className="nodes-card__value">{ value }</span>
-			<span className="nodes-card__label">{ label }</span>
-		</div>
-	);
-}
 
 /**
  * Render the card row.
  *
- * Health is the one card that says more than a number: it reports the worst
- * level among the ACTIVE topologies and how many sit there ("2 stalled"), and
- * tints itself through a `nodes-card--health-{level}` modifier. Stalled
- * outranks behind, so a fleet carrying both reports the stalled count; a fleet
- * with neither reads "ok".
+ * Every card is the shared `StatTile`. Health is the one card that says more
+ * than a number: it reports the worst level among the ACTIVE topologies and
+ * how many sit there ("2 stalled"), and tints itself through a
+ * `nodes-card--health-{level}` modifier. Stalled outranks behind, so a fleet
+ * carrying both reports the stalled count; a fleet with neither reads "ok".
  *
  * @param {Object}  props
  * @param {?Array}  props.topologies    Topology rows from `useTopologyManager`.
@@ -120,9 +94,9 @@ function SummaryCards( {
 	}
 
 	return (
-		<div className="nodes-cards">
-			<Card
-				mod="topologies"
+		<StatTiles>
+			<StatTile
+				id="topologies"
 				value={ sprintf(
 					// translators: %1$d: total topologies; %2$d: active count.
 					__( '%1$d · %2$d active', 'newspack-nodes' ),
@@ -131,8 +105,8 @@ function SummaryCards( {
 				) }
 				label={ __( 'Topologies', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="workers"
+			<StatTile
+				id="workers"
 				value={ sprintf(
 					// translators: %1$d: running workers; %2$d: expected workers.
 					__( '%1$d / %2$d up', 'newspack-nodes' ),
@@ -141,73 +115,73 @@ function SummaryCards( {
 				) }
 				label={ __( 'Workers', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="partitions"
+			<StatTile
+				id="partitions"
 				value={ String( logPartitions ?? 0 ) }
 				label={ __( 'Partitions', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="health"
-				extraClass={ ` nodes-card--health-${ fleet.health }` }
+			<StatTile
+				id="health"
+				className={ `nodes-card--health-${ fleet.health }` }
 				value={ healthLabel }
 				label={ __( 'Health', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="read"
+			<StatTile
+				id="read"
 				value={ formatByteRate( readRate ) }
 				label={ __( 'Read', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="write"
+			<StatTile
+				id="write"
 				value={ formatByteRate( writeRate ) }
 				label={ __( 'Write', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="msgrate"
+			<StatTile
+				id="msgrate"
 				value={ formatMsgRate(
 					liveTotal( consumers, headS, 'msgRate' )
 				) }
 				label={ __( 'Msgs read/s', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="backlog"
+			<StatTile
+				id="backlog"
 				value={ formatBytes(
 					liveTotal( consumers, headS, 'backlog' )
 				) }
 				label={ __( 'Backlog', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="messages"
+			<StatTile
+				id="messages"
 				value={ formatCount( totals.msgs ) }
 				label={ __( 'Msgs read · 24h', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="bytes"
+			<StatTile
+				id="bytes"
 				value={ formatBytes( totals.bytes ) }
 				label={ __( 'Bytes read · 24h', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="cache-total"
+			<StatTile
+				id="cache-total"
 				value={ formatBytes(
 					liveTotal( consumers, headS, 'cacheSize' )
 				) }
 				label={ __( 'Total Cache', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="size-total"
+			<StatTile
+				id="size-total"
 				value={ formatBytes(
 					liveTotal( partitions, partitionHeadS, 'endBytes' )
 				) }
 				label={ __( 'Total Size', 'newspack-nodes' ) }
 			/>
-			<Card
-				mod="disk-total"
+			<StatTile
+				id="disk-total"
 				value={ formatBytes(
 					liveTotal( partitions, partitionHeadS, 'diskBytes' )
 				) }
 				label={ __( 'Total On Disk', 'newspack-nodes' ) }
 			/>
-		</div>
+		</StatTiles>
 	);
 }
 

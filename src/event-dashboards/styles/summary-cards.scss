@@ -1,75 +1,40 @@
 /**
- * SummaryCards + TopologyControls — the fleet-vitals card row and the shared
+ * SummaryCards + TopologyControls — the fleet-vitals health card and the shared
  * per-topology action cluster, used by BOTH the Overview and Topologies station tabs
- * so the two carry identical chrome. Tracks the event-dashboards dark theme
- * (base.scss) and the shared health palette.
+ * so the two carry identical chrome, in the shared health palette.
  */
-
-@use "base";
 
 $health-ok: var(--sage-text);
 $health-behind: var(--brass-text);
 $health-stalled: var(--oxide-text);
 
-// ── Card row ───────────────────────────────────────────────────────────────
-.nodes-cards {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: stretch;
-	gap: 10px;
-	margin: 4px 0 18px;
-	font-family: base.$system-font;
+// ── Health card: tint the value and add a status dot ─────────────────────
+// The row and its tiles are the shared stats block's, in shared/blocks.
+.nodes-card--health .nodes-card__value {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+
+	&::before {
+		content: "";
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: currentcolor;
+		flex: 0 0 auto;
+	}
 }
 
-.nodes-card {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	min-width: 104px;
-	padding: 11px 15px;
+.nodes-card--health-ok .nodes-card__value {
+	color: $health-ok;
+}
 
-	&__value {
-		font-size: 16px;
-		font-weight: 700;
-		color: var(--ink);
-		line-height: 1.2;
-	}
+.nodes-card--health-behind .nodes-card__value {
+	color: $health-behind;
+}
 
-	&__label {
-		font-size: var(--np-text-2xs);
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--ink-3);
-	}
-
-	// Health card: tint the value + add a status dot.
-	&--health &__value {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-
-		&::before {
-			content: "";
-			width: 8px;
-			height: 8px;
-			border-radius: 50%;
-			background: currentcolor;
-			flex: 0 0 auto;
-		}
-	}
-
-	&--health-ok &__value {
-		color: $health-ok;
-	}
-
-	&--health-behind &__value {
-		color: $health-behind;
-	}
-
-	&--health-stalled &__value {
-		color: $health-stalled;
-	}
+.nodes-card--health-stalled .nodes-card__value {
+	color: $health-stalled;
 }
 
 // "+ New Topology" — trails the card row, right-aligned.

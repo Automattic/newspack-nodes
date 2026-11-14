@@ -20,7 +20,7 @@ jest.mock( '@wordpress/blocks', () => ( {
 
 jest.mock( '@wordpress/block-editor', () => ( {
 	useBlockProps: () => ( {} ),
-	InspectorControls: () => null,
+	InspectorControls: ( { children } ) => children,
 	InnerBlocks: ( { allowedBlocks } ) => (
 		<div data-testid="inner" data-allowed={ allowedBlocks.join( ' ' ) } />
 	),
@@ -43,7 +43,7 @@ const SCHEMAS = {
 	},
 	'acme-desk/gauge': {
 		title: 'Gauge',
-		attributes: {},
+		attributes: { needle: { type: 'string', default: 'north-7864' } },
 		container: false,
 		multiple: true,
 	},
@@ -60,7 +60,12 @@ const VIEWS = {
 			<section data-testid="column">{ children }</section>
 		),
 	},
-	'acme-desk/gauge': { View: () => null },
+	'acme-desk/gauge': {
+		View: () => null,
+		Controls: ( { schema } ) => (
+			<p data-testid="gauge-schema">{ Object.keys( schema ).join() }</p>
+		),
+	},
 };
 
 beforeEach( () => {
@@ -125,6 +130,20 @@ describe( 'registerCompositionBlocks', () => {
 			<Edit attributes={ { max: 13 } } setAttributes={ () => {} } />
 		);
 		expect( screen.getByTestId( 'tally' ).textContent ).toBe( 'max 13' );
+	} );
+
+	it( 'hands a block’s Controls its attribute schemas', () => {
+		registerCompositionBlocks( SCHEMAS, VIEWS );
+		const { edit: Edit } = mockRegistered.get( 'acme-desk/gauge' );
+		render(
+			<Edit
+				attributes={ { needle: 'north-7864' } }
+				setAttributes={ () => {} }
+			/>
+		);
+		expect( screen.getByTestId( 'gauge-schema' ).textContent ).toBe(
+			'needle'
+		);
 	} );
 
 	it( 'admits every block but a container inside a container', () => {

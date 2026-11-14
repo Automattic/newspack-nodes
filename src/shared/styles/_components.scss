@@ -804,11 +804,22 @@ $composed-aside-width: 320px;
 		}
 	}
 
-	// Stats grid
+	// Stats grid: four columns, or as many as its custom property names.
 	.newspack-nodes-stats-grid {
 		display: grid;
-		grid-template-columns: repeat(4, 1fr);
+		grid-template-columns: repeat(
+			var(--newspack-nodes-stat-columns, 4),
+			1fr
+		);
 		gap: $space-lg;
+
+		// Tiles that wrap as they fit, each as wide as its figure.
+		&.is-flow {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: stretch;
+			gap: 10px;
+		}
 	}
 
 	.newspack-nodes-stat-value {
@@ -841,6 +852,19 @@ $composed-aside-width: 320px;
 		// Adjacent inline spans; without this they read as one token.
 		.newspack-nodes-stat-value + .newspack-nodes-stat-label {
 			margin-left: $space-sm;
+		}
+	}
+
+	// A stat in a card of its own: a figure over its caption.
+	.newspack-nodes-stat-tile {
+		.newspack-nodes-stat-value {
+			font-size: 16px;
+			font-weight: 700;
+			line-height: 1.2;
+		}
+
+		.newspack-nodes-stat-label {
+			font-weight: 600;
 		}
 	}
 

@@ -53,11 +53,10 @@ function seekForMode( mode, subscribe ) {
 /**
  * Mount one declared log tail for the calling component's lifetime.
  *
- * The `useStreamGraph` handle is dropped: a declared tail offers no pause,
- * seek or step control, so tab visibility is the whole gate on the SSE
- * connection. A dashboard that drives those controls calls `useStreamGraph`
- * itself, and one that shows skipped lines hands its subscription to
- * `UnparseableLinesNotice`.
+ * A declared tail offers no seek or step, so a dashboard that drives those
+ * calls `useStreamGraph` itself, and one that shows skipped lines hands its
+ * subscription to `UnparseableLinesNotice`. The `useStreamGraph` handle it
+ * answers pauses, filters and clears the view.
  *
  * @param {Object} o
  * @param {string} o.name      Stream name; the two node names derive from it.
@@ -66,6 +65,7 @@ function seekForMode( mode, subscribe ) {
  *                             than named (ADR-16).
  * @param {string} [o.mode]    'history' (retention replay) or 'follow' (tail,
  *                             the default). Any other value throws.
+ * @return {ReturnType<typeof useStreamGraph>} The stream graph's handle.
  */
 export function useLogTailStream( {
 	name,
@@ -73,7 +73,7 @@ export function useLogTailStream( {
 	viewClass,
 	mode = 'follow',
 } ) {
-	useStreamGraph( {
+	return useStreamGraph( {
 		prefix: name,
 		subscribe,
 		viewClass,
