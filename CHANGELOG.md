@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A dashboard shell's header keeps its controls on one row again.** The shell no longer holds its subtitle whole and wraps its controls beneath it, which doubled the header's height once a log page's toolbar and the ⋯ menu shared it; the subtitle gives way first, as it does in every other header.
+- **A nested block's parent selector takes the skin in a layout editor.** WordPress paints the button white with a near-black rule and dot; the shared sheet paints them on the skin's paper, rule and ink.
+
 ## [2.158.0] - 2026-11-14
 
 ### Added

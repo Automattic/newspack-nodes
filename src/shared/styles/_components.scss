@@ -1196,6 +1196,20 @@
 		color: var(--ink, var(--np-text));
 	}
 
+	// A nested block's parent selector, and the dot core sets after it.
+	.components-popover.block-editor-block-list__block-popover
+		.block-editor-block-parent-selector
+		.block-editor-block-parent-selector__button {
+		background-color: var(--paper, var(--np-surface));
+		border-color: var(--paper-shadow, var(--np-border-strong));
+		color: var(--ink, var(--np-text));
+	}
+
+	.block-editor-block-contextual-toolbar
+		.block-editor-block-parent-selector::after {
+		background-color: var(--ink, var(--np-text));
+	}
+
 	.block-editor-block-card,
 	.block-editor-block-inspector h2,
 	.block-editor-block-inspector h3,

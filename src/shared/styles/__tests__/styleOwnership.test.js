@@ -1897,39 +1897,20 @@ describe( 'canonical appearance ownership', () => {
 		);
 	} );
 
-	it( 'keeps a dashboard shell’s subtitle whole, and wraps its controls instead', () => {
-		// The shell's header names the page; its controls take the squeeze by
-		// wrapping to a second row. A narrow overlay panel's header still yields.
-		expect(
-			declarationsForSelector(
-				graphStylesheet,
-				'.newspack-nodes-page-surface > .topology-header > .topology-subtitle'
-			)
-		).toEqual( expect.objectContaining( { 'flex-shrink': '0' } ) );
-		expect(
-			declarationsForSelector(
-				graphStylesheet,
-				'.newspack-nodes-page-surface > .topology-header > .topology-header__controls'
-			)
-		).toEqual( expect.objectContaining( { 'flex-wrap': 'wrap' } ) );
-	} );
-
-	it( 'wraps a shell toolbar’s controls one by one, the filter keeping its width', () => {
-		// A toolbar is one unwrapping box: wider than the row, it overflows
-		// leftward over the subtitle. Unboxed, each control wraps on its own,
-		// and the filter holds its own width, neither crushed nor stretched.
-		expect(
-			declarationsForSelector(
-				graphStylesheet,
-				'.newspack-nodes-page-surface > .topology-header .newspack-nodes-toolbar'
-			)
-		).toEqual( expect.objectContaining( { display: 'contents' } ) );
-		expect(
-			declarationsForSelector(
-				graphStylesheet,
-				'.newspack-nodes-page-surface > .topology-header .newspack-nodes-search-input'
-			)
-		).toEqual( expect.objectContaining( { flex: 'none' } ) );
+	it( 'holds a dashboard shell’s controls on one row, its subtitle yielding', () => {
+		// A shell's header is the shared header: the subtitle gives way first
+		// and the controls keep one row, so the header keeps its one height.
+		const shellRules = [];
+		graphStylesheet.walkRules( ( rule ) => {
+			if (
+				rule.selector.includes(
+					'.newspack-nodes-page-surface > .topology-header'
+				)
+			) {
+				shellRules.push( rule.selector );
+			}
+		} );
+		expect( shellRules ).toEqual( [] );
 	} );
 
 	it( 'gives the shared header ONE resting height, owned by the header', () => {

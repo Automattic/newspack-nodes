@@ -978,6 +978,25 @@ describe( 'canonical UI appearance', () => {
 		).toMatchObject( { 'flex-shrink': '0' } );
 	} );
 
+	it( "paints a nested block's parent selector on the skin, its dot in the ink", () => {
+		const popover =
+			'.newspack-nodes-ui .components-popover.block-editor-block-list__block-popover';
+		expect(
+			exactSelectorRule(
+				`${ popover } .block-editor-block-parent-selector .block-editor-block-parent-selector__button`
+			)?.declarations
+		).toMatchObject( {
+			'background-color': 'var(--paper,var(--np-surface))',
+			'border-color': 'var(--paper-shadow,var(--np-border-strong))',
+			color: 'var(--ink,var(--np-text))',
+		} );
+		expect(
+			exactSelectorRule(
+				'.newspack-nodes-ui .block-editor-block-contextual-toolbar .block-editor-block-parent-selector::after'
+			)?.declarations
+		).toMatchObject( { 'background-color': 'var(--ink,var(--np-text))' } );
+	} );
+
 	it( 'owns native option paint in canonical controls', () => {
 		const option = exactSelectorRule( `${ UI_ROOT } select option` );
 
