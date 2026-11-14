@@ -3,7 +3,9 @@
  * under the page it stands on, each core block by the substrate's view of
  * it, and a stored layout that no longer reads as the shared read error in
  * its place, with no Try again, since a read refuses it again; a curator is
- * offered **Restore default**, which asks first. The layout stands under one
+ * offered **Restore default**, which asks first. A refused declaration set
+ * is the plugin's to fix, so an operator reads that instead and no restore
+ * is offered. The layout stands under one
  * `PageStateProvider` and one `SourcesProvider`, so its blocks read page
  * state and sources with no provider of the consumer's own, every column
  * sharing each.
@@ -96,10 +98,10 @@ function RestoreDefault( { context, page } ) {
 }
 
 /**
- * @param {Object}                                                                         props
- * @param {import('../useComposition').CompositionAnswer|{context: string, error: string}} props.layout What `Composition_Store::page_data()` answered for the page's context.
- * @param {Object<string,import('../CompositionView').CompositionBlockView>}               props.views  Block name => view, each View handed `editing`. The substrate supplies each core block's view.
- * @param {import('./pageContext').ComposedPageValue}                                      props.page   The page the blocks stand on.
+ * @param {Object}                                                                                             props
+ * @param {import('../useComposition').CompositionAnswer|{context: string, error: string, declaration?: true}} props.layout What `Composition_Store::page_data()` answered for the page's context.
+ * @param {Object<string,import('../CompositionView').CompositionBlockView>}                                   props.views  Block name => view, each View handed `editing`. The substrate supplies each core block's view.
+ * @param {import('./pageContext').ComposedPageValue}                                                          props.page   The page the blocks stand on.
  * @return {?import('react').ReactElement} The layout, or nothing for an empty one.
  */
 export default function ComposedLayout( { layout, views, page } ) {
@@ -107,7 +109,15 @@ export default function ComposedLayout( { layout, views, page } ) {
 		return (
 			<ComposedPage.Provider value={ page }>
 				<Unread error={ layout.error } />
-				{ page.canTune && (
+				{ layout.declaration && page.operator && (
+					<p>
+						{ __(
+							'A plugin\u2019s composition declaration was refused. The server log says why.',
+							'newspack-nodes'
+						) }
+					</p>
+				) }
+				{ ! layout.declaration && page.canTune && (
 					<RestoreDefault context={ layout.context } page={ page } />
 				) }
 			</ComposedPage.Provider>

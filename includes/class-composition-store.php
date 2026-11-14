@@ -124,7 +124,7 @@ final class Composition_Store {
 	 *
 	 * @param list<string> $contexts The contexts a page lays out.
 	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
-	 * @return array<string,Layout|array{context: string, error: string}>
+	 * @return array<string,Layout|array{context: string, error: string, declaration?: true}>
 	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
 	public static function page_data( array $contexts ): array {
@@ -133,7 +133,7 @@ final class Composition_Store {
 			Composition::declarations();
 		} catch ( \Throwable $refused ) {
 			Worker_Should_Stop::report( 'composition', [ 'declarations' => $refused ] );
-			return \array_combine( $contexts, \array_map( static fn ( string $context ): array => self::refusal( $context, $refused ), $contexts ) );
+			return \array_combine( $contexts, \array_map( static fn ( string $context ): array => self::refusal( $context, $refused, true ), $contexts ) );
 		}
 		$page = [];
 		foreach ( $contexts as $context ) {
@@ -145,7 +145,7 @@ final class Composition_Store {
 				$page[ $context ] = self::refusal( $context, $refused );
 			} catch ( \LogicException $undeclared ) {
 				Worker_Should_Stop::report( 'composition', [ $context => $undeclared ] );
-				$page[ $context ] = self::refusal( $context, $undeclared );
+				$page[ $context ] = self::refusal( $context, $undeclared, true );
 			}
 		}
 		return $page;
@@ -246,14 +246,17 @@ final class Composition_Store {
 
 	/**
 	 * A context's refusal, as a page renders it where the layout would stand.
+	 * `declaration` marks a refusal the plugin's code owns, one no stored
+	 * layout can mend, and is present only then.
 	 *
-	 * @return array{context: string, error: string}
+	 * @return array{context: string, error: string, declaration?: true}
 	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
-	private static function refusal( string $context, \Throwable $refused ): array {
-		return [
+	private static function refusal( string $context, \Throwable $refused, bool $declaration = false ): array {
+		$answer = [
 			'context' => $context,
 			'error'   => Core::caller_message( $refused, "composition {$context}" ),
 		];
+		return $declaration ? $answer + [ 'declaration' => true ] : $answer;
 	}
 }

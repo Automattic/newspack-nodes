@@ -459,8 +459,8 @@ final class CompositionStoreTest extends TestCase {
 
 		$this->assertSame(
 			[
-				self::BOARD  => [ 'context' => self::BOARD, 'error' => $why ],
-				self::DIGEST => [ 'context' => self::DIGEST, 'error' => $why ],
+				self::BOARD  => [ 'context' => self::BOARD, 'error' => $why, 'declaration' => true ],
+				self::DIGEST => [ 'context' => self::DIGEST, 'error' => $why, 'declaration' => true ],
 			],
 			$page
 		);
@@ -475,8 +475,9 @@ final class CompositionStoreTest extends TestCase {
 
 		$this->assertSame(
 			[
-				'context' => 'acme-desk/ledger-4471',
-				'error'   => 'composition context acme-desk/ledger-4471 is not declared',
+				'context'     => 'acme-desk/ledger-4471',
+				'error'       => 'composition context acme-desk/ledger-4471 is not declared',
+				'declaration' => true,
 			],
 			$page['acme-desk/ledger-4471']
 		);

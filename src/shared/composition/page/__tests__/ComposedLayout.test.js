@@ -652,6 +652,34 @@ describe( 'ComposedLayout', () => {
 		).toBeNull();
 	} );
 
+	it( 'words a refused declaration for an operator and offers no Restore default', () => {
+		render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					error: 'composition declaration heron-9034: refused',
+					declaration: true,
+				} }
+				views={ VIEWS }
+				page={ page( { canTune: true, operator: true } ) }
+			/>
+		);
+
+		expect(
+			screen.getByText(
+				'A plugin\u2019s composition declaration was refused. The server log says why.'
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByRole( 'button', { name: 'Restore default' } )
+		).toBeNull();
+		expect(
+			screen.queryByText(
+				'This layout names a block or a setting this version does not have.'
+			)
+		).toBeNull();
+	} );
+
 	it( 'names why a layout was refused to an operator the page names alone', () => {
 		const { rerender } = render(
 			<ComposedLayout

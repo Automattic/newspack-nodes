@@ -231,7 +231,7 @@ final class StationPagesTest extends TestCase {
 		$data   = \json_decode( \substr( $GLOBALS['_inline_scripts'][0][1], \strlen( $prefix ), -1 ), true );
 		$this->assertNotSame( [], $data['compositions'] );
 		foreach ( $data['compositions'] as $context => $layout ) {
-			$this->assertSame( [ 'context' => $context, 'error' => $why ], $layout );
+			$this->assertSame( [ 'context' => $context, 'error' => $why, 'declaration' => true ], $layout );
 		}
 		$this->assertArrayNotHasKey( Station_Pages::DASHBOARDS_EDITOR, $GLOBALS['_enqueued_scripts'] );
 		$this->assertNotSame( [], self::stderr_lines( $stderr, $why ) );
