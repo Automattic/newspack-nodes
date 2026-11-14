@@ -835,7 +835,7 @@ class Core {
 	 * or PHP's error log in a request — once per `$what` while
 	 * `print_less_often()`'s window holds, so a caller cannot flood it.
 	 *
-	 * @api Consumed by sibling plugins: pyrobase (`REST\RenderController`, `Runtime\Imager`).
+	 * @api Consumed by sibling plugins: pyrobase (`Runtime\Imager`).
 	 * @param \Throwable $e    What was thrown.
 	 * @param string     $what The command or surface it answers, which keys the log line.
 	 * @throws \InvalidArgumentException Through `cap_for()`, on a broken capability map.

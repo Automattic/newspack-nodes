@@ -476,6 +476,56 @@ describe( 'useCommandRead from memory', () => {
 		expect( wire.sent( 'charts' ) ).toHaveLength( 2 );
 	} );
 
+	it( 'a read withdrawn and asked again after a write dirtied it never shows the old answer', async () => {
+		let chart = 'Kea chart 6101';
+		wire.replies.charts = () => ( { items: [ chart ] } );
+		wire.replies.log_tide = { ok: true, event_id: 'ev-6101' };
+		const view = render(
+			<Lister
+				scope="probe:shelf"
+				command="charts"
+				args={ [ 'kea-5532' ] }
+			/>
+		);
+		await screen.findByText( 'Kea chart 6101' );
+		view.rerender(
+			<Lister scope="probe:shelf" command="charts" args={ null } />
+		);
+		chart = 'Kea chart 6102';
+		render( <Dirtier command="log_tide" dirties={ [ 'charts:' ] } /> );
+		fireEvent.click( screen.getByRole( 'button', { name: 'log_tide' } ) );
+		await act( async () => {} );
+		view.rerender(
+			<Lister
+				scope="probe:shelf"
+				command="charts"
+				args={ [ 'kea-5532' ] }
+			/>
+		);
+		expect( screen.queryByText( 'Kea chart 6101' ) ).toBeNull();
+		expect( await screen.findByText( 'Kea chart 6102' ) ).toBeTruthy();
+		expect( screen.getByText( 'fresh' ) ).toBeTruthy();
+	} );
+
+	it( 'a mounted read a write dirties keeps its answer, marked stale, until the new one lands', async () => {
+		wire.replies.charts = { items: [ 'Tui chart 4417' ] };
+		wire.replies.log_tide = { ok: true, event_id: 'ev-4417' };
+		render( <Lister scope="probe:shelf" command="charts" args={ [] } /> );
+		await screen.findByText( 'Tui chart 4417' );
+		const next = held();
+		wire.replies.charts = next.reply;
+		render( <Dirtier command="log_tide" dirties={ [ 'charts:' ] } /> );
+		fireEvent.click( screen.getByRole( 'button', { name: 'log_tide' } ) );
+		await waitFor( () =>
+			expect( wire.sent( 'charts' ) ).toHaveLength( 2 )
+		);
+		expect( screen.getByText( 'stale' ) ).toBeTruthy();
+		expect( screen.getByText( 'Tui chart 4417' ) ).toBeTruthy();
+		await act( async () => next.answer( { items: [ 'Tui chart 4418' ] } ) );
+		expect( await screen.findByText( 'Tui chart 4418' ) ).toBeTruthy();
+		expect( screen.getByText( 'fresh' ) ).toBeTruthy();
+	} );
+
 	it( 'a revoked grant never shows a stale restricted item', async () => {
 		const restricted = 'North Reach restricted board memo';
 		const open = 'North Reach open release note';

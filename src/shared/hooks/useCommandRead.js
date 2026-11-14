@@ -24,7 +24,7 @@
  * this reader may see; a page load starts empty.
  */
 
-import { useCallback, useEffect, useRef } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core, formatCommandArgs } from '@newspack-nodes/runtime';
 import { useCommandOnce } from './useCommandOnce';
 
@@ -154,6 +154,10 @@ function dirty( group, prefixes ) {
  * Ask one read command, again whenever `args` changes. Null `args` asks
  * nothing and withdraws the ask outstanding, so its late answer never shows.
  * Until the answer to `args` lands, a remembered one paints, marked stale.
+ * An answer counts as current only while it is fresh: withdrawing the read
+ * or a write dirtying it ends that, so the same question asked again never
+ * shows what a write has since changed. A mounted read a write dirtied keeps
+ * its answer, marked stale, until the new one lands.
  *
  * @param {Object}    o         Options.
  * @param {string}    o.group   The surface sending it, whose `<group>:shell`
@@ -188,6 +192,12 @@ export function useCommandRead( {
 	const key = JSON.stringify( args );
 	const keyRef = useRef( key );
 	keyRef.current = key;
+	// The question whose last answer is fresh, and when it landed.
+	const freshRef = useRef( null );
+	const freshAtRef = useRef( null );
+	// The question a write dirtied while it was asked, its answer still shown.
+	const heldRef = useRef( null );
+	const [ , bump ] = useState( 0 );
 	const { run, abandon, result, error, answeredArgs } = useCommandOnce( {
 		group,
 		ci,
@@ -205,6 +215,9 @@ export function useCommandRead( {
 				return;
 			}
 			const entry = cacheKey( command, ci, question );
+			freshRef.current = JSON.stringify( question );
+			freshAtRef.current = Core.now();
+			heldRef.current = null;
 			if ( refused ) {
 				groupOf( group ).answers.delete( entry );
 			} else {
@@ -216,13 +229,25 @@ export function useCommandRead( {
 	useEffect( () => {
 		const question = JSON.parse( key );
 		if ( null === question ) {
+			freshRef.current = null;
+			heldRef.current = null;
 			abandon();
 			return undefined;
 		}
 		const entry = cacheKey( command, ci, question );
 		touch( group, entry );
 		run( question );
-		const revalidate = ( dirtied ) => dirtied( entry ) && run( question );
+		const revalidate = ( dirtied ) => {
+			if ( ! dirtied( entry ) ) {
+				return;
+			}
+			if ( key === freshRef.current ) {
+				heldRef.current = key;
+			}
+			freshRef.current = null;
+			bump( ( n ) => n + 1 );
+			run( question );
+		};
 		const { reads } = groupOf( group );
 		reads.add( revalidate );
 		return () => {
@@ -239,21 +264,27 @@ export function useCommandRead( {
 		}
 	}, [ key, run ] );
 
+	const answersKey =
+		null !== answeredArgs && JSON.stringify( answeredArgs ) === key;
 	// A bare refusal, such as a Router's NOT_AVAILABLE, answers this ask.
 	const current =
-		null !== answeredArgs &&
-		( JSON.stringify( answeredArgs ) === key ||
-			( null !== error && 0 === answeredArgs.length ) );
+		key === freshRef.current &&
+		( answersKey ||
+			( null !== answeredArgs &&
+				null !== error &&
+				0 === answeredArgs.length ) );
+	const held =
+		! current && key === heldRef.current && answersKey && null === error;
 	const remembered =
-		current || null === args
+		current || held || null === args
 			? undefined
 			: groupOf( group ).answers.get( cacheKey( command, ci, args ) );
 	return {
-		answer: current ? result : remembered?.answer ?? null,
+		answer: current || held ? result : remembered?.answer ?? null,
 		error: current ? error : null,
-		loading: null !== args && ! current && ! remembered,
-		stale: Boolean( remembered ),
-		updatedAt: remembered?.at ?? null,
+		loading: null !== args && ! current && ! held && ! remembered,
+		stale: held || Boolean( remembered ),
+		updatedAt: held ? freshAtRef.current : remembered?.at ?? null,
 		refresh,
 	};
 }
