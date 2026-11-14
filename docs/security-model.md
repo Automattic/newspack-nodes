@@ -104,7 +104,7 @@ The Vault seals each password with [`sodium_crypto_secretbox`](https://www.php.n
 
 **Code:** the 314 non-test JavaScript files under the two `src/` trees, this plugin's and the logger's.
 
-- **One HTML sink**, the logger's [`src/overview/PerformanceDashboard.js:852-856`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/src/overview/PerformanceDashboard.js#L852-L856), is a `<script type="application/json">` element of page facts; `factsJson()` escapes `<` to `\u003C` and both Unicode line terminators, the correct guard for that context.
+- **One HTML sink**, the logger's [`src/overview/PerformancePage.js`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.165.0/src/overview/PerformancePage.js#L1188-L1210), is a `<script type="application/json">` element of page facts; `factsJson()` escapes `<` to `\u003C` and both Unicode line terminators, the correct guard for that context.
 - **One `href` built from data**, the logger's [`src/current-request/CurrentRequestTab.js:162`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/src/current-request/CurrentRequestTab.js#L162), joins an admin URL PHP supplies to `encodeURIComponent( rid )`.
 
 Everything else renders through React text nodes; browser storage holds layout, theme, panel heights and telemetry counters; the two `style` values built from data are numeric percentages; and neither tree holds an `innerHTML`, `eval`, `new Function`, `document.write` or `postMessage` listener.
