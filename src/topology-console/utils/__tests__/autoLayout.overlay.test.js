@@ -64,7 +64,7 @@ function layOutPerformanceOverlay( beside = { nodes: [], edges: [] } ) {
 				target: egressPath( group, 'performance' ),
 				...extra,
 			} );
-		// usePerformanceGraph: two polled slices on one Tee, two on demand.
+		// A Performance-shaped graph: two polled slices on one Tee, two on demand.
 		const tee = interpreter.makeNode( 'Tee', 'performance:tee' );
 		slice( 'overview', 'overview', 'overview', tee );
 		slice( 'urls', 'overview', 'urls', tee );

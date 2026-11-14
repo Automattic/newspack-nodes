@@ -43,8 +43,8 @@ assertNoRetiredOverrides( process.env );<span class="pin">4</span>
 <span class="k">const</span> alias = esbuildAlias( substrateSrc );<span class="pin">5</span>
 <span class="k">const</span> ENTRIES = [<span class="pin">6</span>
   { entry: <span class="s">'src/overview/index.js'</span>,  outDir: <span class="s">'build/overview'</span> },
-  { entry: <span class="s">'src/error-log/index.js'</span>, outDir: <span class="s">'build/error-log'</span> },
-  <span class="c">// gyroscope, settings, requests, current-request</span>
+  { entry: <span class="s">'src/log-pages/index.js'</span>, outDir: <span class="s">'build/log-pages'</span> },
+  <span class="c">// settings, the two layout editors, current-request</span>
 ];
 buildDashboards( { esbuild, sass, rtlcss, root, ENTRIES, alias } );<span class="pin">7</span></div>
   <div class="marks">
@@ -70,7 +70,7 @@ buildDashboards( { esbuild, sass, rtlcss, root, ENTRIES, alias } );<span class="
 <div class="fan">
   <div class="card"><h3>newspack-nodes</h3><p><span class="tag">10</span>Ten entries cover theme, ui and graph styles, the station's two bundles, the four lazy tabs and the settings-page reset module.</p></div>
   <div class="card"><h3>example-ai-newsletter</h3><p><span class="tag">1</span>The walkthrough sits inside the substrate repo, finds <span class="mono">src</span> at a fixed depth, and reads no environment variable.</p></div>
-  <div class="card"><h3>newspack-event-logger-nodes</h3><p><span class="tag">6</span>Six entries cover overview, error log, gyroscope, settings, requests and the current-request overlay tab.</p></div>
+  <div class="card"><h3>newspack-event-logger-nodes</h3><p><span class="tag">6</span>Six entries cover overview, the three log pages, settings, the two layout editors and the current-request overlay tab.</p></div>
   <div class="card"><h3>newspack-intelligence</h3><p><span class="tag">1</span>It stands alone beside the substrate and resolves it exactly as the Event Logger does.</p></div>
 </div>
 
