@@ -112,4 +112,12 @@ describe( 'createJestConfig', () => {
 		expect( cfg ).not.toHaveProperty( 'testPathIgnorePatterns' );
 		expect( cfg ).not.toHaveProperty( 'transformIgnorePatterns' );
 	} );
+
+	test( 'measures no test file or helper under __tests__ for coverage', () => {
+		const cfg = createJestConfig( { aliasBase } );
+		expect( cfg.coveragePathIgnorePatterns ).toEqual( [
+			'/node_modules/',
+			'/__tests__/',
+		] );
+	} );
 } );

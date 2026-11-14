@@ -59,6 +59,8 @@ function createJestConfig( {
 			'<rootDir>/jest.setup.js',
 		],
 		testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
+		// A helper beside the tests is not code the coverage gate holds.
+		coveragePathIgnorePatterns: [ '/node_modules/', '/__tests__/' ],
 		moduleNameMapper,
 		// The base every alias maps, which a stylesheet test's importer takes.
 		globals: { NEWSPACK_NODES_SRC: aliasBase },
