@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An activity list's actions line up on one right edge.** DataViews' activity layout aligns a row's content to its start, so each row's title cell shrank to its own summary and its actions sat where that summary ended, short of the edge whenever the text did not fill the width. The shared sheet stretches the title cell across the content and lets the row inside it fill the cell, so every row spans the content width. Intelligence's Briefing showed it.
 - **A mount whose build throws leaves nothing behind.** `mountExospine()` rethrows what `build` threw once the nodes it registered and its mount record are gone, and the backbone too when no other mount stands; a `reinit()` that throws removes what it had registered. Both used to stay, so a later mount found the record and the names taken.
 
 ## [2.156.1] - 2026-11-13

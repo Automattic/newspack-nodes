@@ -1395,6 +1395,18 @@ $composed-aside-width: 320px;
 		}
 	}
 
+	// An activity row spans the content, so every row's actions share one edge.
+	.dataviews-view-activity
+		.dataviews-view-activity__item-content
+		.dataviews-view-activity__item-title {
+		align-self: stretch;
+
+		> * {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+	}
+
 	// A column's menu is a tertiary button that reads as header text.
 	.dataviews-view-table-header-button {
 		--button-secondary-background: transparent;
