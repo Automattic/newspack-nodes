@@ -32,14 +32,15 @@ import Unread from '../components/Unread';
  * One field a block shows, as its source declares it.
  *
  * @typedef  {Object}                   BlockField
- * @property {string}               key         The model's key.
- * @property {string}               label       The declared label.
- * @property {string}               kind        The declared kind.
- * @property {(value: *) => *}      [format]    The declared formatter.
- * @property {(peak: number) => *}  [formatFor] A chart field's axis formatter for a peak.
- * @property {string}               [axis]      A chart field's axis title.
- * @property {(model: Object) => *} [value]     Derives the field from the model.
- * @property {(value: *) => string} [modifier]  Names a tile's `nodes-card--<modifier>`.
+ * @property {string}                key         The model's key.
+ * @property {string}                label       The declared label.
+ * @property {string}                kind        The declared kind.
+ * @property {(value: *) => *}       [format]    The declared formatter.
+ * @property {(peak: number) => *}   [formatFor] A chart field's axis formatter for a peak.
+ * @property {string}                [axis]      A chart field's axis title.
+ * @property {(model: Object) => *}  [value]     Derives the field from the model.
+ * @property {(value: *) => string}  [modifier]  Names a tile's `nodes-card--<modifier>`.
+ * @property {(value: *) => boolean} [shown]     False leaves the figure out.
  */
 
 /**
@@ -83,22 +84,24 @@ const namesOf = ( named ) => {
 /**
  * The fields a block names, in its order, each as the source declares it;
  * every declared field of the block's kind, in declared order, when it names
- * none.
+ * none. Given a model, a field whose `shown` answers false for its value
+ * there is left out.
  *
- * @param {string}   source The source.
- * @param {string[]} names  The fields named.
- * @param {string}   kind   The kind the block shows.
- * @return {BlockField[]} The fields, at least one.
+ * @param {string}   source  The source.
+ * @param {string[]} names   The fields named.
+ * @param {string}   kind    The kind the block shows.
+ * @param {?Object}  [model] The model the fields are shown for.
+ * @return {BlockField[]} The fields; at least one unless a model is given.
  * @throws {Error} Naming a field the source does not declare, one of another
  *                 kind, or a source with no field to show.
  */
-export function namedFields( source, names, kind ) {
+export function namedFields( source, names, kind, model = null ) {
 	const decl = sourceDeclaration( source );
 	const fields = decl.fields ?? {};
 	const keys = names.length
 		? names
 		: fieldsOfKind( decl, kind ).map( ( [ key ] ) => key );
-	const shown = keys.map( ( key ) => {
+	const named = keys.map( ( key ) => {
 		if ( ! Object.hasOwn( fields, key ) ) {
 			throw new Error( `${ source } declares no field '${ key }'` );
 		}
@@ -109,11 +112,24 @@ export function namedFields( source, names, kind ) {
 		}
 		return { key, ...fields[ key ] };
 	} );
-	if ( 0 === shown.length ) {
+	if ( 0 === named.length ) {
 		throw new Error( `${ source } declares no field to show` );
 	}
-	return shown;
+	return null === model
+		? named
+		: named.filter( ( field ) => isShown( field, model ) );
 }
+
+/**
+ * Whether a field shows for a model: unless its `shown` answers false for
+ * its value there.
+ *
+ * @param {BlockField} field The field.
+ * @param {Object}     model The model.
+ * @return {boolean} Whether it shows.
+ */
+const isShown = ( field, model ) =>
+	! field.shown || field.shown( fieldValue( field, model ) );
 
 /**
  * Each model's derived fields, by key, so a field is derived once a model
@@ -155,7 +171,7 @@ export function fieldValue( field, model ) {
  * @param {*}          value The value.
  * @return {*} What the block shows.
  */
-export const shown = ( field, value ) =>
+export const display = ( field, value ) =>
 	field.format ? field.format( value ) : String( value ?? '' );
 
 /**
@@ -284,15 +300,15 @@ export function sourceBlock( Render, { kind, list, settings = [] } ) {
 	 */
 	function Read( { attributes } ) {
 		const names = namesOf( attributes[ list ] );
-		const fields = useMemo(
-			() => namedFields( attributes.source, names, kind ),
-			// eslint-disable-next-line react-hooks/exhaustive-deps -- the joined names key the list
-			[ attributes.source, names.join( ',' ), kind ]
-		);
 		const { params = [] } = sourceDeclaration( attributes.source );
 		const { model, error, stream } = useSource(
 			attributes.source,
 			usePageParams( params )
+		);
+		const fields = useMemo(
+			() => namedFields( attributes.source, names, kind, model ),
+			// eslint-disable-next-line react-hooks/exhaustive-deps -- the joined names key the list
+			[ attributes.source, names.join( ',' ), kind, model ]
 		);
 		if ( error ) {
 			return <Unread error={ error } />;

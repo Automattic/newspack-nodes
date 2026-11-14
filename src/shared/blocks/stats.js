@@ -9,7 +9,8 @@
  * page's stylesheet and its tests.
  */
 
-import { fieldValue, shown, sourceBlock } from './sourceBlock';
+import { sourceDeclaration } from '../sources';
+import { display, fieldValue, sourceBlock } from './sourceBlock';
 import './stats.scss';
 
 /**
@@ -39,16 +40,18 @@ export function StatTile( { id, value, label, className = '' } ) {
 
 /**
  * The row the tiles stand in, the shared stats grid: wrapping as they fit,
- * or a grid of `columns`.
+ * or a grid of `columns`, its hover title naming what the row shows.
  *
  * @param {Object}                    props
  * @param {number}                    [props.columns] Tiles per row; 0 wraps them as they fit.
+ * @param {?string}                   [props.caption] What the row shows, as its hover title.
  * @param {import('react').ReactNode} props.children  The tiles.
  * @return {import('react').ReactElement} The row.
  */
-export function StatTiles( { columns = 0, children } ) {
+export function StatTiles( { columns = 0, caption = null, children } ) {
 	return (
 		<div
+			title={ caption ?? undefined }
 			className={ `newspack-nodes-stats-grid nodes-cards${
 				columns ? '' : ' is-flow'
 			}` }
@@ -67,7 +70,9 @@ export function StatTiles( { columns = 0, children } ) {
 
 /**
  * The block: a tile per figure it names, every declared figure when it
- * names nothing, each wearing the modifier its field names for its value.
+ * names nothing, each wearing the modifier its field names for its value,
+ * less a figure its field declares not shown, under the caption its source
+ * names for the model.
  *
  * @param {Object}                               props
  * @param {Object}                               props.attributes `{ source, fields, columns }`.
@@ -77,7 +82,13 @@ export function StatTiles( { columns = 0, children } ) {
  */
 function Stats( { attributes, model, fields } ) {
 	return (
-		<StatTiles columns={ attributes.columns }>
+		<StatTiles
+			columns={ attributes.columns }
+			caption={
+				sourceDeclaration( attributes.source ).caption?.( model ) ??
+				null
+			}
+		>
 			{ fields.map( ( field, place ) => {
 				const value = fieldValue( field, model );
 				return (
@@ -90,7 +101,7 @@ function Stats( { attributes, model, fields } ) {
 								: ''
 						}
 						label={ field.label }
-						value={ shown( field, value ) }
+						value={ display( field, value ) }
 					/>
 				);
 			} ) }

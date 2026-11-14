@@ -28,6 +28,7 @@ import {
 	useSourcesPaused,
 	SourcesProvider,
 } from '..';
+import * as registry from '../registry';
 
 /** The view the pukeko poll lands on, holding the transform's model. */
 class PukekoViewNode extends SliceViewNode {
@@ -89,6 +90,37 @@ registerSource( 'nodes/kahu-7871', {
 	intervalMs: 9000,
 } );
 
+registerSource( 'nodes/ruru-7873', {
+	kind: 'poll',
+	group: 'swamp-7873',
+	ci: 'reed-7873',
+	command: 'hoot',
+	args: () => [],
+	intervalMs: 1000,
+} );
+
+registerSource( 'nodes/ruru-7874', {
+	kind: 'poll',
+	group: 'swamp-7874',
+	ci: 'reed-7874',
+	command: 'screech',
+	args: () => [],
+	intervalMs: 1000,
+	retry: false,
+} );
+
+registerSource( 'nodes/kereru-7876', {
+	kind: 'poll',
+	group: 'canopy-7876',
+	ci: 'reed-7876',
+	command: 'perch',
+	args: ( { tree } ) => ( tree ? [ tree ] : null ),
+	transform: ( answer ) => answer,
+	scope: ( { forest } ) => forest,
+	params: [ 'tree', 'forest' ],
+	intervalMs: 60000,
+} );
+
 registerSource( 'nodes/marsh-7872', {
 	kind: 'derived',
 	from: [ 'nodes/pukeko-7870', 'nodes/kahu-7871' ],
@@ -96,6 +128,12 @@ registerSource( 'nodes/marsh-7872', {
 		joined: `${ pukeko.roost } over ${ kahu.thermal }`,
 	} ),
 } );
+
+/** Each tree's answer to `perch`; one left out goes unanswered. */
+let perches = {};
+
+/** The commands the server routes onward and never answers. */
+const UNANSWERED = new Set( [ 'hoot', 'screech' ] );
 
 let wire;
 let clock;
@@ -114,13 +152,20 @@ beforeEach( () => {
 	Core.reset();
 	clock = steppedClock();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	perches = { 'miro-7876': { birds: 7 }, 'tawa-7876': { birds: 11 } };
 	replies = {
 		graze: { roost: 'raupo' },
 		soar: { thermal: 'Ruapehu' },
 	};
-	wire = installFakeCommandWire( ( m ) =>
-		m[ VALUE ].name in replies ? replies[ m[ VALUE ].name ] : null
-	);
+	wire = installFakeCommandWire( ( m ) => {
+		if ( UNANSWERED.has( m[ VALUE ].name ) ) {
+			return undefined;
+		}
+		if ( 'perch' === m[ VALUE ].name ) {
+			return perches[ m[ VALUE ].arguments[ 0 ] ];
+		}
+		return m[ VALUE ].name in replies ? replies[ m[ VALUE ].name ] : null;
+	} );
 } );
 
 afterEach( () => {
@@ -195,6 +240,43 @@ describe( 'a poll over a view class', () => {
 		replies.graze = { roost: 'harakeke' };
 		await act( async () => state.refresh() );
 		expect( await screen.findByText( 'harakeke #2' ) ).toBeTruthy();
+	} );
+} );
+
+describe( 'a poll whose answer never comes', () => {
+	/**
+	 * Read one source and show nothing.
+	 *
+	 * @param {{name: string}} props The source.
+	 * @return {null} Nothing.
+	 */
+	function Waits( { name } ) {
+		useSource( name );
+		return null;
+	}
+
+	it( "asks again once the Fetcher's retry window has passed", async () => {
+		render(
+			<SourcesProvider>
+				<Waits name="nodes/ruru-7873" />
+			</SourcesProvider>
+		);
+		await clock.tick( 1 );
+		await clock.tick( 20 );
+		await clock.tick( 1 );
+		expect( sent( 'hoot' ).length ).toBeGreaterThan( 1 );
+	} );
+
+	it( 'asks once when it declares retry: false', async () => {
+		render(
+			<SourcesProvider>
+				<Waits name="nodes/ruru-7874" />
+			</SourcesProvider>
+		);
+		await clock.tick( 1 );
+		await clock.tick( 20 );
+		await clock.tick( 1 );
+		expect( sent( 'screech' ) ).toHaveLength( 1 );
 	} );
 } );
 
@@ -295,5 +377,219 @@ describe( 'sources held still', () => {
 		expect( sent( 'graze' ) ).toHaveLength( 1 );
 		expect( sent( 'soar' ) ).toHaveLength( 1 );
 		expect( screen.getByText( 'raupo #1 over Ruapehu' ) ).toBeTruthy();
+	} );
+} );
+
+/**
+ * Reads the kereru poll under one tree in one forest, and shows its birds.
+ *
+ * @param {{tree: ?string, forest: string, onState?: Function}} props The params.
+ * @return {import('react').ReactElement} The count.
+ */
+function Perch( { tree, forest, onState } ) {
+	const state = useSource( 'nodes/kereru-7876', { tree, forest } );
+	onState?.( state );
+	return <p>{ state.model ? `birds ${ state.model.birds }` : 'no birds' }</p>;
+}
+
+describe( 'a poll whose params change', () => {
+	it( 'shows its last model, stale, until the new key answers', async () => {
+		let state;
+		const { rerender } = render(
+			<SourcesProvider>
+				<Perch tree="miro-7876" forest="waipoua-7876" />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'birds 7' );
+		delete perches[ 'tawa-7876' ];
+		rerender(
+			<SourcesProvider>
+				<Perch
+					tree="tawa-7876"
+					forest="waipoua-7876"
+					onState={ ( one ) => ( state = one ) }
+				/>
+			</SourcesProvider>
+		);
+		await clock.tick( 2 );
+		expect( screen.getByText( 'birds 7' ) ).toBeTruthy();
+		expect( state ).toMatchObject( { stale: true, loading: true } );
+	} );
+
+	it( 'shows the new key once it answers, no longer stale', async () => {
+		let state;
+		const { rerender } = render(
+			<SourcesProvider>
+				<Perch tree="miro-7876" forest="waipoua-7876" />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'birds 7' );
+		rerender(
+			<SourcesProvider>
+				<Perch
+					tree="tawa-7876"
+					forest="waipoua-7876"
+					onState={ ( one ) => ( state = one ) }
+				/>
+			</SourcesProvider>
+		);
+		await screen.findByText( 'birds 11' );
+		expect( state.stale ).toBe( false );
+	} );
+
+	it( 'shows nothing of another scope while the new key loads', async () => {
+		const { rerender } = render(
+			<SourcesProvider>
+				<Perch tree="miro-7876" forest="waipoua-7876" />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'birds 7' );
+		delete perches[ 'tawa-7876' ];
+		rerender(
+			<SourcesProvider>
+				<Perch tree="tawa-7876" forest="pureora-7876" />
+			</SourcesProvider>
+		);
+		await clock.tick( 2 );
+		expect( screen.getByText( 'no birds' ) ).toBeTruthy();
+	} );
+
+	it( 'asks nothing for a key its args answer null for', async () => {
+		render(
+			<SourcesProvider>
+				<Perch tree={ null } forest="waipoua-7876" />
+			</SourcesProvider>
+		);
+		await clock.tick( 2 );
+		await clock.tick( 61 );
+		expect( sent( 'perch' ) ).toHaveLength( 0 );
+	} );
+} );
+
+/**
+ * Holds one group's sources still while `held`.
+ *
+ * @param {{held: boolean, groups: string[]}} props What it holds, and whether.
+ * @return {null} Nothing.
+ */
+function HoldGroups( { held, groups } ) {
+	useSourcesPaused( held, groups );
+	return null;
+}
+
+describe( 'one group held still', () => {
+	it( 'asks nothing of the group it holds and leaves the others asking', async () => {
+		render(
+			<SourcesProvider>
+				<Roost />
+				<Perch tree="miro-7876" forest="waipoua-7876" />
+				<HoldGroups held groups={ [ 'canopy-7876' ] } />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'raupo #1' );
+		const perched = sent( 'perch' ).length;
+		const grazed = sent( 'graze' ).length;
+		await clock.tick( 70 );
+		await clock.tick( 61 );
+		expect( sent( 'perch' ) ).toHaveLength( perched );
+		expect( sent( 'graze' ).length ).toBeGreaterThan( grazed );
+	} );
+
+	it( 'holds nothing when it names no group', () => {
+		const hold = jest.spyOn( registry, 'hold' );
+		render(
+			<SourcesProvider>
+				<HoldGroups held groups={ [] } />
+			</SourcesProvider>
+		);
+		expect( hold ).not.toHaveBeenCalled();
+	} );
+
+	it( 'asks the group again on the next tick once the hold ends', async () => {
+		const page = ( held ) => (
+			<SourcesProvider>
+				<Perch tree="miro-7876" forest="waipoua-7876" />
+				<HoldGroups held={ held } groups={ [ 'canopy-7876' ] } />
+			</SourcesProvider>
+		);
+		const { rerender } = render( page( false ) );
+		await screen.findByText( 'birds 7' );
+		rerender( page( true ) );
+		await clock.tick( 5 );
+		const perched = sent( 'perch' ).length;
+		perches[ 'miro-7876' ] = { birds: 13 };
+		rerender( page( false ) );
+		await clock.tick( 1 );
+		expect( sent( 'perch' ) ).toHaveLength( perched + 1 );
+		expect( await screen.findByText( 'birds 13' ) ).toBeTruthy();
+	} );
+} );
+
+describe( 'a derived source whose params change', () => {
+	it( 'shows its last model, stale, until the new key derives one', async () => {
+		registerSource( 'nodes/forest-7877', {
+			kind: 'derived',
+			from: [ 'nodes/kereru-7876' ],
+			params: [ 'tree', 'forest' ],
+			derive: ( [ kereru ] ) => ( { flock: kereru?.birds ?? 0 } ),
+		} );
+		/**
+		 * @param {{tree: string}} props The tree.
+		 * @return {import('react').ReactElement} The flock.
+		 */
+		function Forest( { tree } ) {
+			const { model } = useSource( 'nodes/forest-7877', {
+				tree,
+				forest: 'waipoua-7876',
+			} );
+			return <p>{ model ? `flock ${ model.flock }` : 'no flock' }</p>;
+		}
+		const { rerender } = render(
+			<SourcesProvider>
+				<Forest tree="miro-7876" />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'flock 7' );
+		delete perches[ 'tawa-7876' ];
+		rerender(
+			<SourcesProvider>
+				<Forest tree="tawa-7876" />
+			</SourcesProvider>
+		);
+		await clock.tick( 2 );
+		expect( screen.getByText( 'flock 7' ) ).toBeTruthy();
+	} );
+} );
+
+describe( 'a derived source declaring no scope', () => {
+	it( 'shows nothing of another input scope while the new key derives', async () => {
+		registerSource( 'nodes/grove-7878', {
+			kind: 'derived',
+			from: [ 'nodes/kereru-7876' ],
+			params: [ 'tree', 'forest' ],
+			derive: ( [ kereru ] ) => ( { flock: kereru?.birds ?? 0 } ),
+		} );
+		/**
+		 * @param {{tree: string, forest: string}} props The tree and forest.
+		 * @return {import('react').ReactElement} The flock.
+		 */
+		function Grove( { tree, forest } ) {
+			const { model } = useSource( 'nodes/grove-7878', { tree, forest } );
+			return <p>{ model ? `grove ${ model.flock }` : 'no grove' }</p>;
+		}
+		const { rerender } = render(
+			<SourcesProvider>
+				<Grove tree="miro-7876" forest="waipoua-7876" />
+			</SourcesProvider>
+		);
+		await screen.findByText( 'grove 7' );
+		delete perches[ 'tawa-7876' ];
+		rerender(
+			<SourcesProvider>
+				<Grove tree="tawa-7876" forest="pureora-7878" />
+			</SourcesProvider>
+		);
+		await clock.tick( 2 );
+		expect( screen.getByText( 'no grove' ) ).toBeTruthy();
 	} );
 } );

@@ -36,7 +36,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from '@wordpress/element';
-import { useNodeField } from '@newspack-nodes/runtime';
+import { Core, useNodeField } from '@newspack-nodes/runtime';
 import { useBatchedPoll } from '../hooks/useBatchedPoll';
 import { usePageState } from '../composition/page/pageState';
 import { useCommandRead } from '../hooks/useCommandRead';
@@ -51,6 +51,7 @@ import {
 	hold,
 	sourceDeclaration,
 	heldSources,
+	isHeld,
 	publish,
 	release,
 	settle,
@@ -119,17 +120,22 @@ function useCadence( decl ) {
  * `transformClass` node on the edge before it, or else a slice holding the
  * transform of each answer under the key's params. It asks at the cadence
  * its `cadence` page-state key holds, re-armed in place on its grid when that
- * moves, else at its `intervalMs`. `refresh()` asks again at once; a held
- * page asks nothing, and its next tick asks at once.
+ * moves, else at its `intervalMs`. `retry: false` sets its Fetcher's
+ * `retry_after_s` to 0, as `useCommandOnce` maps `retry`, so a question asks
+ * once a poll however long its answer takes. Args answering null ask
+ * nothing. `refresh()` asks again at once; a held page asks nothing, and
+ * its next tick asks at once.
  *
  * @param {Entry}   entry  The live source.
  * @param {boolean} paused Whether the page holds every source still.
  * @return {SourceState} What it shows.
  */
 function usePollSource( { decl, params, prefix }, paused ) {
-	const [ tokens ] = useState( () => decl.args?.( params ) ?? [] );
+	const [ tokens ] = useState( () =>
+		decl.args ? decl.args( params ) : []
+	);
 	const { pollNow } = useBatchedPoll( {
-		build: ( { interpreter, tee } ) =>
+		build: ( { interpreter, tee } ) => {
 			addSliceFetcher( interpreter, {
 				fetcher: `${ prefix }:fetch`,
 				receiver: `${ prefix }:in`,
@@ -157,7 +163,11 @@ function usePollSource( { decl, params, prefix }, paused ) {
 				tee,
 				target: egressPath( decl.group, decl.ci ),
 				argsFn: () => tokens,
-			} ),
+			} );
+			if ( false === decl.retry ) {
+				Core.node( `${ prefix }:fetch` ).retry_after_s = 0;
+			}
+		},
 		timerName: `${ prefix }:timer`,
 		teeName: `${ prefix }:tee`,
 		paused,
@@ -389,7 +399,7 @@ function OwnSources( { children } ) {
 				<SourceHost
 					key={ entry.prefix }
 					entry={ entry }
-					held={ 0 < sources.holds }
+					held={ isHeld( entry ) }
 				/>
 			) ) }
 		</SourcesContext.Provider>
@@ -441,29 +451,90 @@ export function useSource( name, params = {} ) {
 		const entry = acquire( sources, name, paramsRef.current );
 		return () => release( entry );
 	}, [ sources, name, key ] );
-	return state;
+	return useLastModel( name, params, state );
 }
 
 /**
- * Keep every source of the page still while `held`: no poll asks and no
- * source shows anything new, so nothing moves under a pointer mid-drag. Its
- * next tick asks at once once the last hold ends.
+ * A poll's or a derived source's state as a reader shows it: while a new key
+ * loads, the model the reader last showed under the declaration, stale,
+ * unless the source's scope (`scopeOf()`) differs under the new params,
+ * so a reader keeps its rows and its figures on screen across a new
+ * question. A command keeps its own remembered answers.
  *
- * @param {boolean} held Whether to hold them now.
+ * @param {string}      name   The source.
+ * @param {Object}      params What it is read with.
+ * @param {SourceState} state  What its key shows.
+ * @return {SourceState} What the reader shows.
+ */
+function useLastModel( name, params, state ) {
+	const decl = sourceDeclaration( name );
+	const scope = scopeOf( decl, params );
+	const keeps = 'poll' === decl.kind || 'derived' === decl.kind;
+	const last = useRef( null );
+	if ( keeps && null !== state.model ) {
+		last.current = { name, scope, model: state.model };
+	}
+	const standsIn =
+		keeps &&
+		null === state.model &&
+		state.loading &&
+		last.current?.name === name &&
+		last.current.scope === scope;
+	const model = standsIn ? last.current.model : null;
+	return useMemo(
+		() => ( standsIn ? { ...state, model, stale: true } : state ),
+		[ standsIn, state, model ]
+	);
+}
+
+/**
+ * The scope a source is read under: what its declaration's `scope` answers,
+ * else for a derived source its inputs' scopes, each under its own params,
+ * else none.
+ *
+ * @param {Object} decl   The declaration.
+ * @param {Object} params What it is read with.
+ * @return {string} The scope.
+ */
+function scopeOf( decl, params ) {
+	if ( decl.scope ) {
+		return decl.scope( params );
+	}
+	if ( 'derived' !== decl.kind ) {
+		return '';
+	}
+	return decl.from
+		.map( ( input ) =>
+			scopeOf( sourceDeclaration( input ), inputParams( input, params ) )
+		)
+		.join( '\n' );
+}
+
+/**
+ * Keep the page's sources in `groups`, or every source when `groups` is
+ * null, still while `held`: no poll asks and no source shows anything new, so
+ * nothing moves under a pointer mid-drag or behind a window over the page.
+ * Its next tick asks at once once the last hold ends.
+ *
+ * @param {boolean}  held     Whether to hold them now.
+ * @param {string[]} [groups] The groups it holds, an empty list none; null
+ *                            holds every source.
  * @throws {Error} Outside a `SourcesProvider`.
  */
-export function useSourcesPaused( held ) {
+export function useSourcesPaused( held, groups = null ) {
 	const sources = useContext( SourcesContext );
 	if ( ! sources ) {
 		throw new Error(
 			'useSourcesPaused() holds the sources of a SourcesProvider above it'
 		);
 	}
+	const named = groups ? JSON.stringify( groups ) : null;
 	useEffect( () => {
-		if ( ! held ) {
+		if ( ! held || '[]' === named ) {
 			return undefined;
 		}
-		hold( sources, true );
-		return () => hold( sources, false );
-	}, [ sources, held ] );
+		const list = null === named ? null : JSON.parse( named );
+		hold( sources, true, list );
+		return () => hold( sources, false, list );
+	}, [ sources, held, named ] );
 }

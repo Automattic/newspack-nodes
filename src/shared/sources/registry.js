@@ -45,13 +45,15 @@ const declared = new Map();
  * One provider's live sources and the listeners told of every change.
  *
  * @typedef  {Object}             Sources
- * @property {Map<string, Entry>} entries   Live sources by key.
- * @property {Set<() => void>}    listeners Told after every change.
- * @property {number}             version   Moves when a source gains its
- *                                          first reader or loses its last,
- *                                          or a hold starts or ends.
- * @property {number}             holds     The holds keeping every source
- *                                          still, as a row drag does.
+ * @property {Map<string, Entry>} entries    Live sources by key.
+ * @property {Set<() => void>}    listeners  Told after every change.
+ * @property {number}             version    Moves when a source gains its
+ *                                           first reader or loses its last,
+ *                                           or a hold starts or ends.
+ * @property {Map<string,number>} groupHolds Each group's holds, keeping its
+ *                                           sources alone still.
+ * @property {number}             holds      The holds keeping every source
+ *                                           still, as a row drag does.
  */
 
 /** The kinds a field may declare: a figure, a series map, a line, a column. */
@@ -66,6 +68,7 @@ const FIELD_PARTS = [
 	'value',
 	'axis',
 	'modifier',
+	'shown',
 ];
 
 /**
@@ -130,8 +133,10 @@ function sameDeclaration( a, b ) {
  * `formatFor( peak )` the axis formatter for the peak drawn and `axis` the
  * words its axis is titled with, its label when it declares none.
  * `value( model )` derives a field the model does not hold, once per model
- * (`fieldValue()`), and a figure's `modifier( value )` names the
- * `nodes-card--<modifier>` its tile wears. `params` names
+ * (`fieldValue()`), a figure's `modifier( value )` names the
+ * `nodes-card--<modifier>` its tile wears, and its `shown( value )`
+ * answering false leaves its tile out. A source's `caption( model )` names
+ * what a stats row shows, as the row's hover title. `params` names
  * the page-state keys a block reads its params from, each param named as its
  * key, and `label` the words a block's inspector names the source by, its
  * name when it declares none. Two fields of one kind may not share a label,
@@ -139,7 +144,8 @@ function sameDeclaration( a, b ) {
  *
  * @param {string} name A name, `/` namespacing it.
  * @param {Object} decl `{ kind: 'poll', group, ci, command, args?, transform?,
- *                      viewClass?, transformClass?, intervalMs, cadence? }`,
+ *                      viewClass?, transformClass?, intervalMs, cadence?,
+ *                      retry?, scope? }`,
  *                      `{ kind: 'command', group, ci, command, args }`, `{
  *                      kind: 'stream', subscribe, viewClass, mode }` or `{
  *                      kind: 'derived', from, derive }`; `args` and
@@ -148,7 +154,15 @@ function sameDeclaration( a, b ) {
  *                      `transformClass` node on the edge before it, and one
  *                      naming a `cadence` page-state key asks at the
  *                      milliseconds that key holds, outside its params, so a
- *                      new cadence re-arms the same fetch; a derived source
+ *                      new cadence re-arms the same fetch, and one declaring
+ *                      `retry: false` asks once however long its answer
+ *                      takes. While a poll's or a derived source's new key
+ *                      loads, a reader sees the model it last showed under
+ *                      the declaration, as stale, when `scope( params )`
+ *                      answers the same for both keys, a derived source
+ *                      declaring none reading its inputs' scopes, so a new
+ *                      subject never shows another's model; `args` answering
+ *                      null asks nothing; a derived source
  *                      shows `derive( models, params )` over the models of
  *                      the sources `from` names.
  * @throws {TypeError} On an empty name, one declared otherwise, a
@@ -266,6 +280,7 @@ export const createSources = () => ( {
 	listeners: new Set(),
 	version: 0,
 	holds: 0,
+	groupHolds: new Map(),
 } );
 
 /**
@@ -287,19 +302,42 @@ function moved( sources ) {
 }
 
 /**
- * Start or end one hold on every source of a provider: while any stands, a
- * poll asks nothing and no source shows anything new.
+ * Start or end one hold on the sources of a provider in `groups`, or on
+ * every source when it names none: while one stands over a source, a poll
+ * asks nothing and the source shows nothing new.
  *
- * @param {Sources} sources The provider's sources.
- * @param {boolean} on      Start one, or end one.
+ * @param {Sources}   sources  The provider's sources.
+ * @param {boolean}   on       Start one, or end one.
+ * @param {?string[]} [groups] The groups it holds; null holds them all.
  */
-export function hold( sources, on ) {
-	const was = 0 < sources.holds;
-	sources.holds += on ? 1 : -1;
-	if ( was !== 0 < sources.holds ) {
+export function hold( sources, on, groups = null ) {
+	const step = on ? 1 : -1;
+	let changed = false;
+	if ( null === groups ) {
+		changed = 0 === sources.holds || 0 === sources.holds + step;
+		sources.holds += step;
+	} else {
+		for ( const group of groups ) {
+			const count = sources.groupHolds.get( group ) ?? 0;
+			changed ||= 0 === count || 0 === count + step;
+			sources.groupHolds.set( group, count + step );
+		}
+	}
+	if ( changed ) {
 		moved( sources );
 	}
 }
+
+/**
+ * Whether a hold stands over a live source: one on every source, or one on
+ * its group.
+ *
+ * @param {Entry} entry The live source.
+ * @return {boolean} Whether it is held.
+ */
+export const isHeld = ( entry ) =>
+	0 < entry.sources.holds ||
+	0 < ( entry.sources.groupHolds.get( entry.decl.group ) ?? 0 );
 
 /**
  * Hold the live source of `name` read under `params`, making it on the

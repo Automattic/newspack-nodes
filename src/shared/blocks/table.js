@@ -12,7 +12,7 @@ import { __ } from '@wordpress/i18n';
 import DataViewsList from '../components/DataViewsList';
 import Section from '../components/Section';
 import { stableJson } from '../sources';
-import { shown, sourceBlock } from './sourceBlock';
+import { display, sourceBlock } from './sourceBlock';
 
 /**
  * The DataViews field for one of the block's fields.
@@ -25,7 +25,7 @@ const dataViewsField = ( field ) => ( {
 	label: field.label,
 	enableHiding: false,
 	getValue: ( { item } ) => item[ field.key ],
-	render: ( { item } ) => shown( field, item[ field.key ] ),
+	render: ( { item } ) => display( field, item[ field.key ] ),
 } );
 
 /**

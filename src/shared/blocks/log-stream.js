@@ -10,7 +10,7 @@ import { useMemo } from '@wordpress/element';
 import LogListHeader from '../components/LogListHeader';
 import LogStreamViewer from '../components/LogStreamViewer';
 import { useEditing, useWriteControl } from '../composition/page/pageContext';
-import { shown, sourceBlock } from './sourceBlock';
+import { display, sourceBlock } from './sourceBlock';
 
 /** A row's fixed height in pixels, as the Partition Viewer's. */
 const ROW_HEIGHT = 33;
@@ -33,7 +33,7 @@ export const logRow = ( fields ) => ( row ) => (
 				key={ field.key }
 				className="newspack-nodes-table__cell newspack-nodes-log-row__value"
 			>
-				{ shown( field, row[ field.key ] ) }
+				{ display( field, row[ field.key ] ) }
 			</span>
 		) ) }
 	</div>

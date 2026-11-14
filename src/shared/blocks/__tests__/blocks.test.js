@@ -17,6 +17,7 @@ import { providedViews } from '../../composition/page/pageContext';
 import { LogStreamViewNode } from '../../nodes/log-stream-view-node';
 import CompositionView from '../../composition/CompositionView';
 import { SUBSTRATE_VIEWS } from '..';
+import { namedFields } from '../sourceBlock';
 import { logRow } from '../log-stream';
 
 /** The poll's cadence, distinct from every default. */
@@ -122,6 +123,24 @@ registerSource( 'karoro-7880', {
 			axis: 'Knots 7880',
 			value: ( model ) => model.climb,
 		},
+	},
+} );
+
+registerSource( 'kotare-7882', {
+	kind: 'poll',
+	group: 'alpine-7882',
+	ci: 'tern-7882',
+	command: 'graze',
+	args: () => [ 'kotare' ],
+	intervalMs: PUKEKO_MS,
+	caption: ( model ) => `Over ${ model.height } m 7882`,
+	fields: {
+		wings: {
+			label: 'Wings 7882',
+			kind: 'value',
+			shown: ( wings ) => wings > 5,
+		},
+		height: { label: 'Height 7882', kind: 'value' },
 	},
 } );
 
@@ -317,6 +336,42 @@ describe( 'the stats block', () => {
 			grid.style.getPropertyValue( '--newspack-nodes-stat-columns' )
 		).toBe( '5' );
 		expect( grid.classList.contains( 'is-flow' ) ).toBe( false );
+	} );
+
+	it( 'shows no tile for a figure its field declares not shown', async () => {
+		renderBlock( 'newspack-nodes/stats', {
+			source: 'kotare-7882',
+			fields: [],
+			columns: 0,
+		} );
+		await screen.findByText( 'Height 7882' );
+		expect( screen.queryByText( 'Wings 7882' ) ).toBeNull();
+	} );
+
+	it( 'captions its row as the source names it for the model', async () => {
+		renderBlock( 'newspack-nodes/stats', {
+			source: 'kotare-7882',
+			fields: [],
+			columns: 0,
+		} );
+		await screen.findByText( 'Height 7882' );
+		expect(
+			document.querySelector( '.newspack-nodes-stats-grid' ).title
+		).toBe( 'Over 41 m 7882' );
+	} );
+
+	it( 'names the fields a model shows, leaving out one declared not shown', () => {
+		expect(
+			namedFields( 'kotare-7882', [], 'value', {
+				wings: 2,
+				height: 41,
+			} ).map( ( field ) => field.key )
+		).toEqual( [ 'height' ] );
+		expect(
+			namedFields( 'kotare-7882', [], 'value' ).map(
+				( field ) => field.key
+			)
+		).toEqual( [ 'wings', 'height' ] );
 	} );
 
 	it( 'lets tiles flow as they fit with no columns named', async () => {
