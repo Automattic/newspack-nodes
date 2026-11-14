@@ -4,16 +4,19 @@
  * or widget editor ever offers one.
  *
  * Every block is dynamic: its edit renders its View live and its save renders
- * nothing, because the server stores and reads the delimiters alone. Editor
- * features that would write an attribute the schema does not declare are
- * switched off, since the server refuses one, and so is saving a block as a
- * synced pattern.
+ * nothing, because the server stores and reads the delimiters alone. The core
+ * blocks every context admits register as core registers them, so they are
+ * passed over here. Editor features that would write an attribute the schema
+ * does not declare are switched off (`UNKEPT_SUPPORTS`), since the server
+ * refuses one, and so is saving a block as a synced pattern, which would swap
+ * the block for a core/block.
  *
  * The editor half of the composition layer.
  */
 
 import { registerBlockType } from '@wordpress/blocks';
 import CompositionBlockEdit from './CompositionBlockEdit';
+import { UNKEPT_SUPPORTS } from './confineCanvas';
 
 /**
  * One block as `Composition::schemas()` declares it.
@@ -21,8 +24,10 @@ import CompositionBlockEdit from './CompositionBlockEdit';
  * @typedef {Object} CompositionSchema
  * @property {string}                title      The inserter's name for it.
  * @property {Object<string,Object>} attributes Attribute => JSON schema with a default.
- * @property {boolean}               container  It holds blocks, and stands only at the top level.
+ * @property {boolean}               container  It holds blocks, and stands only at the top, in a column or in a group.
  * @property {boolean}               multiple   False when it stands once.
+ * @property {boolean}               [core]     A core block, which core registers.
+ * @property {?string}               [text]     The tag a core block's text is written in, null for one that holds none.
  */
 
 /** A dynamic block writes no markup of its own. */
@@ -46,20 +51,23 @@ function pairUp( from, against, missing ) {
 }
 
 /**
- * Register each schema with its view, a container admitting every block but
- * a container.
+ * Register each schema but a core block's with its view, a container
+ * admitting every block but a container.
  *
  * @param {Object<string,CompositionSchema>}                                schemas Block name => schema.
  * @param {Object<string,import('./CompositionView').CompositionBlockView>} views   Block name => View and Controls.
  * @throws {Error} Before registering anything, naming a schema without a view or a view without a schema.
  */
 export function registerCompositionBlocks( schemas, views ) {
-	pairUp( schemas, views, 'view' );
-	pairUp( views, schemas, 'schema' );
+	const own = Object.fromEntries(
+		Object.entries( schemas ).filter( ( [ , schema ] ) => ! schema.core )
+	);
+	pairUp( own, views, 'view' );
+	pairUp( views, own, 'schema' );
 	const leaves = Object.keys( schemas ).filter(
 		( name ) => ! schemas[ name ].container
 	);
-	for ( const [ name, schema ] of Object.entries( schemas ) ) {
+	for ( const [ name, schema ] of Object.entries( own ) ) {
 		const view = views[ name ];
 		const allowedBlocks = schema.container ? leaves : undefined;
 		registerBlockType( name, {
@@ -67,18 +75,7 @@ export function registerCompositionBlocks( schemas, views ) {
 			title: schema.title,
 			category: 'widgets',
 			attributes: schema.attributes,
-			supports: {
-				html: false,
-				multiple: schema.multiple,
-				// Each writes an attribute the server refuses.
-				customClassName: false,
-				customCSS: false,
-				lock: false,
-				renaming: false,
-				visibility: false,
-				// A synced pattern would swap the block for a core/block.
-				reusable: false,
-			},
+			supports: { multiple: schema.multiple, ...UNKEPT_SUPPORTS },
 			edit: ( props ) => (
 				<CompositionBlockEdit
 					{ ...props }

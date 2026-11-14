@@ -41,6 +41,15 @@ const ALLOWLIST = new Map( [
 		'shared/hooks/useSeriesSelection.js',
 		[ /color: colorAt/, /color: legendItems\[/ ],
 	],
+	// Block-editor setting flags, each `false` or no presets: they switch the
+	// canvas's appearance controls off and paint nothing.
+	[
+		'shared/composition/confineCanvas.js',
+		[
+			/^\s*\w+: (?:false|NO_PRESETS),?\s/,
+			/^\s*(?:color|border|background): \{/,
+		],
+	],
 ] );
 
 /** A comment or a docblock line — prose, not a style object. */

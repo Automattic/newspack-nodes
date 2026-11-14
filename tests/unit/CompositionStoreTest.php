@@ -152,9 +152,9 @@ final class CompositionStoreTest extends TestCase {
 		);
 	}
 
-	/** A lens of 700 `<`, which the delimiter escapes to six bytes each. */
+	/** A lens of `<` under the cap, which the delimiter escapes past it at six bytes each. */
 	private static function escaped_past_the_cap(): string {
-		return '<!-- wp:acme-desk/lens {"lens":"' . \str_repeat( '<', 700 ) . '"} /-->';
+		return '<!-- wp:acme-desk/lens {"lens":"' . \str_repeat( '<', \intdiv( Composition::MAX_MARKUP_BYTES, 5 ) ) . '"} /-->';
 	}
 
 	public function test_save_holds_the_stored_markup_to_the_byte_cap(): void {
@@ -327,6 +327,15 @@ final class CompositionStoreTest extends TestCase {
 		);
 		$this->assertStringNotContainsString( 'acme-desk/lens', (string) \wp_json_encode( $page[ self::BOARD ] ) );
 		$this->assertSame( Composition_Store::read( self::DIGEST ), $page[ self::DIGEST ] );
+	}
+
+	/** A composed page carries core's block styles, which its core blocks wear. */
+	public function test_page_data_enqueues_the_core_block_styles(): void {
+		unset( $GLOBALS['_enqueued_styles']['wp-block-library'] );
+
+		Composition_Store::page_data( [ self::DIGEST ] );
+
+		$this->assertArrayHasKey( 'wp-block-library', $GLOBALS['_enqueued_styles'] ?? [] );
 	}
 
 	/** An operator's page holds the refusal's own words. */

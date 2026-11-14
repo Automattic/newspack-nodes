@@ -116,7 +116,8 @@ final class Composition_Store {
 	/**
 	 * Each context's `read()`, or `{ context, error }` in its place for one
 	 * refused, so a page renders the refusal where the layout would stand,
-	 * worded as `Core::caller_message()` lets this caller read it.
+	 * worded as `Core::caller_message()` lets this caller read it. Enqueues
+	 * core's `wp-block-library` styles, which a layout's core blocks wear.
 	 *
 	 * @param list<string> $contexts Declared contexts.
 	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
@@ -125,6 +126,7 @@ final class Composition_Store {
 	 * @throws \InvalidArgumentException Through `Capabilities::cap_for()`, on a broken capability map.
 	 */
 	public static function page_data( array $contexts ): array {
+		\wp_enqueue_style( 'wp-block-library' );
 		$page = [];
 		foreach ( $contexts as $context ) {
 			try {

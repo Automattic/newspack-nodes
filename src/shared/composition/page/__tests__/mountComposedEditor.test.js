@@ -1,7 +1,7 @@
 /* eslint-env jest */
 /**
  * A page's layout editor mounted in one call: the localized context's blocks
- * registered against the consumer's views, the substrate's aside among them,
+ * registered against the consumer's views, core's blocks left to core,
  * each View providing `editing` to the write controls it holds, and an editor
  * for the page's slot that stands inside the consumer's providers, previews
  * through the consumer's `preview` and sends for the page's group.
@@ -21,7 +21,6 @@ import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { compositionEditor } from '../../editorRegistry';
 import {
-	ASIDE,
 	ComposedPage,
 	definePageState,
 	usePageState,
@@ -29,6 +28,7 @@ import {
 } from '..';
 import { mountComposedEditor } from '../mountComposedEditor';
 import { registerSource, useSource } from '../../../sources';
+import { fakeWordPress } from '../../../test-utils/fakeWordPress';
 
 jest.mock( '@wordpress/block-editor', () => {
 	const pass = ( { children } ) => <div>{ children }</div>;
@@ -59,14 +59,17 @@ const LOCALIZED = {
 			container: false,
 			multiple: true,
 		},
-		[ ASIDE ]: {
-			title: 'Aside',
+		'core/paragraph': {
+			title: 'Paragraph',
 			attributes: {},
-			container: true,
-			multiple: false,
+			container: false,
+			multiple: true,
+			core: true,
+			text: 'p',
 		},
 	},
 	patterns: [],
+	inline: [ 'strong', 'em' ],
 };
 
 /** A write the perch holds one component down. */
@@ -117,6 +120,10 @@ function renderEdit( name, attributes ) {
 beforeEach( () => {
 	Core.reset();
 	onFeed.mockClear();
+	window.wp = fakeWordPress( [
+		{ name: 'core/bold', tagName: 'strong' },
+		{ name: 'core/superscript', tagName: 'sup' },
+	] );
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	installFakeCommandWire( () => ( {
 		context: CONTEXT,
@@ -205,19 +212,28 @@ describe( 'mountComposedEditor', () => {
 		expect( await screen.findByText( 'perches counted' ) ).toBeTruthy();
 	} );
 
-	it( 'registers the localized blocks alone, the aside by AsideView', () => {
+	it( 'confines the canvas to the localized core blocks and the inline formats', () => {
+		mountComposedEditor( LOCALIZED, VIEWS, { heading: 'Edit the roost' } );
+		window.wp.loadPage();
+
+		const confine = ( name ) =>
+			window.wp.applyRegisterFilter(
+				{ supports: { anchor: true } },
+				name
+			).supports.anchor;
+		expect( [
+			confine( 'core/paragraph' ),
+			confine( 'core/heading' ),
+		] ).toEqual( [ false, true ] );
+		expect( window.wp.unregistered ).toEqual( [ 'core/superscript' ] );
+	} );
+
+	it( 'registers the localized blocks alone, leaving a core block to core', () => {
 		mountComposedEditor( LOCALIZED, VIEWS, { heading: 'Edit the roost' } );
 
-		expect(
-			getBlockTypes()
-				.map( ( { name } ) => name )
-				.sort()
-		).toEqual( [ 'kaka-7730/perch', ASIDE ] );
-		renderEdit( ASIDE, {} );
-		expect(
-			document.querySelector( 'aside.newspack-nodes-composed-aside' )
-		).not.toBeNull();
-		expect( screen.getByTestId( 'inner-blocks' ) ).toBeTruthy();
+		expect( getBlockTypes().map( ( { name } ) => name ) ).toEqual( [
+			'kaka-7730/perch',
+		] );
 	} );
 
 	it( 'leaves a write control inside a block’s View inert', () => {
@@ -334,6 +350,7 @@ describe( 'a page’s source declarations across its two entries', () => {
 			},
 		},
 		patterns: [],
+		inline: [ 'strong' ],
 	};
 
 	/**

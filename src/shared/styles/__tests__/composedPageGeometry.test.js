@@ -22,7 +22,7 @@ const declOf = ( selector, prop ) => {
 	let value;
 	SHEETS[ 0 ].walkRules( ( rule ) => {
 		if (
-			rule.selector.endsWith( selector ) &&
+			rule.selectors.some( ( one ) => one.endsWith( selector ) ) &&
 			'root' === rule.parent.type
 		) {
 			rule.walkDecls( prop, ( decl ) => {
@@ -143,69 +143,61 @@ describe( 'the skeleton rows', () => {
 	} );
 } );
 
-// The declarations a rule inside `@media (min-width: <px>)` sets, by property.
-const wideOf = ( selector, px ) => {
-	const decls = {};
-	SHEETS[ 0 ].walkAtRules( 'media', ( media ) => {
-		if ( `(min-width: ${ px })` !== media.params ) {
-			return;
-		}
-		media.walkRules( ( rule ) => {
-			if ( rule.selector.endsWith( selector ) ) {
-				rule.walkDecls( ( decl ) => {
-					decls[ decl.prop ] = decl.value;
-				} );
-			}
-		} );
-	} );
-	return decls;
-};
-
 describe( 'the composed layout', () => {
 	let layout;
-	let main;
-	let aside;
+	let paragraph;
+	let columns;
+	let column;
+	let heading;
+	let group;
 
 	beforeEach( () => {
 		document.body.innerHTML = `
 			<div class="newspack-nodes-ui newspack-nodes-theme newspack-nodes-skin-root">
 				<div class="newspack-nodes-composed-layout">
-					<div class="newspack-nodes-composed-layout-main"></div>
-					<aside class="newspack-nodes-composed-aside"></aside>
+					<p>Moor 7940</p>
+					<div class="wp-block-columns">
+						<div class="wp-block-column">
+							<h2 class="wp-block-heading">Tide 7940</h2>
+						</div>
+					</div>
+					<div class="wp-block-group"></div>
 				</div>
 			</div>`;
 		layout = document.querySelector( '.newspack-nodes-composed-layout' );
-		main = document.querySelector( '.newspack-nodes-composed-layout-main' );
-		aside = document.querySelector( '.newspack-nodes-composed-aside' );
+		paragraph = layout.querySelector( 'p' );
+		columns = layout.querySelector( '.wp-block-columns' );
+		column = layout.querySelector( '.wp-block-column' );
+		heading = layout.querySelector( '.wp-block-heading' );
+		group = layout.querySelector( '.wp-block-group' );
 	} );
 
-	it( 'stacks its main column and its aside in one column', () => {
-		expect( wins( layout, 'display' ) ).toBe( 'flex' );
-		expect( wins( layout, 'flex-direction' ) ).toBe( 'column' );
-		expect( gapOf( '.newspack-nodes-composed-layout' ) ).toBe( '24px' );
-	} );
-
-	it( 'stacks the blocks in each column, the main one free to shrink', () => {
-		for ( const column of [ main, aside ] ) {
-			expect( wins( column, 'display' ) ).toBe( 'flex' );
-			expect( wins( column, 'flex-direction' ) ).toBe( 'column' );
+	it( 'stacks its blocks, and each column’s and group’s, a step apart', () => {
+		for ( const stack of [ layout, column, group ] ) {
+			expect( wins( stack, 'display' ) ).toBe( 'flex' );
+			expect( wins( stack, 'flex-direction' ) ).toBe( 'column' );
 		}
-		expect( declOf( '.newspack-nodes-composed-layout-main', 'flex' ) ).toBe(
-			'1 1 0'
-		);
-		expect( wins( main, 'min-width' ) ).toBe( '0' );
-		expect( gapOf( '.newspack-nodes-composed-layout-main' ) ).toBe(
-			'24px'
-		);
-		expect( gapOf( '.newspack-nodes-composed-aside' ) ).toBe( '24px' );
+		expect( gapOf( '.newspack-nodes-composed-layout' ) ).toBe( '24px' );
+		expect(
+			gapOf( '.newspack-nodes-composed-layout .wp-block-column' )
+		).toBe( '24px' );
+		expect(
+			gapOf( '.newspack-nodes-composed-layout .wp-block-group' )
+		).toBe( '24px' );
 	} );
 
-	it( 'stands the aside 320 px wide beside the main column from 1100 px', () => {
-		expect( wideOf( '.newspack-nodes-composed-layout', '1100px' ) ).toEqual(
-			{ 'flex-direction': 'row', 'align-items': 'flex-start' }
-		);
-		expect( wideOf( '.newspack-nodes-composed-aside', '1100px' ) ).toEqual(
-			{ flex: '0 0 320px' }
-		);
+	it( 'parts core’s columns by the same step, flush with the blocks beside them', () => {
+		expect(
+			gapOf( '.newspack-nodes-composed-layout .wp-block-columns' )
+		).toBe( '24px' );
+		expect( wins( columns, 'margin-top' ) ).toBe( '0' );
+		expect( wins( columns, 'margin-bottom' ) ).toBe( '0' );
+	} );
+
+	it( 'sets core’s text flush, the stack spacing it', () => {
+		for ( const text of [ paragraph, heading ] ) {
+			expect( wins( text, 'margin-top' ) ).toBe( '0' );
+			expect( wins( text, 'margin-bottom' ) ).toBe( '0' );
+		}
 	} );
 } );

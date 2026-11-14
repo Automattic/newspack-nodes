@@ -1,7 +1,7 @@
 /* eslint-env jest */
 /**
  * The layout editor: a block canvas over a fresh read of the context, the
- * consumer's blocks alone admitted, and three ways out — a save, a restore and
+ * schemas' blocks alone admitted, and three ways out — a save, a restore and
  * a cancel — each confirmed where it loses work, each handing the page the
  * layout it renders next and the write that produced it.
  *
@@ -24,14 +24,20 @@ import {
 	waitFor,
 	within,
 } from '@testing-library/react';
-import { getBlockTypes, unregisterBlockType } from '@wordpress/blocks';
+import {
+	getBlockTypes,
+	registerBlockType,
+	unregisterBlockType,
+} from '@wordpress/blocks';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { installViewport } from '@newspack-nodes/shared/test-utils/viewportWidth';
+import { fakeWordPress } from '@newspack-nodes/shared/test-utils/fakeWordPress';
 import CompositionEditor, {
 	EDITOR_MIN_PX,
 	serializeLayout,
 } from '../CompositionEditor';
+import { CANVAS_FEATURES } from '../confineCanvas';
 import { registerCompositionBlocks } from '../registerCompositionBlocks';
 
 const mockProvider = { props: null };
@@ -129,12 +135,35 @@ const PATTERNS = [
 	{
 		name: 'tui-7720',
 		title: 'Tui at dawn',
-		markup: '<!-- wp:acme-desk/tally {"max":3,"label":"Tui"} /-->',
+		blocks: [
+			{
+				name: 'acme-desk/tally',
+				attributes: { max: 3, label: 'Tui' },
+				inner: [],
+			},
+		],
 	},
 	{
 		name: 'ruru-7721',
 		title: 'Ruru roost',
-		markup: '<!-- wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {"max":9,"label":"Ruru"} /-->\n<!-- /wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {"label":"Kea"} /-->',
+		blocks: [
+			{
+				name: 'acme-desk/column',
+				attributes: {},
+				inner: [
+					{
+						name: 'acme-desk/tally',
+						attributes: { max: 9, label: 'Ruru' },
+						inner: [],
+					},
+				],
+			},
+			{
+				name: 'acme-desk/tally',
+				attributes: { max: 10, label: 'Kea' },
+				inner: [],
+			},
+		],
 	},
 ];
 
@@ -170,6 +199,7 @@ function mount( extra = {} ) {
 			schemas={ SCHEMAS }
 			preview={ <span data-testid="preview">Preview with Pier 9</span> }
 			onDone={ onDone }
+			inline={ [ 'strong', 'em' ] }
 			{ ...extra }
 		/>
 	);
@@ -220,6 +250,7 @@ afterAll( () => {
 beforeEach( () => {
 	Core.reset();
 	mockProvider.props = null;
+	window.wp = fakeWordPress();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( ( m ) => {
 		const { name } = m[ VALUE ];
@@ -236,16 +267,155 @@ afterEach( () => {
 	viewport = null;
 } );
 
+// Core blocks as `Composition::schemas()` lists them, `text` the tag a block's text is written in.
+const CORE = {
+	'core/columns': {
+		title: 'Columns',
+		attributes: { isStackedOnMobile: { type: 'boolean', default: true } },
+		container: true,
+		multiple: true,
+		core: true,
+		text: null,
+	},
+	'core/column': {
+		title: 'Column',
+		attributes: { width: { type: 'string' } },
+		container: true,
+		multiple: true,
+		core: true,
+		text: null,
+	},
+	'core/heading': {
+		title: 'Heading',
+		attributes: { level: { type: 'integer', default: 2 } },
+		container: false,
+		multiple: true,
+		core: true,
+		text: 'h2',
+	},
+	'core/paragraph': {
+		title: 'Paragraph',
+		attributes: {},
+		container: false,
+		multiple: true,
+		core: true,
+		text: 'p',
+	},
+	'core/spacer': {
+		title: 'Spacer',
+		attributes: { height: { type: 'string', default: '100px' } },
+		container: false,
+		multiple: true,
+		core: true,
+		text: null,
+	},
+};
+
 describe( 'serializeLayout', () => {
 	it.each( MARKUP_CASES.map( ( one ) => [ one.name, one ] ) )(
 		'writes %s as the markup the server parses back',
 		( _name, { blocks, markup } ) => {
-			expect( serializeLayout( blocks ) ).toBe( markup );
+			expect( serializeLayout( blocks, { ...SCHEMAS, ...CORE } ) ).toBe(
+				markup
+			);
 		}
 	);
+
+	it( 'leaves out an attribute holding its declared default, which the server lays back', () => {
+		const blocks = [
+			{
+				name: 'acme-desk/tally',
+				attributes: { max: 10, label: 'Weka 7954' },
+				innerBlocks: [],
+			},
+		];
+
+		expect( serializeLayout( blocks, SCHEMAS ) ).toBe(
+			'<!-- wp:acme-desk/tally {"label":"Weka 7954"} /-->'
+		);
+	} );
+
+	it( 'writes a core block’s declared attributes alone, and its rich text as its HTML', () => {
+		const blocks = [
+			{
+				name: 'core/paragraph',
+				attributes: {
+					dropCap: true,
+					// A rich-text value spells itself as its HTML.
+					content: { toString: () => 'Moor <em>7930</em>' },
+				},
+				innerBlocks: [],
+			},
+		];
+
+		expect( serializeLayout( blocks, CORE ) ).toBe(
+			'<!-- wp:paragraph -->\n<p>Moor <em>7930</em></p>\n<!-- /wp:paragraph -->'
+		);
+	} );
 } );
 
 describe( 'CompositionEditor', () => {
+	it( 'stays clean when the canvas writes back what the layout already held', async () => {
+		const onDone = await mountLoaded();
+
+		edit( mockProvider.props.value.map( ( block ) => ( { ...block } ) ) );
+		fireEvent.click( button( 'Cancel' ) );
+
+		expect( screen.queryByRole( 'dialog' ) ).toBeNull();
+		expect( onDone ).toHaveBeenCalledWith( SAVED, null );
+	} );
+
+	it( 'offers no format a script registered after the page loaded', async () => {
+		window.wp.loadPage();
+		window.wp.richText.registerFormatType( 'kotuku/sparkle-7955', {
+			tagName: 'mark',
+		} );
+		window.wp.richText.registerFormatType( 'kotuku/bold-7955', {
+			tagName: 'strong',
+		} );
+
+		await mountLoaded();
+
+		expect( window.wp.unregistered ).toEqual( [ 'kotuku/sparkle-7955' ] );
+	} );
+
+	it( 'hands the canvas no colour, typography, spacing or border setting', async () => {
+		await mountLoaded();
+		expect( mockProvider.props.settings.__experimentalFeatures ).toBe(
+			CANVAS_FEATURES
+		);
+	} );
+
+	it( 'refuses an indented list item, keeping the layout as it stood', async () => {
+		const onDone = await mountLoaded();
+		const before = mockProvider.props.value;
+
+		edit( [
+			{
+				name: 'core/list',
+				attributes: {},
+				innerBlocks: [
+					{
+						name: 'core/list-item',
+						attributes: { content: 'Skiff 7944' },
+						innerBlocks: [
+							{
+								name: 'core/list',
+								attributes: {},
+								innerBlocks: [],
+							},
+						],
+					},
+				],
+			},
+		] );
+
+		expect( mockProvider.props.value ).toEqual( before );
+		expect( mockProvider.props.value ).not.toBe( before );
+		fireEvent.click( button( 'Cancel' ) );
+		expect( onDone ).toHaveBeenCalledWith( SAVED, null );
+	} );
+
 	it( 'edits a fresh read of the context, admitting only the schemas’ blocks', async () => {
 		await mountLoaded();
 		expect( sent( 'get' ) ).toEqual( [
@@ -628,44 +798,95 @@ describe( 'CompositionEditor', () => {
 				expect.objectContaining( {
 					arguments: [
 						CONTEXT,
-						'<!-- wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {"max":9,"label":"Ruru"} /-->\n<!-- /wp:acme-desk/column --><!-- wp:acme-desk/tally {"max":10,"label":"Kea"} /-->',
+						'<!-- wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {"max":9,"label":"Ruru"} /-->\n<!-- /wp:acme-desk/column --><!-- wp:acme-desk/tally {"label":"Kea"} /-->',
 					],
 				} ),
 			] );
 		} );
 
-		it( 'refuses a pattern naming a block the context does not offer', async () => {
-			// A block the editor registered, which these schemas do not offer.
-			const stray = {
-				name: 'kea-7724',
-				title: 'Kea at the board',
-				markup: '<!-- wp:acme-desk/column --><!-- wp:acme-desk/board /--><!-- /wp:acme-desk/column -->',
+		it( 'opens a pattern holding a level-four heading in columns with no invalid block', async () => {
+			const container = { save: () => null, category: 'design' };
+			registerBlockType( 'core/columns', {
+				...container,
+				apiVersion: 3,
+				title: 'Columns',
+				attributes: {},
+			} );
+			registerBlockType( 'core/column', {
+				...container,
+				apiVersion: 3,
+				title: 'Column',
+				attributes: {},
+			} );
+			registerBlockType( 'core/heading', {
+				apiVersion: 3,
+				title: 'Heading',
+				category: 'text',
+				attributes: {
+					level: { type: 'number', default: 2 },
+					content: { type: 'string' },
+				},
+				save: ( { attributes } ) =>
+					`<h${ attributes.level }>${ attributes.content }</h${ attributes.level }>`,
+			} );
+			const kotare = {
+				name: 'kotare-7953',
+				title: 'Kotare perch',
+				blocks: [
+					{
+						name: 'core/columns',
+						attributes: {},
+						inner: [
+							{
+								name: 'core/column',
+								attributes: {},
+								inner: [
+									{
+										name: 'core/heading',
+										attributes: {
+											level: 4,
+											content: 'Kotare 7953',
+										},
+										inner: [],
+									},
+								],
+							},
+						],
+					},
+				],
 			};
-			await mountLoaded( { patterns: [ ...PATTERNS, stray ] } );
-			const read = mockProvider.props.value;
-			// React reports a handler's throw to the window, not to fireEvent.
-			const thrown = [];
-			const onError = ( event ) => {
-				thrown.push( event.error );
-				event.preventDefault();
-			};
-			window.addEventListener( 'error', onError );
-			const error = jest
-				.spyOn( console, 'error' )
-				.mockImplementation( () => {} );
-			try {
-				choose( 'kea-7724' );
-			} finally {
-				window.removeEventListener( 'error', onError );
-				error.mockRestore();
-			}
-			// React's development build reports one handler throw twice.
-			expect( [
-				...new Set( thrown.map( ( e ) => e.message ) ),
-			] ).toEqual( [
-				'pattern kea-7724 names acme-desk/board, which acme-desk/board does not offer',
+			await mountLoaded( {
+				patterns: [ ...PATTERNS, kotare ],
+				schemas: { ...SCHEMAS, ...CORE },
+			} );
+
+			choose( 'kotare-7953' );
+
+			expect( mockProvider.props.value.map( shape ) ).toEqual( [
+				{
+					name: 'core/columns',
+					attributes: {},
+					isValid: true,
+					innerBlocks: [
+						{
+							name: 'core/column',
+							attributes: {},
+							isValid: true,
+							innerBlocks: [
+								{
+									name: 'core/heading',
+									attributes: {
+										level: 4,
+										content: 'Kotare 7953',
+									},
+									isValid: true,
+									innerBlocks: [],
+								},
+							],
+						},
+					],
+				},
 			] );
-			expect( mockProvider.props.value ).toBe( read );
 		} );
 
 		it( 'is not offered where the context offers no pattern', async () => {

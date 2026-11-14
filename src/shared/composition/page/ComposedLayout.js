@@ -1,12 +1,12 @@
 /**
  * A composed page's layout as a reader reads it: each block by its view
- * under the page it stands on, the aside apart so it can stand in a column
- * of its own, and a stored layout that no longer reads as the shared read
- * error in its place, with no Try again, since a read refuses it again; a
- * curator is offered **Restore default**, which asks first. The layout
- * stands under one `PageStateProvider` and one `SourcesProvider`, so its
- * blocks read page state and sources with no provider of the consumer's
- * own, both columns sharing each.
+ * under the page it stands on, each core block by the substrate's view of
+ * it, and a stored layout that no longer reads as the shared read error in
+ * its place, with no Try again, since a read refuses it again; a curator is
+ * offered **Restore default**, which asks first. The layout stands under one
+ * `PageStateProvider` and one `SourcesProvider`, so its blocks read page
+ * state and sources with no provider of the consumer's own, every column
+ * sharing each.
  *
  * The reader half of the composition layer: it imports no block library.
  */
@@ -18,12 +18,9 @@ import { useComposition } from '../useComposition';
 import { Confirm } from '../../components/Modal';
 import { SourcesProvider } from '../../sources';
 import Unread from '../../components/Unread';
-import AsideView from './AsideView';
+import { CORE_VIEWS } from './coreViews';
 import { ComposedPage, providedViews } from './pageContext';
 import { PageStateProvider } from './pageState';
-
-/** The one block split into the aside column. */
-export const ASIDE = 'newspack-nodes/aside';
 
 /** Read the page again, the one way to read its layouts again. */
 const reload = () => window.location.reload();
@@ -101,7 +98,7 @@ function RestoreDefault( { context, page } ) {
 /**
  * @param {Object}                                                                         props
  * @param {import('../useComposition').CompositionAnswer|{context: string, error: string}} props.layout What `Composition_Store::page_data()` answered for the page's context.
- * @param {Object<string,import('../CompositionView').CompositionBlockView>}               props.views  Block name => view, each View handed `editing`. The substrate supplies the aside's view.
+ * @param {Object<string,import('../CompositionView').CompositionBlockView>}               props.views  Block name => view, each View handed `editing`. The substrate supplies each core block's view.
  * @param {import('./pageContext').ComposedPageValue}                                      props.page   The page the blocks stand on.
  * @return {?import('react').ReactElement} The layout, or nothing for an empty one.
  */
@@ -119,27 +116,17 @@ export default function ComposedLayout( { layout, views, page } ) {
 	if ( 0 === layout.blocks.length ) {
 		return null;
 	}
-	const withAside = {
-		...providedViews( views ),
-		[ ASIDE ]: { View: AsideView },
-	};
-	const main = layout.blocks.filter( ( node ) => ASIDE !== node.name );
-	const aside = layout.blocks.filter( ( node ) => ASIDE === node.name );
 	return (
 		<ComposedPage.Provider value={ page }>
 			<PageStateProvider>
 				<SourcesProvider>
 					<div className="newspack-nodes-composed-layout">
-						<div className="newspack-nodes-composed-layout-main">
-							<CompositionView
-								blocks={ main }
-								views={ withAside }
-								renderError={ unreadBlock }
-							/>
-						</div>
 						<CompositionView
-							blocks={ aside }
-							views={ withAside }
+							blocks={ layout.blocks }
+							views={ {
+								...providedViews( views ),
+								...CORE_VIEWS,
+							} }
 							renderError={ unreadBlock }
 						/>
 					</div>

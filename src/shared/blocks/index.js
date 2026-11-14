@@ -1,9 +1,9 @@
 /**
  * The substrate's six shared blocks, by block name: the views map a consumer
- * spreads into its own when a context it declares admits them. The frame
- * supplies the aside's view itself, so a page admitting none of these loads
- * none of them. Each source block reads the source its `source` attribute
- * names; `Composition::declare_substrate_blocks()` declares their attributes.
+ * spreads into its own when a context it declares admits them, so a page
+ * admitting none of these loads none of them. Each source block reads the
+ * source its `source` attribute names;
+ * `Composition::declare_substrate_blocks()` declares their attributes.
  */
 
 import logStream from './log-stream';

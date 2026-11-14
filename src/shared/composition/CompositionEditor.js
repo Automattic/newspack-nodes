@@ -3,9 +3,11 @@
  * lays out.
  *
  * It edits a fresh `compositions get`, never the page's own copy, which
- * another editor's save may have outdated. The canvas admits the consumer's
- * blocks alone; a 320 px inspector holds the selected block's Controls; the
- * heading row carries the page's `preview`, a "Start from" picker of the
+ * another editor's save may have outdated. The canvas admits the context's
+ * blocks and the core blocks every context admits, and offers only what a
+ * layout keeps (`CANVAS_FEATURES`, and an indented list item refused); a
+ * 320 px inspector holds the selected block's Controls; the heading row
+ * carries the page's `preview`, a "Start from" picker of the
  * context's patterns where it offers any, and the three ways out. A pattern
  * replaces the canvas unsaved, asking first when a change is pending; Restore
  * default always asks.
@@ -25,7 +27,7 @@
  */
 
 import { BlockInspector, Inserter } from '@wordpress/block-editor';
-import { createBlock, parse, serializeRawBlock } from '@wordpress/blocks';
+import { createBlock, serializeRawBlock } from '@wordpress/blocks';
 import { Notice, SelectControl, Spinner } from '@wordpress/components';
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
@@ -33,6 +35,7 @@ import BlockCanvas from '../components/BlockCanvas';
 import { Confirm } from '../components/Modal';
 import { useWidthBelow } from '../hooks/useNarrow';
 import { primaryButtonClass } from '../utils/buttonClass';
+import { CANVAS_FEATURES, sweepFormats } from './confineCanvas';
 import { useComposition } from './useComposition';
 import './CompositionEditor.scss';
 
@@ -46,32 +49,50 @@ export const EDITOR_MIN_PX = 960;
 const BLOCK_NAME = /[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*/g;
 
 /**
- * An editor block as the raw block `serializeRawBlock()` writes, a
- * container's children in its content, which a `save: () => null` block's
- * own markup would drop.
+ * An editor block as the raw block `serializeRawBlock()` writes: the
+ * attributes its schema declares, less any that holds its declared default,
+ * which the server lays back, so a canvas that writes a default the layout
+ * left out writes nothing new; a container's children in its content,
+ * which a `save: () => null` block's own markup would drop, and a core
+ * block's text in the tag its schema names. The server writes every core
+ * element itself, so none is written here.
  *
- * @param {{name: string, attributes: Object, innerBlocks: Array}} block An editor block.
+ * @param {{name: string, attributes: Object, innerBlocks: Array}}                 block   An editor block.
+ * @param {Object<string,import('./registerCompositionBlocks').CompositionSchema>} schemas Block name => schema.
  * @return {Object} The raw block.
  */
-function rawBlock( { name, attributes, innerBlocks } ) {
+function rawBlock( { name, attributes, innerBlocks }, schemas ) {
+	const { attributes: declared, text } = schemas[ name ];
+	const content = attributes.content ?? '';
 	return {
 		blockName: name,
-		attrs: attributes,
-		innerBlocks: innerBlocks.map( rawBlock ),
-		innerContent: innerBlocks.map( () => null ),
+		attrs: Object.fromEntries(
+			Object.entries( attributes ).filter(
+				( [ key, value ] ) =>
+					Object.hasOwn( declared, key ) &&
+					undefined !== value &&
+					JSON.stringify( value ) !==
+						JSON.stringify( declared[ key ].default )
+			)
+		),
+		innerBlocks: innerBlocks.map( ( inner ) => rawBlock( inner, schemas ) ),
+		innerContent: text
+			? [ `<${ text }>${ String( content ) }</${ text }>` ]
+			: innerBlocks.map( () => null ),
 	};
 }
 
 /**
  * Editor blocks as the layout markup `compositions save` takes: delimiters
- * and their escaped JSON attributes, nothing else.
+ * and their escaped JSON attributes, and a core block's text.
  *
- * @param {Array<{name: string, attributes: Object, innerBlocks: Array}>} blocks The editor's blocks.
+ * @param {Array<{name: string, attributes: Object, innerBlocks: Array}>}          blocks  The editor's blocks.
+ * @param {Object<string,import('./registerCompositionBlocks').CompositionSchema>} schemas Block name => schema.
  * @return {string} The markup.
  */
-export function serializeLayout( blocks ) {
+export function serializeLayout( blocks, schemas ) {
 	return blocks
-		.map( ( block ) => serializeRawBlock( rawBlock( block ) ) )
+		.map( ( block ) => serializeRawBlock( rawBlock( block, schemas ) ) )
 		.join( '' );
 }
 
@@ -126,25 +147,27 @@ function refusedName( refusal, context, schemas ) {
 }
 
 /**
- * Every block name in a list of editor blocks, depth first.
+ * Whether a list item holds a list, which an indent makes and a layout
+ * refuses, because a list item is a part of its list and holds no blocks.
  *
  * @param {Array} blocks Editor blocks.
- * @return {string[]} Their names.
+ * @return {boolean} Whether one does.
  */
-function namesIn( blocks ) {
-	return blocks.flatMap( ( { name, innerBlocks } ) => [
-		name,
-		...namesIn( innerBlocks ),
-	] );
+function indentsAListItem( blocks ) {
+	return blocks.some(
+		( { name, innerBlocks } ) =>
+			( 'core/list-item' === name && innerBlocks.length > 0 ) ||
+			indentsAListItem( innerBlocks )
+	);
 }
 
 /**
  * A pattern the context offers, as `Composition::schemas()` lists it.
  *
  * @typedef {Object} CompositionPattern
- * @property {string} name   Its slug.
- * @property {string} title  The picker's name for it.
- * @property {string} markup The layout it starts from.
+ * @property {string}                                        name   Its slug.
+ * @property {string}                                        title  The picker's name for it.
+ * @property {import('./CompositionView').CompositionNode[]} blocks The layout it starts from, as the server validated it.
  */
 
 /**
@@ -159,6 +182,7 @@ function namesIn( blocks ) {
  * @param {import('react').ReactNode}                                                      [props.preview]  What the blocks preview with, beside the buttons.
  * @param {(answer: ?import('./useComposition').CompositionAnswer, verb: ?string) => void} props.onDone     Takes the layout the page renders next and the write behind it.
  * @param {(dirty: boolean) => void}                                                       [props.onDirty]  Told whether the layout holds a change not yet saved, as that turns.
+ * @param {string[]}                                                                       props.inline     The elements a text block keeps; every other format is unregistered as the canvas mounts.
  * @return {import('react').ReactElement} The editor.
  */
 export default function CompositionEditor( {
@@ -170,6 +194,7 @@ export default function CompositionEditor( {
 	preview,
 	onDone,
 	onDirty,
+	inline,
 } ) {
 	const narrow = useWidthBelow( EDITOR_MIN_PX );
 	const [ asking, setAsking ] = useState(
@@ -192,12 +217,24 @@ export default function CompositionEditor( {
 	}, [ dirty, onDirty ] );
 	const blocksRef = useRef( blocks );
 	blocksRef.current = blocks;
+	// The layout as read, serialized; dirty means the canvas writes otherwise.
+	const stored = useRef( null );
+
+	useEffect( () => {
+		// A format a script registered after dom-ready is swept here.
+		sweepFormats(
+			/** @type {Window & {wp?: Object}} */ ( window ).wp,
+			inline
+		);
+	}, [ inline ] );
 
 	useEffect( () => {
 		if ( answer && null === blocksRef.current ) {
-			setBlocks( answer.blocks.map( toBlock ) );
+			const read = answer.blocks.map( toBlock );
+			stored.current = serializeLayout( read, schemas );
+			setBlocks( read );
 		}
-	}, [ answer ] );
+	}, [ answer, schemas ] );
 
 	useEffect( () => {
 		const named = refusal ? refusedName( refusal, context, schemas ) : null;
@@ -215,12 +252,20 @@ export default function CompositionEditor( {
 	}, [ refusal, context, schemas ] );
 
 	const settings = useMemo(
-		() => ( { allowedBlockTypes: Object.keys( schemas ) } ),
+		() => ( {
+			allowedBlockTypes: Object.keys( schemas ),
+			__experimentalFeatures: CANVAS_FEATURES,
+		} ),
 		[ schemas ]
 	);
 	const edit = ( next ) => {
+		if ( indentsAListItem( next ) ) {
+			// A fresh list resets the provider to the layout as it stood.
+			setBlocks( [ ...blocksRef.current ] );
+			return;
+		}
 		setBlocks( next );
-		setDirty( true );
+		setDirty( serializeLayout( next, schemas ) !== stored.current );
 		setSelection( null );
 	};
 	const leave = () => {
@@ -229,17 +274,8 @@ export default function CompositionEditor( {
 	};
 	const cancel = () => ( dirty ? setAsking( { then: null } ) : leave() );
 	const start = ( pattern ) => {
-		const parsed = parse( pattern.markup );
-		const stray = namesIn( parsed ).find(
-			( name ) => ! Object.hasOwn( schemas, name )
-		);
-		if ( undefined !== stray ) {
-			throw new Error(
-				`pattern ${ pattern.name } names ${ stray }, which ${ context } does not offer`
-			);
-		}
 		setAsking( null );
-		edit( parsed );
+		edit( pattern.blocks.map( toBlock ) );
 	};
 	const choose = ( name ) => {
 		const pattern = patterns.find( ( one ) => name === one.name );
@@ -345,7 +381,7 @@ export default function CompositionEditor( {
 					type="button"
 					className={ primaryButtonClass( ! blocks || writing ) }
 					disabled={ ! blocks || writing }
-					onClick={ () => save( serializeLayout( blocks ) ) }
+					onClick={ () => save( serializeLayout( blocks, schemas ) ) }
 				>
 					{ __( 'Save layout', 'newspack-nodes' ) }
 				</button>

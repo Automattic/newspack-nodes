@@ -19,7 +19,7 @@ jest.mock( '@wordpress/blocks', () => {
 const CompositionView = require( '../CompositionView' ).default;
 const CompositionEditSlot = require( '../CompositionEditSlot' ).default;
 const { useComposition } = require( '../useComposition' );
-const { ASIDE, ComposedLayout } = require( '../page' );
+const { ComposedLayout } = require( '../page' );
 
 const LAYOUT = {
 	context: 'acme-desk/board',
@@ -75,13 +75,27 @@ it( 'renders the page frame with the editor packages unloadable', () => {
 				context: 'acme-desk/board',
 				blocks: [
 					{
-						name: ASIDE,
+						name: 'core/columns',
 						attributes: {},
 						inner: [
 							{
-								name: 'acme-desk/tally',
-								attributes: { label: 'Gull tally' },
-								inner: [],
+								name: 'core/column',
+								attributes: { width: '40%' },
+								inner: [
+									{
+										name: 'core/heading',
+										attributes: {
+											level: 2,
+											content: 'Gull <em>count</em>',
+										},
+										inner: [],
+									},
+									{
+										name: 'acme-desk/tally',
+										attributes: { label: 'Gull tally' },
+										inner: [],
+									},
+								],
 							},
 						],
 					},
@@ -97,7 +111,7 @@ it( 'renders the page frame with the editor packages unloadable', () => {
 			page={ { group: 'quayside', canTune: false, onRestored() {} } }
 		/>
 	);
-	expect(
-		container.querySelector( '.newspack-nodes-composed-aside' ).textContent
-	).toBe( 'Gull tally' );
+	expect( container.querySelector( '.wp-block-column' ).textContent ).toBe(
+		'Gull countGull tally'
+	);
 } );

@@ -1,8 +1,8 @@
 /* eslint-env jest */
 /**
  * A composed page's layout as a reader reads it: each block by its view
- * under the page it stands on, the aside in a column of its own, a block
- * that cannot render in its own place, and nothing for an empty layout. A
+ * under the page it stands on, each core block in core's own element, a
+ * block that cannot render in its own place, and nothing for an empty layout. A
  * stored layout that no longer reads shows the read error, and offers a
  * curator Restore default, which asks first and hands the page the default
  * the server answers.
@@ -19,7 +19,6 @@ import { useEffect } from '@wordpress/element';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
-	ASIDE,
 	ComposedLayout,
 	definePageState,
 	Editing,
@@ -183,15 +182,19 @@ describe( 'ComposedLayout', () => {
 		expect( sent( 'sound' )[ 0 ].arguments ).toEqual( [ 'south-7726' ] );
 	} );
 
-	it( 'serves its blocks’ sources, one ask for blocks in both columns sharing one', async () => {
+	it( 'serves its blocks’ sources, one ask for a block at the top and one in a column sharing one', async () => {
 		render(
 			<ComposedLayout
 				layout={ {
 					context: CONTEXT,
 					blocks: [
 						node( 'weka-7711/gauge', { berth: 'north-7725' } ),
-						node( ASIDE, {}, [
-							node( 'weka-7711/gauge', { berth: 'north-7725' } ),
+						node( 'core/columns', {}, [
+							node( 'core/column', {}, [
+								node( 'weka-7711/gauge', {
+									berth: 'north-7725',
+								} ),
+							] ),
 						] ),
 					],
 				} }
@@ -208,17 +211,72 @@ describe( 'ComposedLayout', () => {
 		expect( sent( 'sound' )[ 0 ].arguments ).toEqual( [ 'north-7725' ] );
 	} );
 
-	it( 'stands the aside in a column of its own, the other blocks in main', () => {
+	it( 'stands core columns, each column at its width, the blocks in each', () => {
 		const { container } = render(
 			<ComposedLayout
 				layout={ {
 					context: CONTEXT,
 					blocks: [
-						node( 'weka-7711/tally', { label: 'Ferry count' } ),
-						node( ASIDE, {}, [
-							node( 'weka-7711/tally', { label: 'Dock count' } ),
+						node( 'core/columns', {}, [
+							node( 'core/column', { width: '62.5%' }, [
+								node( 'weka-7711/tally', {
+									label: 'Ferry count',
+								} ),
+								node( 'weka-7711/tally', {
+									label: 'Pier count',
+								} ),
+							] ),
+							node( 'core/column', {}, [
+								node( 'weka-7711/tally', {
+									label: 'Dock count',
+								} ),
+							] ),
 						] ),
-						node( 'weka-7711/tally', { label: 'Pier count' } ),
+					],
+				} }
+				views={ VIEWS }
+				page={ page() }
+			/>
+		);
+
+		const columns = container.querySelectorAll(
+			'.newspack-nodes-composed-layout > div.wp-block-columns > div.wp-block-column'
+		);
+		expect( columns ).toHaveLength( 2 );
+		expect( columns[ 0 ].style.flexBasis ).toBe( '62.5%' );
+		expect( columns[ 1 ].style.flexBasis ).toBe( '' );
+		expect(
+			[ ...columns ].map( ( column ) =>
+				within( column )
+					.getAllByTestId( 'tally' )
+					.map( ( p ) => p.textContent )
+			)
+		).toEqual( [
+			[ 'Ferry count at Kestrel', 'Pier count at Kestrel' ],
+			[ 'Dock count at Kestrel' ],
+		] );
+	} );
+
+	it( 'writes each core text block’s text, filtered by the server, in core’s own element', () => {
+		const { container } = render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [
+						node( 'core/heading', {
+							level: 3,
+							content: 'Tide <em>7930</em>',
+						} ),
+						node( 'core/paragraph', {
+							content: 'Moor <strong>7931</strong>',
+						} ),
+						node( 'core/list', { ordered: true }, [
+							node( 'core/list-item', {
+								content: 'Buoy <code>7932</code>',
+							} ),
+						] ),
+						node( 'core/separator', { tagName: 'hr' } ),
+						node( 'core/spacer', { height: '48px' } ),
 					],
 				} }
 				views={ VIEWS }
@@ -229,22 +287,254 @@ describe( 'ComposedLayout', () => {
 		const layout = container.querySelector(
 			'.newspack-nodes-composed-layout'
 		);
-		const main = layout.querySelector(
-			':scope > .newspack-nodes-composed-layout-main'
-		);
-		const aside = layout.querySelector(
-			':scope > aside.newspack-nodes-composed-aside'
+		expect(
+			layout.querySelector( ':scope > h3.wp-block-heading' ).innerHTML
+		).toBe( 'Tide <em>7930</em>' );
+		expect( layout.querySelector( ':scope > p' ).innerHTML ).toBe(
+			'Moor <strong>7931</strong>'
 		);
 		expect(
-			within( main )
-				.getAllByTestId( 'tally' )
-				.map( ( p ) => p.textContent )
-		).toEqual( [ 'Ferry count at Kestrel', 'Pier count at Kestrel' ] );
+			layout.querySelector( ':scope > ol.wp-block-list > li' ).innerHTML
+		).toBe( 'Buoy <code>7932</code>' );
 		expect(
-			within( aside )
-				.getAllByTestId( 'tally' )
-				.map( ( p ) => p.textContent )
-		).toEqual( [ 'Dock count at Kestrel' ] );
+			layout.querySelector( ':scope > hr.wp-block-separator' )
+		).not.toBeNull();
+		const spacer = layout.querySelector( ':scope > div.wp-block-spacer' );
+		expect( spacer.style.height ).toBe( '48px' );
+		expect( spacer.getAttribute( 'aria-hidden' ) ).toBe( 'true' );
+	} );
+
+	it( 'writes each core attribute a layout keeps as core’s own class or style', () => {
+		const { container } = render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [
+						node(
+							'core/columns',
+							{
+								isStackedOnMobile: false,
+								verticalAlignment: 'center',
+							},
+							[
+								node(
+									'core/column',
+									{ verticalAlignment: 'bottom' },
+									[
+										node( 'core/spacer', {
+											height: '18px',
+											width: '7942px',
+										} ),
+									]
+								),
+							]
+						),
+						node(
+							'core/list',
+							{
+								ordered: true,
+								reversed: true,
+								start: 7943,
+								type: 'upper-roman',
+							},
+							[
+								node( 'core/list-item', {
+									content: 'Dory 7943',
+								} ),
+							]
+						),
+						node( 'core/group', {
+							tagName: 'div',
+							layout: { type: 'default' },
+						} ),
+					],
+				} }
+				views={ VIEWS }
+				page={ page() }
+			/>
+		);
+
+		const layout = container.querySelector(
+			'.newspack-nodes-composed-layout'
+		);
+		expect(
+			layout.querySelector( ':scope > .wp-block-columns' ).className
+		).toBe(
+			'wp-block-columns are-vertically-aligned-center is-not-stacked-on-mobile'
+		);
+		expect( layout.querySelector( '.wp-block-column' ).className ).toBe(
+			'wp-block-column is-vertically-aligned-bottom'
+		);
+		expect( layout.querySelector( '.wp-block-spacer' ).style.width ).toBe(
+			'7942px'
+		);
+		const list = layout.querySelector( ':scope > ol.wp-block-list' );
+		expect( list.getAttribute( 'start' ) ).toBe( '7943' );
+		expect( list.hasAttribute( 'reversed' ) ).toBe( true );
+		expect( list.style.listStyleType ).toBe( 'upper-roman' );
+		expect(
+			layout.querySelector( ':scope > .wp-block-group' ).className
+		).toBe( 'wp-block-group is-layout-flow wp-block-group-is-layout-flow' );
+	} );
+
+	it( 'writes each element, direction and flex size a layout keeps', () => {
+		const { container } = render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [
+						node( 'core/paragraph', {
+							direction: 'rtl',
+							content: 'Kotare 7960',
+						} ),
+						node(
+							'core/group',
+							{ tagName: 'aside', layout: { type: 'flex' } },
+							[
+								node( 'core/spacer', {
+									height: '0px',
+									style: {
+										layout: {
+											flexSize: '7961px',
+											selfStretch: 'fixed',
+										},
+									},
+								} ),
+								node( 'core/spacer', {
+									height: '100px',
+									style: { layout: { selfStretch: 'fill' } },
+								} ),
+								node( 'core/spacer', {
+									height: '100px',
+									style: { layout: { selfStretch: 'fit' } },
+								} ),
+							]
+						),
+						node( 'core/separator', { tagName: 'div' } ),
+						node( 'core/columns', { isStackedOnMobile: true }, [
+							node( 'core/column', {
+								width: '40%',
+								layout: {
+									type: 'flex',
+									orientation: 'vertical',
+								},
+							} ),
+						] ),
+					],
+				} }
+				views={ VIEWS }
+				page={ page() }
+			/>
+		);
+
+		const layout = container.querySelector(
+			'.newspack-nodes-composed-layout'
+		);
+		expect(
+			layout.querySelector( ':scope > p' ).getAttribute( 'dir' )
+		).toBe( 'rtl' );
+		const [ fixed, fill, fit ] = layout.querySelectorAll(
+			':scope > aside.wp-block-group > .wp-block-spacer'
+		);
+		expect( [ fixed.style.flexBasis, fixed.style.flexGrow ] ).toEqual( [
+			'7961px',
+			'',
+		] );
+		expect( fill.style.flexGrow ).toBe( '1' );
+		expect( [ fill.style.height, fit.style.height ] ).toEqual( [ '', '' ] );
+		expect(
+			layout.querySelector( ':scope > div.wp-block-separator' )
+		).not.toBeNull();
+		const column = layout.querySelector( '.wp-block-column' );
+		expect( column.className ).toBe(
+			'wp-block-column is-layout-flex wp-block-column-is-layout-flex'
+		);
+		expect( [
+			column.style.display,
+			column.style.flexDirection,
+			column.style.flexBasis,
+		] ).toEqual( [ 'flex', 'column', '40%' ] );
+	} );
+
+	it( 'stacks core columns on a phone unless the layout says otherwise', () => {
+		const { container } = render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [
+						node( 'core/columns', { isStackedOnMobile: true } ),
+					],
+				} }
+				views={ VIEWS }
+				page={ page() }
+			/>
+		);
+
+		expect( container.querySelector( '.wp-block-columns' ).className ).toBe(
+			'wp-block-columns'
+		);
+	} );
+
+	it.each( [
+		[
+			'a vertical flex',
+			{ type: 'flex', orientation: 'vertical', justifyContent: 'center' },
+			{ display: 'flex', flexDirection: 'column', alignItems: 'center' },
+		],
+		[
+			'a row that does not wrap',
+			{ type: 'flex', flexWrap: 'nowrap', justifyContent: 'right' },
+			{
+				display: 'flex',
+				flexDirection: 'row',
+				flexWrap: 'nowrap',
+				justifyContent: 'flex-end',
+				alignItems: 'center',
+			},
+		],
+		[
+			'a grid of three',
+			{ type: 'grid', columnCount: 3 },
+			{
+				display: 'grid',
+				gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+			},
+		],
+		[ 'no layout', undefined, { display: '' } ],
+	] )( 'lays out a group as %s', ( _name, layout, style ) => {
+		const { container } = render(
+			<ComposedLayout
+				layout={ {
+					context: CONTEXT,
+					blocks: [
+						node(
+							'core/group',
+							layout
+								? { tagName: 'div', layout }
+								: { tagName: 'div' },
+							[
+								node( 'weka-7711/tally', {
+									label: 'Weir 7933',
+								} ),
+							]
+						),
+					],
+				} }
+				views={ VIEWS }
+				page={ page() }
+			/>
+		);
+
+		const group = container.querySelector(
+			'.newspack-nodes-composed-layout > div.wp-block-group'
+		);
+		expect( group.textContent ).toBe( 'Weir 7933 at Kestrel' );
+		for ( const [ property, value ] of Object.entries( style ) ) {
+			expect( [ property, group.style[ property ] ] ).toEqual( [
+				property,
+				value,
+			] );
+		}
 	} );
 
 	it( 'keeps each block mounted across renders handed a fresh views map', () => {

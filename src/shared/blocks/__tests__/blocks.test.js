@@ -195,7 +195,7 @@ const sent = ( verb ) =>
 		.map( ( m ) => m[ VALUE ].arguments ?? [] );
 
 describe( 'the substrate views map', () => {
-	it( 'holds the six shared blocks, leaving the aside to the frame', () => {
+	it( 'holds the six shared blocks', () => {
 		expect( Object.keys( SUBSTRATE_VIEWS ).sort() ).toEqual( [
 			'newspack-nodes/log-stream',
 			'newspack-nodes/section',

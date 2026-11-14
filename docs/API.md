@@ -1165,15 +1165,36 @@ when the record was written and by whom, null for a context with no record.
 [`Composition::validate()`](../includes/class-composition.php) runs on every
 read, the default included, and on every save, so a stored layout a later
 version no longer reads is refused rather than replaced by the default. It
-refuses, naming the block and the field, markup past `MAX_MARKUP_BYTES` (4096),
-a block the context does not admit (its own blocks and the shared blocks it
-admits, as `Composition::blocks_for( $context )` answers them), any HTML, a
-block holding blocks that is not a container, a container below the top level,
-a second `multiple: false` block, an undeclared attribute or one its schema
-refuses, more blocks than the context's `max_blocks`, and anything the
-context's `check` refuses. `save`
+refuses, naming the block and the field, markup past `MAX_MARKUP_BYTES`
+(65536), a block the context does not admit (its own blocks, the shared blocks
+it admits and the core blocks every context admits, as
+`Composition::blocks_for( $context )` answers them), a block deeper than
+three, a list item excepted, since it is part of its list,
+HTML anywhere but a core block's own element, a block holding blocks that is
+not a container, a container anywhere but the top, a `core/column` or a
+`core/group`, a `core/column` outside `core/columns`, a `core/list-item`
+outside `core/list`, anything else in either, a second `multiple: false`
+block, an undeclared attribute or one its schema refuses, more blocks than the
+context's `max_blocks`, and anything the context's `check` refuses. The core
+blocks are `core/heading` (`level` 1 to 6), `core/paragraph`, `core/list`
+(`ordered`, `reversed`, `start` and `type`, a numbering style),
+`core/list-item`, `core/group` (`tagName` and `layout`, the keys core
+writes), `core/columns` (`isStackedOnMobile`, `verticalAlignment` and
+`layout`), `core/column` (`verticalAlignment`, `width`, a CSS length or
+percentage, and `layout`), `core/separator` (`tagName`, `hr` or `div`) and
+`core/spacer` (`height` and `width`, CSS lengths, and `style.layout`'s
+`flexSize` and `selfStretch`); `core/paragraph` keeps `direction`. The text of a
+heading, a paragraph or a list item answers as its `content`
+attribute, filtered by `wp_kses()` to `strong`, `em`, `b`, `i`, `code`, `br`
+and `a` with an `href`, a `target` and a `rel` on every read, and refused
+whole when it holds a comment, which the filter could rebuild into a block
+delimiter; `content` in a block's delimiter is refused. The namespace `core`
+belongs to WordPress, and a declaration under it is refused. `save`
 stores the whole tree, every attribute written, with no whitespace between
-delimiters, holding the escaped result to the same 4096 bytes; each attribute
+delimiters, a text block's text in its `text` element and every other core
+block with no element, the shape the editor writes, holding the escaped
+result to the same cap and refusing a tree that does not read back as
+itself; each attribute
 and each declared default takes its schema's type through
 `rest_sanitize_value_from_schema()`; and `actor` is the caller's login, else
 `Capabilities::$session_label`. `Composition_Store::seed()` writes only a
@@ -1185,10 +1206,13 @@ command under a `manage` session — and throws `this layout could not be read`
 to everyone else, the `compositions get` command included.
 `Composition_Store::page_data( $contexts )` answers each context's `read()`,
 or `{ context, error }` for one refused, `error` the refusal as
-`Core::caller_message()` words it for this caller.
+`Core::caller_message()` words it for this caller, and enqueues core's
+`wp-block-library` styles, which the core blocks wear.
 `Composition::editor( $context, $handle )`
 mounts the editor for a `tune` caller alone: it runs
-`Block_Editor_Bootstrap::load_canvas( $context )`, enqueues the consumer's
+`Block_Editor_Bootstrap::load_canvas( $context )` and
+`Block_Editor_Bootstrap::load_content_blocks()`, which registers the core
+blocks the canvas offers, enqueues the consumer's
 registered bundle `$handle` and localizes `Composition::schemas( $context )` on
 it as `NewspackNodesComposition`; for any other caller it does none of it and
 answers false.
@@ -1217,22 +1241,28 @@ schemas, views )`, registering each localized schema as a dynamic block whose
 edit is `CompositionBlockEdit`, which hands the block's Controls its
 attribute schemas as `schema`, and `<CompositionEditor group context heading
 schemas preview onDone onDirty? />`, the canvas over a fresh `get`, which saves
-`serializeLayout( blocks )` and calls `onDone( answer, verb )`: `save` or
+`serializeLayout( blocks, schemas )`, each block's declared attributes alone
+and a core block's text in the tag its schema's `text` names, and calls `onDone( answer, verb )`: `save` or
 `restore` after a write, null after Cancel or Back. `onDirty( dirty )` is told
 whether the layout holds a change not yet saved, as that turns, so a page asks
 before leaving only once there is one. The page shows the
 "Layout saved." snackbar, because the editor is gone by then. Given
 `patterns`, the list `schemas()` localizes, and at least one in it, the
-editor's header offers **Start from**: a chosen pattern's markup, parsed by
-`parse()`, replaces the canvas unsaved, after the discard confirmation when a
-change is pending.
+editor's header offers **Start from**: a chosen pattern's blocks, built from
+the tree the server validated, replace the canvas unsaved, after the discard
+confirmation when a change is pending. The layout counts as changed only while
+`serializeLayout()` writes it otherwise than the layout read, an attribute
+holding its declared default left out because the server lays it back, so a
+canvas that writes back what the layout held leaves it clean.
 
-The substrate declares six shared blocks beside the aside, through
+The substrate declares six shared blocks, through
 `Composition::declare_substrate_blocks()` at priority 5: `newspack-nodes/stats`,
 `time-chart`, `table`, `log-stream`, `sparkline`, and `section`, a container.
 Each of the first five reads the source its `source` attribute names, and a
 consumer admits whichever it wants on a context and spreads `SUBSTRATE_VIEWS`,
-from `@newspack-nodes/shared/blocks`, into the views it hands the frame.
+from `@newspack-nodes/shared/blocks`, into the views it hands the frame. The
+frame renders the core blocks itself, in core's elements and classes, so a
+consumer declares no view for them.
 
 The page frame in `@newspack-nodes/shared/composition/page` carries both
 halves. Its reader half, which `page/index.js` exports, includes
@@ -1242,8 +1272,14 @@ applies to the views it is given. Its editor half is
 `page/mountComposedEditor`, imported by path:
 `mountComposedEditor( localized, views, { heading, wrap?, preview? } )` takes
 the `NewspackNodesComposition` object, registers its blocks against the
-provided `views`, the substrate's aside among them, throwing on a localized
-block that has no view, and registers an editor that renders
+provided `views`, leaving the core blocks to core's own registration and
+confining the canvas to what a layout keeps (`confineCanvas()`: core's blocks
+lose the supports and styles whose attributes a save drops, and every format
+outside `schemas()`'s `inline` elements is unregistered, while
+`CompositionEditor` hands the provider `CANVAS_FEATURES`, every colour,
+typography, spacing, border and dimension setting off, and refuses an
+indented list item),
+throwing on a localized block that has no view, and registers an editor that renders
 `CompositionEditor` inside `wrap( children, slotProps )`, sending for the
 `group` of the `ComposedPage` it reads there, with
 `<preview { ...slotProps } />` beside the buttons.
@@ -2213,7 +2249,7 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/topologies` | `array $topologies` — name => entry | [`Bootstrap::get_topology_catalog()`](../includes/class-bootstrap.php) and `Topologies_CI_Node`. [`Topology_Registry::publish_catalog`](../includes/class-topology-registry.php) populates it from every registered `.tsl` dir, and raises a dir that will not list, naming it, rather than publish a catalog short of its topologies. It runs at the default priority 10 and skips any name already in the array, so a consumer pinning a topology's `num_partitions`, `stale_timeout`, `on_demand_idle` or `max_runtime` must hook BELOW 10 for its entry to stand; above 10 it receives the synthesized entry and replaces it. Never return `[]` transiently — see below. |
 | `newspack_nodes/job_handlers` | `array $handlers` — name => callable | [`Job_Worker_Node::load_handlers_from_filters()`](../includes/class-job-worker-node.php). A name failing `HANDLER_NAME_PATTERN` or a non-callable value is skipped, never refused, so one bad registration cannot cost a worker every other handler. |
 | `newspack_nodes/remote_job_handlers` | `array $handlers` | The same, for entries whose `k` selects the remote map. |
-| `newspack_nodes/compositions` | `array $declarations` — namespace => `{ blocks, contexts }` | [`Composition::declarations()`](../includes/class-composition.php), once a process on first use. `blocks` is name => `{ title, contexts: list<string>, attributes: { name => JSON schema with a default }, container?: bool, multiple?: bool }`, where `shared: true` replaces `contexts`; `contexts` is name => `{ default: string, max_blocks: int, check?: \Closure, admits?: list<string>, patterns?: { slug => { title: string, file: string } } }`, `default` the absolute path of the consumer's markup file, `admits` the shared blocks, from any namespace, that stand on the context beside its own, and `check( string $block, array $attributes, string $context ): void` throwing `\RuntimeException` to refuse. A `patterns` entry offers a named layout: its slug matches `[a-z0-9-]+`, its `file` is the absolute path of an existing markup file, and the markup must pass `Composition::validate_shape()` for the context once every namespace is read, so it may name an admitted shared block; `check` is not run on it. `Composition::schemas()` lists each as `{ name, title, markup }` in declared order, `[]` for a context with none. Every name sits under `<namespace>/`. A `container` holds blocks and stands only at the top level; `multiple: false` lets a block stand once. A shared block declares no `contexts` and does not stand on any context of its own, and each `admits` name is checked once every namespace is read: it must be a declared shared block. A declaration outside its namespace, an attribute with no `type` or `default` or a default its own schema refuses, a block naming an undeclared context, a block declaring `shared` and `contexts` or neither, a context admitting a block that is undeclared or not shared, a context whose default file is missing, a pattern with a slug or title that breaks its rule, patterns declared as a list, a pattern that is not a map, and a pattern whose file is missing or whose markup the context refuses each throw `\LogicException` naming the namespace and the key, refusing the whole set; a throw memoizes nothing, so the next call applies the filter again. |
+| `newspack_nodes/compositions` | `array $declarations` — namespace => `{ blocks, contexts }` | [`Composition::declarations()`](../includes/class-composition.php), once a process on first use. `blocks` is name => `{ title, contexts: list<string>, attributes: { name => JSON schema with a default }, container?: bool, multiple?: bool }`, where `shared: true` replaces `contexts`; `contexts` is name => `{ default: string, max_blocks: int, check?: \Closure, admits?: list<string>, patterns?: { slug => { title: string, file: string } } }`, `default` the absolute path of the consumer's markup file, `admits` the shared blocks, from any namespace, that stand on the context beside its own, and `check( string $block, array $attributes, string $context ): void` throwing `\RuntimeException` to refuse. A `patterns` entry offers a named layout: its slug matches `[a-z0-9-]+`, its `file` is the absolute path of an existing markup file, and the markup must pass `Composition::validate_shape()` for the context once every namespace is read, so it may name an admitted shared block; `check` is not run on it. `Composition::schemas()` lists each as `{ name, title, blocks }` in declared order, `blocks` the tree `validate_shape()` answers for its markup, `[]` for a context with none. Every name sits under `<namespace>/`. A `container` holds blocks and stands only at the top, in a `core/column` or in a `core/group`; `multiple: false` lets a block stand once. A shared block declares no `contexts` and does not stand on any context of its own, and each `admits` name is checked once every namespace is read: it must be a declared shared block. A declaration outside its namespace, an attribute with no `type` or `default` or a default its own schema refuses, a block naming an undeclared context, a block declaring `shared` and `contexts` or neither, a context admitting a block that is undeclared or not shared, a context whose default file is missing, a pattern with a slug or title that breaks its rule, patterns declared as a list, a pattern that is not a map, and a pattern whose file is missing or whose markup the context refuses each throw `\LogicException` naming the namespace and the key, refusing the whole set; a throw memoizes nothing, so the next call applies the filter again. |
 | `newspack_nodes/job_worker/before_job` | `bool $run, string $handler, string $id, array $message` | `Job_Worker_Node`. Return `false` to DECLINE the job. |
 | `newspack_nodes/capability_map` | `array $map` — role => WP capability | [`Capabilities::cap_for()`](../includes/class-capabilities.php). The baseline is [`Roles::defaults()`](../includes/class-roles.php): all three roles map to `manage_options` until a site installs the granular capabilities, and then to `newspack_nodes_{read,tune,manage}`. Return all three roles — the union form `fn ( $map ) => [ 'read' => 'edit_posts' ] + $map`, never a bare `[ 'read' => … ]`; see below. |
 | `newspack_nodes/oauth_resources` | `array $resources` — canonical resource URIs | [`Oauth_Server`](../includes/class-oauth-server.php). Declare each resource the OAuth server issues sessions for, such as an MCP door's URL; its RFC 9728 metadata is served for a declared resource alone. Non-string entries are dropped, and a non-array result declares nothing. |

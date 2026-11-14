@@ -38,6 +38,7 @@ final class CompositionTest extends TestCase {
 	protected function tearDown(): void {
 		$this->forget_declarations();
 		( new \ReflectionProperty( Block_Editor_Bootstrap::class, 'canvas_context' ) )->setValue( null, null );
+		( new \ReflectionProperty( Block_Editor_Bootstrap::class, 'content_blocks_loaded' ) )->setValue( null, false );
 		\wp_shim_reset_block_editor();
 		unset( $GLOBALS['_registered_scripts'] );
 		parent::tearDown();
@@ -189,7 +190,7 @@ final class CompositionTest extends TestCase {
 			'HTML between blocks'           => [ "{$tally}<p>loose</p>{$tally}", [ 'HTML outside a block' ] ],
 			'HTML inside a block'           => [ '<!-- wp:acme-desk/tally --><p>x</p><!-- /wp:acme-desk/tally -->', [ 'acme-desk/tally', 'holds HTML' ] ],
 			'a block holding blocks'        => [ "<!-- wp:acme-desk/tally -->{$tally}<!-- /wp:acme-desk/tally -->", [ 'acme-desk/tally', 'holds no blocks' ] ],
-			'a container in a container'    => [ '<!-- wp:acme-desk/rail --><!-- wp:acme-desk/rail /--><!-- /wp:acme-desk/rail -->', [ 'acme-desk/rail', 'top level' ] ],
+			'a container in a container'    => [ '<!-- wp:acme-desk/rail --><!-- wp:acme-desk/rail /--><!-- /wp:acme-desk/rail -->', [ 'acme-desk/rail', 'only at the top, in a column or in a group' ] ],
 			'a second single block'         => [ '<!-- wp:acme-desk/queue /--><!-- wp:acme-desk/queue {"lane":"escalated"} /-->', [ 'acme-desk/queue', 'once' ] ],
 			'attributes that are not JSON'  => [ '<!-- wp:acme-desk/tally {"limit":} /-->', [ 'acme-desk/tally', 'not a JSON object' ] ],
 			'an undeclared attribute'       => [ '<!-- wp:acme-desk/tally {"colour":"red"} /-->', [ 'acme-desk/tally', 'colour' ] ],
@@ -290,7 +291,7 @@ final class CompositionTest extends TestCase {
 	}
 
 	public function test_serialize_holds_the_escaped_markup_to_the_byte_cap(): void {
-		$tree = Composition::validate( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"' . \str_repeat( '<', 700 ) . '"} /-->' );
+		$tree = Composition::validate( self::BOARD, '<!-- wp:acme-desk/lens {"lens":"' . \str_repeat( '<', \intdiv( Composition::MAX_MARKUP_BYTES, 5 ) ) . '"} /-->' );
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( (string) Composition::MAX_MARKUP_BYTES );
@@ -364,13 +365,18 @@ final class CompositionTest extends TestCase {
 
 		$this->assertSame( 'acme-desk/digest', $schemas['context'] );
 		$this->assertSame( 3, $schemas['max_blocks'] );
-		$this->assertSame( [ 'acme-desk/tally', 'acme-desk/summary' ], \array_keys( $schemas['blocks'] ) );
+		$this->assertSame(
+			[ 'acme-desk/tally', 'acme-desk/summary' ],
+			\array_keys( \array_filter( $schemas['blocks'], static fn ( array $block ): bool => ! $block['core'] ) )
+		);
 		$this->assertSame(
 			[
 				'title'      => 'Summary',
 				'attributes' => [ 'tone' => [ 'type' => 'string', 'default' => 'plain' ] ],
 				'container'  => false,
 				'multiple'   => true,
+				'core'       => false,
+				'text'       => null,
 			],
 			$schemas['blocks']['acme-desk/summary']
 		);
@@ -392,7 +398,7 @@ final class CompositionTest extends TestCase {
 		);
 	}
 
-	public function test_schemas_list_a_contexts_patterns_with_their_markup(): void {
+	public function test_schemas_list_a_contexts_patterns_as_their_trees(): void {
 		$this->declare_patterns(
 			[
 				'tui-7720'  => [ 'title' => 'Tui hush', 'file' => self::fixture( 'pattern-tui-7720' ) ],
@@ -402,8 +408,19 @@ final class CompositionTest extends TestCase {
 
 		$this->assertSame(
 			[
-				[ 'name' => 'tui-7720', 'title' => 'Tui hush', 'markup' => "<!-- wp:acme-desk/summary {\"tone\":\"hush\"} /-->\n" ],
-				[ 'name' => 'ruru-7721', 'title' => 'Ruru roost', 'markup' => "<!-- wp:acme-desk/tally {\"heading\":\"Ruru roost\",\"limit\":7} /-->\n<!-- wp:acme-desk/summary /-->\n" ],
+				[
+					'name'   => 'tui-7720',
+					'title'  => 'Tui hush',
+					'blocks' => [ [ 'name' => 'acme-desk/summary', 'attributes' => [ 'tone' => 'hush' ], 'inner' => [] ] ],
+				],
+				[
+					'name'   => 'ruru-7721',
+					'title'  => 'Ruru roost',
+					'blocks' => [
+						[ 'name' => 'acme-desk/tally', 'attributes' => [ 'heading' => 'Ruru roost', 'limit' => 7, 'open' => true ], 'inner' => [] ],
+						[ 'name' => 'acme-desk/summary', 'attributes' => [ 'tone' => 'plain' ], 'inner' => [] ],
+					],
+				],
 			],
 			Composition::schemas( 'acme-desk/digest' )['patterns']
 		);
@@ -433,7 +450,13 @@ final class CompositionTest extends TestCase {
 		$this->declare_shared( [ 'kea-7710/strip' ], null, [ 'tahi-7723' => [ 'title' => 'Tahi', 'file' => self::fixture( 'pattern-strip-7723' ) ] ] );
 
 		$this->assertSame(
-			[ [ 'name' => 'tahi-7723', 'title' => 'Tahi', 'markup' => "<!-- wp:kea-7710/strip {\"hue\":\"plum\"} /-->\n" ] ],
+			[
+				[
+					'name'   => 'tahi-7723',
+					'title'  => 'Tahi',
+					'blocks' => [ [ 'name' => 'kea-7710/strip', 'attributes' => [ 'hue' => 'plum' ], 'inner' => [] ] ],
+				],
+			],
 			Composition::schemas( 'weka-7711/board' )['patterns']
 		);
 	}
@@ -526,7 +549,10 @@ final class CompositionTest extends TestCase {
 
 		$this->assertSame( 'kea-7710/strip', $tree[0]['name'] );
 		$this->assertSame( [ 'hue' => 'plum' ], $tree[0]['attributes'] );
-		$this->assertSame( [ 'kea-7710/strip' ], \array_keys( Composition::blocks_for( 'weka-7711/board' ) ) );
+		$this->assertSame(
+			[ 'kea-7710/strip', 'core/heading', 'core/paragraph', 'core/list', 'core/list-item', 'core/group', 'core/columns', 'core/column', 'core/separator', 'core/spacer' ],
+			\array_keys( Composition::blocks_for( 'weka-7711/board' ) )
+		);
 	}
 
 	public function test_an_unadmitted_shared_block_is_refused_on_a_context(): void {
@@ -590,14 +616,14 @@ final class CompositionTest extends TestCase {
 
 		$this->assertSame(
 			[
-				'kea-7710/strip' => [
-					'title'      => 'Strip',
-					'attributes' => [ 'hue' => [ 'type' => 'string', 'default' => 'teal' ] ],
-					'container'  => false,
-					'multiple'   => true,
-				],
+				'title'      => 'Strip',
+				'attributes' => [ 'hue' => [ 'type' => 'string', 'default' => 'teal' ] ],
+				'container'  => false,
+				'multiple'   => true,
+				'core'       => false,
+				'text'       => null,
 			],
-			$blocks
+			$blocks['kea-7710/strip']
 		);
 	}
 
@@ -611,7 +637,7 @@ final class CompositionTest extends TestCase {
 		$this->assertCount( 1, $registered );
 		$this->assertSame( 5, $registered[0]['priority'] );
 
-		$this->declare_shared( [ 'kea-7710/strip', Composition::ASIDE, 'newspack-nodes/section', 'newspack-nodes/stats' ] );
+		$this->declare_shared( [ 'kea-7710/strip', 'newspack-nodes/section', 'newspack-nodes/stats' ] );
 
 		$source = [ 'type' => 'string', 'default' => '' ];
 		$names  = [
@@ -629,7 +655,6 @@ final class CompositionTest extends TestCase {
 		];
 		$this->assertSame(
 			[
-				'newspack-nodes/aside'      => $block( 'Aside', [], true, false ),
 				'newspack-nodes/stats'      => $block(
 					'Stats',
 					[
@@ -713,24 +738,18 @@ final class CompositionTest extends TestCase {
 
 		$tree = Composition::validate(
 			'weka-7711/board',
-			'<!-- wp:newspack-nodes/aside --><!-- wp:kea-7710/strip {"hue":"plum"} /--><!-- /wp:newspack-nodes/aside -->'
+			'<!-- wp:columns --><div class="wp-block-columns"><!-- wp:column --><div class="wp-block-column"><!-- wp:newspack-nodes/section {"title":"Kiwi 7713"} --><!-- wp:kea-7710/strip {"hue":"plum"} /--><!-- /wp:newspack-nodes/section --></div><!-- /wp:column --></div><!-- /wp:columns -->'
 		);
-		$this->assertSame( [ 'hue' => 'plum' ], $tree[0]['inner'][0]['attributes'] );
+		$section = $tree[0]['inner'][0]['inner'][0];
+		$this->assertSame( 'Kiwi 7713', $section['attributes']['title'] );
+		$this->assertSame( [ 'hue' => 'plum' ], $section['inner'][0]['attributes'] );
 
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'newspack-nodes/section stands only at the top level' );
+		$this->expectExceptionMessage( 'newspack-nodes/section stands only at the top, in a column or in a group' );
 		Composition::validate(
 			'weka-7711/board',
-			'<!-- wp:newspack-nodes/aside --><!-- wp:newspack-nodes/section /--><!-- /wp:newspack-nodes/aside -->'
+			'<!-- wp:newspack-nodes/section --><!-- wp:newspack-nodes/section /--><!-- /wp:newspack-nodes/section -->'
 		);
-	}
-
-	public function test_the_aside_stands_once(): void {
-		$this->declare_shared( [ Composition::ASIDE ] );
-
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'a second newspack-nodes/aside; it stands once' );
-		Composition::validate( 'weka-7711/board', '<!-- wp:newspack-nodes/aside /--><!-- wp:newspack-nodes/aside /-->' );
 	}
 
 	public function test_a_foreign_declaration_under_the_substrate_namespace_is_refused(): void {
@@ -756,6 +775,29 @@ final class CompositionTest extends TestCase {
 		Composition::declarations();
 	}
 
+	/** The `core` namespace belongs to WordPress, whose blocks every context admits. */
+	public function test_a_declaration_under_the_core_namespace_is_refused(): void {
+		$GLOBALS['_wp_actions'][ Composition::FILTER ] = [
+			static fn ( array $declared ): array => $declared + [
+				'core' => [
+					'blocks'   => [
+						'core/quail-4411' => [
+							'title'      => 'Quail',
+							'shared'     => true,
+							'attributes' => [],
+						],
+					],
+					'contexts' => [],
+				],
+			],
+		];
+		$this->forget_declarations();
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'composition declaration core: core belongs to WordPress, whose blocks every context admits' );
+		Composition::declarations();
+	}
+
 	/** Log in a user holding `$caps`, `read` filtered onto `edit_posts`. */
 	private function log_in( array $caps ): void {
 		$GLOBALS['_enqueued_scripts']         = [];
@@ -771,14 +813,17 @@ final class CompositionTest extends TestCase {
 
 		$this->assertFalse( Composition::editor( self::BOARD, self::EDITOR ) );
 		$this->assertArrayNotHasKey( 'wp-block-editor', $GLOBALS['_enqueued_scripts'] );
+		$this->assertArrayNotHasKey( 'wp-block-library', $GLOBALS['_enqueued_scripts'] );
 		$this->assertArrayNotHasKey( self::EDITOR, $GLOBALS['_enqueued_scripts'] );
 		$this->assertSame( [], $GLOBALS['_localized_scripts'] );
 
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$this->assertTrue( Composition::editor( self::BOARD, self::EDITOR ) );
 		$this->assertArrayHasKey( 'wp-block-editor', $GLOBALS['_enqueued_scripts'] );
+		$this->assertArrayHasKey( 'wp-block-library', $GLOBALS['_enqueued_scripts'], 'the core blocks the canvas offers register' );
 		$this->assertArrayHasKey( self::EDITOR, $GLOBALS['_enqueued_scripts'] );
 		$this->assertStringContainsString( 'for-acme-desk\/board', \implode( "\n", \array_column( $GLOBALS['_inline_scripts'], 1 ) ) );
+		$this->assertStringContainsString( 'registerCoreBlocks()', \implode( "\n", \array_column( $GLOBALS['_inline_scripts'], 1 ) ) );
 		$localized = $GLOBALS['_localized_scripts'][ self::EDITOR ];
 		$this->assertSame( Composition::EDITOR_GLOBAL, $localized['object_name'] );
 		$this->assertSame( self::BOARD, $localized['data']['context'] );

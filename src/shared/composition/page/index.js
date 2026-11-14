@@ -1,12 +1,11 @@
 /**
  * The reader half's page frame any plugin mounts a composed page on: the
- * layout with its aside column, the page context its blocks read, and the
+ * layout with its core blocks, the page context its blocks read, and the
  * edit-mode links. It imports neither `@wordpress/block-editor` nor
  * `@wordpress/blocks`.
  */
 
-export { default as ComposedLayout, ASIDE } from './ComposedLayout';
-export { default as AsideView } from './AsideView';
+export { default as ComposedLayout } from './ComposedLayout';
 export {
 	ComposedPage,
 	Editing,

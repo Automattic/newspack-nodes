@@ -49,6 +49,16 @@ const SCHEMAS = {
 	},
 };
 
+// A core block as `Composition::schemas()` lists it.
+const CORE_PARAGRAPH = {
+	title: 'Paragraph',
+	attributes: {},
+	container: false,
+	multiple: true,
+	core: true,
+	text: 'p',
+};
+
 const VIEWS = {
 	'acme-desk/tally': {
 		View: ( { attributes } ) => (
@@ -111,11 +121,16 @@ describe( 'registerCompositionBlocks', () => {
 		expect( tally.supports ).toEqual( {
 			html: false,
 			multiple: true,
+			align: false,
+			allowedBlocks: false,
+			anchor: false,
+			className: false,
 			customClassName: false,
 			customCSS: false,
 			lock: false,
 			renaming: false,
 			reusable: false,
+			typography: false,
 			visibility: false,
 		} );
 		expect(
@@ -152,6 +167,32 @@ describe( 'registerCompositionBlocks', () => {
 		render( <Edit attributes={ {} } setAttributes={ () => {} } /> );
 		expect( screen.getByTestId( 'inner' ).dataset.allowed ).toBe(
 			'acme-desk/tally acme-desk/gauge'
+		);
+	} );
+
+	it( 'leaves a core block to core’s own registration, asking no view of it', () => {
+		registerCompositionBlocks(
+			{
+				...SCHEMAS,
+				'core/paragraph': { ...CORE_PARAGRAPH },
+				'core/group': {
+					...CORE_PARAGRAPH,
+					container: true,
+					text: null,
+				},
+			},
+			VIEWS
+		);
+
+		expect( [ ...mockRegistered.keys() ] ).toEqual( [
+			'acme-desk/tally',
+			'acme-desk/column',
+			'acme-desk/gauge',
+		] );
+		const { edit: Edit } = mockRegistered.get( 'acme-desk/column' );
+		render( <Edit attributes={ {} } setAttributes={ () => {} } /> );
+		expect( screen.getByTestId( 'inner' ).dataset.allowed ).toBe(
+			'acme-desk/tally acme-desk/gauge core/paragraph'
 		);
 	} );
 } );

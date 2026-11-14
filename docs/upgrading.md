@@ -7,9 +7,20 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 ## Unreleased
 
 - **`Composition::declare_aside()` is `Composition::declare_substrate_blocks()`.**
-  It declares the aside and the six shared blocks. A test seeding the
-  composition filter by hand names the new method; the old name is gone, with
-  no alias.
+  It declares the six shared blocks. A test seeding the composition filter by
+  hand names the new method; the old name is gone, with no alias.
+- **`newspack-nodes/aside` is gone, and `core/columns` takes its place.**
+  `Composition::ASIDE`, the `ASIDE` and `AsideView` exports of
+  `@newspack-nodes/shared/composition/page` and the `.newspack-nodes-composed-aside`
+  and `.newspack-nodes-composed-layout-main` classes are removed, with no alias.
+  A context drops the aside from `admits`, and a default layout lays its side
+  column out as a `core/column` in `core/columns`; a stored layout naming the
+  aside no longer reads, so the page shows it unread and offers a curator
+  **Restore default**. `serializeLayout( blocks )` takes the schemas as a
+  second argument.
+- **A declaration under the `core` namespace is refused.** WordPress owns it,
+  and every context admits its layout blocks. Rename such a block into the
+  consumer's own namespace.
 - **A tab descriptor declares `params`, a list, in place of `param`.**
   `registerTab( { …, param: 'log' } )` is `registerTab( { …, params: [ 'log' ]
   } )`; list every query param the tab reads, because the host clears only the

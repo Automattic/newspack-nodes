@@ -2,8 +2,9 @@
 /**
  * The layout markup the browser's composition editor writes, read back by
  * the server's parser: `tests/fixtures/composition-markup.json` holds editor
- * blocks and the markup `serializeLayout()` sends for them, and its jest twin
- * holds the browser to the same file.
+ * blocks and the markup `serializeLayout()` sends for them, a core text
+ * block's `content` written inside its element, and its jest twin holds the
+ * browser to the same file.
  *
  * @package Newspack_Nodes
  */
@@ -44,7 +45,8 @@ final class CompositionMarkupTest extends TestCase {
 	}
 
 	/**
-	 * Parsed blocks in the fixture's editor shape, whitespace between them dropped.
+	 * Parsed blocks in the fixture's editor shape, whitespace between them
+	 * dropped and a text block's element read back as its `content`.
 	 *
 	 * @param array<mixed> $parsed What `parse_blocks()` answered.
 	 * @return list<array<string,mixed>>
@@ -55,9 +57,13 @@ final class CompositionMarkupTest extends TestCase {
 			if ( null === $block['blockName'] ) {
 				continue;
 			}
+			$attributes = $block['attrs'];
+			if ( 1 === \preg_match( '#^<([a-z0-9]+)>(.*)</\\1>$#s', \trim( $block['innerHTML'] ), $text ) ) {
+				$attributes['content'] = $text[2];
+			}
 			$tree[] = [
 				'name'        => $block['blockName'],
-				'attributes'  => $block['attrs'],
+				'attributes'  => $attributes,
 				'innerBlocks' => self::tree( $block['innerBlocks'] ),
 			];
 		}

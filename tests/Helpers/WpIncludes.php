@@ -18,10 +18,25 @@ namespace Newspack_Nodes\Tests\Helpers;
 final class Wp_Includes {
 
 	/** The files whose functions a request can reach, relative to wp-includes. */
-	private const FILES = [ 'blocks.php', 'rest-api.php', 'functions.php', 'formatting.php' ];
+	private const FILES = [ 'blocks.php', 'rest-api.php', 'functions.php', 'formatting.php', 'kses.php' ];
 
-	/** The class files `parse_blocks()` instantiates, in dependency order. */
-	private const CLASSES = [ 'class-wp-block-parser-block.php', 'class-wp-block-parser-frame.php', 'class-wp-block-parser.php' ];
+	/**
+	 * The class files `parse_blocks()` instantiates, then those `wp_kses()`
+	 * reads a link through, each in dependency order.
+	 */
+	private const CLASSES = [
+		'class-wp-block-parser-block.php',
+		'class-wp-block-parser-frame.php',
+		'class-wp-block-parser.php',
+		'class-wp-token-map.php',
+		'html-api/html5-named-character-references.php',
+		'html-api/class-wp-html-attribute-token.php',
+		'html-api/class-wp-html-span.php',
+		'html-api/class-wp-html-text-replacement.php',
+		'html-api/class-wp-html-decoder.php',
+		'html-api/class-wp-html-doctype-info.php',
+		'html-api/class-wp-html-tag-processor.php',
+	];
 
 	/**
 	 * Function name => its source, across FILES; null until first use.

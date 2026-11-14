@@ -11,10 +11,6 @@
 @use "tokens" as *;
 @use "mixins" as mix;
 
-// From this width a composed layout stands its aside beside the main column.
-$composed-wide: 1100px;
-$composed-aside-width: 320px;
-
 :where(.newspack-nodes-ui).newspack-nodes-theme {
 	font-family: var(--np-font);
 	color: var(--np-text);
@@ -266,35 +262,23 @@ $composed-aside-width: 320px;
 		gap: $space-sm;
 	}
 
-	// A composed layout's aside follows its main column, and stands beside it
-	// when wide; the view it stands in spaces it from the header above.
-	.newspack-nodes-composed-layout {
+	// A layout, its columns and its groups stack their blocks a step apart.
+	.newspack-nodes-composed-layout,
+	.newspack-nodes-composed-layout .wp-block-column,
+	.newspack-nodes-composed-layout .wp-block-group {
 		display: flex;
 		flex-direction: column;
 		gap: $space-xl;
 
-		@media (min-width: $composed-wide) {
-			flex-direction: row;
-			align-items: flex-start;
+		// The stack spaces core's text; its own margins would double the step.
+		> :is(p, .wp-block-heading, .wp-block-list) {
+			margin-block: 0;
 		}
 	}
 
-	.newspack-nodes-composed-layout-main {
-		display: flex;
-		flex: 1 1 0;
-		flex-direction: column;
+	.newspack-nodes-composed-layout .wp-block-columns {
 		gap: $space-xl;
-		min-width: 0;
-	}
-
-	.newspack-nodes-composed-aside {
-		display: flex;
-		flex-direction: column;
-		gap: $space-xl;
-
-		@media (min-width: $composed-wide) {
-			flex: 0 0 $composed-aside-width;
-		}
+		margin-block: 0;
 	}
 
 	// Loading container

@@ -2,16 +2,26 @@
 /**
  * Composition: the composition layer's declarations and its validator.
  *
- * A page composed of blocks is a layout: serialized block markup holding only
- * the delimiters of the blocks a consumer declared, and their JSON
- * attributes, never HTML. A consumer declares its blocks and the contexts
+ * A page composed of blocks is a layout: serialized block markup holding
+ * the delimiters of the blocks a consumer declared and their JSON
+ * attributes, and the core blocks every context admits (`CORE_BLOCKS`):
+ * headings, paragraphs, lists, groups, columns, separators and spacers. A
+ * declared block holds no HTML. A core block holds only the element core
+ * writes it as, and the text of a heading, a paragraph or a list item inside
+ * it, which holds no comment and which every read filters to `INLINE_HTML`
+ * and hands on as its `content` attribute; `serialize()` stores that text
+ * in the block's `text` element and every other core block with none, the
+ * shape the editor writes, and refuses a layout that does not read back as
+ * the tree it was handed. A consumer declares its blocks and the contexts
  * they compose on the `newspack_nodes/compositions` filter, a map of
  * namespace => `{ blocks, contexts }`:
  *
  *  - `blocks`: name => `{ title, contexts: list<string>, attributes: { name
  *    => JSON schema with a default }, container?: bool, multiple?: bool }`.
- *    A `container` holds blocks and stands only at the top level;
- *    `multiple: false` lets the block stand once, as block.json's
+ *    A `container` holds blocks and stands only at the top, in a column or
+ *    in a group; any other block stands there or in a container, no more
+ *    than `MAX_DEPTH` blocks deep; `multiple: false` lets the block stand
+ *    once, as block.json's
  *    `supports.multiple` does. `shared: true` takes the place of `contexts`:
  *    a shared block does not stand on any context of its own, only on those that
  *    admit it, from any namespace. The substrate declares its own shared
@@ -51,14 +61,277 @@ final class Composition {
 	/** The filter a consumer declares its blocks and contexts on. */
 	public const FILTER = 'newspack_nodes/compositions';
 
-	/** The longest layout, in bytes, before it is parsed. */
-	public const MAX_MARKUP_BYTES = 4096;
+	/**
+	 * The longest layout, in bytes, before it is parsed. A layout holds a
+	 * page's prose beside its blocks, so it fits some sixty paragraphs of a
+	 * thousand bytes; every read parses and filters the whole of it, and a
+	 * save rides one command, whose body
+	 * `Command_Interpreter_Node::MAX_BODY_BYTES` holds to 1 MiB.
+	 */
+	public const MAX_MARKUP_BYTES = 65536;
+
+	/** The most blocks that may hold one block: a group, a column and its columns. */
+	private const MAX_DEPTH = 3;
+
+	/** The core blocks a container, a column or a group included, may stand in. */
+	private const LAYOUT_HOLDERS = [ 'core/group', 'core/column' ];
+
+	/** The inline markup a heading, paragraph or list item keeps, for `wp_kses()`. */
+	private const INLINE_HTML = [
+		'strong' => [],
+		'em'     => [],
+		'b'      => [],
+		'i'      => [],
+		'code'   => [],
+		'a'      => [
+			'href'   => true,
+			'target' => true,
+			'rel'    => true,
+		],
+		'br'     => [],
+	];
+
+	/** A CSS length or percentage, as a column's width or a layout's size. */
+	private const WIDTH = '^[0-9]+(\\.[0-9]+)?(px|em|rem|vh|vw|%)$';
+
+	/** A group's or a columns block's layout, with only the keys core writes. */
+	private const LAYOUT_ATTRIBUTE = [
+		'type'                 => 'object',
+		'properties'           => [
+			'type'               => [
+				'type' => 'string',
+				'enum' => [ 'default', 'constrained', 'flex', 'grid' ],
+			],
+			'orientation'        => [
+				'type' => 'string',
+				'enum' => [ 'horizontal', 'vertical' ],
+			],
+			'justifyContent'     => [
+				'type' => 'string',
+				'enum' => [ 'left', 'center', 'right', 'space-between', 'stretch' ],
+			],
+			'verticalAlignment'  => [
+				'type' => 'string',
+				'enum' => [ 'top', 'center', 'bottom', 'stretch', 'space-between' ],
+			],
+			'flexWrap'           => [
+				'type' => 'string',
+				'enum' => [ 'wrap', 'nowrap' ],
+			],
+			'contentSize'        => [
+				'type'    => 'string',
+				'pattern' => self::WIDTH,
+			],
+			'wideSize'           => [
+				'type'    => 'string',
+				'pattern' => self::WIDTH,
+			],
+			'columnCount'        => [
+				'type'    => 'integer',
+				'minimum' => 1,
+				'maximum' => 16,
+			],
+			'minimumColumnWidth' => [
+				'type'    => 'string',
+				'pattern' => self::WIDTH,
+			],
+		],
+		'additionalProperties' => false,
+	];
+
+	/**
+	 * The core blocks every context admits, which carry no data, so no
+	 * consumer declares them, each in a declared block's shape: its title,
+	 * its attribute schemas, and its placement. Beside those, `reads` names
+	 * the elements a read takes it in and, for one that holds text, `text`
+	 * the element its text is stored in. `in` names the one block a block
+	 * stands in, `holds` the one block a block holds, `part` marks a block
+	 * that adds no depth to the one it stands in, and a `container` holds
+	 * what a column or a group may.
+	 */
+	private const CORE_BLOCKS = [
+		'core/heading'   => [
+			'title'      => 'Heading',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => false,
+			'multiple'   => true,
+			'reads'      => 'h[1-6]',
+			'text'       => 'h2',
+			'attributes' => [
+				'level' => [
+					'type'    => 'integer',
+					'minimum' => 1,
+					'maximum' => 6,
+					'default' => 2,
+				],
+			],
+		],
+		'core/paragraph' => [
+			'title'      => 'Paragraph',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => false,
+			'multiple'   => true,
+			'reads'      => 'p',
+			'text'       => 'p',
+			'attributes' => [
+				'direction' => [
+					'type' => 'string',
+					'enum' => [ 'ltr', 'rtl' ],
+				],
+			],
+		],
+		'core/list'      => [
+			'title'      => 'List',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => false,
+			'multiple'   => true,
+			'reads'      => 'ul|ol',
+			'holds'      => 'core/list-item',
+			'attributes' => [
+				'ordered'  => [
+					'type'    => 'boolean',
+					'default' => false,
+				],
+				'reversed' => [
+					'type'    => 'boolean',
+					'default' => false,
+				],
+				'start'    => [ 'type' => 'integer' ],
+				'type'     => [
+					'type' => 'string',
+					'enum' => [ 'decimal', 'upper-alpha', 'lower-alpha', 'upper-roman', 'lower-roman' ],
+				],
+			],
+		],
+		'core/list-item' => [
+			'title'      => 'List item',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => false,
+			'multiple'   => true,
+			'reads'      => 'li',
+			'text'       => 'li',
+			'in'         => 'core/list',
+			'part'       => true,
+			'attributes' => [],
+		],
+		'core/group'     => [
+			'title'      => 'Group',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => true,
+			'multiple'   => true,
+			'reads'      => 'div|header|main|section|article|aside|footer',
+			'attributes' => [
+				'tagName' => [
+					'type'    => 'string',
+					'enum'    => [ 'div', 'header', 'main', 'section', 'article', 'aside', 'footer' ],
+					'default' => 'div',
+				],
+				'layout'  => self::LAYOUT_ATTRIBUTE,
+			],
+		],
+		'core/columns'   => [
+			'title'      => 'Columns',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => true,
+			'multiple'   => true,
+			'reads'      => 'div',
+			'holds'      => 'core/column',
+			'attributes' => [
+				'isStackedOnMobile' => [
+					'type'    => 'boolean',
+					'default' => true,
+				],
+				'verticalAlignment' => [
+					'type' => 'string',
+					'enum' => [ 'top', 'center', 'bottom' ],
+				],
+				'layout'            => self::LAYOUT_ATTRIBUTE,
+			],
+		],
+		'core/column'    => [
+			'title'      => 'Column',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => true,
+			'multiple'   => true,
+			'reads'      => 'div',
+			'in'         => 'core/columns',
+			'attributes' => [
+				'verticalAlignment' => [
+					'type' => 'string',
+					'enum' => [ 'top', 'center', 'bottom', 'stretch' ],
+				],
+				'width'             => [
+					'type'    => 'string',
+					'pattern' => self::WIDTH,
+				],
+				'layout'            => self::LAYOUT_ATTRIBUTE,
+			],
+		],
+		'core/separator' => [
+			'title'      => 'Separator',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => false,
+			'multiple'   => true,
+			'reads'      => 'hr|div',
+			'attributes' => [
+				'tagName' => [
+					'type'    => 'string',
+					'enum'    => [ 'hr', 'div' ],
+					'default' => 'hr',
+				],
+			],
+		],
+		'core/spacer'    => [
+			'title'      => 'Spacer',
+			'contexts'   => [],
+			'shared'     => true,
+			'container'  => false,
+			'multiple'   => true,
+			'reads'      => 'div',
+			'attributes' => [
+				'height' => [
+					'type'    => 'string',
+					'pattern' => '^[0-9]+(\\.[0-9]+)?(px|em|rem|vh|vw)$',
+					'default' => '100px',
+				],
+				'width'  => [
+					'type'    => 'string',
+					'pattern' => self::WIDTH,
+				],
+				'style'  => [
+					'type'                 => 'object',
+					'properties'           => [
+						'layout' => [
+							'type'                 => 'object',
+							'properties'           => [
+								'flexSize'    => [
+									'type'    => 'string',
+									'pattern' => self::WIDTH,
+								],
+								'selfStretch' => [
+									'type' => 'string',
+									'enum' => [ 'fixed', 'fit', 'fill' ],
+								],
+							],
+							'additionalProperties' => false,
+						],
+					],
+					'additionalProperties' => false,
+				],
+			],
+		],
+	];
 
 	/** The global the editor bundle reads its page data from. */
 	public const EDITOR_GLOBAL = 'NewspackNodesComposition';
-
-	/** The substrate's shared container: a column beside a page's main one. */
-	public const ASIDE = 'newspack-nodes/aside';
 
 	/** A string attribute, empty by default. */
 	private const NAME_ATTRIBUTE = [
@@ -74,18 +347,11 @@ final class Composition {
 	];
 
 	/**
-	 * The substrate's shared blocks: the aside, the five that each read one
-	 * declared source, and the section, a container heading the blocks it
-	 * holds. Block name => declaration, as `FILTER` takes one.
+	 * The substrate's shared blocks: the five that each read one declared
+	 * source, and the section, a container heading the blocks it holds.
+	 * Block name => declaration, as `FILTER` takes one.
 	 */
 	private const SUBSTRATE_BLOCKS = [
-		self::ASIDE                 => [
-			'title'      => 'Aside',
-			'shared'     => true,
-			'container'  => true,
-			'multiple'   => false,
-			'attributes' => [],
-		],
 		'newspack-nodes/stats'      => [
 			'title'      => 'Stats',
 			'shared'     => true,
@@ -210,23 +476,27 @@ final class Composition {
 	/**
 	 * A validated tree as the layout a context stores: every attribute, no
 	 * whitespace between delimiters, held to `MAX_MARKUP_BYTES` as the
-	 * delimiters escape it.
+	 * delimiters escape it, and read back before it is answered, so a layout
+	 * that would read as anything but `$tree` is never stored.
 	 *
 	 * @param string $context The context the tree composes.
 	 * @param Tree   $tree    A tree `validate()` or `validate_shape()` answered.
-	 * @throws \RuntimeException When the serialized layout is past the cap.
+	 * @throws \RuntimeException When the serialized layout is past the cap or does not read back as `$tree`.
 	 */
 	public static function serialize( string $context, array $tree ): string {
 		$markup = \serialize_blocks( self::parsed( $tree ) );
-		self::fit( $context, $markup );
+		if ( self::validate_shape( $context, $markup ) !== $tree ) {
+			self::refuse( $context, 'the layout does not read back as it was written' );
+		}
 		return $markup;
 	}
 
 	/**
-	 * Tree nodes in `parse_blocks()`'s shape.
+	 * Tree nodes in `parse_blocks()`'s shape: a block's delimiters alone, and
+	 * a core text block's text, out of its attributes, in its `text` element.
 	 *
 	 * @param Tree $tree Validated nodes.
-	 * @return list<array{blockName: string, attrs: array<string,mixed>, innerBlocks: list<array<mixed>>, innerHTML: string, innerContent: list<null>}>
+	 * @return list<array{blockName: string, attrs: array<string,mixed>, innerBlocks: list<array<mixed>>, innerHTML: string, innerContent: list<?string>}>
 	 */
 	private static function parsed( array $tree ): array {
 		$blocks = [];
@@ -234,12 +504,19 @@ final class Composition {
 			/** @var Tree $children */
 			$children = $node['inner'];
 			$inner    = self::parsed( $children );
+			$attrs    = $node['attributes'];
+			$content  = \array_fill( 0, \count( $inner ), null );
+			$text     = self::core_key( $node['name'], 'text' );
+			if ( null !== $text ) {
+				$content = [ "<{$text}>" . Core::as_string( $attrs['content'] ) . "</{$text}>" ];
+				unset( $attrs['content'] );
+			}
 			$blocks[] = [
 				'blockName'    => $node['name'],
-				'attrs'        => $node['attributes'],
+				'attrs'        => $attrs,
 				'innerBlocks'  => $inner,
-				'innerHTML'    => '',
-				'innerContent' => \array_fill( 0, \count( $inner ), null ),
+				'innerHTML'    => \implode( '', \array_filter( $content, 'is_string' ) ),
+				'innerContent' => $content,
 			];
 		}
 		return $blocks;
@@ -278,14 +555,16 @@ final class Composition {
 
 	/**
 	 * Mount the editor for a `tune` caller: the block-editor canvas under
-	 * `$context`, the consumer's editor bundle `$handle`, and `schemas()`
-	 * localized on it as `EDITOR_GLOBAL`. Any other caller gets none of it.
+	 * `$context` with core's blocks registered, the consumer's editor bundle
+	 * `$handle`, and `schemas()` localized on it as `EDITOR_GLOBAL`. Any
+	 * other caller gets none of it.
 	 *
 	 * @param string $context A declared context.
 	 * @param string $handle  The consumer's registered editor bundle.
 	 * @api Called from consumer plugins' admin pages (cross-repo, invisible here).
 	 * @return bool True when the editor loaded.
 	 * @throws \LogicException When the context is not declared, or `$handle` is not registered.
+	 * @throws \RuntimeException When a pattern's markup no longer validates.
 	 */
 	public static function editor( string $context, string $handle ): bool {
 		$schemas = self::schemas( $context );
@@ -297,6 +576,7 @@ final class Composition {
 			throw new \LogicException( "composition {$context}: the editor bundle {$handle} is not registered" );
 		}
 		Block_Editor_Bootstrap::load_canvas( $context );
+		Block_Editor_Bootstrap::load_content_blocks();
 		\wp_enqueue_script( $handle );
 		\wp_localize_script( $handle, self::EDITOR_GLOBAL, $schemas );
 		return true;
@@ -305,11 +585,16 @@ final class Composition {
 	/**
 	 * The editor's page data: the context, its block cap, and every block it
 	 * admits with its title, attribute schemas and the two placement flags,
-	 * and the patterns it offers with their markup, in declared order.
+	 * the core blocks last, each marked `core` with the element an editor
+	 * writes its text in (`text`), null for one that holds none, the
+	 * patterns it offers, each as the tree `validate_shape()` answers for its
+	 * markup, in declared order, so an editor builds its blocks without
+	 * parsing, and the inline elements a text block keeps (`inline`).
 	 *
 	 * @param string $context A declared context.
-	 * @return array{context: string, max_blocks: int, blocks: array<string,array{title: string, attributes: array<string,array<string,mixed>>, container: bool, multiple: bool}>, patterns: list<array{name: string, title: string, markup: string}>}
+	 * @return array{context: string, max_blocks: int, blocks: array<string,array{title: string, attributes: array<string,array<string,mixed>>, container: bool, multiple: bool, core: bool, text: ?string}>, patterns: list<array{name: string, title: string, blocks: Tree}>, inline: list<string>}
 	 * @throws \LogicException When the context is not declared.
+	 * @throws \RuntimeException When a pattern's markup no longer validates.
 	 */
 	public static function schemas( string $context ): array {
 		$declared = self::context_of( $context );
@@ -320,6 +605,8 @@ final class Composition {
 				'attributes' => $block['attributes'],
 				'container'  => $block['container'],
 				'multiple'   => $block['multiple'],
+				'core'       => isset( self::CORE_BLOCKS[ $name ] ),
+				'text'       => self::core_key( $name, 'text' ),
 			];
 		}
 		$patterns = [];
@@ -327,7 +614,7 @@ final class Composition {
 			$patterns[] = [
 				'name'   => $pattern['name'],
 				'title'  => $pattern['title'],
-				'markup' => $pattern['markup'],
+				'blocks' => self::validate_shape( $context, $pattern['markup'] ),
 			];
 		}
 		return [
@@ -335,6 +622,7 @@ final class Composition {
 			'max_blocks' => $declared['max_blocks'],
 			'blocks'     => $blocks,
 			'patterns'   => $patterns,
+			'inline'     => \array_keys( self::INLINE_HTML ),
 		];
 	}
 
@@ -352,10 +640,10 @@ final class Composition {
 
 	/**
 	 * Declare the substrate's shared blocks on `FILTER` at priority 5, so a
-	 * consumer at the default priority can admit them: the aside, the stats,
+	 * consumer at the default priority can admit them: the stats,
 	 * time-chart, table, log-stream and sparkline blocks, each reading the
 	 * source its `source` attribute names, and the section, a container, so
-	 * it stands only at the top level.
+	 * it stands only at the top, in a column or in a group.
 	 *
 	 * @param array<mixed> $declared What the filter holds so far.
 	 * @return array<mixed>
@@ -392,6 +680,9 @@ final class Composition {
 			$namespace = (string) $namespace;
 			if ( 1 !== \preg_match( self::NAMESPACE_PATTERN, $namespace ) ) {
 				self::refuse_declaration( $namespace, $namespace, 'is not a namespace: lowercase letters, digits and hyphens' );
+			}
+			if ( 'core' === $namespace ) {
+				self::refuse_declaration( $namespace, $namespace, 'belongs to WordPress, whose blocks every context admits' );
 			}
 			if ( ! \is_array( $declaration ) || ! \is_array( $declaration['blocks'] ?? null ) || ! \is_array( $declaration['contexts'] ?? null ) ) {
 				self::refuse_declaration( $namespace, $namespace, 'declares no { blocks, contexts } map' );
@@ -626,7 +917,7 @@ final class Composition {
 		$declared = self::context_of( $context );
 		self::fit( $context, $markup );
 		$singles = [];
-		$tree    = self::nodes( $context, self::blocks_for( $context ), \parse_blocks( $markup ), 0, $singles );
+		$tree    = self::nodes( $context, self::blocks_for( $context ), \parse_blocks( $markup ), null, 0, $singles );
 		$count   = \count( self::flatten( $tree ) );
 		if ( $count > $declared['max_blocks'] ) {
 			self::refuse( $context, "{$count} blocks, more than the {$declared['max_blocks']} it holds" );
@@ -657,14 +948,14 @@ final class Composition {
 	 *
 	 * @param array<string,Block> $standing The blocks that stand on the context.
 	 * @param array<mixed>        $blocks   What `parse_blocks()` answered, at one depth.
-	 * @param int                 $depth    0 at the top level.
+	 * @param ?string             $parent   The block holding them, null at the top.
+	 * @param int                 $depth    How many blocks hold them, 0 at the top.
 	 * @param array<string,true>  $singles  Seen single-standing names.
 	 * @return Tree
 	 * @throws \RuntimeException On the first rule broken.
 	 */
-	private static function nodes( string $context, array $standing, array $blocks, int $depth, array &$singles ): array {
-		$declared = self::declarations()['blocks'];
-		$nodes    = [];
+	private static function nodes( string $context, array $standing, array $blocks, ?string $parent, int $depth, array &$singles ): array {
+		$nodes = [];
 		foreach ( $blocks as $block ) {
 			$block = Core::arr( $block );
 			$name  = $block['blockName'] ?? null;
@@ -675,38 +966,113 @@ final class Composition {
 				continue;
 			}
 			$name = Core::as_string( $name );
-			$spec = $declared[ $name ] ?? null;
+			$spec = self::declarations()['blocks'][ $name ] ?? self::CORE_BLOCKS[ $name ] ?? null;
 			if ( null === $spec ) {
 				self::refuse( $context, "{$name} is not a declared block" );
 			}
 			if ( ! isset( $standing[ $name ] ) ) {
 				self::refuse( $context, "{$name} does not stand on {$context}" );
 			}
-			foreach ( Core::arr( $block['innerContent'] ?? [] ) as $chunk ) {
-				if ( \is_string( $chunk ) && '' !== \trim( $chunk ) ) {
-					self::refuse( $context, "{$name} holds HTML; a layout holds no HTML" );
-				}
-			}
 			$inner = Core::arr( $block['innerBlocks'] ?? [] );
-			if ( [] !== $inner && ! $spec['container'] ) {
-				self::refuse( $context, "{$name} holds no blocks" );
-			}
-			if ( $spec['container'] && $depth > 0 ) {
-				self::refuse( $context, "{$name} stands only at the top level" );
-			}
+			self::place( $context, $name, $spec, $parent, $depth, [] !== $inner );
 			if ( ! $spec['multiple'] ) {
 				if ( isset( $singles[ $name ] ) ) {
 					self::refuse( $context, "a second {$name}; it stands once" );
 				}
 				$singles[ $name ] = true;
 			}
+			$html       = \trim( \implode( '', \array_filter( Core::arr( $block['innerContent'] ?? [] ), 'is_string' ) ) );
+			$attributes = self::attributes( $context, $name, $block['attrs'] ?? null, $spec['attributes'] );
+			$text       = self::text_of( $context, $name, $html );
+			if ( null !== $text ) {
+				$attributes['content'] = $text;
+			}
 			$nodes[] = [
 				'name'       => $name,
-				'attributes' => self::attributes( $context, $name, $block['attrs'] ?? null, $spec['attributes'] ),
-				'inner'      => self::nodes( $context, $standing, $inner, $depth + 1, $singles ),
+				'attributes' => $attributes,
+				'inner'      => self::nodes( $context, $standing, $inner, $name, $depth + 1, $singles ),
 			];
 		}
 		return $nodes;
+	}
+
+	/**
+	 * Refuse a block standing where it may not: deeper than `MAX_DEPTH`, a
+	 * `part` of its parent excepted, outside the one block it stands in, in a
+	 * block holding only another, a container anywhere but the top, a column
+	 * or a group, and any other block holding blocks.
+	 *
+	 * @param Block   $spec      The block's declaration.
+	 * @param ?string $parent    The block holding it, null at the top.
+	 * @param int     $depth     How many blocks hold it.
+	 * @param bool    $has_inner Whether it holds blocks.
+	 * @throws \RuntimeException On the first rule broken.
+	 */
+	private static function place( string $context, string $name, array $spec, ?string $parent, int $depth, bool $has_inner ): void {
+		$in = self::core_key( $name, 'in' );
+		if ( $depth > self::MAX_DEPTH && ! isset( self::CORE_BLOCKS[ $name ]['part'] ) ) {
+			self::refuse( $context, "{$name} stands deeper than " . self::MAX_DEPTH . ' blocks' );
+		}
+		if ( null !== $in && $parent !== $in ) {
+			self::refuse( $context, "{$name} stands only in {$in}" );
+		}
+		$holds = null === $parent ? null : self::core_key( $parent, 'holds' );
+		if ( null !== $holds && $holds !== $name ) {
+			self::refuse( $context, "{$parent} holds only {$holds}" );
+		}
+		if ( $spec['container'] && null === $in && null !== $parent && ! \in_array( $parent, self::LAYOUT_HOLDERS, true ) ) {
+			self::refuse( $context, "{$name} stands only at the top, in a column or in a group" );
+		}
+		if ( $has_inner && ! $spec['container'] && null === self::core_key( $name, 'holds' ) ) {
+			self::refuse( $context, "{$name} holds no blocks" );
+		}
+	}
+
+	/**
+	 * The text of a heading, a paragraph or a list item, inside the element core
+	 * writes it as, holding no comment, filtered to `INLINE_HTML`; null for
+	 * any other block, whose HTML must be its own element alone, and a
+	 * declared block's none.
+	 *
+	 * @param string $html The block's own HTML, its children's left out.
+	 * @return ?string The text.
+	 * @throws \RuntimeException When the block holds HTML it may not.
+	 */
+	private static function text_of( string $context, string $name, string $html ): ?string {
+		$tag = self::core_key( $name, 'reads' );
+		if ( null === $tag ) {
+			if ( '' !== $html ) {
+				self::refuse( $context, "{$name} holds HTML; a layout holds no HTML" );
+			}
+			return null;
+		}
+		if ( null !== self::core_key( $name, 'text' ) ) {
+			if ( 1 !== \preg_match( "#^<({$tag})(?:\\s[^>]*)?>(.*)</\\1>\$#is", $html, $match ) ) {
+				self::refuse( $context, "{$name} holds HTML outside its own element" );
+			}
+			// wp_kses() rebuilds a comment, which can then read as a delimiter.
+			if ( \str_contains( $match[2], '<!--' ) ) {
+				self::refuse( $context, "{$name} holds a comment; its text holds inline formatting only" );
+			}
+			return \wp_kses( $match[2], self::INLINE_HTML );
+		}
+		$element = "<({$tag})(?:\\s[^>]*)?(?:/>|>(?:\\s*</\\1>)?)";
+		if ( 1 !== \preg_match( "#^(?:{$element})?\$#is", $html ) ) {
+			self::refuse( $context, "{$name} holds HTML outside its own element" );
+		}
+		return null;
+	}
+
+	/**
+	 * One of a core block's element or placement keys, null for a block that
+	 * is not core or a key it does not declare.
+	 *
+	 * @param string $name A block name.
+	 * @param string $key  `reads`, `text`, `in` or `holds`.
+	 */
+	private static function core_key( string $name, string $key ): ?string {
+		$value = self::CORE_BLOCKS[ $name ][ $key ] ?? null;
+		return null === $value ? null : Core::as_string( $value );
 	}
 
 	/**
@@ -724,7 +1090,9 @@ final class Composition {
 		}
 		$defaults = [];
 		foreach ( $schemas as $attribute => $schema ) {
-			$defaults[ $attribute ] = $schema['default'];
+			if ( \array_key_exists( 'default', $schema ) ) {
+				$defaults[ $attribute ] = $schema['default'];
+			}
 		}
 		foreach ( $attrs as $attribute => $value ) {
 			$attribute = (string) $attribute;
@@ -756,7 +1124,8 @@ final class Composition {
 
 	/**
 	 * The blocks that stand on a context: those declaring it among their
-	 * `contexts`, and the shared blocks it admits.
+	 * `contexts`, the shared blocks it admits, and the core blocks every
+	 * context admits.
 	 *
 	 * @param string $context A declared context.
 	 * @return array<string,Block>
@@ -770,7 +1139,7 @@ final class Composition {
 				$blocks[ $name ] = $block;
 			}
 		}
-		return $blocks;
+		return $blocks + self::CORE_BLOCKS;
 	}
 
 	/**

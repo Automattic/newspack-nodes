@@ -40,6 +40,18 @@ if ( ! function_exists( 'is_main_site' ) ) {
 	}
 }
 
+if ( ! function_exists( 'did_action' ) ) {
+	/**
+	 * How often an action ran; the suite runs WordPress's own actions never.
+	 *
+	 * @param string $hook The action.
+	 * @return int Always 0.
+	 */
+	function did_action( string $hook ): int {
+		return 0;
+	}
+}
+
 if ( ! function_exists( 'do_action' ) ) {
 	$GLOBALS['_wp_actions']              = [];
 	$GLOBALS['_wp_action_registrations'] = [];

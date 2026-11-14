@@ -49,5 +49,42 @@
       }
     ],
     "markup": "<!-- wp:acme-desk/column -->\n<!-- wp:acme-desk/tally {\"label\":\"a \\u002d\\u002d\\u003e \\u003ci\\u003e\\u0026\",\"max\":7} /-->\n<!-- /wp:acme-desk/column --><!-- wp:acme-desk/tally /-->"
+  },
+  {
+    "name": "core text blocks in core columns",
+    "blocks": [
+      {
+        "name": "core/columns",
+        "attributes": {
+          "isStackedOnMobile": false
+        },
+        "innerBlocks": [
+          {
+            "name": "core/column",
+            "attributes": {
+              "width": "41%"
+            },
+            "innerBlocks": [
+              {
+                "name": "core/heading",
+                "attributes": {
+                  "level": 4,
+                  "content": "Kelp <em>7920</em>"
+                },
+                "innerBlocks": []
+              },
+              {
+                "name": "core/spacer",
+                "attributes": {
+                  "height": "12px"
+                },
+                "innerBlocks": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "markup": "<!-- wp:columns {\"isStackedOnMobile\":false} -->\n<!-- wp:column {\"width\":\"41%\"} -->\n<!-- wp:heading {\"level\":4} -->\n<h2>Kelp <em>7920</em></h2>\n<!-- /wp:heading -->\n<!-- wp:spacer {\"height\":\"12px\"} /-->\n<!-- /wp:column -->\n<!-- /wp:columns -->"
   }
 ]

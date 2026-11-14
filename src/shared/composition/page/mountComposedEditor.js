@@ -1,11 +1,12 @@
 /**
  * A composed page's layout editor, mounted in one call from what
  * `Composition::editor()` localized: the context's blocks registered against
- * the consumer's views, the substrate's aside among them, each View providing
- * `editing` to the write controls it holds; then the context's editor for the
- * page's slot, standing inside the consumer's providers and sending for the
- * group of the `ComposedPage` they provide, under a `PageStateProvider` and
- * a `SourcesProvider` the blocks and the preview read their page state and
+ * the consumer's views, core's blocks left to core and confined to what a
+ * layout keeps (`confineCanvas()`), each View providing `editing` to the
+ * write controls it holds; then the context's editor for the page's slot,
+ * standing inside the consumer's providers and sending for the group of the
+ * `ComposedPage` they provide, under a `PageStateProvider` and a
+ * `SourcesProvider` the blocks and the preview read their page state and
  * sources through. A bundle reads only the sources and page state its own
  * modules declare, so a page's `registerSource()` and `definePageState()`
  * declarations live in a module both its reader and its editor entries
@@ -16,12 +17,11 @@
  */
 
 import CompositionEditor from '../CompositionEditor';
+import { confineCanvas } from '../confineCanvas';
 import { registerCompositionEditor } from '../editorRegistry';
 import { registerCompositionBlocks } from '../registerCompositionBlocks';
 import { SourcesProvider } from '../../sources';
 import { PageStateProvider } from './pageState';
-import AsideView from './AsideView';
-import { ASIDE } from './ComposedLayout';
 import { providedViews, usePage } from './pageContext';
 
 /**
@@ -31,6 +31,7 @@ import { providedViews, usePage } from './pageContext';
  * @property {string}                                                                  context  The context edited.
  * @property {Object<string,import('../registerCompositionBlocks').CompositionSchema>} blocks   Block name => schema, the admitted ones included.
  * @property {import('../CompositionEditor').CompositionPattern[]}                     patterns The layouts it offers to start from.
+ * @property {string[]}                                                                inline   The elements a text block keeps.
  */
 
 /**
@@ -44,7 +45,7 @@ import { providedViews, usePage } from './pageContext';
  * @return {import('react').ReactElement} The editor.
  */
 function PageEditor( {
-	localized: { context, blocks, patterns },
+	localized: { context, blocks, patterns, inline },
 	heading,
 	Preview,
 	slot,
@@ -57,6 +58,7 @@ function PageEditor( {
 			heading={ heading }
 			schemas={ blocks }
 			patterns={ patterns }
+			inline={ inline }
 			preview={ Preview && <Preview { ...slot } /> }
 			onDone={ slot.onDone }
 			onDirty={ slot.onDirty }
@@ -81,11 +83,15 @@ export function mountComposedEditor(
 	views,
 	{ heading, wrap = ( children ) => children, preview = null }
 ) {
-	const { context, blocks } = localized;
-	const admitted = Object.entries( {
-		...providedViews( views ),
-		[ ASIDE ]: { View: AsideView },
-	} ).filter( ( [ name ] ) => Object.hasOwn( blocks, name ) );
+	const { context, blocks, inline } = localized;
+	confineCanvas(
+		/** @type {Window & {wp?: Object}} */ ( window ).wp,
+		Object.keys( blocks ).filter( ( name ) => blocks[ name ].core ),
+		inline
+	);
+	const admitted = Object.entries( providedViews( views ) ).filter(
+		( [ name ] ) => Object.hasOwn( blocks, name )
+	);
 	registerCompositionBlocks( blocks, Object.fromEntries( admitted ) );
 	registerCompositionEditor( context, ( slot ) => (
 		<PageStateProvider>

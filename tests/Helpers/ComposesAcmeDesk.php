@@ -26,7 +26,7 @@ trait Composes_Acme_Desk {
 
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
-		Wp_Includes::load( [ 'parse_blocks', 'serialize_blocks', 'rest_validate_value_from_schema', 'rest_sanitize_value_from_schema' ] );
+		Wp_Includes::load( [ 'parse_blocks', 'serialize_blocks', 'rest_validate_value_from_schema', 'rest_sanitize_value_from_schema', 'wp_kses', 'wp_sprintf_l' ] );
 	}
 
 	/** Forget the memo, so the next `declarations()` applies the filter. */
