@@ -12,7 +12,8 @@ import './inspector-views.scss';
 
 /**
  * One grid column: the row key it reads, the header text it prints, whether
- * its values compare as numbers rather than as text, and how a cell reads.
+ * its values are numbers, and how a cell reads. A `numeric` column compares as
+ * numbers and right-aligns, header and cells, on tabular digits.
  * `format` renders a present raw value while the sort still reads it raw, so
  * "1.5 MB" ranks above "900 KB"; a missing value, and every value of a column
  * without `format`, renders through `formatCell`.
@@ -126,6 +127,19 @@ function cellText( col, row ) {
 }
 
 /**
+ * The classes every header and cell of a column carries: the shared
+ * terminal-data role, and `is-numeric` on a column that right-aligns.
+ *
+ * @param {Column} col The column.
+ * @return {string} The classes, each with a leading space.
+ */
+function cellClasses( col ) {
+	return ` newspack-nodes-table__terminal-data${
+		col.numeric ? ' is-numeric' : ''
+	}`;
+}
+
+/**
  * A click-to-sort grid. Headers call `onSort`, and the ordering itself happens
  * here on a memoized copy, so a view hands rows over in whatever order they
  * arrived. A grid given `rowClass` leads with a flag column, and a non-empty
@@ -173,9 +187,9 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 						<th
 							key={ c.key }
 							data-testid={ `${ testid }-th-${ c.key }` }
-							className={ `nodes-runtime__th${
-								sort.key === c.key ? ' is-sorted' : ''
-							}` }
+							className={ `nodes-runtime__th${ cellClasses(
+								c
+							) }${ sort.key === c.key ? ' is-sorted' : '' }` }
 							onClick={ () => onSort( c.key ) }
 						>
 							{ c.label }
@@ -199,7 +213,12 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 								</td>
 							) }
 							{ cols.map( ( c ) => (
-								<td key={ c.key } className="nodes-runtime__td">
+								<td
+									key={ c.key }
+									className={ `nodes-runtime__td${ cellClasses(
+										c
+									) }` }
+								>
 									{ cellText( c, r ) }
 								</td>
 							) ) }
@@ -212,7 +231,12 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 					<tr className="nodes-runtime__foot">
 						{ rowClass && <td className="nodes-runtime__flag" /> }
 						{ cols.map( ( c ) => (
-							<td key={ c.key } className="nodes-runtime__td">
+							<td
+								key={ c.key }
+								className={ `nodes-runtime__td${ cellClasses(
+									c
+								) }` }
+							>
 								{ cellText( c, footer ) }
 							</td>
 						) ) }

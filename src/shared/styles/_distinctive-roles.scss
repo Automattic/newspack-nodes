@@ -331,7 +331,7 @@
 			transparent
 		);
 		cursor: pointer;
-		font: 700 var(--np-text-2xs) var(--font-mono, var(--np-font-mono));
+		font: 700 var(--np-text-2xs) var(--font-terminal, var(--np-font-mono));
 		transition:
 			border-color 100ms ease,
 			color 100ms ease;

@@ -1,7 +1,10 @@
 // Inspector modal views (the Runtime + Stats grids). The Timeline view keeps its
 // own timeline-view.scss; this styles the current-scope timers + handles and the
-// hot-nodes stats grid. Console theme tokens (mono type, --oxide spinner/total
-// tint) so the grids read as part of the console rather than overlay tab chrome.
+// hot-nodes stats grid. Console theme tokens (the terminal face, --oxide
+// spinner/total tint) so the grids read as part of the console rather than
+// overlay tab chrome.
+
+@use "../../shared/styles/mixins" as mix;
 
 .nodes-runtime {
 	display: flex;
@@ -10,12 +13,12 @@
 	min-height: 0;
 	overflow-y: auto;
 	gap: 14px;
-	font: 400 12px/1.4 var(--font-mono);
+	font: 400 12px/1.4 var(--font-terminal);
 	color: var(--ink);
 
 	&__title {
 		margin: 0 0 4px;
-		font: 700 var(--np-text-2xs) var(--font-mono);
+		font: 700 var(--np-text-2xs) var(--font-terminal);
 		letter-spacing: 0.16em;
 		text-transform: uppercase;
 		color: var(--ink-3);
@@ -74,7 +77,6 @@
 }
 
 .newspack-nodes-table.nodes-runtime__grid {
-	font-family: var(--font-mono);
 	font-size: inherit;
 	line-height: inherit;
 	color: var(--ink);
@@ -86,6 +88,11 @@
 
 	.nodes-runtime__flag {
 		padding: 3px 0 3px 8px;
+	}
+
+	.nodes-runtime__th.is-numeric,
+	.nodes-runtime__td.is-numeric {
+		@include mix.table-cell-numeric;
 	}
 }
 
@@ -110,7 +117,7 @@
 	min-height: 0;
 	overflow-y: auto;
 	gap: 10px;
-	font: 400 12px/1.4 var(--font-mono);
+	font: 400 12px/1.4 var(--font-terminal);
 	color: var(--ink);
 
 	&__toolbar {

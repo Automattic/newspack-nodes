@@ -1544,16 +1544,19 @@ describe( 'canonical appearance ownership', () => {
 		);
 
 		const runtimeSelector = '.newspack-nodes-table.nodes-runtime__grid';
-		expect(
-			declarationsForSelector( inspectorViewsStylesheet, runtimeSelector )
-		).toEqual(
+		const runtimeGrid = declarationsForSelector(
+			inspectorViewsStylesheet,
+			runtimeSelector
+		);
+		expect( runtimeGrid ).toEqual(
 			expect.objectContaining( {
-				'font-family': 'var(--font-mono)',
 				'font-size': 'inherit',
 				'line-height': 'inherit',
 				color: 'var(--ink)',
 			} )
 		);
+		// The cells take their face from the shared terminal-data role.
+		expect( runtimeGrid ).not.toHaveProperty( 'font-family' );
 		expect(
 			declarationsForSelector(
 				graphStylesheet,
