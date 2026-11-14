@@ -13,6 +13,7 @@
 // (`.topology-partition`, `.connector-heartbeat`, the tree rows) are styled by
 // worker-status.scss; this is the stylesheet that loads it.
 @use "worker-status";
+@use "../../shared/styles/mixins" as mix;
 
 .nodes-tm {
 	&__topology {
@@ -45,12 +46,12 @@
 		// uptime / heartbeat values change or a restart marker blinks in.
 		.process-age {
 			width: 34px;
-			text-align: right;
+			@include mix.table-cell-numeric;
 		}
 
 		.connector-heartbeat {
 			width: 40px;
-			text-align: right;
+			@include mix.table-cell-numeric;
 		}
 
 		.connector-restart-pending {

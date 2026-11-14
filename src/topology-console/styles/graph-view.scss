@@ -1377,9 +1377,8 @@
 		word-break: break-all;
 
 		&--num {
-			font-variant-numeric: tabular-nums;
+			@include mix.table-cell-numeric;
 			font-weight: 700;
-			text-align: right;
 		}
 
 		// `--right` is the alignment-only modifier — same right-justify
@@ -1387,8 +1386,7 @@
 		// for text-shaped values that should align to the value column
 		// (e.g. `last_seen` "14.2s ago") alongside numeric siblings.
 		&--right {
-			text-align: right;
-			font-variant-numeric: tabular-nums;
+			@include mix.table-cell-numeric;
 		}
 
 		&--link {
@@ -2000,7 +1998,7 @@
 	min-width: 48px;
 	margin-left: auto;
 	padding-left: 8px;
-	text-align: right;
+	@include mix.table-cell-numeric;
 }
 
 // =====================================================================

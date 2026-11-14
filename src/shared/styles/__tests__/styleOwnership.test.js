@@ -3636,3 +3636,31 @@ describe( 'the type scale floor', () => {
 		expect( offenders ).toEqual( [] );
 	} );
 } );
+
+describe( 'numeric cells', () => {
+	const TOPOLOGY_ROW = path.join(
+		NODES_SRC,
+		'event-dashboards/styles/topology-row.scss'
+	);
+	const topologyRowStylesheet = postcss.parse(
+		sass.compile( TOPOLOGY_ROW, { importers: [ SHARED_IMPORTER ] } ).css,
+		{ from: TOPOLOGY_ROW }
+	);
+	const declarationsOf = ( stylesheet, className ) =>
+		mergedDeclarationsForSelectors( stylesheet, ( selector ) =>
+			selector.endsWith( className )
+		);
+
+	it.each( [
+		[ graphStylesheet, '.topology-field-row__val--num' ],
+		[ graphStylesheet, '.topology-field-row__val--right' ],
+		[ graphStylesheet, '.topology-uptime' ],
+		[ topologyRowStylesheet, '.process-age' ],
+		[ topologyRowStylesheet, '.connector-heartbeat' ],
+	] )( 'sets right-aligned tabular digits on %#: %s', ( sheet, name ) => {
+		expect( declarationsOf( sheet, name ) ).toMatchObject( {
+			'font-variant-numeric': 'tabular-nums',
+			'text-align': 'right',
+		} );
+	} );
+} );
