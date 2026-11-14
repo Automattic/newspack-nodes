@@ -4,13 +4,9 @@ import { ASK_PAGE_ATTR } from '../hooks/useAskPicker';
 import DebugOverlay from '../../debug-overlay/DebugOverlay';
 import Header from './Header';
 import ThemedRoot from './ThemedRoot';
+import { PAGE_CONTENT_CLASS } from './pageContent';
 
-/**
- * The class of the region below the header, which is what the page scrolls:
- * the surface around it is fixed and clips. A list virtualized against the
- * page measures against this, never the window, which does not scroll here.
- */
-export const PAGE_CONTENT_CLASS = 'newspack-nodes-page-content';
+export { PAGE_CONTENT_CLASS };
 
 /**
  * Fixed full-viewport chrome for an application's standalone dashboard page —
