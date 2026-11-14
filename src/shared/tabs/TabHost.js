@@ -33,9 +33,10 @@
  *
  * A tab declaring `beforeLeave( next )` is asked before a pick or a Back
  * takes it away. Only `true` lets the switch happen; any other answer keeps
- * the tab, writing back its params as the host last rendered them, and the
- * guard may switch later through `next.leave()`, as a confirm dialog's yes
- * does.
+ * the tab, and on a Back the bar store's `holdPop` returns to the tab's entry
+ * before any reader hears of the one landed on; the host reads `?tab=` through
+ * that store, so it shows only a Back the store published. The guard may switch
+ * later through `next.leave()`, as a confirm dialog's yes does.
  *
  * Canonical in newspack-nodes; consumed via the `@newspack-nodes/shared` alias.
  */
@@ -48,7 +49,13 @@ import {
 import { __ } from '@wordpress/i18n';
 import { getTabs, subscribeTabs, getTabsVersion } from './tabRegistry';
 import TabBar, { useTabPanelProps } from './TabBar';
-import { getQueryParam, setQueryParams } from '../utils/queryParams';
+import {
+	getQueryParam,
+	holdPop,
+	openParam,
+	setQueryParams,
+	subscribeParam,
+} from '../utils/queryParams';
 import './TabHost.scss';
 
 /**
@@ -132,55 +139,41 @@ export default function TabHost( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- the slug keys the tab
 	}, [ syncUrl, resolvedSlug, host, deepLinkPending ] );
 
-	// The active tab and the params it shows, for a declined Back to restore.
+	// The active tab, for a guard asked about a Back.
 	const shownRef = useRef( null );
-	shownRef.current = active && {
-		tab: active,
-		query: {
-			...tabQuery( host, active.slug, active.params ),
-			...Object.fromEntries(
-				active.params.map( ( p ) => [ p, getQueryParam( p ) ] )
-			),
-		},
-	};
+	shownRef.current = active;
 
-	// Back or Forward shows the tab the landed entry names.
+	// Back or Forward shows the landed tab unless the shown one declines.
 	useEffect( () => {
 		if ( ! syncUrl ) {
 			return;
 		}
-		const restore = () => {
+		const landedOn = ( slug ) => {
 			const hosted = getTabs( host );
-			const slug = getQueryParam( 'tab' );
-			const landed =
-				hosted.find( ( t ) => t.slug === slug ) || hosted[ 0 ];
-			const show = () => {
-				pickedRef.current = true;
-				setActiveId( landed?.id );
-			};
-			const shown = shownRef.current;
-			if ( landed && shown && landed.id !== shown.tab.id ) {
-				const landedQuery = {
-					...Object.fromEntries(
-						shown.tab.params.map( ( p ) => [ p, null ] )
-					),
-					...Object.fromEntries(
-						new URLSearchParams( window.location.search )
-					),
-				};
-				const leave = () => {
-					setQueryParams( landedQuery );
-					show();
-				};
-				if ( ! allowsLeave( shown.tab, landed, leave ) ) {
-					setQueryParams( shown.query );
-					return;
-				}
-			}
-			show();
+			return hosted.find( ( t ) => t.slug === slug ) || hosted[ 0 ];
 		};
-		window.addEventListener( 'popstate', restore );
-		return () => window.removeEventListener( 'popstate', restore );
+		const release = holdPop( ( incoming, proceed ) => {
+			const shown = shownRef.current;
+			const landed = landedOn( incoming.get( 'tab' ) );
+			return (
+				!! landed &&
+				!! shown &&
+				landed.id !== shown.id &&
+				! allowsLeave( shown, landed, proceed )
+			);
+		} );
+		// The store tells this of a Back it publishes, never of one it holds.
+		const unsubscribe = subscribeParam(
+			openParam( 'tab', TAB_PARAM ),
+			() => {
+				pickedRef.current = true;
+				setActiveId( landedOn( getQueryParam( 'tab' ) )?.id );
+			}
+		);
+		return () => {
+			unsubscribe();
+			release();
+		};
 	}, [ syncUrl, host ] );
 
 	// Report the RESOLVED active id so the host always learns the real tab.
@@ -266,6 +259,18 @@ function tabPane( tab ) {
 		tab.ownsScroll ? ' is-own-scroll' : ''
 	} newspack-nodes-page-inset`;
 }
+
+/**
+ * `?tab=` as the bar store reads it: a Back entry, so the store re-reads it
+ * off each entry it publishes.
+ *
+ * @type {import('../utils/queryParams').ParamCodec}
+ */
+const TAB_PARAM = {
+	parse: ( raw ) => raw ?? '',
+	format: ( slug ) => slug,
+	push: true,
+};
 
 /**
  * Whether the tab shown lets the host take it away now: true unless it

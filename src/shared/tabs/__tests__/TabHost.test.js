@@ -1,8 +1,10 @@
 /* global PopStateEvent */
+import { useEffect } from '@wordpress/element';
 import { render, fireEvent, act } from '@testing-library/react';
 import TabHost from '../TabHost';
 import { registerTab, resetTabs } from '../tabRegistry';
 import { useQueryParamState } from '../../hooks/useQueryParamState';
+import { openParam, subscribeParam } from '../../utils/queryParams';
 import { installViewport } from '../../test-utils/viewportWidth';
 import fs from 'fs';
 import path from 'path';
@@ -790,9 +792,10 @@ describe( 'TabHost', () => {
 					/**
 					 * Register the three tabs, the Console guarding its leave.
 					 *
-					 * @param {boolean} answer What the guard answers.
+					 * @param {boolean}  answer      What the guard answers.
+					 * @param {Function} [component] The Console's component.
 					 */
-					const guarded = ( answer ) => {
+					const guarded = ( answer, component = ConsoleTab ) => {
 						registerThree();
 						registerTab( {
 							id: 'topology-console',
@@ -801,7 +804,7 @@ describe( 'TabHost', () => {
 							slug: 'console',
 							params: [ 'topology' ],
 							order: 0,
-							component: ConsoleTab,
+							component,
 							beforeLeave: ( next ) => {
 								asked.push( next );
 								return answer;
@@ -880,6 +883,135 @@ describe( 'TabHost', () => {
 						expect( window.location.search ).toBe(
 							'?tab=console&topology=kea-7961'
 						);
+					} );
+
+					it( 'tells no reader of the landed entry when the guard declines a Back', () => {
+						guarded( false );
+						const topology = openParam( 'topology', {
+							parse: ( raw ) => raw ?? '',
+							format: ( value ) => value,
+							push: true,
+						} );
+						let told = 0;
+						const off = subscribeParam( topology, () => {
+							told += 1;
+						} );
+						render( <TabHost host="station" syncUrl /> );
+						const before = told;
+						back( '/?tab=raw-logs' );
+						expect( asked ).toHaveLength( 1 );
+						expect( told ).toBe( before );
+						expect( topology.value ).toBe( 'kea-7961' );
+						off();
+					} );
+
+					describe( 'over indexed history', () => {
+						let mounts;
+
+						/**
+						 * The Console, counting each time it mounts.
+						 *
+						 * @return {import('react').ReactElement} The tab.
+						 */
+						function CountedConsole() {
+							useEffect( () => {
+								mounts += 1;
+							}, [] );
+							return <div data-testid="console" />;
+						}
+
+						beforeEach( () => {
+							mounts = 0;
+						} );
+
+						/** Let a traversal and the popstate it queues land. */
+						const settle = () =>
+							act( async () => {
+								for ( let i = 0; i < 4; i++ ) {
+									await new Promise( ( done ) =>
+										setTimeout( done, 0 )
+									);
+								}
+							} );
+
+						/**
+						 * Land on Raw Logs stamped as the landing is, then pick the
+						 * guarded Console, which pushes the entry Back leaves.
+						 *
+						 * @return {Object} What `render()` answers.
+						 */
+						const pickConsole = () => {
+							window.history.replaceState(
+								{
+									newspackNodesBar: {
+										doc: window.__newspackNodesBar.doc,
+										at: 0,
+									},
+								},
+								'',
+								'/?tab=raw-logs'
+							);
+							guarded( false, CountedConsole );
+							const rendered = render(
+								<TabHost host="station" syncUrl />
+							);
+							fireEvent.click(
+								rendered.getByRole( 'tab', { name: 'Console' } )
+							);
+							return rendered;
+						};
+
+						it( 'returns from a declined Back with one go, writing no entry', async () => {
+							const { queryByTestId } = pickConsole();
+							const length = window.history.length;
+							const shown = window.location.search;
+							const go = jest.spyOn( window.history, 'go' );
+							pushSpy.mockClear();
+							replaceSpy.mockClear();
+							const landed = new Promise( ( done ) =>
+								window.addEventListener( 'popstate', done, {
+									once: true,
+								} )
+							);
+							window.history.back();
+							await act( () => landed );
+							expect( queryByTestId( 'console' ) ).not.toBeNull();
+							await settle();
+							expect( asked ).toHaveLength( 1 );
+							expect( go.mock.calls ).toEqual( [ [ 1 ] ] );
+							expect( pushSpy ).not.toHaveBeenCalled();
+							expect( replaceSpy ).not.toHaveBeenCalled();
+							expect( queryByTestId( 'console' ) ).not.toBeNull();
+							expect( mounts ).toBe( 1 );
+							expect( window.location.search ).toBe( shown );
+							expect( window.history.length ).toBe( length );
+							go.mockRestore();
+						} );
+
+						it( 'goes to the landed tab once a declined guard leaves', async () => {
+							const { queryByTestId } = pickConsole();
+							const length = window.history.length;
+							window.history.back();
+							await settle();
+							pushSpy.mockClear();
+							act( () => asked[ 0 ].leave() );
+							await settle();
+							expect(
+								queryByTestId( 'raw-logs' )
+							).not.toBeNull();
+							expect( pushSpy ).not.toHaveBeenCalled();
+							expect( window.location.search ).toBe(
+								'?tab=raw-logs'
+							);
+							expect( window.history.length ).toBe( length );
+
+							window.history.forward();
+							await settle();
+							expect( queryByTestId( 'console' ) ).not.toBeNull();
+							expect( window.location.search ).toBe(
+								'?tab=console'
+							);
+						} );
 					} );
 
 					it( 'shows the landed tab once a guard that declined a Back leaves', () => {

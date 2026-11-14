@@ -12,6 +12,16 @@
  * readers, so every writer reaches every reader. A param holds what the bar
  * holds, read through its codec; on Back, a param that pushes is read again
  * and one that does not writes its live value back over the restored entry.
+ * A view that must not be left yet holds a Back through `holdPop`, which takes
+ * the page back to the entry it shows before any reader hears of the one landed
+ * on. The store stamps each entry's place in the session history under
+ * `newspackNodesBar` in `history.state`, with a token minted once per
+ * document, so a hold can go back without writing and an entry stamped
+ * before a reload reads as unknown.
+ * Params are opened per bundle, but the pop bookkeeping belongs to the page: every
+ * bundle's copy of this module shares one record under `__newspackNodesBar`
+ * on `window`, holding the shown place, the vetoes and the one popstate
+ * listener, which publishes a pop to every copy's readers.
  *
  * Canonical in newspack-nodes, consumed through the `@newspack-nodes/shared`
  * alias.
@@ -73,7 +83,9 @@ export function setQueryParam( name, value ) {
  * skipped, as an empty value is, so a list of none removes the param; a list
  * the URL already holds is left where it stands. A write that would leave the
  * URL as it is makes no history call at all, so a repeated write never stacks
- * entries.
+ * entries. While a held Back's return is in flight, the write builds on the
+ * shown URL and makes no history call; the return writes it onto the shown
+ * entry when it lands.
  *
  * @param {Object<string, ?(string|string[])>} params         Param names to new
  *                                                            values; null, ''
@@ -84,7 +96,8 @@ export function setQueryParam( name, value ) {
  *                                                            than replace the current one.
  */
 export function setQueryParams( params, { push = false } = {} ) {
-	const { pathname, search, hash } = window.location;
+	const record = bar();
+	const { pathname, search, hash } = shownLocation( record );
 	const query = new URLSearchParams( search );
 	for ( const [ name, value ] of Object.entries( params ) ) {
 		if ( Array.isArray( value ) ) {
@@ -102,13 +115,25 @@ export function setQueryParams( params, { push = false } = {} ) {
 	}
 	const next = query.toString();
 	const url = `${ pathname }${ next ? `?${ next }` : '' }${ hash }`;
-	if ( url === `${ pathname }${ search }${ hash }` ) {
-		return;
-	}
-	if ( push ) {
-		window.history.pushState( null, '', url );
+	const moved = url !== `${ pathname }${ search }${ hash }`;
+	if ( returning( record ) ) {
+		record.shownUrl = url;
 	} else {
-		window.history.replaceState( window.history.state, '', url );
+		if ( moved && push ) {
+			const at = indexOf( window.history.state );
+			window.history.pushState(
+				null === at ? null : stampOf( record, at + 1 ),
+				'',
+				url
+			);
+		} else if ( moved ) {
+			window.history.replaceState( window.history.state, '', url );
+		}
+		record.shownUrl = barUrl();
+		record.shownIndex = indexOf( window.history.state );
+	}
+	if ( ! moved ) {
+		return;
 	}
 	for ( const name of Object.keys( params ) ) {
 		const entry = opened.get( name );
@@ -150,8 +175,117 @@ export function setQueryParams( params, { push = false } = {} ) {
  */
 const opened = new Map();
 
-/** Readers subscribed across every param; the first arms popstate. */
+/** This copy's readers and vetoes; the first enlists its publisher. */
 let subscribed = 0;
+
+/** The `history.state` key each entry's place in the session history rides. */
+const BAR_INDEX = 'newspackNodesBar';
+
+/** Window key holding the one pop record every copy of this module shares. */
+const GLOBAL_KEY = '__newspackNodesBar';
+
+/**
+ * The traversal the store is making: where the last pop landed, and where
+ * each landing is re-aimed until one lands there.
+ *
+ * @typedef  {Object}  Traversal
+ * @property {number}  at        The place the last pop landed on.
+ * @property {number}  target    The place it ends on.
+ * @property {boolean} publishes Whether landing there publishes the entry.
+ */
+
+/**
+ * The page's one pop record. Each bundle inlines this module, and the session
+ * history belongs to the page, so every copy reads and writes this one.
+ *
+ * @typedef  {Object}                   BarRecord
+ * @property {string}                   doc        This document's token, which
+ *                                                 every stamp it writes carries.
+ * @property {string}                   shownUrl   The URL the page shows, which
+ *                                                 a held Back puts back.
+ * @property {?number}                  shownIndex The shown entry's place, or
+ *                                                 null where it carries none.
+ * @property {?Traversal}               traversal  The traversal in flight.
+ * @property {Set<PopVeto>}             vetoes     Each veto `holdPop` registered.
+ * @property {Set<() => void>}          publishers Each copy's `publishPop`,
+ *                                                 while it has readers or vetoes.
+ * @property {?(() => void)}            listener   The one popstate listener.
+ * @property {Object<string, Function>} guards     Leave guards, by surface.
+ */
+
+/**
+ * Read the page's pop record, creating it on first touch.
+ *
+ * @return {BarRecord} The record.
+ */
+function bar() {
+	window[ GLOBAL_KEY ] ??= {
+		// randomUUID is secure-context only; a plain-HTTP admin lacks it.
+		doc: `${ Date.now() }-${ Math.random().toString( 36 ).slice( 2 ) }`,
+		shownUrl: '',
+		shownIndex: null,
+		traversal: null,
+		vetoes: new Set(),
+		publishers: new Set(),
+		listener: null,
+		guards: {},
+	};
+	return window[ GLOBAL_KEY ];
+}
+
+/**
+ * The place an entry's state stamps, or null for an entry this document never
+ * stamped: one another document stamped before a reload is unknown here.
+ *
+ * @param {*} state The entry's `history.state`.
+ * @return {?number} Its place.
+ */
+function indexOf( state ) {
+	const stamp =
+		null !== state && 'object' === typeof state
+			? state[ BAR_INDEX ]
+			: undefined;
+	return stamp?.doc === bar().doc && Number.isInteger( stamp.at )
+		? stamp.at
+		: null;
+}
+
+/**
+ * The stamp of a place in this document.
+ *
+ * @param {BarRecord} record The page's pop record.
+ * @param {number}    at     The place.
+ * @return {Object} The `history.state` entry it rides in.
+ */
+const stampOf = ( record, at ) => ( {
+	[ BAR_INDEX ]: { doc: record.doc, at },
+} );
+
+/**
+ * Stamp the entry the page loaded on as the first place, unless another copy
+ * of this module in this document already did, or its state is not an object
+ * the stamp can join.
+ */
+function stampLanding() {
+	if ( 'undefined' === typeof window ) {
+		return;
+	}
+	const fresh = ! window[ GLOBAL_KEY ];
+	const record = bar();
+	const { state } = window.history;
+	if (
+		fresh &&
+		null === indexOf( state ) &&
+		( null === state || 'object' === typeof state )
+	) {
+		window.history.replaceState(
+			{ ...state, ...stampOf( record, 0 ) },
+			''
+		);
+	}
+}
+
+stampLanding();
 
 /**
  * What a codec reads a param's bar value as.
@@ -173,15 +307,38 @@ export const announce = ( slot ) =>
 	slot.listeners.forEach( ( listener ) => listener() );
 
 /**
+ * Whether a held Back's return is in flight, so the page shows an entry the
+ * bar does not hold.
+ *
+ * @param {BarRecord} record The page's pop record.
+ * @return {boolean} Whether one is.
+ */
+const returning = ( record ) =>
+	null !== record.traversal && ! record.traversal.publishes;
+
+/**
+ * Where the page shows: the shown URL while a return is in flight, the bar
+ * otherwise.
+ *
+ * @param {BarRecord} record The page's pop record.
+ * @return {{pathname: string, search: string, hash: string}} The location.
+ */
+const shownLocation = ( record ) =>
+	returning( record )
+		? new URL( record.shownUrl, window.location.href )
+		: window.location;
+
+/**
  * Read a param off the bar through its codec, when the bar moved since.
  *
  * @param {OpenParam} entry The param.
  * @return {boolean} Whether its value moved.
  */
 function readBar( entry ) {
+	const query = new URLSearchParams( shownLocation( bar() ).search );
 	const raw = entry.codec.list
-		? getQueryParams( entry.name )
-		: getQueryParam( entry.name );
+		? query.getAll( entry.name )
+		: query.get( entry.name );
 	const json = JSON.stringify( raw );
 	if ( json === entry.raw ) {
 		return false;
@@ -218,10 +375,213 @@ const barOf = ( entry ) =>
 	entry.written ? barFor( entry.codec, entry.value ) : null;
 
 /**
+ * Answers whether to hold a Back or Forward before any reader hears of it.
+ * Only `true` holds; `proceed` finishes the held traversal later.
+ *
+ * @callback PopVeto
+ * @param {URLSearchParams} incoming The params of the entry landed on.
+ * @param {() => void}      proceed  Lands on that entry after all.
+ * @return {boolean} Whether to hold.
+ */
+
+/**
+ * Hold a Back or Forward while a veto answers `true`: the store tells no
+ * reader and goes back to the entry the page shows in one `history.go()`,
+ * writing nothing, and its own return asks no veto. The veto's `proceed`
+ * later goes to the entry landed on and publishes it, so every pushing param
+ * it moved returns and the history stays as the user built it. Each pop
+ * landing short of where the store aims is re-aimed from where it landed, and
+ * one straying further than the pop before it asks the vetoes again, as a
+ * user's Back or Forward does. An entry this document never stamped falls back
+ * to writing the shown URL over the landed entry with a replace, and
+ * `proceed` writes the landed URL back. One veto, in any bundle's copy of
+ * this module, holds a pop for every copy's readers.
+ *
+ * @param {PopVeto} veto Asked on every Back or Forward while registered.
+ * @return {() => void} Releases the veto.
+ */
+export function holdPop( veto ) {
+	bar().vetoes.add( veto );
+	countPopReader( 1 );
+	return () => {
+		bar().vetoes.delete( veto );
+		countPopReader( -1 );
+	};
+}
+
+/**
+ * The page's leave guards by surface, kept on the pop record so every
+ * bundle's copy of a guard module answers alike.
+ *
+ * @return {Object<string, Function>} Each surface's guard.
+ */
+export const leaveGuards = () => bar().guards;
+
+/**
+ * Count a reader or veto in or out, enlisting this copy's publisher on the
+ * first and withdrawing it on the last.
+ *
+ * @param {1|-1} delta One in, or one out.
+ */
+function countPopReader( delta ) {
+	subscribed += delta;
+	if ( 1 === subscribed && 1 === delta ) {
+		bar().publishers.add( publishPop );
+	} else if ( 0 === subscribed ) {
+		bar().publishers.delete( publishPop );
+	}
+	armPopstate( bar() );
+}
+
+/**
+ * Arm the page's one popstate listener while any copy enlists, and disarm it
+ * when the last copy leaves, forgetting any traversal in flight either way.
+ *
+ * @param {BarRecord} record The page's pop record.
+ */
+function armPopstate( record ) {
+	const listening = 0 < record.publishers.size;
+	if ( listening === ( null !== record.listener ) ) {
+		return;
+	}
+	record.traversal = null;
+	if ( listening ) {
+		record.shownUrl = barUrl();
+		record.shownIndex = indexOf( window.history.state );
+		record.listener = restoreOnPop;
+		window.addEventListener( 'popstate', restoreOnPop );
+	} else {
+		window.removeEventListener( 'popstate', record.listener );
+		record.listener = null;
+	}
+}
+
+/**
+ * The URL the bar holds now.
+ *
+ * @return {string} Path, query and fragment.
+ */
+function barUrl() {
+	const { pathname, search, hash } = window.location;
+	return `${ pathname }${ search }${ hash }`;
+}
+
+/**
+ * Re-aim a pop that lands short of the traversal in flight, finish one that
+ * lands on its target, and ask every veto about any other; reads only the
+ * page's record, whichever copy armed it.
+ */
+function restoreOnPop() {
+	const record = bar();
+	const { state } = window.history;
+	const landed = indexOf( state );
+	const { traversal } = record;
+	record.traversal = null;
+	if ( null !== landed && traversal ) {
+		const { at, target, publishes } = traversal;
+		// A go can drop or land late, so only a pop straying further asks.
+		if (
+			publishes ||
+			Math.abs( target - landed ) <= Math.abs( target - at )
+		) {
+			aim( record, landed, target, publishes );
+			return;
+		}
+	}
+	askVetoes( record, state, landed );
+}
+
+/**
+ * Ask every veto about the entry a user's Back or Forward landed on, then
+ * hold it or let it through.
+ *
+ * @param {BarRecord} record The page's pop record.
+ * @param {*}         state  The landed entry's `history.state`.
+ * @param {?number}   landed The landed entry's place.
+ */
+function askVetoes( record, state, landed ) {
+	const from = record.shownIndex;
+	const traversable = null !== landed && null !== from && landed !== from;
+	const url = barUrl();
+	const incoming = new URLSearchParams( window.location.search );
+	// Proceed passes the pop while asked, lands it once held, then nothing.
+	let phase = 'asking';
+	const proceed = () => {
+		if ( 'asking' === phase ) {
+			phase = 'proceeded';
+		} else if ( 'held' === phase ) {
+			phase = 'done';
+			if ( record.traversal ) {
+				Object.assign( record.traversal, {
+					target: landed,
+					publishes: true,
+				} );
+			} else if ( traversable ) {
+				aim( record, from, landed, true );
+			} else {
+				window.history.replaceState( state, '', url );
+				publish( record );
+			}
+		}
+	};
+	for ( const veto of record.vetoes ) {
+		if ( true === veto( incoming, proceed ) && 'asking' === phase ) {
+			phase = 'held';
+			if ( traversable ) {
+				aim( record, landed, from, false );
+			} else {
+				window.history.replaceState( state, '', record.shownUrl );
+			}
+			return;
+		}
+		if ( 'asking' !== phase ) {
+			break;
+		}
+	}
+	phase = 'done';
+	publish( record );
+}
+
+/**
+ * Aim a traversal from where the page stands at a place, or finish there:
+ * publish the entry, or write back what the page wrote while it returned.
+ *
+ * @param {BarRecord} record    The page's pop record.
+ * @param {number}    at        The place the page stands on.
+ * @param {number}    target    The place to end on.
+ * @param {boolean}   publishes Whether landing there publishes the entry.
+ */
+function aim( record, at, target, publishes ) {
+	if ( at === target ) {
+		if ( publishes ) {
+			publish( record );
+		} else if ( record.shownUrl !== barUrl() ) {
+			window.history.replaceState(
+				window.history.state,
+				'',
+				record.shownUrl
+			);
+		}
+		return;
+	}
+	record.traversal = { at, target, publishes };
+	window.history.go( target - at );
+}
+
+/**
+ * Publish the entry landed on to every copy's readers.
+ *
+ * @param {BarRecord} record The page's pop record.
+ */
+function publish( record ) {
+	record.publishers.forEach( ( publisher ) => publisher() );
+}
+
+/**
  * Write every subscribed param that does not push back over the entry Back
  * or Forward restored, and read every one that pushes off it.
  */
-function restoreOnPop() {
+function publishPop() {
 	/** @type {Object<string, ?(string|string[])>} */
 	const live = {};
 	for ( const entry of opened.values() ) {
@@ -279,10 +639,7 @@ export function openParam( name, codec ) {
  */
 export function subscribeParam( entry, listener ) {
 	entry.listeners.add( listener );
-	subscribed += 1;
-	if ( 1 === subscribed ) {
-		window.addEventListener( 'popstate', restoreOnPop );
-	}
+	countPopReader( 1 );
 	if ( 1 === entry.listeners.size ) {
 		if ( entry.written && readBar( entry ) ) {
 			announce( entry );
@@ -291,10 +648,7 @@ export function subscribeParam( entry, listener ) {
 	}
 	return () => {
 		entry.listeners.delete( listener );
-		subscribed -= 1;
-		if ( 0 === subscribed ) {
-			window.removeEventListener( 'popstate', restoreOnPop );
-		}
+		countPopReader( -1 );
 	};
 }
 

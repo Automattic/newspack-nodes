@@ -2,11 +2,14 @@
  * The station tabs' leave guard: each station tab's descriptor declares
  * `beforeStationLeave` as its `beforeLeave`, and the one layout mounted
  * answers it through `guardLeave()` while its editor holds a change. The
- * host mounts one tab at a time, so one answer stands at most.
+ * host mounts one tab at a time, so one answer stands at most. The answer
+ * lives on the page's pop record, so every bundle's copy of this module
+ * reads the one a layout in any bundle set.
  */
+import { leaveGuards } from '@newspack-nodes/shared/utils/queryParams';
 
-/** @type {?(next: import('@newspack-nodes/shared/tabs/tabRegistry').TabLeave) => boolean} */
-let answer = null;
+/** The key the station's answer stands under. */
+const STATION = 'station';
 
 /**
  * Answer the station tab's `beforeLeave` until the returned release runs.
@@ -15,10 +18,11 @@ let answer = null;
  * @return {() => void} Withdraws the answer.
  */
 export function guardLeave( guard ) {
-	answer = guard;
+	leaveGuards()[ STATION ] = guard;
 	return () => {
-		if ( answer === guard ) {
-			answer = null;
+		const guards = leaveGuards();
+		if ( guards[ STATION ] === guard ) {
+			delete guards[ STATION ];
 		}
 	};
 }
@@ -30,5 +34,6 @@ export function guardLeave( guard ) {
  * @return {boolean} Whether the tab may go now.
  */
 export function beforeStationLeave( next ) {
+	const answer = leaveGuards()[ STATION ];
 	return answer ? answer( next ) : true;
 }
