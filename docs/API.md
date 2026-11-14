@@ -1541,7 +1541,8 @@ and `read_message` answers a position holding no record as a result whose
 
 A Table's `stats` command (`read`, no arguments) answers one map per counted
 operation, `GET` to `CHECKPOINT`, each `{ calls, asked, answered, bytes,
-total_ms, max_ms, errors }`. `errors` counts the requests the Table answered with
+total_ms, max_ms, errors }`; a Row_Table's carry no `bytes`, because its verbs
+encode no keyed value. `errors` counts the requests the Table answered with
 a `TM_ERROR`: a refused request, or a read its backend failed. A write that lands
 fewer keys than it asked adds no error; `asked` less `answered` shows it.
 `dump_node` and `dump_metadata` carry the same map as `verb_stats`, and

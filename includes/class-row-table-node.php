@@ -581,6 +581,16 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
+	 * A Row_Table's verbs (ROWS, CHECKPOINT, PURGE) never encode or decode a
+	 * keyed value, so its stats rows carry no `bytes`.
+	 *
+	 * @return bool Always false.
+	 */
+	protected function counts_bytes(): bool {
+		return false;
+	}
+
+	/**
 	 * Palette entry and argument form. The `:config` commands are the ones a Table answers;
 	 * the one request is ROWS. A Row_Table forwards nothing it stores, so it
 	 * declares no target.

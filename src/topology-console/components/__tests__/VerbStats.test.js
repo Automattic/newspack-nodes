@@ -112,3 +112,27 @@ test( 'a Table with no calls shows a one-line empty state and no grid', () => {
 		getByText( 'No calls since the Table was built or reset.' )
 	).not.toBeNull();
 } );
+
+test( 'shows no BYTES column when the verb rows carry no bytes', () => {
+	const { bytes, ...rest } = row( 7, 31, 29, 0, 9.5, 3.5, 1 );
+	const { getByTestId } = render( <VerbStats stats={ { ROWS: rest } } /> );
+	expect( cells( getByTestId( 'verb-stats-counts' ), 'thead th' ) ).toEqual( [
+		'VERB',
+		'CALLS',
+		'ASKED',
+		'ANSWERED',
+		'ERRORS',
+	] );
+	expect( bodyRows( getByTestId( 'verb-stats-counts' ) ) ).toEqual( [
+		[ 'ROWS', '7', '31', '29', '1' ],
+	] );
+} );
+
+test( 'keeps the BYTES column for a plain Table whose bytes are all zero', () => {
+	const { getByTestId } = render(
+		<VerbStats stats={ { GET: row( 5, 5, 5, 0, 1.5, 0.5, 0 ) } } />
+	);
+	expect( cells( getByTestId( 'verb-stats-counts' ), 'thead th' ) ).toContain(
+		'BYTES'
+	);
+} );

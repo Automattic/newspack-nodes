@@ -17,6 +17,14 @@ import { Grid, sortRows, useSortState } from './SortableGrid';
 /** The row key both grids lead with. */
 const VERB = { key: 'name', label: 'VERB' };
 
+/** Shown only for a Table whose verb rows carry `bytes`; a Row_Table's carry none. */
+const BYTES = {
+	key: 'bytes',
+	label: 'BYTES',
+	numeric: true,
+	format: formatBytes,
+};
+
 /** The counts grid's columns; every one but VERB sorts numerically. */
 const COUNT_COLS = [
 	VERB,
@@ -28,7 +36,7 @@ const COUNT_COLS = [
 		numeric: true,
 		format: formatGroupedCount,
 	},
-	{ key: 'bytes', label: 'BYTES', numeric: true, format: formatBytes },
+	BYTES,
 	{
 		key: 'errors',
 		label: 'ERRORS',
@@ -76,6 +84,9 @@ export default function VerbStats( { stats } ) {
 			),
 		[ stats, sort ]
 	);
+	const countCols = rows.some( ( r ) => 'bytes' in r )
+		? COUNT_COLS
+		: COUNT_COLS.filter( ( col ) => col !== BYTES );
 	if ( 0 === rows.length ) {
 		return (
 			<span className="topology-edit-row__hint">
@@ -90,7 +101,7 @@ export default function VerbStats( { stats } ) {
 		<>
 			<Grid
 				testid="verb-stats-counts"
-				cols={ COUNT_COLS }
+				cols={ countCols }
 				rows={ rows }
 				sort={ sort }
 				onSort={ onSort }

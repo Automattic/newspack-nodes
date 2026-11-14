@@ -111,6 +111,17 @@ final class RowTableNodeTest extends TestCase {
 		);
 	}
 
+	public function test_a_row_tables_verb_rows_carry_no_bytes(): void {
+		$table = $this->row_table( 'wombats-6620', 'Wombat' );
+		$this->assertNotSame( [], $table->stats() );
+		foreach ( $table->stats() as $verb => $row ) {
+			$this->assertSame( [ 'calls', 'asked', 'answered', 'total_ms', 'max_ms', 'errors' ], \array_keys( $row ), "{$verb} row" );
+		}
+		foreach ( $table->dump_node()['verb_stats'] as $verb => $row ) {
+			$this->assertArrayNotHasKey( 'bytes', $row, "{$verb} dumped row" );
+		}
+	}
+
 	public function test_a_row_table_resolves_its_schema_by_word(): void {
 		$this->row_table( 'wombats-6620', 'Wombat' );
 		$this->assertFileExists( $this->base . '/tables/wombats-6620.p3.sqlite' );

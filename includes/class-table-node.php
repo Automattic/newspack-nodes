@@ -1486,7 +1486,7 @@ class Table_Node extends Node {
 	 * after. Each verb's window max survives too, and the probe window keeps
 	 * the instant it opened, so `tablestats.p0` never loses a call to a reset.
 	 *
-	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
+	 * @return array<string,array{calls:int,asked:int,answered:int,bytes?:int,total_ms:float,max_ms:float,errors:int}>
 	 * @throws \RuntimeException On a mounted Table, which serves reads only.
 	 */
 	public function reset_stats(): array {
@@ -1536,13 +1536,15 @@ class Table_Node extends Node {
 	 * members_of() answers as SMEMBERS, and PURGE's rows: `asked` the
 	 * batches' room, `answered` the rows deleted. `bytes` is what a durable
 	 * arm encoded or decoded; a volatile arm's serializer runs inside its
-	 * extension, so it reads 0. A call that threw still counts, with its time.
+	 * extension, so it reads 0, and a Row_Table's rows carry none. A call that
+	 * threw still counts, with its time.
 	 *
 	 * @api The `stats` command, dump_node() and dump_metadata() answer it.
-	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
+	 * @return array<string,array{calls:int,asked:int,answered:int,bytes?:int,total_ms:float,max_ms:float,errors:int}>
 	 */
 	public function stats(): array {
-		$out = [];
+		$out   = [];
+		$bytes = $this->counts_bytes();
 		foreach ( $this->verb_stats as $verb => $row ) {
 			$out[ $verb ] = [
 				'calls'    => $row[ self::CALLS ],
@@ -1553,8 +1555,21 @@ class Table_Node extends Node {
 				'max_ms'   => \round( $row[ self::MAX_NS ] / 1e6, 3 ),
 				'errors'   => $row[ self::ERRORS ],
 			];
+			if ( ! $bytes ) {
+				unset( $out[ $verb ]['bytes'] );
+			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Whether this Table's verbs encode or decode keyed values, so a row of
+	 * stats() carries `bytes`. A subclass whose verbs never do answers false.
+	 *
+	 * @return bool True when stats() rows carry `bytes`.
+	 */
+	protected function counts_bytes(): bool {
+		return true;
 	}
 
 	/**

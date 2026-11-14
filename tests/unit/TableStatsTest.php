@@ -151,6 +151,13 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( self::zeroes(), $this->table->stats() );
 	}
 
+	public function test_a_plain_tables_verb_rows_carry_bytes_while_they_count_zero(): void {
+		foreach ( $this->table->stats() as $verb => $row ) {
+			$this->assertArrayHasKey( 'bytes', $row, "{$verb} row" );
+			$this->assertSame( 0, $row['bytes'] );
+		}
+	}
+
 	public function test_counters_tally_a_seeded_mix_of_requests(): void {
 		$this->ask( 1250000, [ 'ADD' => [ 'sku-41' => [ 'a' ], 'sku 42' => [ 'b' ], 'sku-43' => [ 'c', 37 ] ] ] );
 		$this->ask( 750000, "GET sku-41\n" );
