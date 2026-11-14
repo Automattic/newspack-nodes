@@ -3,17 +3,24 @@ import { useRef } from '@wordpress/element';
 import useSkinGutters from '../hooks/useSkinGutters';
 
 /**
+ * The classes every skinned root wears, this provider's own and every frame
+ * portalled out of it: the skin root, the theme and the shared UI scope.
+ */
+export const SKIN_ROOT_CLASSES =
+	'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui';
+
+/**
  * No-box themed token-provider for standalone dashboard pages. It applies the
  * console-selected skin (persisted in localStorage) to `<html>` at mount and
  * wraps its children in a `display:contents` skinned non-graph provider,
  * putting the skin's universal tokens (--paper/--ink/--cyan/--font-mono/…) in
  * scope so the dashboard reskins onto them without inheriting topology layout.
  *
- * The three classes are the whole contract. `newspack-nodes-skin-root` +
- * `newspack-nodes-theme` is the selector the substrate's skin sheet emits every
- * `--paper-*`/`--ink-*` token under, and `newspack-nodes-ui` opts into the
- * shared component appearance. Dropping `topology-app` is what keeps the graph
- * layout out.
+ * The three classes, `SKIN_ROOT_CLASSES`, are the whole contract.
+ * `newspack-nodes-skin-root` + `newspack-nodes-theme` is the selector the
+ * substrate's skin sheet emits every `--paper-*`/`--ink-*` token under, and
+ * `newspack-nodes-ui` opts into the shared component appearance. Dropping
+ * `topology-app` is what keeps the graph layout out.
  *
  * A stock Popover renders through a slot at the end of the wrapper rather
  * than the fallback container on `<body>`, so a dropdown, menu or popover
@@ -45,7 +52,7 @@ export default function ThemedRoot( { children } ) {
 	return (
 		<div
 			ref={ ref }
-			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
+			className={ SKIN_ROOT_CLASSES }
 			style={ { display: 'contents' } }
 		>
 			<SlotFillProvider>

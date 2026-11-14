@@ -1,22 +1,3 @@
-@use "../styles/tokens";
-
-// The first tab's label starts on the page's left edge.
-.nodes-tab-host__tabbar {
-	display: flex;
-	gap: 4px;
-	padding: 6px 10px 0 (tokens.$page-inset-x - tokens.$tab-inset-x);
-}
-
-// Under NARROW_PX the bar holds one select, as wide as the bar allows.
-.nodes-tab-host__tabbar.is-narrow {
-	padding: var(--np-space-sm) tokens.$page-inset-x;
-
-	> * {
-		flex: 1 1 auto;
-		min-width: 0;
-	}
-}
-
 // The active tab's content region. Scrolls vertically by default so a long
 // list tab stays usable inside a fixed-height host; a flex child so it claims
 // the space below the tab bar. A tab that scrolls itself fills it without an

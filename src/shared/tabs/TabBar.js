@@ -12,6 +12,7 @@ import { SelectControl } from '@wordpress/components';
 import { useLayoutEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import useNarrow, { isNarrow } from '../hooks/useNarrow';
+import './TabBar.scss';
 
 /**
  * DOM id of one tab button, which its panel points back at.

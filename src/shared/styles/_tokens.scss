@@ -56,6 +56,11 @@ $page-inset-x: 20px;
 // A tab's own side padding, which the tab bar subtracts to keep that edge.
 $tab-inset-x: 14px;
 
+// The debug overlay's button, and its inset from the viewport corner, which
+// a control pinned to a page's foot keeps clear of.
+$debug-fab-size: 48px;
+$debug-fab-inset: 24px;
+
 // Spacing
 $space-xs: 4px;
 $space-sm: 8px;

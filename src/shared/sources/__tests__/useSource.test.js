@@ -282,6 +282,8 @@ describe( 'registerSource', () => {
 		[ 'cell', () => 'tui-7866' ],
 		[ 'width', '97px' ],
 		[ 'tooltip', 'Chorus height 7866' ],
+		[ 'icon', 'location-alt' ],
+		[ 'description', 'Chorus perches 7866' ],
 	] )(
 		'refuses a declaration whose field draws another %s',
 		( part, value ) => {

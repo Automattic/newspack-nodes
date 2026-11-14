@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`SKIN_ROOT_CLASSES`**, exported from `shared/components/ThemedRoot`, is the one spelling of the three classes a skinned root wears, `newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui`. `ThemedRoot`, `ModalPortal`, `DataViewsList`'s action modal and the body-portalled topology settings panel compose from it, and a consumer's portalled modal frame does the same.
+- **A stat tile may carry a dashicon and a description.** A `value` field may declare `icon`, a dashicon slug, and `description`, one line; the stats block draws the icon before the field's label, in the label's ink, and the description as a muted line beneath it. `StatTile` takes the two as `icon` and `description` props. A tile whose field declares neither renders exactly as before, so no other dashboard moves. `registerSource()` compares both when a name is declared again.
+
+### Fixed
+
+- **`TabBar` ships its own row.** The bar's flex row, gap and inset, and its narrow form's full-width select, live in `shared/tabs/TabBar.scss`, which `TabBar.js` imports, so a page rendering `TabBar` beside its own panel gets the row as well as the paint; `TabHost.scss` keeps only the content region.
+- **`DataViewsList`'s action modal takes the active skin.** Its `@wordpress/components` frame portals onto `document.body`, outside the dashboard's skinned root, so it carries `newspack-nodes-modal` and `SKIN_ROOT_CLASSES` itself.
+- **The debug overlay's button has its geometry in the shared tokens**, `$debug-fab-size` (48px) and `$debug-fab-inset` (24px), so a control pinned to a page's foot can keep its corner clear.
+
 ## [2.157.0] - 2026-11-14
 
 ### Added

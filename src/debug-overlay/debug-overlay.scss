@@ -6,17 +6,19 @@
  * palette + canvas + repl + inspector under the shared Header.
  */
 
+@use "../shared/styles/tokens";
+
 // Floating action button — bottom-right, above WP admin chrome, dashboard
 // modals (@wordpress/components dialogs at ~100000), and the flame-graph
 // tooltip in newspack-event-logger-nodes (100001 !important). Six 9s leaves
 // headroom above anything reasonable a host page might raise.
 .nodes-debug__fab {
 	position: fixed;
-	right: 24px;
-	bottom: 24px;
+	right: tokens.$debug-fab-inset;
+	bottom: tokens.$debug-fab-inset;
 	z-index: 999999;
-	width: 48px;
-	height: 48px;
+	width: tokens.$debug-fab-size;
+	height: tokens.$debug-fab-size;
 	padding: 0;
 	font-size: 20px;
 	line-height: 1;

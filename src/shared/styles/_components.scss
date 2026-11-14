@@ -850,6 +850,22 @@
 		.newspack-nodes-stat-label {
 			font-weight: 600;
 		}
+
+		// A label's dashicon, in the label's ink, set off before its words.
+		.newspack-nodes-stat-icon {
+			color: inherit;
+			font-size: 16px;
+			width: 16px;
+			height: 16px;
+			vertical-align: text-bottom;
+			margin-inline-end: $space-xs;
+		}
+
+		// The muted line under a label, set in sentence case.
+		.newspack-nodes-stat-description {
+			font-size: var(--np-text-2xs);
+			text-transform: none;
+		}
 	}
 
 	// Interactive card link
@@ -883,11 +899,16 @@
 		}
 
 		.newspack-nodes-card-link-name {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 			font-weight: 500;
 			color: var(--ink, var(--np-text));
 		}
 
 		.newspack-nodes-card-link-count {
+			flex-shrink: 0;
 			color: var(--ink-3, var(--np-text-secondary));
 			font-size: 12px;
 			margin-left: $space-sm;

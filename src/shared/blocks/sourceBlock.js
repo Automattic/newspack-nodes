@@ -33,18 +33,20 @@ import Unread from '../components/Unread';
  * One field a block shows, as its source declares it.
  *
  * @typedef  {Object}                   BlockField
- * @property {string}                key         The model's key.
- * @property {string}                label       The declared label.
- * @property {string}                kind        The declared kind.
- * @property {(value: *) => *}       [format]    The declared formatter.
- * @property {(peak: number) => *}   [formatFor] A chart field's axis formatter for a peak.
- * @property {string}                [axis]      A chart field's axis title.
- * @property {(model: Object) => *}  [value]     Derives the field from the model.
- * @property {(value: *) => string}  [modifier]  Names a tile's `nodes-card--<modifier>`.
- * @property {(value: *) => boolean} [shown]     False leaves the figure out.
- * @property {(row: Object) => *}    [cell]      A log column's whole cell.
- * @property {string}                [width]     A log column's grid track.
- * @property {string}                [tooltip]   A log column's header hover text.
+ * @property {string}                key           The model's key.
+ * @property {string}                label         The declared label.
+ * @property {string}                kind          The declared kind.
+ * @property {(value: *) => *}       [format]      The declared formatter.
+ * @property {(peak: number) => *}   [formatFor]   A chart field's axis formatter for a peak.
+ * @property {string}                [axis]        A chart field's axis title.
+ * @property {(model: Object) => *}  [value]       Derives the field from the model.
+ * @property {(value: *) => string}  [modifier]    Names a tile's `nodes-card--<modifier>`.
+ * @property {string}                [icon]        A figure's dashicon slug, before its label.
+ * @property {string}                [description] A figure's muted line, beneath its label.
+ * @property {(value: *) => boolean} [shown]       False leaves the figure out.
+ * @property {(row: Object) => *}    [cell]        A log column's whole cell.
+ * @property {string}                [width]       A log column's grid track.
+ * @property {string}                [tooltip]     A log column's header hover text.
  */
 
 /**

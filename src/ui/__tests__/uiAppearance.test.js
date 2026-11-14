@@ -933,14 +933,25 @@ describe( 'canonical UI appearance', () => {
 		} );
 	} );
 
+	it( 'ships the tab bar its row with the bar, wherever a page renders it', () => {
+		const tabBar = fs.readFileSync(
+			path.join( ROOT, 'src/shared/tabs/TabBar.js' ),
+			'utf8'
+		);
+		expect( tabBar ).toMatch( /^import '\.\/TabBar\.scss';$/m );
+	} );
+
 	it( 'gives the narrow tab bar its one select at the full bar width', () => {
-		const tabHost = path.join( ROOT, 'src/shared/tabs/TabHost.scss' );
+		const sheet = path.join( ROOT, 'src/shared/tabs/TabBar.scss' );
 		const found = {};
 		postcss
-			.parse( sass.compile( tabHost ).css, { from: tabHost } )
+			.parse( sass.compile( sheet ).css, { from: sheet } )
 			.walkRules( ( rule ) => {
 				found[ normalize( rule.selector ) ] = declarations( rule );
 			} );
+		expect( found[ '.nodes-tab-host__tabbar' ] ).toMatchObject( {
+			display: 'flex',
+		} );
 		expect( found[ '.nodes-tab-host__tabbar.is-narrow' ] ).toEqual( {
 			padding: 'var(--np-space-sm) 20px',
 		} );
@@ -948,6 +959,23 @@ describe( 'canonical UI appearance', () => {
 			flex: '1 1 auto',
 			'min-width': '0',
 		} );
+	} );
+
+	it( "keeps a card link's count whole, cutting a long name instead", () => {
+		const link = ':where(.newspack-nodes-ui) .newspack-nodes-card-link';
+		expect(
+			exactSelectorRule( `${ link } .newspack-nodes-card-link-name` )
+				?.declarations
+		).toMatchObject( {
+			'min-width': '0',
+			overflow: 'hidden',
+			'text-overflow': 'ellipsis',
+			'white-space': 'nowrap',
+		} );
+		expect(
+			exactSelectorRule( `${ link } .newspack-nodes-card-link-count` )
+				?.declarations
+		).toMatchObject( { 'flex-shrink': '0' } );
 	} );
 
 	it( 'owns native option paint in canonical controls', () => {

@@ -647,6 +647,29 @@ describe( 'canonical appearance ownership', () => {
 		expect( declarations?.fill ).toBe( 'var(--ink, var(--np-text))' );
 	} );
 
+	it( 'inks a stat tile’s icon as its label and its description as a muted line', () => {
+		const ui = compile( UI_ENTRY );
+		const tileRole = ( part ) =>
+			mergedDeclarationsForSelectors( ui, ( selector ) =>
+				selector.endsWith( `.newspack-nodes-stat-tile ${ part }` )
+			);
+		expect( tileRole( '.newspack-nodes-stat-icon' ) ).toEqual(
+			expect.objectContaining( {
+				color: 'inherit',
+				'font-size': '16px',
+				width: '16px',
+				height: '16px',
+				'vertical-align': 'text-bottom',
+			} )
+		);
+		expect( tileRole( '.newspack-nodes-stat-description' ) ).toEqual(
+			expect.objectContaining( {
+				'font-size': 'var(--np-text-2xs)',
+				'text-transform': 'none',
+			} )
+		);
+	} );
+
 	it( 'shades selected chart slots in the accent at low opacity', () => {
 		const declarations = mergedDeclarationsForSelectors(
 			compile( UI_ENTRY ),
@@ -2890,9 +2913,7 @@ describe( 'one page edge', () => {
 	const ui = postcss.parse( sass.compile( UI_ENTRY ).css, {
 		from: UI_ENTRY,
 	} );
-	const tabHost = compile(
-		path.join( NODES_SRC, 'shared/tabs/TabHost.scss' )
-	);
+	const tabBar = compile( path.join( NODES_SRC, 'shared/tabs/TabBar.scss' ) );
 	// The left edge of a `padding` shorthand of one to four values, in pixels.
 	const leftEdge = ( padding ) => {
 		const parts = padding
@@ -2918,7 +2939,7 @@ describe( 'one page edge', () => {
 			'.topology-header'
 		);
 		const bar = declarationsForSelector(
-			tabHost,
+			tabBar,
 			'.nodes-tab-host__tabbar'
 		);
 		const tab = mergedDeclarationsForSelectors( ui, ( selector ) =>

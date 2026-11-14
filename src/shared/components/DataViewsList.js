@@ -21,6 +21,7 @@ import {
 } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import CloseIcon from './CloseIcon';
+import { SKIN_ROOT_CLASSES } from './ThemedRoot';
 import useNarrow from '../hooks/useNarrow';
 
 /** The one field every layout draws an item by. */
@@ -358,6 +359,7 @@ function RunModal( { action, rows, close } ) {
 			focusOnMount={ action.modalFocusOnMount ?? true }
 			size={ action.modalSize || 'medium' }
 			overlayClassName="dataviews-action-modal"
+			className={ `newspack-nodes-modal ${ SKIN_ROOT_CLASSES }` }
 		>
 			<action.RenderModal items={ rows } closeModal={ close } />
 		</Modal>

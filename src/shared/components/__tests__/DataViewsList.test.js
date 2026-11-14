@@ -608,6 +608,16 @@ describe( 'DataViewsList', () => {
 			const inside = await screen.findByRole( 'button', {
 				name: 'Confirm kea-4',
 			} );
+			// Portalled to the body, the frame wears the skin roots itself.
+			const frame = inside.closest( '.components-modal__frame' );
+			for ( const root of [
+				'newspack-nodes-modal',
+				'newspack-nodes-skin-root',
+				'newspack-nodes-theme',
+				'newspack-nodes-ui',
+			] ) {
+				expect( frame.classList ).toContain( root );
+			}
 			fireEvent.click( inside );
 			expect(
 				screen.queryByRole( 'button', { name: 'Confirm kea-4' } )

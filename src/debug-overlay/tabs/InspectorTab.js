@@ -47,7 +47,7 @@ import { ChromeProvider } from '../../topology-console/ChromeContext';
 /**
  * Measure the TabHost tab bar (`.nodes-tab-host__tabbar`) that the host
  * renders as the sibling BEFORE this tab's content wrapper. Measured (not a
- * hardcoded constant) so it can never drift from TabHost.scss, and
+ * hardcoded constant) so it can never drift from TabBar.scss, and
  * returns 0 when there's no bar (single-tab host) or before mount.
  *
  * @param {Element|null} rootEl The inspector body's root element.

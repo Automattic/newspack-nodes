@@ -1131,9 +1131,8 @@ describe( 'TabHost', () => {
 
 describe( 'TabHost styles', () => {
 	it( 'leaves tab paint and geometry to the canonical semantic role', () => {
-		const scss = fs.readFileSync(
-			path.join( __dirname, '..', 'TabHost.scss' ),
-			'utf8'
+		const sheets = [ 'TabHost.scss', 'TabBar.scss' ].map( ( name ) =>
+			fs.readFileSync( path.join( __dirname, '..', name ), 'utf8' )
 		);
 		const canonicalRoles = fs.readFileSync(
 			path.join(
@@ -1146,7 +1145,9 @@ describe( 'TabHost styles', () => {
 			'utf8'
 		);
 
-		expect( scss ).not.toMatch( /\.nodes-tab-host__tab\s*\{/ );
+		for ( const scss of sheets ) {
+			expect( scss ).not.toMatch( /\.nodes-tab-host__tab\s*\{/ );
+		}
 		expect( canonicalRoles ).toMatch( /\.nodes-tab-host__tab\s*\{/ );
 	} );
 } );

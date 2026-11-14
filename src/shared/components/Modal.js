@@ -12,6 +12,7 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
 import { primaryButtonClass } from '../utils/buttonClass';
 import { submitProps } from '../utils/submitProps';
 import CloseIcon from './CloseIcon';
+import { SKIN_ROOT_CLASSES } from './ThemedRoot';
 import './Modal.scss';
 
 /**
@@ -36,10 +37,7 @@ export function ModalPortal( { children } ) {
 	}
 
 	return createPortal(
-		<div
-			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
-			style={ { display: 'contents' } }
-		>
+		<div className={ SKIN_ROOT_CLASSES } style={ { display: 'contents' } }>
 			{ children }
 		</div>,
 		document.body

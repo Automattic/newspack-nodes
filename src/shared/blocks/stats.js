@@ -1,8 +1,9 @@
 /**
  * The stats block: a row of tiles, each one field of its source's model as a
- * big value over its declared label. `StatTile` and `StatTiles` are the one
- * tile and row every stat strip on a dashboard draws, the block's and a
- * page's own alike.
+ * big value over its declared label, the field's declared dashicon before
+ * the label and its declared description beneath. `StatTile` and
+ * `StatTiles` are the one tile and row every stat strip on a dashboard
+ * draws, the block's and a page's own alike.
  *
  * A tile wears the shared card surface and the shared stat-tile role, and
  * its own class brings only geometry; `nodes-card--<id>` names a tile for a
@@ -14,16 +15,26 @@ import { display, fieldValue, sourceBlock } from './sourceBlock';
 import './stats.scss';
 
 /**
- * One tile: a big value over a muted label.
+ * One tile: a big value over a muted label, the label led by a dashicon and
+ * followed by a muted description where the caller names them.
  *
  * @param {Object}                    props
- * @param {string}                    props.id          Names the tile's `nodes-card--<id>` modifier.
- * @param {import('react').ReactNode} props.value       The value, already formatted.
- * @param {string}                    props.label       The caption beneath it.
- * @param {string}                    [props.className] A class beside the tile's own.
+ * @param {string}                    props.id            Names the tile's `nodes-card--<id>` modifier.
+ * @param {import('react').ReactNode} props.value         The value, already formatted.
+ * @param {string}                    props.label         The caption beneath it.
+ * @param {string}                    [props.icon]        A dashicon slug, drawn before the label.
+ * @param {string}                    [props.description] One muted line beneath the label.
+ * @param {string}                    [props.className]   A class beside the tile's own.
  * @return {import('react').ReactElement} The tile.
  */
-export function StatTile( { id, value, label, className = '' } ) {
+export function StatTile( {
+	id,
+	value,
+	label,
+	icon,
+	description,
+	className = '',
+} ) {
 	return (
 		<div
 			className={ `newspack-nodes-card newspack-nodes-stat-tile nodes-card nodes-card--${ id } ${ className }`.trim() }
@@ -32,8 +43,19 @@ export function StatTile( { id, value, label, className = '' } ) {
 				{ value }
 			</span>
 			<span className="newspack-nodes-stat-label nodes-card__label">
+				{ icon && (
+					<span
+						className={ `newspack-nodes-stat-icon dashicons dashicons-${ icon }` }
+						aria-hidden="true"
+					/>
+				) }
 				{ label }
 			</span>
+			{ description && (
+				<span className="newspack-nodes-stat-description newspack-nodes-status is-muted">
+					{ description }
+				</span>
+			) }
 		</div>
 	);
 }
@@ -70,7 +92,8 @@ export function StatTiles( { columns = 0, caption = null, children } ) {
 
 /**
  * The block: a tile per figure it names, every declared figure when it
- * names nothing, each wearing the modifier its field names for its value,
+ * names nothing, each wearing the modifier its field names for its value
+ * and the icon and description its field declares,
  * less a figure its field declares not shown, under the caption its source
  * names for the model.
  *
@@ -101,6 +124,8 @@ function Stats( { attributes, model, fields } ) {
 								: ''
 						}
 						label={ field.label }
+						icon={ field.icon }
+						description={ field.description }
 						value={ display( field, value ) }
 					/>
 				);

@@ -17,6 +17,7 @@
 
 import { useRef, useState, createPortal } from '@wordpress/element';
 import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
+import { SKIN_ROOT_CLASSES } from '@newspack-nodes/shared/components/ThemedRoot';
 import { useDraft } from '../DraftContext';
 import { __, sprintf } from '@wordpress/i18n';
 
@@ -306,9 +307,7 @@ export default function TopologySettingsPanel( {
 		<div
 			ref={ panelRef }
 			className={ `newspack-nodes-card newspack-nodes-card--elevated topology-settings-panel${
-				isBodyPortal
-					? ' newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
-					: ''
+				isBodyPortal ? ` ${ SKIN_ROOT_CLASSES }` : ''
 			}` }
 			role="dialog"
 			aria-label={ __( 'Topology settings', 'newspack-nodes' ) }

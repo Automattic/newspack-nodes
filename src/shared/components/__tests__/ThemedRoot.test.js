@@ -9,7 +9,9 @@
 import { createElement } from 'react';
 import { render } from '@testing-library/react';
 import { Popover } from '@wordpress/components';
-import ThemedRoot from '../ThemedRoot';
+import fs from 'fs';
+import path from 'path';
+import ThemedRoot, { SKIN_ROOT_CLASSES } from '../ThemedRoot';
 import { SKIN_EVENT, THEME_STORAGE_KEY } from '@newspack-nodes/shared/theme';
 
 describe( 'ThemedRoot', () => {
@@ -147,5 +149,49 @@ describe( 'ThemedRoot', () => {
 		unmount();
 		expect( document.body.style.background ).toBe( '' );
 		spy.mockRestore();
+	} );
+} );
+
+describe( 'SKIN_ROOT_CLASSES', () => {
+	/** The substrate's source tree. */
+	const SRC = path.resolve( __dirname, '..', '..', '..' );
+
+	/**
+	 * Every `.js` file under a directory, tests aside.
+	 *
+	 * @param {string} dir The directory.
+	 * @return {string[]} The files.
+	 */
+	const sources = ( dir ) =>
+		fs.readdirSync( dir, { withFileTypes: true } ).flatMap( ( entry ) => {
+			const full = path.join( dir, entry.name );
+			if ( entry.isDirectory() ) {
+				return '__tests__' === entry.name ? [] : sources( full );
+			}
+			return entry.name.endsWith( '.js' ) ? [ full ] : [];
+		} );
+
+	it( 'names the skin root, the theme and the UI scope', () => {
+		expect( SKIN_ROOT_CLASSES ).toBe(
+			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+		);
+	} );
+
+	it( 'is spelled out in ThemedRoot alone', () => {
+		const spelled = sources( SRC )
+			.filter( ( file ) => ! file.endsWith( 'ThemedRoot.js' ) )
+			.filter( ( file ) =>
+				fs
+					.readFileSync( file, 'utf8' )
+					.split( '\n' )
+					.some(
+						( line ) =>
+							/['"`][^'"`]*newspack-nodes-skin-root/.test(
+								line
+							) && line.includes( 'newspack-nodes-ui' )
+					)
+			)
+			.map( ( file ) => path.relative( SRC, file ) );
+		expect( spelled ).toEqual( [] );
 	} );
 } );

@@ -72,6 +72,8 @@ const FIELD_PARTS = [
 	'cell',
 	'width',
 	'tooltip',
+	'icon',
+	'description',
 ];
 
 /**
@@ -137,8 +139,9 @@ function sameDeclaration( a, b ) {
  * words its axis is titled with, its label when it declares none.
  * `value( model )` derives a field the model does not hold, once per model
  * (`fieldValue()`), a figure's `modifier( value )` names the
- * `nodes-card--<modifier>` its tile wears, and its `shown( value )`
- * answering false leaves its tile out. A `rows` field a log stream lists
+ * `nodes-card--<modifier>` its tile wears, its `icon` a dashicon slug its
+ * tile draws before the label and its `description` a muted line beneath,
+ * and its `shown( value )` answering false leaves its tile out. A `rows` field a log stream lists
  * may declare `cell( row )`, its cell's content, `width`, its column's grid
  * track, and `tooltip`, its header's hover text. A source's `caption( model )` names
  * what a stats row shows, as the row's hover title, and its `rowKey` the

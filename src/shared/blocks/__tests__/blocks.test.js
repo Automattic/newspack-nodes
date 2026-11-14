@@ -233,6 +233,24 @@ registerSource( 'kotare-7882', {
 	},
 } );
 
+registerSource( 'hihi-7905', {
+	kind: 'poll',
+	group: 'alpine-7905',
+	ci: 'tern-7905',
+	command: 'graze',
+	args: () => [ 'hihi' ],
+	intervalMs: PUKEKO_MS,
+	fields: {
+		height: {
+			label: 'Perch 7905',
+			kind: 'value',
+			icon: 'location-alt',
+			description: 'Perches above the swamp 7905',
+		},
+		wings: { label: 'Wings 7905', kind: 'value' },
+	},
+} );
+
 let wire;
 let replyFor;
 let clock;
@@ -533,6 +551,55 @@ describe( 'the stats block', () => {
 				columns: 0,
 			} )
 		).toBe( "pukeko-7840 field 'pulse' is a line, not a value" );
+	} );
+
+	it( 'draws a figure’s declared icon before its label and its description beneath', async () => {
+		renderBlock( 'newspack-nodes/stats', {
+			source: 'hihi-7905',
+			fields: [ 'height' ],
+			columns: 0,
+		} );
+		await screen.findByText( 'Perch 7905' );
+		const tile = document.querySelector( '.nodes-card--height' );
+		const label = tile.querySelector( '.newspack-nodes-stat-label' );
+		const icon = label.firstElementChild;
+		expect( [ ...icon.classList ] ).toEqual( [
+			'newspack-nodes-stat-icon',
+			'dashicons',
+			'dashicons-location-alt',
+		] );
+		expect( icon.getAttribute( 'aria-hidden' ) ).toBe( 'true' );
+		expect( label.textContent ).toBe( 'Perch 7905' );
+		const description = label.nextElementSibling;
+		expect( [ ...description.classList ] ).toEqual( [
+			'newspack-nodes-stat-description',
+			'newspack-nodes-status',
+			'is-muted',
+		] );
+		expect( description.textContent ).toBe(
+			'Perches above the swamp 7905'
+		);
+		expect(
+			[ ...tile.children ].map( ( child ) => child.className )
+		).toEqual( [
+			'newspack-nodes-stat-value nodes-card__value',
+			'newspack-nodes-stat-label nodes-card__label',
+			'newspack-nodes-stat-description newspack-nodes-status is-muted',
+		] );
+	} );
+
+	it( 'draws a figure declaring neither its value over its bare label alone', async () => {
+		renderBlock( 'newspack-nodes/stats', {
+			source: 'hihi-7905',
+			fields: [ 'wings' ],
+			columns: 0,
+		} );
+		await screen.findByText( 'Wings 7905' );
+		const tile = document.querySelector( '.nodes-card--wings' );
+		expect( tile.innerHTML ).toBe(
+			'<span class="newspack-nodes-stat-value nodes-card__value">2</span>' +
+				'<span class="newspack-nodes-stat-label nodes-card__label">Wings 7905</span>'
+		);
 	} );
 
 	it( 'asks for a source while none is set', () => {
