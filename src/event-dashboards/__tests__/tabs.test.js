@@ -11,9 +11,11 @@ import { __ } from '@wordpress/i18n';
 // The tab components pull in heavy trees; stubs keep this a pure registry test.
 jest.mock( '../LogViewer', () => () => null );
 jest.mock( '../ConfigAudit', () => () => null );
-jest.mock( '../Overview', () => () => null );
-jest.mock( '../Jobs', () => () => null );
-jest.mock( '../Tables', () => () => null );
+jest.mock( '../stationTabs', () => ( {
+	OverviewTab: () => null,
+	JobsTab: () => null,
+	TablesTab: () => null,
+} ) );
 
 test( 'importing tabs registers the overview tab first (order 0) on the station host', () => {
 	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
@@ -108,4 +110,30 @@ test( 'importing tabs registers the Tables tab on the station host after Jobs an
 	expect( ids.indexOf( 'tables' ) ).toBeLessThan(
 		ids.indexOf( 'log-viewer' )
 	);
+} );
+
+test( 'each composed tab keeps the edit param its layout editor loads on', () => {
+	jest.resetModules();
+	require( '../tabs' );
+	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+	const stationTabs = getTabs( 'station' );
+	for ( const id of [ 'overview', 'jobs', 'tables' ] ) {
+		expect( stationTabs.find( ( t ) => t.id === id ).params ).toEqual( [
+			'edit',
+		] );
+	}
+} );
+
+test( 'the three composed tabs ask the station before a switch takes them away', () => {
+	jest.resetModules();
+	require( '../tabs' );
+	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+	const { beforeStationLeave } = require( '../../station/leaveGuard' );
+	const guards = Object.fromEntries(
+		getTabs( 'station' ).map( ( t ) => [ t.id, t.beforeLeave ] )
+	);
+	expect( guards.overview ).toBe( beforeStationLeave );
+	expect( guards.jobs ).toBe( beforeStationLeave );
+	expect( guards.tables ).toBe( beforeStationLeave );
+	expect( guards[ 'log-viewer' ] ).toBeUndefined();
 } );

@@ -1,21 +1,25 @@
 /* global Element */
 /**
- * Overview — the merged station board. Every active topology renders as a TopologyRow
- * (folded compact ↔ unfolded detail), in the user's persisted drag order (NOT
- * health), with a de-emphasized stopped group. TopologyRow is stubbed here (its
- * own suite owns the heading/tree DOM); this suite asserts the tab wired the right
- * props (folded flag, handlers, order) and persisted order + fold state.
+ * The topology-rows block — every active topology as a TopologyRow (folded
+ * compact ↔ unfolded detail), in the user's persisted drag order (NOT
+ * health), with a de-emphasized stopped group. TopologyRow is stubbed here
+ * (its own suite owns the heading/tree DOM); this suite asserts the block
+ * wired the right props (folded flag, handlers, order) and persisted order
+ * and fold state.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
-import Overview from '../Overview';
-import { useProbeStream } from '../hooks/useProbeStream';
-import { bucketsFrom } from './bucketTestUtils';
+import { Editing } from '@newspack-nodes/shared/composition/page';
+import topologyRows from '../blocks/topology-rows';
 import { Core } from '../../runtime/core';
-import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
 	useTopologyManager: jest.fn(),
+} ) );
+// The hold is the sources' own suite; mocked to see when the block holds.
+jest.mock( '@newspack-nodes/shared/sources', () => ( {
+	...jest.requireActual( '@newspack-nodes/shared/sources' ),
+	useSourcesPaused: jest.fn(),
 } ) );
 // Persistence is its own suite; mocked to assert read-on-init + write-through.
 jest.mock( '../overviewPrefs', () => ( {
@@ -26,47 +30,6 @@ jest.mock( '../overviewPrefs', () => ( {
 	readCollapsed: jest.fn( () => new Set() ),
 	writeCollapsed: jest.fn(),
 } ) );
-// Probe stream is its own suite; link no-op, view model fed via useNodeField.
-jest.mock( '../hooks/useProbeStream', () => ( {
-	...jest.requireActual( '../hooks/useProbeStream' ),
-	useProbeStream: jest.fn(),
-} ) );
-jest.mock( '../../runtime/react', () => ( {
-	...jest.requireActual( '../../runtime/react' ),
-	useNodeField: jest.fn(),
-} ) );
-// TimeChart (d3, own suite) stubbed to capture the props each panel is fed.
-jest.mock( '@newspack-nodes/shared/blocks/time-chart', () => {
-	const el = require( '@wordpress/element' );
-	const TimeChart = ( props ) => {
-		( globalThis.__topicsPanels ||= [] ).push( props );
-		return el.createElement(
-			'div',
-			{ className: 'nodes-topics' },
-			el.createElement(
-				'div',
-				{ className: 'newspack-nodes-chart__title' },
-				props.title
-			)
-		);
-	};
-	return {
-		...jest.requireActual( '@newspack-nodes/shared/blocks/time-chart' ),
-		TimeChart,
-		TimeChartPanels: ( { panels } ) =>
-			panels.map( ( p ) =>
-				el.createElement( TimeChart, { key: p.storageKey, ...p } )
-			),
-	};
-} );
-// SummaryCards has its own suite; stubbed to capture the props the tab feeds.
-jest.mock( '../SummaryCards', () => {
-	const el = require( '@wordpress/element' );
-	return ( props ) => {
-		( globalThis.__summaryCards ||= [] ).push( props );
-		return el.createElement( 'div', { className: 'nodes-cards-stub' } );
-	};
-} );
 // TopologyControls has its own suite; stubbed to capture its wired props.
 jest.mock( '../TopologyControls', () => {
 	const el = require( '@wordpress/element' );
@@ -94,8 +57,11 @@ jest.mock( '../TopologyRow', () => {
 	};
 } );
 
+/** The block's View, as a composed page renders it. */
+const Overview = topologyRows.View;
+
 const { useTopologyManager } = require( '../hooks/useTopologyManager' );
-const { useNodeField } = require( '../../runtime/react' );
+const { useSourcesPaused } = require( '@newspack-nodes/shared/sources' );
 const overviewPrefs = require( '../overviewPrefs' );
 
 // Find the captured TopologyControls props for a topology by name.
@@ -143,19 +109,15 @@ function hookValue( overrides = {} ) {
 
 beforeEach( () => {
 	Core.reset();
-	useNodeField.mockReturnValue( undefined );
 	overviewPrefs.readOrder.mockReturnValue( [] );
 	overviewPrefs.readExpanded.mockReturnValue( new Set() );
 	overviewPrefs.writeOrder.mockClear();
 	overviewPrefs.writeExpanded.mockClear();
-	globalThis.__topicsPanels = [];
-	globalThis.__summaryCards = [];
 	globalThis.__topologyControls = [];
 	globalThis.__topologyRows = [];
 } );
 afterEach( () => {
 	useTopologyManager.mockReset();
-	useNodeField.mockReset();
 } );
 
 // Active rows are TopologyRow stubs; DOM order = display order.
@@ -180,99 +142,7 @@ function rowProps( name ) {
 		.at( -1 );
 }
 
-describe( 'Overview fleet board', () => {
-	it( 'replays the topic probe log from its start', () => {
-		useTopologyManager.mockReturnValue( hookValue() );
-		render( <Overview /> );
-		expect( useProbeStream ).toHaveBeenCalledWith( 'topicprobe', {
-			mode: 'history',
-		} );
-	} );
-
-	it( 'feeds SummaryCards the fleet topologies and the hook R/W rates + partition count', () => {
-		const topologies = [
-			active( 'alpha', 'ok', [
-				worker( { partition: 0 } ),
-				worker( { partition: 1 } ),
-			] ),
-			active( 'beta', 'stalled', [
-				worker( { partition: 0, state: 'down' } ),
-			] ),
-			{ name: 'gamma', source: 'stock', active: false },
-		];
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies,
-				readRate: 4096,
-				writeRate: 8192,
-				logPartitions: 3,
-			} )
-		);
-		render( <Overview /> );
-		const cards = globalThis.__summaryCards[ 0 ];
-		expect( cards.topologies ).toBe( topologies );
-		expect( cards.readRate ).toBe( 4096 );
-		expect( cards.writeRate ).toBe( 8192 );
-		expect( cards.logPartitions ).toBe( 3 );
-	} );
-
-	it( 'shows the probe read and the probe stream skips as two named notices', () => {
-		publishSkippedLines( 'topicprobe.p0', 4 );
-		useNodeField.mockImplementation(
-			jest.requireActual( '../../runtime/react' ).useNodeField
-		);
-		useTopologyManager.mockReturnValue(
-			hookValue( { unparseableLines: 5 } )
-		);
-		const { container } = render( <Overview /> );
-		const notices = [
-			...container.querySelectorAll(
-				'.newspack-nodes-banner.is-warning'
-			),
-		].map( ( n ) => n.textContent );
-		expect( notices ).toEqual( [
-			'Consumer rows: 5 lines would not parse and were skipped.',
-			'Topics charts: 4 lines would not parse and were skipped.',
-		] );
-	} );
-
-	it( 'names each unreadable topology and refused producer in an error banner', () => {
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				unreadable: { 'marmot-5140': 'include orphaned-5141 failed' },
-				refusedProducers: {
-					'firehose-5142.p{partition}':
-						'log producer firehose-5142.p{partition} declares no dir',
-				},
-			} )
-		);
-		const { container } = render( <Overview /> );
-		const banners = [
-			...container.querySelectorAll( '.newspack-nodes-error-banner' ),
-		].map( ( n ) => n.textContent );
-		expect( banners ).toEqual( [
-			'Topology marmot-5140 will not read, so this board leaves it out: include orphaned-5141 failed',
-			'The log catalog leaves out firehose-5142.p{partition}, and the log sweep refuses to run: log producer firehose-5142.p{partition} declares no dir',
-		] );
-	} );
-
-	it( 'shows only the notice of the source that skipped a line', () => {
-		publishSkippedLines( 'topicprobe.p0', 6 );
-		useNodeField.mockImplementation(
-			jest.requireActual( '../../runtime/react' ).useNodeField
-		);
-		useTopologyManager.mockReturnValue( hookValue() );
-		const { container } = render( <Overview /> );
-		const notices = [
-			...container.querySelectorAll(
-				'.newspack-nodes-banner.is-warning'
-			),
-		].map( ( n ) => n.textContent );
-		expect( notices ).toEqual( [
-			'Topics charts: 6 lines would not parse and were skipped.',
-		] );
-	} );
-
+describe( 'the topology-rows block', () => {
 	it( 'renders each active topology as a TopologyRow wired with the hook handlers + folded flag', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
@@ -357,224 +227,35 @@ describe( 'Overview fleet board', () => {
 		expect( ctl.editHref ).toContain( 'edit=1' );
 	} );
 
-	it( 'renders the four Topics panels, then Partition Size and On Disk', () => {
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
-			} )
+	it( 'sends no mutation from a row or the stopped strip while its layout is edited', () => {
+		const hook = hookValue( {
+			topologies: [
+				active( 'alpha', 'ok', [ worker() ] ),
+				{ name: 'beta', source: 'stock', active: false },
+			],
+		} );
+		useTopologyManager.mockReturnValue( hook );
+		render(
+			<Editing.Provider value={ true }>
+				<Overview />
+			</Editing.Provider>
 		);
-		const { container } = render( <Overview /> );
-		const titles = [
-			...container.querySelectorAll( '.newspack-nodes-chart__title' ),
-		].map( ( n ) => n.textContent );
-		expect( titles ).toEqual( [
-			'Topics Messages Read',
-			'Topics Bytes Read',
-			'Topics Backlog',
-			'Topics Cache Size',
-			'Partition Size',
-			'On Disk',
-		] );
+		rowProps( 'alpha' ).onDeactivate( 'alpha' );
+		rowProps( 'alpha' ).onRestart( 'alpha' );
+		controlFor( 'beta' ).onActivate( 'beta' );
+		expect( hook.deactivate ).not.toHaveBeenCalled();
+		expect( hook.restart ).not.toHaveBeenCalled();
+		expect( hook.activate ).not.toHaveBeenCalled();
 	} );
 
-	it( 'titles each Topics panel Y-axis with the quantity it plots', () => {
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
-			} )
-		);
+	it( 'sends a row’s mutation while its layout is read', () => {
+		const hook = hookValue( {
+			topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+		} );
+		useTopologyManager.mockReturnValue( hook );
 		render( <Overview /> );
-		expect( globalThis.__topicsPanels.map( ( p ) => p.yLabel ) ).toEqual( [
-			'Messages',
-			'Bytes',
-			'Backlog',
-			'Cache Size',
-			'Size',
-			'Disk',
-		] );
-	} );
-
-	it( 'charts each partition as one level series, a bucket showing the newest reading any worker took', () => {
-		const reading = ( ts, workerId, endBytes, diskBytes ) => ( {
-			ts,
-			worker: workerId,
-			endBytes,
-			diskBytes,
-		} );
-		const partitions = {
-			'ledger.p4': {
-				source: 'ledger.p4',
-				buckets: bucketsFrom( [
-					reading( 100.21, 'job-worker-6612.p2', 5003, 8192 ),
-					reading( 100.84, 'job-intake-6612.p0', 5003, 8192 ),
-					reading( 107.06, 'job-intake-6612.p0', 5780, 12288 ),
-				] ),
-			},
-		};
-		useNodeField.mockReturnValue( { consumers: {}, partitions } );
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
-			} )
-		);
-		render( <Overview /> );
-		const panel = ( title ) =>
-			globalThis.__topicsPanels.find( ( p ) => p.title === title );
-		const points = ( title ) =>
-			panel( title ).series[ 'ledger.p4' ].points.map( ( p ) => [
-				p.ts,
-				p.value,
-			] );
-		for ( const title of [ 'Partition Size', 'On Disk' ] ) {
-			expect( Object.keys( panel( title ).series ) ).toEqual( [
-				'ledger.p4',
-			] );
-			expect( panel( title ).stacked ).toBe( true );
-			expect( panel( title ).series[ 'ledger.p4' ].mode ).toEqual( {
-				fill: 'hold',
-				agg: 'last',
-			} );
-		}
-		expect( points( 'Partition Size' ) ).toEqual( [ [ 107.06, 5780 ] ] );
-		expect( points( 'On Disk' ) ).toEqual( [ [ 107.06, 12288 ] ] );
-		expect( globalThis.__summaryCards.at( -1 ).partitions ).toBe(
-			partitions
-		);
-	} );
-
-	it( 'charts two directories that share a basename as two series', () => {
-		const sized = ( source, endBytes ) => ( {
-			source,
-			buckets: bucketsFrom( [
-				{ ts: 100, worker: 'job-worker-6612.p2', endBytes },
-			] ),
-		} );
-		useNodeField.mockReturnValue( {
-			consumers: {},
-			partitions: {
-				'offsets:ingest.p0': sized( 'offsets:ingest.p0', 292 ),
-				'deadletter:ingest.p0': sized( 'deadletter:ingest.p0', 5113 ),
-			},
-		} );
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
-			} )
-		);
-		render( <Overview /> );
-		const size = globalThis.__topicsPanels.find(
-			( p ) => p.title === 'Partition Size'
-		).series;
-		expect( Object.keys( size ).sort() ).toEqual( [
-			'deadletter:ingest.p0',
-			'offsets:ingest.p0',
-		] );
-		expect( size[ 'deadletter:ingest.p0' ].points[ 0 ].value ).toBe( 5113 );
-	} );
-
-	it( 'feeds each panel its per-topic 24h series rolled up from the probe view, one point per bucket', () => {
-		useNodeField.mockReturnValue( {
-			consumers: {
-				'firehose.p0': {
-					source: 'firehose.p0',
-					buckets: bucketsFrom( [
-						{ ts: 100, elapsed: 15, bytes: 4096 * 15, backlog: 0 },
-						{ ts: 115, elapsed: 15, bytes: 8192 * 15, backlog: 0 },
-						{ ts: 200, elapsed: 15, bytes: 1024 * 15, backlog: 37 },
-					] ),
-				},
-			},
-		} );
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
-			} )
-		);
-		render( <Overview /> );
-		const panel = ( title ) =>
-			globalThis.__topicsPanels.find( ( p ) => p.title === title );
-		expect(
-			panel( 'Topics Bytes Read' ).series[ 'firehose.p0' ].points.map(
-				( p ) => p.value
-			)
-		).toEqual( [ ( 4096 + 8192 ) / 2, 1024 ] );
-		expect(
-			panel( 'Topics Backlog' ).series[ 'firehose.p0' ].points.map(
-				( p ) => p.value
-			)
-		).toEqual( [ 0, 37 ] );
-	} );
-
-	it( 'charts each worker’s readers of a partition as their own stacked series', () => {
-		const reader = ( workerId, msgRate, backlog ) => ( {
-			source: 'firehose.p3',
-			buckets: bucketsFrom( [
-				{
-					ts: 100,
-					elapsed: 15,
-					msgs: msgRate * 15,
-					bytes: msgRate * 64 * 15,
-					backlog,
-					cacheSize: backlog / 2,
-					worker: workerId,
-				},
-			] ),
-		} );
-		useNodeField.mockReturnValue( {
-			consumers: {
-				'request-builder.firehose.p3': reader(
-					'request-builder-6612.p3',
-					7,
-					300
-				),
-				'job-router.firehose.p3': reader(
-					'job-router-6612.p3',
-					11,
-					500
-				),
-				// A co-reader inside the same process sums into its series.
-				'flame-builder.firehose.p3': reader(
-					'job-router-6612.p3',
-					13,
-					900
-				),
-			},
-		} );
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
-			} )
-		);
-		render( <Overview /> );
-		const panels = globalThis.__topicsPanels.slice( -6, -2 );
-		for ( const p of panels ) {
-			expect( p.stacked ).toBe( true );
-			expect( p ).not.toHaveProperty( 'metric' );
-			expect( p ).not.toHaveProperty( 'totalLabel' );
-			expect( Object.keys( p.series ).sort() ).toEqual( [
-				'firehose.p3 · job-router-6612.p3',
-				'firehose.p3 · request-builder-6612.p3',
-			] );
-		}
-		const value = ( p, key ) => p.series[ key ].points[ 0 ].value;
-		expect( value( panels[ 0 ], 'firehose.p3 · job-router-6612.p3' ) ).toBe(
-			24
-		);
-		expect(
-			value( panels[ 2 ], 'firehose.p3 · request-builder-6612.p3' )
-		).toBe( 300 );
-		expect( value( panels[ 2 ], 'firehose.p3 · job-router-6612.p3' ) ).toBe(
-			1400
-		);
-	} );
-
-	it( 'offers a New Topology deep-link in the header controls', () => {
-		useTopologyManager.mockReturnValue( hookValue() );
-		// No headerControlsSlot (standalone) → the control renders inline.
-		const { getByText } = render( <Overview /> );
-		expect(
-			getByText( '+ New Topology' ).getAttribute( 'href' )
-		).toContain( 'new=1' );
+		rowProps( 'alpha' ).onRestart( 'alpha' );
+		expect( hook.restart ).toHaveBeenCalledWith( 'alpha' );
 	} );
 } );
 
@@ -714,27 +395,6 @@ describe( 'Overview — remaining interactions', () => {
 		expect( rowProps( 'alpha' ).collapsed.has( 'node-x' ) ).toBe( true );
 		act( () => rowProps( 'alpha' ).onToggleFold( 'node-x' ) );
 		expect( rowProps( 'alpha' ).collapsed.has( 'node-x' ) ).toBe( false );
-	} );
-
-	it( 'portals the New Topology control into the header slot when one is provided', () => {
-		useTopologyManager.mockReturnValue( hookValue() );
-		const slot = document.createElement( 'div' );
-		document.body.appendChild( slot );
-		try {
-			render( <Overview headerControlsSlot={ slot } /> );
-			expect( slot.textContent ).toContain( '+ New Topology' );
-		} finally {
-			document.body.removeChild( slot );
-		}
-	} );
-
-	it( 'renders nothing into the header when the slot is still pending (null)', () => {
-		useTopologyManager.mockReturnValue( hookValue() );
-		const { queryByText } = render(
-			<Overview headerControlsSlot={ null } />
-		);
-		// A null slot means "pending" — the control is not rendered at all.
-		expect( queryByText( '+ New Topology' ) ).toBeNull();
 	} );
 
 	it( 'dismisses the alert modal when its OK button is clicked', () => {
@@ -972,6 +632,30 @@ describe( 'Overview persistence + drag-to-reorder', () => {
 				.querySelector( '[data-name="alpha"]' )
 				.getAttribute( 'data-dragging' )
 		).toBe( 'true' );
+	} );
+
+	it( 'holds every source of the page still from grip down to grip up', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [
+					active( 'alpha', 'ok', [ worker() ] ),
+					active( 'beta', 'ok', [ worker() ] ),
+				],
+			} )
+		);
+		render( <Overview /> );
+		expect( useSourcesPaused ).toHaveBeenLastCalledWith( false );
+		act( () =>
+			rowProps( 'alpha' ).onGripPointerDown( 'alpha', {
+				preventDefault: jest.fn(),
+				pointerId: 1,
+				clientY: 10,
+				currentTarget: { setPointerCapture: jest.fn() },
+			} )
+		);
+		expect( useSourcesPaused ).toHaveBeenLastCalledWith( true );
+		act( () => rowProps( 'alpha' ).onGripPointerUp() );
+		expect( useSourcesPaused ).toHaveBeenLastCalledWith( false );
 	} );
 
 	it( 'a pointer drag (down → move past a lower row → up) reorders + persists', () => {

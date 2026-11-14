@@ -7,6 +7,7 @@
 
 import { useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import Skeleton from '@newspack-nodes/shared/components/Skeleton';
 import { ModalShell } from './Modal';
 
 /**
@@ -56,11 +57,7 @@ export default function OpenTopologyModal( {
 			className="topology-modal--wide"
 		>
 			<div className="topology-modal__body">
-				{ loading && (
-					<div className="newspack-nodes-performance-loading topology-edit-empty">
-						{ __( 'Loading…', 'newspack-nodes' ) }
-					</div>
-				) }
+				{ loading && <Skeleton shape="line" count={ 2 } /> }
 				{ error && (
 					<div className="newspack-nodes-error-banner topology-edit-empty topology-edit-empty--error">
 						{ __( 'Failed to load list.', 'newspack-nodes' ) }

@@ -5,7 +5,7 @@
  */
 
 import Sparkline from '../components/Sparkline';
-import { sourceBlock } from './sourceBlock';
+import { fieldValue, sourceBlock } from './sourceBlock';
 import './sparkline.scss';
 
 /** The line's box width, in pixels. */
@@ -33,7 +33,7 @@ function SparklineBlock( { attributes, model, fields: [ line ] } ) {
 				</figcaption>
 			) }
 			<Sparkline
-				values={ model[ line.key ] ?? [] }
+				values={ fieldValue( line, model ) ?? [] }
 				width={ WIDTH }
 				height={ HEIGHT }
 				label={ line.label }

@@ -30,6 +30,8 @@ use Newspack_Nodes\Config;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Helpers\RedirectException;
+use Newspack_Nodes\Tests\Helpers\Wp_Includes;
+use Newspack_Nodes\Composition;
 
 #[CoversClass( Admin::class )]
 class AdminTest extends TestCase {
@@ -79,6 +81,7 @@ class AdminTest extends TestCase {
 
 	protected function tearDown(): void {
 		\delete_option( 'newspack_nodes_topologies' );
+		( new \ReflectionProperty( Composition::class, 'declarations' ) )->setValue( null, null );
 		Config::reset();
 		// Clear any registry leakage from tests that registered stock dirs;
 		// the next test starts with an empty registry.
@@ -1848,12 +1851,20 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- enqueue_station_assets --------------------------------------
 
+	/** Declare the station's composed pages, as the plugin's load does. */
+	private function declare_station_pages(): void {
+		Wp_Includes::load( [ 'parse_blocks', 'serialize_blocks', 'rest_validate_value_from_schema', 'rest_sanitize_value_from_schema', 'wp_kses' ] );
+		( new \ReflectionProperty( Composition::class, 'declarations' ) )->setValue( null, null );
+		\add_filter( Composition::FILTER, [ Composition::class, 'declare_substrate_blocks' ], 5 );
+	}
+
 	public function test_enqueue_station_assets_enqueues_for_top_level_hub_page(): void {
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/station/index.js';
 		$this->assertFileExists( $asset_path, 'station build asset missing — run `npm run build` before tests' );
 
 		// The station bundle loads on the top-level "Nodes" page.
 		$_GET = [ 'page' => Admin::STATION_MENU_SLUG ];
+		$this->declare_station_pages();
 
 		( new Admin() )->enqueue_station_assets();
 
@@ -1868,6 +1879,32 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
 		$this->assertSame( 'station', $GLOBALS['_localized_scripts'][ $handle ]['data']['tree'] );
+	}
+
+	public function test_enqueue_station_assets_sets_the_composed_pages_data_before_the_bundle(): void {
+		$_GET                       = [ 'page' => Admin::STATION_MENU_SLUG ];
+		$GLOBALS['_inline_scripts'] = [];
+		$this->declare_station_pages();
+
+		( new Admin() )->enqueue_station_assets();
+
+		$set = \array_values(
+			\array_filter(
+				$GLOBALS['_inline_scripts'],
+				static fn ( array $one ): bool => 'newspack-nodes-station' === $one[0] && \str_starts_with( $one[1], 'window.' . \Newspack_Nodes\Station_Pages::GLOBAL . ' = ' )
+			)
+		);
+		$this->assertCount( 1, $set );
+		$this->assertSame( 'before', $set[0][2] );
+	}
+
+	public function test_enqueue_station_assets_sets_no_page_data_off_the_station(): void {
+		$_GET                       = [ 'page' => 'kakapo-7932' ];
+		$GLOBALS['_inline_scripts'] = [];
+
+		( new Admin() )->enqueue_station_assets();
+
+		$this->assertSame( [], $GLOBALS['_inline_scripts'] );
 	}
 
 	// ---- register_event_dashboards_tab_bundle -----------------------------

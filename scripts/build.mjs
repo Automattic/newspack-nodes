@@ -71,7 +71,9 @@ const alias = esbuildAlias( path.resolve( ROOT, 'src' ) );
  * is the settings-page module `Field_Reset_Assets` enqueues, and `settings`
  * skins that page's gutters; `early-skin` is the head script
  * `enqueue_react_page()` inlines to apply the stored skin before first paint;
- * `dataviews` is
+ * `station-editor` and `aggregator-editor` are the station's two layout
+ * editors, which `Station_Pages::enqueue()` loads on an edit load alone, each
+ * beside the tab bundle drawing its pages' blocks; `dataviews` is
  * the one copy of `@wordpress/dataviews`, which it `provides` to every bundle
  * as a global.
  */
@@ -123,6 +125,14 @@ const ENTRIES = [
 	{
 		entry: 'src/event-aggregator/index.js',
 		outDir: path.resolve( ROOT, 'build/event-aggregator' ),
+	},
+	{
+		entry: 'src/event-dashboards/layout-editor.js',
+		outDir: path.resolve( ROOT, 'build/station-editor' ),
+	},
+	{
+		entry: 'src/event-aggregator/layout-editor.js',
+		outDir: path.resolve( ROOT, 'build/aggregator-editor' ),
 	},
 	{
 		entry: 'src/dataviews/index.js',

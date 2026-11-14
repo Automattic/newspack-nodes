@@ -1,5 +1,12 @@
 import { getTabs, resetTabs } from '@newspack-nodes/shared/tabs/tabRegistry';
 
+// The station tabs' trees are their own suites'; this one reads the registry.
+jest.mock( '../../event-dashboards/stationTabs', () => ( {
+	OverviewTab: () => null,
+	JobsTab: () => null,
+	TablesTab: () => null,
+} ) );
+
 describe( 'debug-overlay tab registration', () => {
 	beforeEach( () => {
 		resetTabs();

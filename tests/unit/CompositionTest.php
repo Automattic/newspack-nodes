@@ -717,8 +717,8 @@ final class CompositionTest extends TestCase {
 			],
 			\array_filter(
 				Composition::declarations()['blocks'],
-				static fn ( string $name ): bool => \str_starts_with( $name, 'newspack-nodes/' ),
-				\ARRAY_FILTER_USE_KEY
+				static fn ( array $block, string $name ): bool => $block['shared'] && \str_starts_with( $name, 'newspack-nodes/' ),
+				\ARRAY_FILTER_USE_BOTH
 			)
 		);
 

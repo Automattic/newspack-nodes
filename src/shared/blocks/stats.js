@@ -9,7 +9,7 @@
  * page's stylesheet and its tests.
  */
 
-import { shown, sourceBlock } from './sourceBlock';
+import { fieldValue, shown, sourceBlock } from './sourceBlock';
 import './stats.scss';
 
 /**
@@ -66,7 +66,8 @@ export function StatTiles( { columns = 0, children } ) {
 }
 
 /**
- * The block: a tile per figure it names, every declared figure when it names nothing.
+ * The block: a tile per figure it names, every declared figure when it
+ * names nothing, each wearing the modifier its field names for its value.
  *
  * @param {Object}                               props
  * @param {Object}                               props.attributes `{ source, fields, columns }`.
@@ -77,14 +78,22 @@ export function StatTiles( { columns = 0, children } ) {
 function Stats( { attributes, model, fields } ) {
 	return (
 		<StatTiles columns={ attributes.columns }>
-			{ fields.map( ( field ) => (
-				<StatTile
-					key={ field.key }
-					id={ field.key }
-					label={ field.label }
-					value={ shown( field, model[ field.key ] ) }
-				/>
-			) ) }
+			{ fields.map( ( field, place ) => {
+				const value = fieldValue( field, model );
+				return (
+					<StatTile
+						key={ `${ field.key }:${ place }` }
+						id={ field.key }
+						className={
+							field.modifier
+								? `nodes-card--${ field.modifier( value ) }`
+								: ''
+						}
+						label={ field.label }
+						value={ shown( field, value ) }
+					/>
+				);
+			} ) }
 		</StatTiles>
 	);
 }

@@ -20,8 +20,8 @@
  */
 
 import { useEffect } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
 import { registerTab } from '@newspack-nodes/shared/tabs/tabRegistry';
+import Skeleton from '@newspack-nodes/shared/components/Skeleton';
 import consoleMeta from '../topology-console/tabMeta';
 import vaultMeta from '../vault/tabMeta';
 import sessionsMeta from '../sessions/tabMeta';
@@ -41,11 +41,12 @@ const LAZY_TABS = [ consoleMeta, vaultMeta, sessionsMeta, aggregatorMeta ];
 
 /**
  * A tab's stand-in until its bundle arrives: injects the bundle on mount and
- * renders a loading line in the meantime.
+ * renders the shared skeleton in the meantime.
  *
  * The host mounts only the active tab, so mounting IS first activation. The
  * injection belongs in an effect because it appends to the document, and a
- * re-mount costs nothing — `loadTabBundle` is idempotent per handle. Nothing
+ * re-mount costs nothing — `loadTabBundle` is idempotent per handle. It waits
+ * under the shared `Skeleton`. Nothing
  * here swaps in the real component: the bundle's own registration bumps the
  * registry version, and the host re-renders with what the bundle registered.
  *
@@ -57,11 +58,7 @@ function LazyTabPlaceholder( { handle } ) {
 	useEffect( () => {
 		loadTabBundle( handle );
 	}, [ handle ] );
-	return (
-		<div className="newspack-nodes-performance-loading nodes-station__lazy-loading">
-			{ __( 'Loading…', 'newspack-nodes' ) }
-		</div>
-	);
+	return <Skeleton shape="line" count={ 3 } />;
 }
 
 /**

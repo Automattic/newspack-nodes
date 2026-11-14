@@ -32,11 +32,14 @@ import Unread from '../components/Unread';
  * One field a block shows, as its source declares it.
  *
  * @typedef  {Object}                   BlockField
- * @property {string}              key         The model's key.
- * @property {string}              label       The declared label.
- * @property {string}              kind        The declared kind.
- * @property {(value: *) => *}     [format]    The declared formatter.
- * @property {(peak: number) => *} [formatFor] A chart field's axis formatter for a peak.
+ * @property {string}               key         The model's key.
+ * @property {string}               label       The declared label.
+ * @property {string}               kind        The declared kind.
+ * @property {(value: *) => *}      [format]    The declared formatter.
+ * @property {(peak: number) => *}  [formatFor] A chart field's axis formatter for a peak.
+ * @property {string}               [axis]      A chart field's axis title.
+ * @property {(model: Object) => *} [value]     Derives the field from the model.
+ * @property {(value: *) => string} [modifier]  Names a tile's `nodes-card--<modifier>`.
  */
 
 /**
@@ -110,6 +113,39 @@ export function namedFields( source, names, kind ) {
 		throw new Error( `${ source } declares no field to show` );
 	}
 	return shown;
+}
+
+/**
+ * Each model's derived fields, by key, so a field is derived once a model
+ * however many blocks show it.
+ *
+ * @type {WeakMap<Object, Map<string, *>>}
+ */
+const derived = new WeakMap();
+
+/**
+ * A field's value in a model: what its `value( model )` derives, once per
+ * model, or the model's own key; nothing for no model.
+ *
+ * @param {BlockField} field The field.
+ * @param {?Object}    model The source's model.
+ * @return {*} The value.
+ */
+export function fieldValue( field, model ) {
+	if ( ! model ) {
+		return undefined;
+	}
+	if ( ! field.value ) {
+		return model[ field.key ];
+	}
+	if ( ! derived.has( model ) ) {
+		derived.set( model, new Map() );
+	}
+	const values = derived.get( model );
+	if ( ! values.has( field.key ) ) {
+		values.set( field.key, field.value( model ) );
+	}
+	return values.get( field.key );
 }
 
 /**

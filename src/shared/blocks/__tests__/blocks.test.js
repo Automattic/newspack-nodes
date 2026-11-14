@@ -90,6 +90,41 @@ registerSource( 'tui-7844', {
 	fields: { text: { label: 'Line 7844', kind: 'rows' } },
 } );
 
+/** How often the karoro's span was derived, to show it is derived once a model. */
+let spans = 0;
+
+registerSource( 'karoro-7880', {
+	kind: 'poll',
+	group: 'alpine-7880',
+	ci: 'tern-7880',
+	command: 'graze',
+	args: () => [ 'karoro' ],
+	intervalMs: PUKEKO_MS,
+	fields: {
+		span: {
+			label: 'Span 7880',
+			kind: 'value',
+			value: ( model ) => {
+				spans += 1;
+				return model.wings * 3;
+			},
+			format: ( v ) => `${ v } m`,
+			modifier: ( v ) => `span-${ v }`,
+		},
+		reach: {
+			label: 'Reach 7880',
+			kind: 'value',
+			value: ( model ) => model.height + 1,
+		},
+		gust: {
+			label: 'Gust 7880',
+			kind: 'series',
+			axis: 'Knots 7880',
+			value: ( model ) => model.climb,
+		},
+	},
+} );
+
 let wire;
 let replyFor;
 
@@ -204,6 +239,43 @@ describe( 'the substrate views map', () => {
 			'newspack-nodes/table',
 			'newspack-nodes/time-chart',
 		] );
+	} );
+} );
+
+describe( 'a field derived from the model', () => {
+	it( 'shows each derived figure, deriving it once a model', async () => {
+		spans = 0;
+		renderBlock( 'newspack-nodes/stats', {
+			source: 'karoro-7880',
+			fields: [ 'span', 'reach', 'span' ],
+			columns: 0,
+		} );
+		expect( await screen.findByText( '42' ) ).toBeTruthy();
+		expect( screen.getAllByText( '6 m' ) ).toHaveLength( 2 );
+		expect( spans ).toBe( 1 );
+	} );
+
+	it( 'gives a tile the modifier its figure names', async () => {
+		renderBlock( 'newspack-nodes/stats', {
+			source: 'karoro-7880',
+			fields: [ 'span' ],
+			columns: 0,
+		} );
+		await screen.findByText( '6 m' );
+		expect(
+			document.querySelector( '.nodes-card--span' ).classList
+		).toContain( 'nodes-card--span-6' );
+	} );
+
+	it( 'titles a chart’s axis by the words its field declares', async () => {
+		renderBlock( 'newspack-nodes/time-chart', {
+			source: 'karoro-7880',
+			metrics: [ 'gust' ],
+			stacked: false,
+			title: 'Gale 7880',
+		} );
+		expect( await screen.findByText( 'Knots 7880' ) ).toBeTruthy();
+		expect( screen.queryByText( 'Gust 7880' ) ).toBeNull();
 	} );
 } );
 

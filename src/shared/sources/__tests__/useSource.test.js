@@ -325,10 +325,10 @@ describe( 'registerSource', () => {
 		).toThrow( /kea-7810/ );
 	} );
 
-	it( 'refuses a name holding a path separator', () => {
-		expect( () =>
-			registerSource( 'kea/7815', { kind: 'command' } )
-		).toThrow( /kea\/7815/ );
+	it( 'refuses an empty name', () => {
+		expect( () => registerSource( '', { kind: 'command' } ) ).toThrow(
+			/a source is named by a string/
+		);
 	} );
 
 	it( 'keeps each bundle’s declarations to that bundle', () => {

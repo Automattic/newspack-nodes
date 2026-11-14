@@ -22,12 +22,20 @@
  * With `syncUrl` the host also owns the page's query string: the initial tab
  * comes from `?tab=<slug>`, the load canonicalizes it through `replaceState`,
  * each tab switch pushes one Back entry, and Back or Forward shows the tab the
- * landed entry names. A tab's declared `params` survive only while that tab is
- * showing, so the pushed entry drops every param of the tab left behind, and
+ * landed entry names. A tab's declared `params` survive only while that tab
+ * is showing, so the pushed entry drops every param of the tab left behind,
+ * one the tab shown declares too included, while a load keeps every param
+ * the tab it lands on declares, and
  * when Back or Forward lands on another tab's entry, that entry is
  * canonicalized once the landed tab has rendered, after every popstate
  * listener, the departing tab's own write-back included, has run. The overlay
  * and every other consumer stay URL-free.
+ *
+ * A tab declaring `beforeLeave( next )` is asked before a pick or a Back
+ * takes it away. Only `true` lets the switch happen; any other answer keeps
+ * the tab, writing back its params as the host last rendered them, and the
+ * guard may switch later through `next.leave()`, as a confirm dialog's yes
+ * does.
  *
  * Canonical in newspack-nodes; consumed via the `@newspack-nodes/shared` alias.
  */
@@ -110,15 +118,31 @@ export default function TabHost( {
 		}
 	}, [ syncUrl, host, activeId, registryVersion ] );
 
-	// Canonicalize the URL to the resolved tab's slug on mount and on switch.
+	// @longform Canonicalize the URL to the resolved tab's slug on mount and
+	// on switch, keeping the params the tab itself declares: on a load these
+	// are its deep link, such as the edit a station page loads its editor on;
+	// on a switch the pushed entry already dropped the tab left behind's.
 	const resolvedSlug = active?.slug;
 	useEffect( () => {
 		// Hold off while a deep-link is pending; don't rewrite ?tab= early.
 		if ( ! syncUrl || ! resolvedSlug || deepLinkPending ) {
 			return;
 		}
-		setQueryParams( tabQuery( host, resolvedSlug ) );
+		setQueryParams( tabQuery( host, resolvedSlug, active.params ) );
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- the slug keys the tab
 	}, [ syncUrl, resolvedSlug, host, deepLinkPending ] );
+
+	// The active tab and the params it shows, for a declined Back to restore.
+	const shownRef = useRef( null );
+	shownRef.current = active && {
+		tab: active,
+		query: {
+			...tabQuery( host, active.slug, active.params ),
+			...Object.fromEntries(
+				active.params.map( ( p ) => [ p, getQueryParam( p ) ] )
+			),
+		},
+	};
 
 	// Back or Forward shows the tab the landed entry names.
 	useEffect( () => {
@@ -128,10 +152,32 @@ export default function TabHost( {
 		const restore = () => {
 			const hosted = getTabs( host );
 			const slug = getQueryParam( 'tab' );
-			pickedRef.current = true;
-			setActiveId(
-				( hosted.find( ( t ) => t.slug === slug ) || hosted[ 0 ] )?.id
-			);
+			const landed =
+				hosted.find( ( t ) => t.slug === slug ) || hosted[ 0 ];
+			const show = () => {
+				pickedRef.current = true;
+				setActiveId( landed?.id );
+			};
+			const shown = shownRef.current;
+			if ( landed && shown && landed.id !== shown.tab.id ) {
+				const landedQuery = {
+					...Object.fromEntries(
+						shown.tab.params.map( ( p ) => [ p, null ] )
+					),
+					...Object.fromEntries(
+						new URLSearchParams( window.location.search )
+					),
+				};
+				const leave = () => {
+					setQueryParams( landedQuery );
+					show();
+				};
+				if ( ! allowsLeave( shown.tab, landed, leave ) ) {
+					setQueryParams( shown.query );
+					return;
+				}
+			}
+			show();
 		};
 		window.addEventListener( 'popstate', restore );
 		return () => window.removeEventListener( 'popstate', restore );
@@ -165,12 +211,18 @@ export default function TabHost( {
 	 */
 	const pick = ( id ) => {
 		const next = tabs.find( ( t ) => t.id === id );
-		if ( syncUrl && next && id !== active.id ) {
-			setQueryParams( tabQuery( host, next.slug ), { push: true } );
+		const go = () => {
+			if ( syncUrl && next && id !== active.id ) {
+				setQueryParams( tabQuery( host, next.slug ), { push: true } );
+			}
+			pickedRef.current = true;
+			setActiveId( id );
+			onActiveTabChange?.( id );
+		};
+		if ( next && id !== active.id && ! allowsLeave( active, next, go ) ) {
+			return;
 		}
-		pickedRef.current = true;
-		setActiveId( id );
-		onActiveTabChange?.( id );
+		go();
 	};
 
 	return (
@@ -216,18 +268,38 @@ function tabPane( tab ) {
 }
 
 /**
- * The query a tab's entry carries: its slug, and every other tab's params gone.
+ * Whether the tab shown lets the host take it away now: true unless it
+ * declares a `beforeLeave` answering anything but `true`.
  *
- * @param {'overlay'|'station'} host Which registry scope is showing.
- * @param {string}              slug The active tab's slug.
+ * @param {import('./tabRegistry').TabDescriptor} from  The tab shown.
+ * @param {import('./tabRegistry').TabDescriptor} to    The tab asked for.
+ * @param {() => void}                            leave Carries out the switch.
+ * @return {boolean} Whether to switch now.
+ */
+function allowsLeave( from, to, leave ) {
+	if ( ! from.beforeLeave ) {
+		return true;
+	}
+	return true === from.beforeLeave( { id: to.id, slug: to.slug, leave } );
+}
+
+/**
+ * The query a tab's entry carries: its slug, and every other tab's params
+ * gone but those `kept` names.
+ *
+ * @param {'overlay'|'station'} host   Which registry scope is showing.
+ * @param {string}              slug   The active tab's slug.
+ * @param {Array<string>}       [kept] Params to leave, whichever tab declares them.
  * @return {Object<string, ?string>} The params `setQueryParams` writes.
  */
-function tabQuery( host, slug ) {
+function tabQuery( host, slug, kept = [] ) {
 	const query = { tab: slug };
 	for ( const t of getTabs( host ) ) {
 		if ( t.slug !== slug ) {
 			for ( const param of t.params ) {
-				query[ param ] = null;
+				if ( ! kept.includes( param ) ) {
+					query[ param ] = null;
+				}
 			}
 		}
 	}

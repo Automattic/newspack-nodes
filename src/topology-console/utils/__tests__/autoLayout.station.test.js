@@ -1,8 +1,9 @@
 /**
  * autoLayout over the station's Overview tab with the debug overlay open: the
- * fleet board's slices and mutations built by the real `useTopologyManager`,
- * the probe stream by the real `useProbeStream`, and the overlay's REPL by
- * `useDebugRepl`, read back through `coreToGraph()` as the overlay reads it.
+ * fleet board's sources and mutations built by the real `useTopologyManager`
+ * and the probe stream by the real topic-probe source, each under the page's
+ * `SourcesProvider`, and the overlay's REPL by `useDebugRepl`, read back
+ * through `coreToGraph()` as the overlay reads it.
  */
 
 import { renderHook } from '@testing-library/react';
@@ -11,10 +12,14 @@ import { Core } from '../../../runtime/core';
 import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 import { useDebugRepl } from '../../../debug-overlay/useDebugRepl';
-import { useTopologyManager } from '../../../event-dashboards/hooks/useTopologyManager';
-import { useProbeStream } from '../../../event-dashboards/hooks/useProbeStream';
+import {
+	useConnected,
+	useTopologyManager,
+} from '../../../event-dashboards/hooks/useTopologyManager';
+import { SourcesProvider, useSource } from '@newspack-nodes/shared/sources';
+import '../../../event-dashboards/views';
 import { coreToGraph } from '../coreToGraph';
-import { autoLayout, drawnCost, X_STEP } from '../autoLayout';
+import { autoLayout, drawnCost } from '../autoLayout';
 
 /** The fleet board's group Tap, which every one of its Fetchers feeds. */
 const HUB = 'topologies:shell';
@@ -30,10 +35,13 @@ class FakeEventSource {
  * @return {{nodes: Array<{id: string}>, edges: Array<{from: string, to: string}>}} What the overlay's canvas lays out.
  */
 function overviewGraph() {
-	const { unmount } = renderHook( () => {
-		useTopologyManager( {} );
-		useProbeStream( 'topicprobe', { mode: 'history' } );
-	} );
+	const { unmount } = renderHook(
+		() => {
+			useConnected( useTopologyManager( {} ) );
+			useSource( 'nodes/topicprobe' );
+		},
+		{ wrapper: SourcesProvider }
+	);
 	const shell = new ShellNode();
 	shell.sink = Core.node( names.COMMAND_INTERPRETER );
 	const repl = renderHook( () => useDebugRepl( true, shell ) );
@@ -42,6 +50,18 @@ function overviewGraph() {
 	unmount();
 	return graph;
 }
+
+/**
+ * A source's Fetcher, by the prefix its live source names its nodes under.
+ *
+ * @param {Object<string,Object>} at     Node id => position.
+ * @param {string}                prefix The source's name, `/` read as `:`.
+ * @return {string} The Fetcher's id.
+ */
+const fetcherOf = ( at, prefix ) =>
+	Object.keys( at ).find(
+		( id ) => id.startsWith( prefix ) && id.endsWith( ':fetch' )
+	);
 
 describe( 'autoLayout — the station Overview in the debug overlay', () => {
 	beforeEach( () => {
@@ -124,20 +144,37 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		);
 	} );
 
-	it( 'seats every fetcher in one column, its timer and tee level with it', () => {
+	it( 'seats each mutation fetcher on its result’s column and gathers the two poll fetchers into one', () => {
+		// A hub feeder whose wire covers no card stays in its band's column;
+		// the poll fetchers' wires would, so both pin to one column.
 		const graph = overviewGraph();
 		const at = Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
-		const fetch = at[ 'workers:restart:fetch' ];
-		expect( [
-			at[ 'topology-manager:fetch' ].x,
-			at[ 'worker-status:fetch' ].x,
-		] ).toEqual( [ fetch.x, fetch.x ] );
-		expect( [
-			at[ 'workers:restart:timer' ].y,
-			at[ 'workers:restart:tee' ].y,
-		] ).toEqual( [ fetch.y, fetch.y ] );
+		for ( const slice of [
+			'topologies:activate:',
+			'topologies:deactivate:',
+			'workers:restart:',
+		] ) {
+			expect( [
+				slice,
+				at[ `${ slice }fetch` ].x,
+				at[ `${ slice }timer` ].y,
+			] ).toEqual( [
+				slice,
+				at[ `${ slice }result` ].x,
+				at[ `${ slice }tee` ].y,
+			] );
+		}
+		const polls = [ 'nodes:topologies:', 'nodes:worker-status:' ].map(
+			( prefix ) => fetcherOf( at, prefix )
+		);
+		expect( at[ polls[ 0 ] ].x ).toBe( at[ polls[ 1 ] ].x );
+		for ( const fetch of polls ) {
+			const slice = fetch.slice( 0, -'fetch'.length );
+			expect( at[ fetch ].x ).toBeGreaterThan( at[ `${ slice }tee` ].x );
+			expect( at[ `${ slice }timer` ].y ).toBe( at[ `${ slice }tee` ].y );
+		}
 	} );
 
 	it( 'leaves a fetcher whose hub wire passes no card of another band', () => {
@@ -167,17 +204,26 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		).toEqual( [] );
 	} );
 
-	it( 'opens a clear column between the fetchers and the fleet board Tap', () => {
+	it( 'stands the fleet board Tap right of every fetcher, its wires over no card', () => {
 		const graph = overviewGraph();
 		const at = Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
-		const fetchX = at[ 'topology-manager:fetch' ].x;
-		expect( at[ HUB ].x - fetchX ).toBeGreaterThan( X_STEP );
+		const fetchX = Math.max(
+			...Object.keys( at )
+				.filter( ( id ) => id.endsWith( ':fetch' ) )
+				.map( ( id ) => at[ id ].x )
+		);
+		expect( at[ HUB ].x ).toBeGreaterThan( fetchX );
 		const between = Object.keys( at ).filter(
 			( id ) => at[ id ].x > fetchX && at[ id ].x < at[ HUB ].x
 		);
 		expect( between ).toEqual( [] );
+		expect(
+			drawnCost( at, graph.edges ).over.filter( ( hit ) =>
+				hit.includes( `→${ HUB }` )
+			)
+		).toEqual( [] );
 	} );
 
 	it( 'keeps the heartbeat chain at the bottom-left, under the slices', () => {

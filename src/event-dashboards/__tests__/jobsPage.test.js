@@ -1,46 +1,86 @@
 /**
- * Jobs — the station's per-handler job-outcome board over the durable jobstats.p0 log.
- * useProbeStream (link) is stubbed; the view model is fed via useNodeField.
- * TimeChart (d3) is stubbed to capture the rate panels each metric is fed.
+ * The Jobs tab — its default layout's charts and its job table over the
+ * durable jobstats.p0 log, and the topic probe's jobs backlog. `useSource`
+ * hands back each source's model as the test seeds it; a panel is what the
+ * time-chart block hands `TimeChart` from the layout's attributes and the
+ * source's declared field.
  */
 
+const mockModels = {};
+jest.mock( '@newspack-nodes/shared/sources', () => ( {
+	...jest.requireActual( '@newspack-nodes/shared/sources' ),
+	useSource: ( name ) => ( {
+		model: mockModels[ name ] ?? null,
+		error: null,
+		loading: ! mockModels[ name ],
+		stale: false,
+	} ),
+} ) );
+
 import { render } from '@testing-library/react';
+import { sourceDeclaration } from '@newspack-nodes/shared/sources';
 import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
-import Jobs from '../Jobs';
-import { useProbeStream } from '../hooks/useProbeStream';
+import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 import { bucketsFrom } from './bucketTestUtils';
 import { Core } from '../../runtime/core';
-import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
+import { JobsTab } from '../stationTabs';
+import LAYOUTS from '../../../tests/fixtures/station-layouts.json';
+import { localizeStationPages } from '../../station/__tests__/localizeStationPages';
 
-jest.mock( '../hooks/useProbeStream', () => ( {
-	...jest.requireActual( '../hooks/useProbeStream' ),
-	useProbeStream: jest.fn(),
-} ) );
-jest.mock( '../../runtime/react', () => ( {
-	...jest.requireActual( '../../runtime/react' ),
-	useNodeField: jest.fn(),
-} ) );
-jest.mock( '@newspack-nodes/shared/blocks/time-chart', () => {
-	const el = require( '@wordpress/element' );
-	const TimeChart = ( props ) => {
-		( globalThis.__jobsPanels ||= [] ).push( props );
-		return el.createElement(
-			'div',
-			{ className: 'nodes-topics' },
-			props.title
-		);
-	};
-	return {
-		...jest.requireActual( '@newspack-nodes/shared/blocks/time-chart' ),
-		TimeChart,
-		TimeChartPanels: ( { panels } ) =>
-			panels.map( ( p ) =>
-				el.createElement( TimeChart, { key: p.storageKey, ...p } )
-			),
-	};
-} );
+/**
+ * Every time chart a layout's tree holds, in order.
+ *
+ * @param {Array<Object>} tree The tree.
+ * @return {Array<Object>} Each chart's attributes.
+ */
+const chartsOf = ( tree ) =>
+	tree.flatMap( ( node ) =>
+		'newspack-nodes/time-chart' === node.name
+			? [ node.attributes ]
+			: chartsOf( node.inner )
+	);
 
-import { useNodeField } from '../../runtime/react';
+/**
+ * Each panel the default layout draws, as the time-chart block hands it to
+ * `TimeChart`: the chart's title and stacking, and its one metric's axis,
+ * formatters and series, derived from the models seeded now.
+ *
+ * @return {Array<Object>} The panels.
+ */
+const panels = () =>
+	chartsOf( LAYOUTS[ 'newspack-nodes/station-jobs' ] ).map(
+		( { source, metrics: [ key ], stacked, title } ) => {
+			const field = sourceDeclaration( source ).fields[ key ];
+			return Object.fromEntries(
+				Object.entries( {
+					title,
+					stacked,
+					yLabel: field.axis ?? field.label,
+					formatFor: field.formatFor,
+					formatValue: field.format,
+					series: field.value( mockModels[ source ] ?? {} ),
+				} ).filter( ( [ , value ] ) => undefined !== value )
+			);
+		}
+	);
+
+/**
+ * Seed the sources the page reads.
+ *
+ * @param {?Object} stats   The probe stats model.
+ * @param {?Object} [probe] The topic probe model.
+ */
+function seed( stats, probe ) {
+	for ( const name of Object.keys( mockModels ) ) {
+		delete mockModels[ name ];
+	}
+	if ( stats ) {
+		mockModels[ 'nodes/jobstats' ] = stats;
+	}
+	if ( probe ) {
+		mockModels[ 'nodes/topicprobe' ] = probe;
+	}
+}
 
 function model() {
 	return {
@@ -149,27 +189,28 @@ function model() {
 
 beforeEach( () => {
 	Core.reset();
-	globalThis.__jobsPanels = [];
+	seed( null );
+	localizeStationPages();
 } );
 
-describe( 'Jobs', () => {
+describe( 'the Jobs tab', () => {
 	it( 'replays both probe logs from their start', () => {
-		render( <Jobs /> );
-		expect( useProbeStream ).toHaveBeenCalledWith( 'jobstats', {
-			mode: 'history',
-		} );
-		expect( useProbeStream ).toHaveBeenCalledWith( 'topicprobe', {
-			mode: 'history',
-		} );
+		for ( const [ name, log ] of [
+			[ 'nodes/jobstats', 'jobstats.p0' ],
+			[ 'nodes/topicprobe', 'topicprobe.p0' ],
+		] ) {
+			const decl = sourceDeclaration( name );
+			expect( [ decl.mode, decl.subscribe( {} ) ] ).toEqual( [
+				'history',
+				log,
+			] );
+		}
 	} );
 
 	it( 'shows the lines each of its streams skipped as its own named notice', () => {
 		publishSkippedLines( 'jobstats.p0', 2 );
 		publishSkippedLines( 'topicprobe.p0', 3 );
-		useNodeField.mockImplementation(
-			jest.requireActual( '../../runtime/react' ).useNodeField
-		);
-		const { container } = render( <Jobs /> );
+		const { container } = render( <JobsTab /> );
 		const notices = [
 			...container.querySelectorAll(
 				'.newspack-nodes-banner.is-warning'
@@ -182,72 +223,58 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'renders backlog + queue-latency panels; backlog holds jobs sources only', () => {
-		useNodeField.mockImplementation( ( node ) =>
-			'topicprobe:view' === node
-				? {
-						consumers: {
-							'job-worker.jobs.p0': {
-								source: 'jobs.p0',
-								buckets: bucketsFrom( [
-									{ ts: 1, backlog: 4096 },
-								] ),
-							},
-							'combined.firehose.p0': {
-								source: 'firehose.p0',
-								buckets: bucketsFrom( [
-									{ ts: 1, backlog: 9999 },
-								] ),
-							},
-						},
-				  }
-				: model()
-		);
-		render( <Jobs /> );
+		seed( model(), {
+			consumers: {
+				'job-worker.jobs.p0': {
+					source: 'jobs.p0',
+					buckets: bucketsFrom( [ { ts: 1, backlog: 4096 } ] ),
+				},
+				'combined.firehose.p0': {
+					source: 'firehose.p0',
+					buckets: bucketsFrom( [ { ts: 1, backlog: 9999 } ] ),
+				},
+			},
+		} );
+		render( <JobsTab /> );
 
-		const titles = globalThis.__jobsPanels.map( ( p ) => p.title );
+		const titles = panels().map( ( p ) => p.title );
 		expect( titles ).toContain( 'Job Backlog' );
 		expect( titles ).toContain( 'Job Queue Latency' );
 
-		const backlog = globalThis.__jobsPanels.find(
-			( p ) => 'Job Backlog' === p.title
-		);
+		const backlog = panels().find( ( p ) => 'Job Backlog' === p.title );
 		expect( Object.keys( backlog.series ) ).toContain( 'jobs.p0' );
 		expect( Object.keys( backlog.series ) ).not.toContain( 'firehose.p0' );
 	} );
 
 	it( 'charts each worker’s jobs backlog apart, as the Overview does', () => {
-		useNodeField.mockImplementation( ( node ) =>
-			'topicprobe:view' === node
-				? {
-						consumers: {
-							'job-worker.jobs.p2': {
-								source: 'jobs.p2',
-								buckets: bucketsFrom( [
-									{
-										ts: 1,
-										backlog: 4471,
-										worker: 'job-worker-4417.p2',
-									},
-								] ),
-							},
+		seed( model(), {
+			consumers: {
+				'job-worker.jobs.p2': {
+					source: 'jobs.p2',
+					buckets: bucketsFrom( [
+						{
+							ts: 1,
+							backlog: 4471,
+							worker: 'job-worker-4417.p2',
 						},
-				  }
-				: model()
-		);
-		render( <Jobs /> );
-		const backlog = globalThis.__jobsPanels.find(
-			( p ) => 'Job Backlog' === p.title
-		);
+					] ),
+				},
+			},
+		} );
+		render( <JobsTab /> );
+		const backlog = panels().find( ( p ) => 'Job Backlog' === p.title );
 		expect( Object.keys( backlog.series ) ).toEqual( [
 			'jobs.p2 · job-worker-4417.p2',
 		] );
 	} );
 
 	it( 'renders a row per job identity with runs, failures, status and message', () => {
-		useNodeField.mockReturnValue( model() );
-		const { getByText, getAllByText } = render( <Jobs /> );
+		seed( model() );
+		const { getByText, getAllByText } = render( <JobsTab /> );
 
-		expect( getByText( 'cron:films' ) ).toBeTruthy();
+		expect(
+			getByText( 'cron:films', { selector: '.nodes-probe-tab__name' } )
+		).toBeTruthy();
 		expect(
 			getByText( 'evtemplate', { selector: '.nodes-probe-tab__name' } )
 		).toBeTruthy();
@@ -264,8 +291,8 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'renders WINDOWED runs/failures totals, not the latest cumulative record', () => {
-		useNodeField.mockReturnValue( model() );
-		const { getByText, container } = render( <Jobs /> );
+		seed( model() );
+		const { getByText, container } = render( <JobsTab /> );
 		// cron:films: windowed runs = 12 (latest cumulative is 4).
 		expect( getByText( '12' ) ).toBeTruthy();
 		// cron:films: windowed failures = 5 (latest cumulative is 1).
@@ -276,8 +303,8 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'uses the canonical themed table class, not wp-list-table', () => {
-		useNodeField.mockReturnValue( model() );
-		const { container } = render( <Jobs /> );
+		seed( model() );
+		const { container } = render( <JobsTab /> );
 		const table = container.querySelector( 'table' );
 		expect( table.classList.contains( 'newspack-nodes-table' ) ).toBe(
 			true
@@ -286,26 +313,26 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'shows an empty state before any job has run', () => {
-		useNodeField.mockReturnValue( { handlers: {} } );
-		const { container, queryByRole } = render( <Jobs /> );
+		seed( { handlers: {} } );
+		const { container, queryByRole } = render( <JobsTab /> );
 		expect( queryByRole( 'table' ) ).toBeNull();
 		expect(
 			container.querySelector( '.nodes-probe-tab__empty' )
 		).toBeTruthy();
 	} );
 
-	it( 'tolerates an unready view model (no crash, empty state)', () => {
-		useNodeField.mockReturnValue( undefined );
-		const { container } = render( <Jobs /> );
+	it( 'shows the empty state while its log has answered nothing', () => {
+		seed( null );
+		const { container } = render( <JobsTab /> );
 		expect(
-			container.querySelector( '.nodes-probe-tab__empty' )
-		).toBeTruthy();
+			container.querySelector( '.nodes-probe-tab__empty' ).textContent
+		).toBe( 'No job activity yet.' );
 	} );
 
 	it( 'feeds runs, errors, backlog and latency panels to TimeChart', () => {
-		useNodeField.mockReturnValue( model() );
-		render( <Jobs /> );
-		const titles = globalThis.__jobsPanels.map( ( p ) => p.title );
+		seed( model() );
+		render( <JobsTab /> );
+		const titles = panels().map( ( p ) => p.title );
 		expect( titles.length ).toBe( 4 );
 		expect( titles.some( ( t ) => /run/i.test( t ) ) ).toBe( true );
 		expect( titles.some( ( t ) => /error/i.test( t ) ) ).toBe( true );
@@ -333,9 +360,9 @@ describe( 'Jobs', () => {
 				worker: 'job-worker-4417.p6',
 			},
 		] );
-		useNodeField.mockReturnValue( m );
-		render( <Jobs /> );
-		const [ runs, errors, backlog, latency ] = globalThis.__jobsPanels;
+		seed( m );
+		render( <JobsTab /> );
+		const [ runs, errors, backlog, latency ] = panels();
 		for ( const panel of [ runs, errors ] ) {
 			expect( panel.stacked ).toBe( true );
 			expect( Object.keys( panel.series ) ).toEqual(
@@ -372,9 +399,9 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'titles each panel Y-axis with the quantity it plots', () => {
-		useNodeField.mockReturnValue( model() );
-		render( <Jobs /> );
-		expect( globalThis.__jobsPanels.map( ( p ) => p.yLabel ) ).toEqual( [
+		seed( model() );
+		render( <JobsTab /> );
+		expect( panels().map( ( p ) => p.yLabel ) ).toEqual( [
 			'Runs',
 			'Errors',
 			'Backlog',
@@ -395,14 +422,14 @@ describe( 'Jobs', () => {
 			},
 			buckets: [],
 		} );
-		useNodeField.mockReturnValue( {
+		seed( {
 			handlers: {
 				'alpha:low': row( 'alpha:low', 0 ),
 				'mid:two': row( 'mid:two', 2 ),
 				'zulu:worst': row( 'zulu:worst', 7 ),
 			},
 		} );
-		const { container } = render( <Jobs /> );
+		const { container } = render( <JobsTab /> );
 		expect(
 			[ ...container.querySelectorAll( 'tbody tr' ) ].map(
 				( r ) => r.dataset.jobKey
@@ -413,8 +440,8 @@ describe( 'Jobs', () => {
 	it( 'shows the window’s longest run in a Max column after Avg', () => {
 		const m = model();
 		m.handlers[ 'cron:films' ].windowed.maxDurationMs = 4870;
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Jobs /> );
+		seed( m );
+		const { container } = render( <JobsTab /> );
 		const heads = [ ...container.querySelectorAll( 'th' ) ].map(
 			( h ) => h.textContent
 		);
@@ -434,8 +461,8 @@ describe( 'Jobs', () => {
 			maxDurationMs: null,
 			avgQueueMs: null,
 		} );
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Jobs /> );
+		seed( m );
+		const { container } = render( <JobsTab /> );
 		const cells = [
 			...container.querySelector( '[data-job-key="evtemplate"]' )
 				.children,
@@ -454,23 +481,12 @@ describe( 'Jobs', () => {
 			runs: 12345,
 			errors: 4321,
 		} );
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Jobs /> );
+		seed( m );
+		const { container } = render( <JobsTab /> );
 		const cells = [
 			...container.querySelector( '[data-job-key="cron:films"]' )
 				.children,
 		].map( ( c ) => c.textContent );
 		expect( cells.slice( 1, 3 ) ).toEqual( [ '12,345', '4,321' ] );
-	} );
-
-	it( 'keeps its panel series stable across renders of an unready model', () => {
-		useNodeField.mockReturnValue( undefined );
-		const { rerender } = render( <Jobs /> );
-		const first = globalThis.__jobsPanels.slice( 0, 4 );
-		rerender( <Jobs /> );
-		const second = globalThis.__jobsPanels.slice( -4 );
-		second.forEach( ( panel, i ) =>
-			expect( panel.series ).toBe( first[ i ].series )
-		);
 	} );
 } );

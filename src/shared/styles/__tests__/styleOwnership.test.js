@@ -110,8 +110,6 @@ const REQUIRED_ROLE_PAIRS = [
 	[ 'topology-open-item__badge', 'newspack-nodes-badge' ],
 	[ 'nodes-tm__alert', 'newspack-nodes-modal' ],
 	[ 'nodes-station__empty', 'newspack-nodes-empty-state' ],
-	[ 'nodes-station__lazy-loading', 'newspack-nodes-performance-loading' ],
-	[ 'aggregator-status-loading', 'newspack-nodes-performance-loading' ],
 	[ 'aggregator-status-empty', 'newspack-nodes-empty-state' ],
 	[ 'nodes-probe-tab__empty', 'newspack-nodes-empty-state' ],
 	[ 'nodes-config-audit__empty', 'newspack-nodes-empty-state' ],
@@ -1516,33 +1514,7 @@ describe( 'canonical appearance ownership', () => {
 		}
 	} );
 
-	it( 'preserves compact loading and runtime-table geometry', () => {
-		const tabHostStylesheet = compile(
-			path.join( NODES_SRC, 'station/station.scss' )
-		);
-		// The tab pane insets the placeholder, so it pads nothing itself.
-		expect(
-			declarationsForSelector(
-				tabHostStylesheet,
-				'.newspack-nodes-performance-loading.nodes-station__lazy-loading'
-			)
-		).toEqual( {
-			display: 'block',
-			'min-height': '0',
-		} );
-		expect(
-			declarationsForSelector(
-				graphStylesheet,
-				'.newspack-nodes-performance-loading.topology-edit-empty'
-			)
-		).toEqual(
-			expect.objectContaining( {
-				display: 'block',
-				'min-height': '0',
-				padding: '4px 0',
-			} )
-		);
-
+	it( 'preserves the runtime-table geometry', () => {
 		const runtimeSelector = '.newspack-nodes-table.nodes-runtime__grid';
 		const runtimeGrid = declarationsForSelector(
 			inspectorViewsStylesheet,
@@ -3637,6 +3609,7 @@ describe( 'the type scale floor', () => {
 	} );
 } );
 
+// A numeric cell right-aligns on tabular digits, both from the one mixin.
 describe( 'numeric cells', () => {
 	const TOPOLOGY_ROW = path.join(
 		NODES_SRC,

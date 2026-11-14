@@ -433,6 +433,73 @@ describe( 'TabHost', () => {
 				expect( params.get( 'log' ) ).toBe( 'firehose' );
 			} );
 
+			it( 'keeps a param the active tab declares, though another tab declares it too', () => {
+				window.history.replaceState(
+					{},
+					'',
+					'/?tab=raw-logs&topology=kea-7960&log=firehose'
+				);
+				registerTab( {
+					id: 'topology-console',
+					label: 'Console',
+					host: 'station',
+					slug: 'console',
+					params: [ 'topology' ],
+					order: 0,
+					component: ConsoleTab,
+				} );
+				registerTab( {
+					id: 'raw-logs',
+					label: 'Raw Logs',
+					host: 'station',
+					slug: 'raw-logs',
+					params: [ 'log', 'topology' ],
+					order: 20,
+					component: RawLogsTab,
+				} );
+				render( <TabHost host="station" syncUrl /> );
+				const params = new URLSearchParams( window.location.search );
+				expect( params.get( 'topology' ) ).toBe( 'kea-7960' );
+				expect( params.get( 'log' ) ).toBe( 'firehose' );
+			} );
+
+			it( 'strips a shared param on a switch, so a tab returned to opens without it', () => {
+				window.history.replaceState(
+					{},
+					'',
+					'/?tab=console&edit=1&topology=kea-7961'
+				);
+				registerTab( {
+					id: 'topology-console',
+					label: 'Console',
+					host: 'station',
+					slug: 'console',
+					params: [ 'topology', 'edit' ],
+					order: 0,
+					component: ConsoleTab,
+				} );
+				registerTab( {
+					id: 'overview',
+					label: 'Overview',
+					host: 'station',
+					slug: 'overview',
+					params: [ 'edit' ],
+					order: 10,
+					component: ManagerTab,
+				} );
+				const { getByRole } = render(
+					<TabHost host="station" syncUrl />
+				);
+				fireEvent.click( getByRole( 'tab', { name: 'Overview' } ) );
+				expect(
+					new URLSearchParams( window.location.search ).get( 'edit' )
+				).toBeNull();
+				fireEvent.click( getByRole( 'tab', { name: 'Console' } ) );
+				const params = new URLSearchParams( window.location.search );
+				expect( params.get( 'tab' ) ).toBe( 'console' );
+				expect( params.get( 'edit' ) ).toBeNull();
+			} );
+
 			it( "drops another tab's deep-link param on switch", () => {
 				window.history.replaceState(
 					{},
@@ -715,6 +782,119 @@ describe( 'TabHost', () => {
 					);
 					addSpy.mockRestore();
 					removeSpy.mockRestore();
+				} );
+
+				describe( 'a tab guarding its leave', () => {
+					let asked;
+
+					/**
+					 * Register the three tabs, the Console guarding its leave.
+					 *
+					 * @param {boolean} answer What the guard answers.
+					 */
+					const guarded = ( answer ) => {
+						registerThree();
+						registerTab( {
+							id: 'topology-console',
+							label: 'Console',
+							host: 'station',
+							slug: 'console',
+							params: [ 'topology' ],
+							order: 0,
+							component: ConsoleTab,
+							beforeLeave: ( next ) => {
+								asked.push( next );
+								return answer;
+							},
+						} );
+					};
+
+					beforeEach( () => {
+						asked = [];
+						window.history.replaceState(
+							{},
+							'',
+							'/?tab=console&topology=kea-7961'
+						);
+					} );
+
+					it( 'stays on a tab whose guard declines a switch', () => {
+						guarded( false );
+						const { getByRole, queryByTestId } = render(
+							<TabHost host="station" syncUrl />
+						);
+						fireEvent.click(
+							getByRole( 'tab', { name: 'Raw Logs' } )
+						);
+						expect( asked ).toHaveLength( 1 );
+						expect( asked[ 0 ] ).toMatchObject( {
+							id: 'raw-logs',
+							slug: 'raw-logs',
+						} );
+						expect( queryByTestId( 'console' ) ).not.toBeNull();
+						expect( pushSpy ).not.toHaveBeenCalled();
+						expect( window.location.search ).toBe(
+							'?tab=console&topology=kea-7961'
+						);
+					} );
+
+					it( 'switches once a declining guard leaves after all', () => {
+						guarded( false );
+						const { getByRole, queryByTestId } = render(
+							<TabHost host="station" syncUrl />
+						);
+						fireEvent.click(
+							getByRole( 'tab', { name: 'Raw Logs' } )
+						);
+						act( () => asked[ 0 ].leave() );
+						expect( queryByTestId( 'raw-logs' ) ).not.toBeNull();
+						expect( pushSpy ).toHaveBeenCalledTimes( 1 );
+						expect( pushSpy.mock.calls[ 0 ][ 2 ] ).toBe(
+							'/?tab=raw-logs'
+						);
+					} );
+
+					it( 'switches at once when the guard allows it', () => {
+						guarded( true );
+						const { getByRole, queryByTestId } = render(
+							<TabHost host="station" syncUrl />
+						);
+						fireEvent.click(
+							getByRole( 'tab', { name: 'Raw Logs' } )
+						);
+						expect( asked ).toHaveLength( 1 );
+						expect( queryByTestId( 'raw-logs' ) ).not.toBeNull();
+					} );
+
+					it( 'restores the tab and its entry when the guard declines a Back', () => {
+						guarded( false );
+						const { queryByTestId } = render(
+							<TabHost host="station" syncUrl />
+						);
+						back( '/?tab=raw-logs' );
+						expect( asked ).toHaveLength( 1 );
+						expect( asked[ 0 ] ).toMatchObject( {
+							id: 'raw-logs',
+						} );
+						expect( queryByTestId( 'console' ) ).not.toBeNull();
+						expect( window.location.search ).toBe(
+							'?tab=console&topology=kea-7961'
+						);
+					} );
+
+					it( 'shows the landed tab once a guard that declined a Back leaves', () => {
+						guarded( false );
+						const { queryByTestId } = render(
+							<TabHost host="station" syncUrl />
+						);
+						back( '/?tab=raw-logs&log=kea-firehose' );
+						act( () => asked[ 0 ].leave() );
+						expect( queryByTestId( 'raw-logs' ) ).not.toBeNull();
+						expect( pushSpy ).not.toHaveBeenCalled();
+						expect( window.location.search ).toBe(
+							'?tab=raw-logs&log=kea-firehose'
+						);
+					} );
 				} );
 			} );
 		} );

@@ -45,4 +45,19 @@ describe( 'lazyTabs', () => {
 			)
 		).not.toBeNull();
 	} );
+
+	it( 'a placeholder shows the shared loading skeleton while it waits', () => {
+		window.NewspackNodesLazyTabs = {};
+		registerLazyTabs();
+		const Placeholder = getTabs( 'station' ).find(
+			( t ) => t.id === 'sessions'
+		).component;
+		render( <Placeholder /> );
+		expect(
+			document.querySelector( '[role="status"][aria-label="Loading"]' )
+		).not.toBeNull();
+		expect(
+			document.querySelector( '.newspack-nodes-performance-loading' )
+		).toBeNull();
+	} );
 } );

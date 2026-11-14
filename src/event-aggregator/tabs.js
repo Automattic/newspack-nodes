@@ -6,19 +6,19 @@
  * The descriptor is the shared `./tabMeta`, which the station's lazy placeholder
  * carries as well, so the tab-bar identity holds before the bundle loads. The
  * station renders the page chrome and the DebugOverlay around whichever tab is
- * active, so the component registered here is AggregatorStatus itself rather
- * than a page wrapper.
+ * active, so the component registered here is the composed page itself,
+ * `AggregatorTab`, rather than a page wrapper.
  *
  * Importing `./nodes/register` enters AggregatorSummaryView and
  * AggregatorServersView in this bundle's `CommandInterpreterNode` name table,
- * which TSL and the console palette read. `useAggregatorStatusGraph` does not
- * depend on that table: name resolution is a per-bundle static, so a hook hands
+ * which TSL and the console palette read. The page's sources do not depend on
+ * that table: name resolution is a per-bundle static, so a source hands
  * `makeNode` the exported class itself (ADR-16).
  */
 
 import { registerTab } from '@newspack-nodes/shared/tabs/tabRegistry';
 import tabMeta from './tabMeta';
-import AggregatorStatus from './AggregatorStatus';
+import { AggregatorTab } from './AggregatorTab';
 import './nodes/register';
 
-registerTab( { ...tabMeta, component: AggregatorStatus } );
+registerTab( { ...tabMeta, component: AggregatorTab } );

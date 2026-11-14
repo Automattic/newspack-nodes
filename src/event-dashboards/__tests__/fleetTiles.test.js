@@ -1,6 +1,30 @@
+/**
+ * The Overview's fleet tiles: the shared stats block over `nodes/fleet`,
+ * every figure a field that source derives from the fleet board and the
+ * topic probe. `useSource` hands the block the fleet's model as `derive`
+ * makes it, its inputs standing in for the topology rows, the rates and
+ * the probe maps a test names.
+ */
+
+const mockModels = {};
+jest.mock( '@newspack-nodes/shared/sources', () => ( {
+	...jest.requireActual( '@newspack-nodes/shared/sources' ),
+	useSource: ( name ) => ( {
+		model: mockModels[ name ] ?? null,
+		error: null,
+		loading: false,
+		stale: false,
+	} ),
+} ) );
+
 import { render } from '@testing-library/react';
-import SummaryCards from '../SummaryCards';
+import { SUBSTRATE_VIEWS } from '@newspack-nodes/shared/blocks';
 import { bucketsFrom } from './bucketTestUtils';
+import { fleetSummary } from '../fleetSummary';
+import '../views';
+
+/** The stats block's View, as a composed page renders it. */
+const { View: Stats } = SUBSTRATE_VIEWS[ 'newspack-nodes/stats' ];
 
 const topo = ( name, o = {} ) => ( {
 	name,
@@ -26,7 +50,28 @@ function renderCards( props = {} ) {
 		consumers: {},
 		partitions: {},
 	};
-	return render( <SummaryCards { ...base } { ...props } /> );
+	const {
+		topologies,
+		readRate,
+		writeRate,
+		logPartitions,
+		consumers,
+		partitions,
+	} = {
+		...base,
+		...props,
+	};
+	mockModels[ 'nodes/fleet' ] = {
+		board: { logPartitions, readRate, writeRate },
+		probe: { consumers, partitions },
+		fleet: fleetSummary( topologies ),
+	};
+	return render(
+		<Stats
+			attributes={ { source: 'nodes/fleet', fields: [], columns: 0 } }
+			editing={ false }
+		/>
+	);
 }
 
 it( 'marks every fleet metric as a canonical card surface', () => {

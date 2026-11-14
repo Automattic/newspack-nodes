@@ -2,6 +2,7 @@
 	"$schema": "https://unpkg.com/knip@6/schema.json",
 	"entry": [
 		"src/*/index.js",
+		"src/*/layout-editor.js",
 		"src/shared/**/*.js",
 		"!src/shared/**/__tests__/**",
 		"src/build-kit/**/*.{js,cjs,mjs}",
@@ -49,7 +50,8 @@
 		"jsdom",
 		"@csstools/selector-specificity",
 		"postcss-selector-parser",
-		"@babel/parser"
+		"@babel/parser",
+		"dom-accessibility-api"
 	],
 	"jest": false,
 	"tags": [

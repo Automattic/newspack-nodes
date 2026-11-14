@@ -528,6 +528,43 @@ describe( 'CompositionEditor', () => {
 		expect( onDirty ).toHaveBeenLastCalledWith( true );
 	} );
 
+	describe( 'leaving the page', () => {
+		/**
+		 * Dispatch a cancelable `beforeunload`, as a navigation away does.
+		 *
+		 * @return {boolean} Whether a listener cancelled it.
+		 */
+		const held = () => {
+			const event = new Event( 'beforeunload', { cancelable: true } );
+			window.dispatchEvent( event );
+			return event.defaultPrevented;
+		};
+
+		it( 'asks before the page goes while the layout holds a change', async () => {
+			await mountLoaded();
+			const [ column ] = mockProvider.props.value;
+			edit( [ column ] );
+			expect( held() ).toBe( true );
+		} );
+
+		it( 'lets the page go while the layout holds no change', async () => {
+			await mountLoaded();
+			expect( held() ).toBe( false );
+		} );
+
+		it( 'lets the page go once the change is saved', async () => {
+			const onDone = await mountLoaded();
+			const [ , tally ] = mockProvider.props.value;
+			edit( [ tally ] );
+			fireEvent.click( button( 'Save layout' ) );
+			await waitFor(
+				() => expect( onDone ).toHaveBeenCalledTimes( 1 ),
+				WAIT
+			);
+			expect( held() ).toBe( false );
+		} );
+	} );
+
 	it( 'asks before restoring the default, then restores it', async () => {
 		const onDone = await mountLoaded();
 		fireEvent.click( button( 'Restore default' ) );

@@ -24,6 +24,7 @@ import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
 import './sessions-admin.scss';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
+import { useSubjectAnswers } from '@newspack-nodes/shared/hooks/useSubjectAnswers';
 
 /** The scope the form preselects when the server lists it. */
 const DEFAULT_SCOPE = 'tune';
@@ -516,11 +517,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 	// Disclosed once, so the create hands the key over, never publishes it.
 	const [ issued, setIssued ] = useState( null );
 	const [ submitted, setSubmitted ] = useState( null );
-	// @longform Each row's last answer, put there BY the reply that named it.
-	// Not a correlation table: the graph did the matching in the ADDRESS,
-	// before this screen saw it — which is why a row keeps its line when a
-	// sibling is revoked.
-	const [ answers, setAnswers ] = useState( {} );
+	const { file, answerFor } = useSubjectAnswers();
 	const {
 		sessions,
 		connections,
@@ -532,10 +529,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 		pendingVerb,
 	} = useSessionsGraph( {
 		onAnswer: ( { verb, subject, error: refusal, result } ) => {
-			setAnswers( ( prior ) => ( {
-				...prior,
-				[ subject ]: { verb, error: refusal },
-			} ) );
+			file( subject, { verb, error: refusal } );
 			// A create's own answer is what discloses the key, once.
 			if ( 'create' === verb && ! refusal ) {
 				setIssued( result );
@@ -581,7 +575,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 					<SessionRow
 						key={ session.handle }
 						session={ session }
-						answer={ answers[ session.handle ] ?? null }
+						answer={ answerFor( session.handle ) }
 						busy={ Boolean( pendingVerb( session.handle ) ) }
 						onRevoke={ revoke }
 					/>
@@ -603,7 +597,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 					<ConnectionRow
 						key={ connection.grant }
 						connection={ connection }
-						answer={ answers[ connection.grant ] ?? null }
+						answer={ answerFor( connection.grant ) }
 						busy={ Boolean( pendingVerb( connection.grant ) ) }
 						onRevoke={ revoke }
 					/>
@@ -619,7 +613,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 						setSubmitted( fields.label );
 						createSession( fields );
 					} }
-					answer={ answers[ submitted ] ?? null }
+					answer={ answerFor( submitted ) }
 					busy={ 'create' === pendingVerb( submitted ) }
 					onCancel={ closeCreate }
 					scopes={ scopes }

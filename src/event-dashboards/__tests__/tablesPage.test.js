@@ -1,47 +1,86 @@
 /**
- * Tables — the station's per-Table operation board over the durable
- * tablestats.p0 log. useProbeStream (link) is stubbed; the view model is fed
- * via useNodeField. TimeChart (d3) is stubbed to capture each panel's props.
+ * The Tables tab — its default layout's charts and its Table table over the
+ * durable tablestats.p0 log. `useSource` hands back the source's model as
+ * the test seeds it; a panel is what the time-chart block hands `TimeChart`
+ * from the layout's attributes and the source's declared field.
  */
 
+const mockModels = {};
+jest.mock( '@newspack-nodes/shared/sources', () => ( {
+	...jest.requireActual( '@newspack-nodes/shared/sources' ),
+	useSource: ( name ) => ( {
+		model: mockModels[ name ] ?? null,
+		error: null,
+		loading: ! mockModels[ name ],
+		stale: false,
+	} ),
+} ) );
+
 import { render } from '@testing-library/react';
-import Tables from '../Tables';
-import { buildAlignedSeries } from '@newspack-nodes/shared/utils/buildAlignedSeries';
-import { bucketsFrom } from './bucketTestUtils';
+import { sourceDeclaration } from '@newspack-nodes/shared/sources';
 import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
-import { useProbeStream } from '../hooks/useProbeStream';
-import { Core } from '../../runtime/core';
+import { buildAlignedSeries } from '@newspack-nodes/shared/utils/buildAlignedSeries';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
+import { bucketsFrom } from './bucketTestUtils';
+import { Core } from '../../runtime/core';
+import { TablesTab } from '../stationTabs';
+import LAYOUTS from '../../../tests/fixtures/station-layouts.json';
+import { localizeStationPages } from '../../station/__tests__/localizeStationPages';
 
-jest.mock( '../hooks/useProbeStream', () => ( {
-	...jest.requireActual( '../hooks/useProbeStream' ),
-	useProbeStream: jest.fn(),
-} ) );
-jest.mock( '../../runtime/react', () => ( {
-	...jest.requireActual( '../../runtime/react' ),
-	useNodeField: jest.fn(),
-} ) );
-jest.mock( '@newspack-nodes/shared/blocks/time-chart', () => {
-	const el = require( '@wordpress/element' );
-	const TimeChart = ( props ) => {
-		( globalThis.__tablesPanels ||= [] ).push( props );
-		return el.createElement(
-			'div',
-			{ className: 'nodes-topics' },
-			props.title
-		);
-	};
-	return {
-		...jest.requireActual( '@newspack-nodes/shared/blocks/time-chart' ),
-		TimeChart,
-		TimeChartPanels: ( { panels } ) =>
-			panels.map( ( p ) =>
-				el.createElement( TimeChart, { key: p.storageKey, ...p } )
-			),
-	};
-} );
+/**
+ * Every time chart a layout's tree holds, in order.
+ *
+ * @param {Array<Object>} tree The tree.
+ * @return {Array<Object>} Each chart's attributes.
+ */
+const chartsOf = ( tree ) =>
+	tree.flatMap( ( node ) =>
+		'newspack-nodes/time-chart' === node.name
+			? [ node.attributes ]
+			: chartsOf( node.inner )
+	);
 
-import { useNodeField } from '../../runtime/react';
+/**
+ * Each panel the default layout draws, as the time-chart block hands it to
+ * `TimeChart`: the chart's title and stacking, and its one metric's axis,
+ * formatters and series, derived from the models seeded now.
+ *
+ * @return {Array<Object>} The panels.
+ */
+const panels = () =>
+	chartsOf( LAYOUTS[ 'newspack-nodes/station-tables' ] ).map(
+		( { source, metrics: [ key ], stacked, title } ) => {
+			const field = sourceDeclaration( source ).fields[ key ];
+			return Object.fromEntries(
+				Object.entries( {
+					title,
+					stacked,
+					yLabel: field.axis ?? field.label,
+					formatFor: field.formatFor,
+					formatValue: field.format,
+					series: field.value( mockModels[ source ] ?? {} ),
+				} ).filter( ( [ , value ] ) => undefined !== value )
+			);
+		}
+	);
+
+/**
+ * Seed the sources the page reads.
+ *
+ * @param {?Object} stats   The probe stats model.
+ * @param {?Object} [probe] The topic probe model.
+ */
+function seed( stats, probe ) {
+	for ( const name of Object.keys( mockModels ) ) {
+		delete mockModels[ name ];
+	}
+	if ( stats ) {
+		mockModels[ 'nodes/tablestats' ] = stats;
+	}
+	if ( probe ) {
+		mockModels[ 'nodes/topicprobe' ] = probe;
+	}
+}
 
 // Two sweeps of one Table, as the view's `_fold` yields them.
 function samples( extra = {} ) {
@@ -128,22 +167,23 @@ const cellsOf = ( container, key ) =>
 
 beforeEach( () => {
 	Core.reset();
-	globalThis.__tablesPanels = [];
-	useProbeStream.mockClear();
+	seed( null );
+	localizeStationPages();
 } );
 
-describe( 'Tables', () => {
+describe( 'the Tables tab', () => {
 	it( 'replays the tablestats log from its start', () => {
-		render( <Tables /> );
-		expect( useProbeStream ).toHaveBeenCalledWith( 'tablestats', {
-			mode: 'history',
-		} );
+		const decl = sourceDeclaration( 'nodes/tablestats' );
+		expect( [ decl.mode, decl.subscribe( {} ) ] ).toEqual( [
+			'history',
+			'tablestats.p0',
+		] );
 	} );
 
 	it( 'draws six panels, the operation chart one series per operation per worker and one point per bucket', () => {
-		useNodeField.mockReturnValue( model() );
-		render( <Tables /> );
-		expect( globalThis.__tablesPanels.map( ( p ) => p.yLabel ) ).toEqual( [
+		seed( model() );
+		render( <TablesTab /> );
+		expect( panels().map( ( p ) => p.yLabel ) ).toEqual( [
 			'Ops',
 			'Ops',
 			'Misses',
@@ -151,7 +191,7 @@ describe( 'Tables', () => {
 			'Size',
 			'On Disk',
 		] );
-		const ops = globalThis.__tablesPanels[ 1 ].series;
+		const ops = panels()[ 1 ].series;
 		expect( Object.keys( ops ).sort() ).toEqual( [
 			'GET · flame-builder-4417.p0',
 			'MSET · flame-builder-4417.p0',
@@ -167,9 +207,9 @@ describe( 'Tables', () => {
 		m.tables[ 'flame-stats:aggregate.p0' ].buckets = bucketsFrom(
 			samples( { worker: 'flame-builder-4417.p1' } )
 		);
-		useNodeField.mockReturnValue( m );
-		render( <Tables /> );
-		const ops = globalThis.__tablesPanels[ 1 ].series;
+		seed( m );
+		render( <TablesTab /> );
+		const ops = panels()[ 1 ].series;
 		expect( Object.keys( ops ) ).toEqual(
 			expect.arrayContaining( [
 				'GET · flame-builder-4417.p0',
@@ -210,9 +250,9 @@ describe( 'Tables', () => {
 				buckets: bucketsFrom( [ sweep( 3600, { 'op:MSET': 3.75 } ) ] ),
 			},
 		};
-		useNodeField.mockReturnValue( m );
-		render( <Tables /> );
-		const ops = globalThis.__tablesPanels[ 1 ].series;
+		seed( m );
+		render( <TablesTab /> );
+		const ops = panels()[ 1 ].series;
 		const get = buildAlignedSeries( ops, 4 ).series.find(
 			( x ) => 'GET · flame-builder-4417.p0' === x.label
 		).values;
@@ -220,19 +260,22 @@ describe( 'Tables', () => {
 	} );
 
 	it( 'stacks every panel but latency, whose means never sum', () => {
-		useNodeField.mockReturnValue( model() );
-		render( <Tables /> );
-		expect(
-			globalThis.__tablesPanels.map( ( p ) => Boolean( p.stacked ) )
-		).toEqual( [ true, true, true, false, true, true ] );
-		for ( const p of globalThis.__tablesPanels ) {
+		seed( model() );
+		render( <TablesTab /> );
+		expect( panels().map( ( p ) => Boolean( p.stacked ) ) ).toEqual( [
+			true,
+			true,
+			true,
+			false,
+			true,
+			true,
+		] );
+		for ( const p of panels() ) {
 			expect( p ).not.toHaveProperty( 'metric' );
 			expect( p ).not.toHaveProperty( 'totalLabel' );
 		}
-		expect( globalThis.__tablesPanels[ 3 ] ).not.toHaveProperty(
-			'stackable'
-		);
-		expect( Object.keys( globalThis.__tablesPanels[ 0 ].series ) ).toEqual(
+		expect( panels()[ 3 ] ).not.toHaveProperty( 'stackable' );
+		expect( Object.keys( panels()[ 0 ].series ) ).toEqual(
 			expect.arrayContaining( [
 				'flame-stats:url.p0',
 				'flame-stats:aggregate.p0',
@@ -241,9 +284,9 @@ describe( 'Tables', () => {
 	} );
 
 	it( 'charts mean and max latency per Table, the max a MAX series', () => {
-		useNodeField.mockReturnValue( model() );
-		render( <Tables /> );
-		const latency = globalThis.__tablesPanels[ 3 ].series;
+		seed( model() );
+		render( <TablesTab /> );
+		const latency = panels()[ 3 ].series;
 		expect( latency[ 'flame-stats:url.p0' ].mode ).toEqual( {
 			fill: 'zero',
 			agg: 'mean',
@@ -253,15 +296,13 @@ describe( 'Tables', () => {
 			agg: 'max',
 		} );
 		// A duration axis picks one unit from the panel's peak.
-		expect( globalThis.__tablesPanels[ 3 ].formatFor ).toBe( axisDuration );
-		expect( globalThis.__tablesPanels[ 3 ] ).not.toHaveProperty(
-			'formatValue'
-		);
+		expect( panels()[ 3 ].formatFor ).toBe( axisDuration );
+		expect( panels()[ 3 ] ).not.toHaveProperty( 'formatValue' );
 	} );
 
 	it( 'tabulates each Table worst first, with the agreed columns', () => {
-		useNodeField.mockReturnValue( model() );
-		const { container } = render( <Tables /> );
+		seed( model() );
+		const { container } = render( <TablesTab /> );
 		const heads = [ ...container.querySelectorAll( 'th' ) ].map(
 			( h ) => h.textContent
 		);
@@ -287,8 +328,8 @@ describe( 'Tables', () => {
 	it( 'marks the upkeep a volatile Table’s record says it has none of', () => {
 		const m = model();
 		m.tables[ 'memo:x.p0' ] = volatile( m, 'memo:x.p0', 'memcache' );
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Tables /> );
+		seed( m );
+		const { container } = render( <TablesTab /> );
 		const cells = cellsOf( container, 'memo:x.p0' );
 		// Size (6), Purged (8), Purge behind (9) and WAL (10) all read '-'.
 		expect( [ cells[ 6 ], ...cells.slice( 8 ) ] ).toEqual( [
@@ -310,8 +351,8 @@ describe( 'Tables', () => {
 			key: 'kea:auto.p3',
 			backend: 'auto',
 		};
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Tables /> );
+		seed( m );
+		const { container } = render( <TablesTab /> );
 		const cells = cellsOf( container, 'kea:auto.p3' );
 		expect( cells[ 6 ] ).toBe( '8 KB (12 KB on disk)' );
 		expect( cells.slice( 8 ) ).toEqual( [
@@ -328,8 +369,8 @@ describe( 'Tables', () => {
 			meanMs: null,
 			maxMs: null,
 		} );
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Tables /> );
+		seed( m );
+		const { container } = render( <TablesTab /> );
 		const cells = [
 			...container.querySelector(
 				'[data-table-key="flame-stats:aggregate.p0"]'
@@ -342,22 +383,22 @@ describe( 'Tables', () => {
 		const m = model();
 		m.tables[ 'sess:w.p0' ] = volatile( m, 'sess:w.p0', 'wpdb' );
 		m.tables[ 'sess:w.p0' ].latest.purgeBehind = 0;
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Tables /> );
+		seed( m );
+		const { container } = render( <TablesTab /> );
 		const cells = cellsOf( container, 'sess:w.p0' );
 		expect( cells[ 6 ] ).toBe( '-' );
 		expect( cells[ 9 ] ).toBe( 'no' );
 		expect( cells[ 10 ] ).toBe( '-' );
-		for ( const panel of globalThis.__tablesPanels.slice( 4 ) ) {
+		for ( const panel of panels().slice( 4 ) ) {
 			expect( Object.keys( panel.series ) ).toEqual( [
 				'flame-stats:aggregate.p0',
 				'flame-stats:url.p0',
 			] );
 		}
 		expect(
-			globalThis.__tablesPanels[ 5 ].series[
-				'flame-stats:url.p0'
-			].points.map( ( p ) => p.value )
+			panels()[ 5 ].series[ 'flame-stats:url.p0' ].points.map(
+				( p ) => p.value
+			)
 		).toEqual( [ 12288 ] );
 	} );
 
@@ -365,8 +406,8 @@ describe( 'Tables', () => {
 		const m = model();
 		// The newest record sits past the live window behind a fresh peer.
 		m.tables[ 'flame-stats:url.p0' ].latest.ts = 1515 - 61;
-		useNodeField.mockReturnValue( m );
-		const { container } = render( <Tables /> );
+		seed( m );
+		const { container } = render( <TablesTab /> );
 		const cells = [
 			...container.querySelector(
 				'[data-table-key="flame-stats:url.p0"]'
@@ -384,36 +425,25 @@ describe( 'Tables', () => {
 		expect( fresh[ 6 ] ).toBe( '8 KB (12 KB on disk)' );
 	} );
 
-	it( 'keeps its panel series stable across renders of an unready model', () => {
-		useNodeField.mockReturnValue( undefined );
-		const { rerender } = render( <Tables /> );
-		const first = globalThis.__tablesPanels[ 0 ].series;
-		rerender( <Tables /> );
-		expect( globalThis.__tablesPanels.at( -6 ).series ).toBe( first );
-	} );
-
 	it( 'shows an empty state before any Table reports', () => {
-		useNodeField.mockReturnValue( { tables: {} } );
-		const { container } = render( <Tables /> );
+		seed( { tables: {} } );
+		const { container } = render( <TablesTab /> );
 		expect(
 			container.querySelector( '.nodes-probe-tab__empty' )
 		).toBeTruthy();
 	} );
 
-	it( 'tolerates an unready model', () => {
-		useNodeField.mockReturnValue( undefined );
-		const { container } = render( <Tables /> );
+	it( 'shows the empty state while its log has answered nothing', () => {
+		seed( null );
+		const { container } = render( <TablesTab /> );
 		expect(
-			container.querySelector( '.nodes-probe-tab__empty' )
-		).toBeTruthy();
+			container.querySelector( '.nodes-probe-tab__empty' ).textContent
+		).toBe( 'No Table has reported yet.' );
 	} );
 
 	it( 'names its skipped lines', () => {
 		publishSkippedLines( 'tablestats.p0', 4 );
-		useNodeField.mockImplementation(
-			jest.requireActual( '../../runtime/react' ).useNodeField
-		);
-		const { container } = render( <Tables /> );
+		const { container } = render( <TablesTab /> );
 		expect( container.textContent ).toContain(
 			'Table statistics: 4 lines would not parse and were skipped.'
 		);

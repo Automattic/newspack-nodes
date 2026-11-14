@@ -1,7 +1,7 @@
 /**
- * Roll the topology rows up into the fleet vitals SummaryCards renders on the
- * Overview and Topologies tabs: topology and active counts, worker-process
- * liveness, and the worst health across the active topologies.
+ * Roll the topology rows up into the fleet vitals the Overview's `nodes/fleet`
+ * tiles show: topology and active counts, worker-process liveness, and the
+ * worst health across the active topologies.
  *
  * Worker liveness counts against each active topology's CONFIGURED
  * `num_partitions`, never the partitions that happened to report a worker in

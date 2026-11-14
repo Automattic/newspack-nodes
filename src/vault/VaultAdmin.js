@@ -8,8 +8,8 @@
  *
  * Every answer arrives already naming the row it is about, because the subject
  * rides in the reply's ADDRESS (ADR-7). `onAnswer` files each one under that
- * id, so one `answers` map serves the table and the form alike, and a row keeps
- * its own line while a sibling is being tested.
+ * id through `useSubjectAnswers`, so one store serves the table and the form
+ * alike, and a row keeps its own line while a sibling is being tested.
  *
  * ONE form serves add and edit, seeded blank or from the row: the two collect
  * the same fields, and the verb is the only difference — so it is the only
@@ -31,6 +31,7 @@ import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
 import Modal, { ModalHeader } from '@newspack-nodes/shared/components/Modal';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
+import { useSubjectAnswers } from '@newspack-nodes/shared/hooks/useSubjectAnswers';
 
 /**
  * Minimal confirm dialog for a removal.
@@ -549,11 +550,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 	// The row open in the form; BLANK_SERVER means adding, null means closed.
 	const [ editing, setEditing ] = useState( null );
 	const [ submitted, setSubmitted ] = useState( null );
-	// @longform Each row's last answer, put there BY the reply that named it.
-	// This is the screen laying out answers it was handed, not a correlation
-	// table: the graph did the matching, in the address, before it got here —
-	// which is why a row keeps its line when a sibling is tested.
-	const [ answers, setAnswers ] = useState( {} );
+	const { file, answerFor } = useSubjectAnswers();
 	const {
 		servers,
 		error,
@@ -564,10 +561,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 		pendingVerb,
 	} = useVaultGraph( {
 		onAnswer: ( { verb, subject, error: refusal } ) => {
-			setAnswers( ( prior ) => ( {
-				...prior,
-				[ subject ]: { verb, error: refusal },
-			} ) );
+			file( subject, { verb, error: refusal } );
 			// A successful save closes the modal, on its own answer.
 			if ( ! refusal && ( 'add' === verb || 'update' === verb ) ) {
 				setEditing( null );
@@ -635,7 +629,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 							<ServerRow
 								key={ server.id }
 								server={ server }
-								answer={ answers[ server.id ] ?? null }
+								answer={ answerFor( server.id ) }
 								pending={ pendingVerb( server.id ) }
 								onEdit={ setEditing }
 								onRemove={ removeServer }
@@ -659,7 +653,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 				<ServerModal
 					server={ editing }
 					onSave={ saveServer }
-					answer={ answers[ submitted ] ?? null }
+					answer={ answerFor( submitted ) }
 					busy={ verb === pendingVerb( submitted ) }
 					onClose={ () => {
 						setEditing( null );

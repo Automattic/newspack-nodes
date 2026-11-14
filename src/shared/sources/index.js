@@ -10,4 +10,4 @@ export {
 	sourceDeclaration,
 	stableJson,
 } from './registry';
-export { SourcesProvider, useSource } from './useSource';
+export { SourcesProvider, useSource, useSourcesPaused } from './useSource';

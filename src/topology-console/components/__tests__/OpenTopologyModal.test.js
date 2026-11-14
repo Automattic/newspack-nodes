@@ -45,7 +45,7 @@ describe( 'OpenTopologyModal', () => {
 		).not.toBeNull();
 	} );
 
-	it( 'renders a loading row when loading=true', () => {
+	it( 'renders the shared loading skeleton when loading=true', () => {
 		render(
 			<OpenTopologyModal
 				topologies={ [] }
@@ -55,7 +55,12 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		expect( document.body.textContent ).toMatch( /Loading/ );
+		expect(
+			document.querySelector( '[role="status"][aria-label="Loading"]' )
+		).not.toBeNull();
+		expect(
+			document.querySelector( '.newspack-nodes-performance-loading' )
+		).toBeNull();
 	} );
 
 	it( 'renders an error row when error is set', () => {

@@ -5,11 +5,12 @@
  * A live source is built by the substrate's own hooks: a poll by
  * `useBatchedPoll` and `addSliceFetcher`, a command by `useCommandRead`, a
  * stream by `useLogTailStream`, whose readers also get its view node and
- * controls. A hook runs only inside a component, so a
- * `SourcesProvider` renders one host per held key inside the page's own
- * tree, under its StrictMode and its boundaries, built by this bundle's
- * hooks. A block only holds its key and reads what the host publishes, so a
- * block unmounting never tears down a source another block still reads, and
+ * controls, and a derived source by reading its inputs as a block would. A
+ * poll's readers also get `refresh()`, which asks again at once. A hook
+ * runs only inside a component, so a `SourcesProvider` renders one host per
+ * held key inside the page's own tree, under its StrictMode and its
+ * boundaries, built by this bundle's hooks. A block only holds its key and
+ * reads what the host publishes, so a block unmounting never tears down a source another block still reads, and
  * a block remounting in the same commit holds the same graph again. The last
  * release unmounts the host, whose hook takes its nodes away. Each kind
  * pauses with a hidden tab as its hook does.
@@ -37,6 +38,7 @@ import {
 } from '@wordpress/element';
 import { useNodeField } from '@newspack-nodes/runtime';
 import { useBatchedPoll } from '../hooks/useBatchedPoll';
+import { usePageState } from '../composition/page/pageState';
 import { useCommandRead } from '../hooks/useCommandRead';
 import { useLogTailStream } from '../hooks/useLogTailStream';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
@@ -46,6 +48,8 @@ import { errorMessage } from '../errorMessage';
 import {
 	acquire,
 	createSources,
+	hold,
+	sourceDeclaration,
 	heldSources,
 	publish,
 	release,
@@ -62,11 +66,12 @@ import {
  * owed, and whether the model is a remembered one standing in.
  *
  * @typedef  {Object}  SourceState
- * @property {*}              model    The view model, null until an answer lands.
- * @property {?string}        error    The refusal, or null.
- * @property {boolean}        loading  Whether its first answer is owed.
- * @property {boolean}        stale    Whether a remembered answer stands in.
- * @property {StreamControls} [stream] A stream's view node and controls.
+ * @property {*}              model     The view model, null until an answer lands.
+ * @property {?string}        error     The refusal, or null.
+ * @property {boolean}        loading   Whether its first answer is owed.
+ * @property {boolean}        stale     Whether a remembered answer stands in.
+ * @property {StreamControls} [stream]  A stream's view node and controls.
+ * @property {() => void}     [refresh] A poll's re-ask, now.
  */
 
 /**
@@ -92,28 +97,61 @@ const UNSTARTED = Object.freeze( {
 const SourcesContext = createContext( null );
 
 /**
- * A poll: one Fetcher on its own Tee and Timer, asking its args each tick,
- * its view the transform of each answer under the key's params.
+ * A poll's cadence in milliseconds: the value of the page-state key its
+ * `cadence` names, else its `intervalMs`. The key's hook runs or not by the
+ * declaration, which is fixed for the host's life.
  *
- * @param {Entry} entry The live source.
+ * @param {Object} decl The poll's declaration.
+ * @return {number} The cadence.
+ */
+function useCadence( decl ) {
+	if ( ! decl.cadence ) {
+		return decl.intervalMs;
+	}
+	// eslint-disable-next-line react-hooks/rules-of-hooks -- fixed per declaration
+	const [ ms ] = usePageState( decl.cadence );
+	return Number( ms );
+}
+
+/**
+ * A poll: one Fetcher on its own Tee and Timer, asking its args each tick at
+ * the interval its params set. Its view is the declared `viewClass`, with a
+ * `transformClass` node on the edge before it, or else a slice holding the
+ * transform of each answer under the key's params. It asks at the cadence
+ * its `cadence` page-state key holds, re-armed in place on its grid when that
+ * moves, else at its `intervalMs`. `refresh()` asks again at once; a held
+ * page asks nothing, and its next tick asks at once.
+ *
+ * @param {Entry}   entry  The live source.
+ * @param {boolean} paused Whether the page holds every source still.
  * @return {SourceState} What it shows.
  */
-function usePollSource( { decl, params, prefix } ) {
-	const [ tokens ] = useState( () => decl.args( params ) );
-	useBatchedPoll( {
+function usePollSource( { decl, params, prefix }, paused ) {
+	const [ tokens ] = useState( () => decl.args?.( params ) ?? [] );
+	const { pollNow } = useBatchedPoll( {
 		build: ( { interpreter, tee } ) =>
 			addSliceFetcher( interpreter, {
 				fetcher: `${ prefix }:fetch`,
 				receiver: `${ prefix }:in`,
 				command: decl.command,
 				view: `${ prefix }:view`,
-				viewClass: sliceView( {
-					empty: UNSTARTED,
-					parse: ( answer ) => {
-						const model = decl.transform
-							? decl.transform( answer, params )
-							: answer;
-						return null === model ? null : { model, stale: false };
+				viewClass:
+					decl.viewClass ??
+					sliceView( {
+						empty: UNSTARTED,
+						parse: ( answer ) => {
+							const model = decl.transform
+								? decl.transform( answer, params )
+								: answer;
+							return null === model
+								? null
+								: { model, stale: false };
+						},
+					} ),
+				...( decl.transformClass && {
+					transform: {
+						name: `${ prefix }:transform`,
+						nodeClass: decl.transformClass,
 					},
 				} ),
 				tee,
@@ -122,10 +160,23 @@ function usePollSource( { decl, params, prefix } ) {
 			} ),
 		timerName: `${ prefix }:timer`,
 		teeName: `${ prefix }:tee`,
-		intervalMs: decl.intervalMs,
+		paused,
+		intervalMs: useCadence( decl ),
 		passenger: true,
 	} );
-	return useNodeField( `${ prefix }:view`, 'view' ) ?? UNSTARTED;
+	const view = useNodeField( `${ prefix }:view`, 'view' );
+	return useMemo( () => {
+		if ( ! decl.viewClass ) {
+			return { ...( view ?? UNSTARTED ), refresh: pollNow };
+		}
+		return {
+			model: view ?? null,
+			error: view?.error ?? null,
+			loading: undefined === view,
+			stale: false,
+			refresh: pollNow,
+		};
+	}, [ decl, view, pollNow ] );
 }
 
 /**
@@ -182,26 +233,90 @@ function useStreamSource( { decl, params, prefix } ) {
 	);
 }
 
+/**
+ * The params one input of a derived source is read with: those of the
+ * derived key's params the input declares.
+ *
+ * @param {string} name   The input.
+ * @param {Object} params The derived key's params.
+ * @return {Object} The params the input is read with.
+ */
+const inputParams = ( name, params ) =>
+	Object.fromEntries(
+		( sourceDeclaration( name ).params ?? [] ).map( ( key ) => [
+			key,
+			params[ key ],
+		] )
+	);
+
+/**
+ * A derived source: every source it reads from held as any block holds one,
+ * so a block reading an input directly shares its fetch, and its model what
+ * `derive` makes of their models once every input has finished loading, a
+ * model an input has yet to publish handed over as null. It shows the first input's refusal,
+ * and none of its own, and its `refresh()` refreshes every input that has
+ * one.
+ *
+ * @param {Entry} entry The live source.
+ * @return {SourceState} What it shows.
+ */
+function useDerivedSource( { decl, params } ) {
+	const inputs = decl.from.map( ( name ) =>
+		// eslint-disable-next-line react-hooks/rules-of-hooks -- `from` is fixed per declaration
+		useSource( name, inputParams( name, params ) )
+	);
+	const models = inputs.map( ( input ) => input.model );
+	const waiting = inputs.some( ( input ) => input.loading );
+	const error = inputs.find( ( input ) => input.error )?.error ?? null;
+	const model = useMemo(
+		() => ( waiting ? null : decl.derive( models, params ) ),
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- the models key the derivation
+		[ waiting, ...models ]
+	);
+	const refreshes = inputs.map( ( input ) => input.refresh );
+	const refresh = useCallback(
+		() => refreshes.forEach( ( one ) => one?.() ),
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- the inputs' refreshes key it
+		refreshes
+	);
+	return useMemo(
+		() => ( {
+			model,
+			error,
+			loading: waiting && ! error,
+			stale: false,
+			refresh,
+		} ),
+		[ model, error, waiting, refresh ]
+	);
+}
+
 /** Each kind's host hook, by the `kind` a declaration names. */
 const KINDS = {
 	poll: usePollSource,
 	command: useCommandSource,
 	stream: useStreamSource,
+	derived: useDerivedSource,
 };
 
 /**
- * Runs one live source's kind hook and publishes what it shows.
+ * Runs one live source's kind hook and publishes what it shows, save while
+ * the page is held, when its readers keep what it last showed.
  *
- * @param {{entry: Entry}} props The live source.
+ * @param {{entry: Entry, held: boolean}} props The live source, and whether the page is held.
  * @return {null} Nothing; a host renders nothing.
  */
-function KindHost( { entry } ) {
+function KindHost( { entry, held } ) {
 	const useKind = KINDS[ entry.decl.kind ];
 	if ( ! useKind ) {
 		throw new TypeError( `no source kind '${ entry.decl.kind }'` );
 	}
-	const state = useKind( entry );
-	useEffect( () => publish( entry, state ), [ entry, state ] );
+	const state = useKind( entry, held );
+	useEffect( () => {
+		if ( ! held ) {
+			publish( entry, state );
+		}
+	}, [ entry, state, held ] );
 	return null;
 }
 
@@ -239,14 +354,14 @@ class Contained extends Component {
 /**
  * One held source's host, which settles the source once it unmounts.
  *
- * @param {{entry: Entry}} props The live source.
+ * @param {{entry: Entry, held: boolean}} props The live source, and whether the page is held.
  * @return {import('react').ReactElement} Its contained kind host.
  */
-function SourceHost( { entry } ) {
+function SourceHost( { entry, held } ) {
 	useEffect( () => () => settle( entry ), [ entry ] );
 	return (
 		<Contained entry={ entry }>
-			<KindHost entry={ entry } />
+			<KindHost entry={ entry } held={ held } />
 		</Contained>
 	);
 }
@@ -271,7 +386,11 @@ function OwnSources( { children } ) {
 		<SourcesContext.Provider value={ sources }>
 			{ children }
 			{ heldSources( sources ).map( ( entry ) => (
-				<SourceHost key={ entry.prefix } entry={ entry } />
+				<SourceHost
+					key={ entry.prefix }
+					entry={ entry }
+					held={ 0 < sources.holds }
+				/>
 			) ) }
 		</SourcesContext.Provider>
 	);
@@ -323,4 +442,28 @@ export function useSource( name, params = {} ) {
 		return () => release( entry );
 	}, [ sources, name, key ] );
 	return state;
+}
+
+/**
+ * Keep every source of the page still while `held`: no poll asks and no
+ * source shows anything new, so nothing moves under a pointer mid-drag. Its
+ * next tick asks at once once the last hold ends.
+ *
+ * @param {boolean} held Whether to hold them now.
+ * @throws {Error} Outside a `SourcesProvider`.
+ */
+export function useSourcesPaused( held ) {
+	const sources = useContext( SourcesContext );
+	if ( ! sources ) {
+		throw new Error(
+			'useSourcesPaused() holds the sources of a SourcesProvider above it'
+		);
+	}
+	useEffect( () => {
+		if ( ! held ) {
+			return undefined;
+		}
+		hold( sources, true );
+		return () => hold( sources, false );
+	}, [ sources, held ] );
 }

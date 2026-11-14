@@ -1,47 +1,29 @@
 /**
- * useTopologyManager — the data behind the Overview fleet board. It surfaces
- * EVERY topology the server knows, active and inactive alike, each carrying its
- * provenance and its active flag; it merges the live worker-status section onto
- * the active ones; and it exposes the `activate`, `deactivate` and `restart`
- * mutations.
+ * useTopologyManager — the fleet board: EVERY topology the server knows,
+ * active and inactive alike, each with its provenance and its active flag,
+ * the live worker-status section merged onto the active ones, and the
+ * `activate`, `deactivate` and `restart` mutations.
  *
- * Graph, clipped onto the rule-#2 backbone `useBatchedPoll` owns:
+ * The board reads two sources the Overview declares (`views.js`), each a
+ * poll on the shared tick under the `topologies` group, so every block on
+ * the page that reads one shares its fetch and its POST:
  *
- *   topology-manager:timer (Timer) ─> topology-manager:tee (Tee) ─> worker-status:fetch    ─┐ target = topologies:shell/_http/workers
- *                                                                 └> topology-manager:fetch ┤ target = topologies:shell/_http/topologies
- *   worker-status:in    (Tee) ─> worker-status:transform ─> worker-status:view ─> React
- *   topology-manager:in (Tee) ─> topology-manager:view                        ─> React
+ *   nodes/worker-status — `dump_graph`, through the `WorkerStatusTransform`
+ *                         on the edge before its view, which joins the
+ *                         snapshot's four sections into `workers[]`;
+ *   nodes/topologies    — `topologies dump`, straight into its view.
  *
- * `useBatchedPoll` owns every piece of the poll boilerplate: the
- * `topologies:shell` Tap and the `_http` HttpOut egress, the fan-out Tee and the router-hitchhike
- * Timer, the lock/flush bracket that puts a tick's two fetcher commands in ONE
- * POST, and the page-visibility and `paused` gates. This hook adds only its two
- * slices, through `addSliceFetcher`:
- *  - the worker slice fires `dump_graph` and fills the `transform` slot, so
- *    the `WorkerStatusTransform` enrich-join lands on the graph EDGE between
- *    `worker-status:in` and the view rather than inside the view;
- *  - the topology slice fires `topologies dump` straight into its view.
+ * `dump_graph` stays ONE command: the join is sound only over a single atomic
+ * snapshot. `topologyRows()` merges the two models, indexing the worker
+ * model's per-topology sections by name, which its `graph` keys are, and
+ * `nodes/board` derives the board through `boardOf()` once per answer.
  *
- * `dump_graph` stays ONE command rather than splitting into per-section slices.
- * `reconstructWorkers` joins its four sections — workers, consumers, logs and
- * graph — and that join is sound only over a single atomic snapshot, which
- * independently-timed slices cannot give it. `topologies dump` shares nothing
- * with that snapshot, so it earns a slice of its own. Both commands already exist;
- * neither needs a server change.
- *
- * The three mutations are `useCommandOnce` sends rather than a hook callback
- * calling `interpreter.fill`. Each parks its arguments in its own Fetcher's
- * outbox and pokes the Router, so the command leaves inside the same lock/flush
- * bracket as the poll and the debug overlay's `connect topologies:shell` sees
- * it flow. A
- * refusal returns a tick later as the command's error text, addressed to the node
- * that asked (TO=FROM, ADR-7); `onError` reports it, and there is no promise to
- * reject. Every answer re-polls the board, so a toggle or a restart shows as
- * soon as the server has done it rather than on the next 5-second poll.
- *
- * The merge indexes the worker-status model's per-topology sections by name —
- * its `graph` keys ARE topology names — and hands every `topologies dump` row
- * `status = byName[ row.name ] ?? null`.
+ * The three mutations are `useCommandOnce` sends riding the same tick. A
+ * refusal returns as the command's error text, addressed to the node that
+ * asked (TO=FROM, ADR-7), and `onError` reports it; every answer refreshes
+ * both sources, so a toggle shows once the server has done it rather than on
+ * the next poll. `useTopologyBoard()` is the board alone, for a reader that
+ * sends nothing, and `useConnected()` its freshness.
  */
 
 import {
@@ -51,30 +33,20 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { useNodeField } from '../../runtime/react';
 import { formatCommandArgs } from '../../runtime/command-args';
-import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
-import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
+import { useSource } from '@newspack-nodes/shared/sources';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '@newspack-nodes/shared/utils/formatters';
 import { partitionSummaries } from '../partitionSummaries';
-import { views } from '../nodes/register';
-import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 /** Stale once the last successful poll is older than this many poll intervals. */
 const STALE_POLL_INTERVALS = 3;
 
 /** A consumer counts as "behind" once its catch-up ETA reaches this many seconds. */
 const BEHIND_ETA_S = 60;
-
-/** The view node publishing the enriched worker-status model. */
-const WORKER_VIEW = 'worker-status:view';
-
-/** The view node publishing the topology list. */
-const TOPOLOGY_VIEW = 'topology-manager:view';
 
 /** The server CI owning `dump_graph` and `restart`. */
 const WORKERS_CI = 'workers';
@@ -83,35 +55,10 @@ const WORKERS_CI = 'workers';
 const TOPOLOGIES_CI = 'topologies';
 
 /** The group every command the fleet board sends belongs to. */
-const GROUP = 'topologies';
+export const BOARD_GROUP = 'topologies';
 
-/**
- * The two poll slices, in the shape `addSliceFetcher` wires. The worker slice
- * takes the `transform` slot so its enrich-join sits on a graph edge; the
- * topology list needs no join and goes straight to its view.
- */
-const SLICES = [
-	{
-		fetcher: 'worker-status:fetch',
-		receiver: 'worker-status:in',
-		command: 'dump_graph',
-		view: WORKER_VIEW,
-		viewClass: views.WorkerStatusView,
-		target: egressPath( GROUP, WORKERS_CI ),
-		transform: {
-			name: 'worker-status:transform',
-			nodeClass: views.WorkerStatusTransform,
-		},
-	},
-	{
-		fetcher: 'topology-manager:fetch',
-		receiver: 'topology-manager:in',
-		command: 'dump',
-		view: TOPOLOGY_VIEW,
-		viewClass: views.TopologyManagerView,
-		target: egressPath( GROUP, TOPOLOGIES_CI ),
-	},
-];
+/** How often the board asks, and the unit of its staleness window. */
+export const BOARD_MS = 5000;
 
 /**
  * Index the worker-status model's per-topology sections by name, which its
@@ -249,83 +196,147 @@ function deriveConnected( {
  */
 
 /**
- * Mount the Topology Manager graph and expose its model and its mutations. See
- * the file header for the graph and the merge it performs.
+ * Every topology row, the live status merged onto each active one with its
+ * partitions, rolled-up health and worst catch-up ETA.
+ *
+ * @param {?Object} workerModel   The worker-status model.
+ * @param {?Object} topologyModel The topology list model.
+ * @return {Array<Object>} The rows.
+ */
+function topologyRows( workerModel, topologyModel ) {
+	const byName = sectionsByName( workerModel );
+	return ( topologyModel?.topologies || [] ).map( ( row ) => {
+		const status = byName[ row.name ] ?? null;
+		const { partitions, health, etaSeconds: eta } = deriveHealth( status );
+		return {
+			name: row.name,
+			source: row.source,
+			active: row.active,
+			num_partitions: row.num_partitions,
+			status,
+			partitions,
+			health,
+			etaSeconds: eta,
+		};
+	} );
+}
+
+/**
+ * The fleet board one pair of answers makes: every row, the fleet-global
+ * read and write rates, the on-disk partition count, the lines the probe read
+ * skipped, each active topology that will not read and each log producer the
+ * catalog left out, and both models. `nodes/board` derives it once per
+ * answer, so every reader shares one join.
+ *
+ * @param {?Object} workerModel   The worker-status model.
+ * @param {?Object} topologyModel The topology list model.
+ * @return {{ topologies: Array, readRate: number, writeRate: number,
+ *   logPartitions: number, unparseableLines: (number|undefined),
+ *   unreadable: (Object<string,string>|undefined),
+ *   refusedProducers: (Object<string,string>|undefined),
+ *   workerModel: ?Object, topologyModel: ?Object }} The board.
+ */
+export function boardOf( workerModel, topologyModel ) {
+	const { readRate, writeRate } = globalRates(
+		workerModel?.byteRates,
+		workerModel?.writeRates
+	);
+	return {
+		topologies: topologyRows( workerModel, topologyModel ),
+		readRate,
+		writeRate,
+		logPartitions: workerModel?.logPartitions ?? 0,
+		unparseableLines: workerModel?.unparseableLines,
+		unreadable: workerModel?.unreadable,
+		refusedProducers: workerModel?.refusedProducers,
+		workerModel,
+		topologyModel,
+	};
+}
+
+/** The board before its two polls answer. */
+const NO_BOARD = boardOf( null, null );
+
+/**
+ * The fleet board as `nodes/board` shows it now, and a refresh of both its
+ * polls.
+ *
+ * @return {ReturnType<typeof boardOf> & {refresh: () => void}} The board.
+ */
+export function useTopologyBoard() {
+	const { model, refresh } = useSource( 'nodes/board' );
+	return useMemo(
+		() => ( { ...( model ?? NO_BOARD ), refresh } ),
+		[ model, refresh ]
+	);
+}
+
+/**
+ * Whether the board is connected, re-judged on the poll's cadence whether a
+ * reply comes or not, so a wedged channel reads as one.
+ *
+ * @param {{workerModel: ?Object, topologyModel: ?Object}} board The board.
+ * @return {boolean} Whether it is.
+ */
+export function useConnected( { workerModel, topologyModel } ) {
+	const lastSuccessRef = useRef( 0 );
+	useEffect( () => {
+		if ( workerModel || topologyModel ) {
+			lastSuccessRef.current = Date.now();
+		}
+	}, [ workerModel, topologyModel ] );
+	const pageVisible = usePageVisibility();
+	const [ , bumpFreshness ] = useState( 0 );
+	const bump = useCallback( () => bumpFreshness( ( n ) => n + 1 ), [] );
+	useRouterTick( {
+		name: 'freshness:timer',
+		onTick: bump,
+		intervalMs: BOARD_MS,
+	} );
+	return deriveConnected( {
+		topologyError: Boolean( topologyModel?.error ),
+		workerError: Boolean( workerModel?.error ),
+		lastPollMs: lastSuccessRef.current,
+		now: Date.now(),
+		refreshMs: BOARD_MS,
+		pageVisible,
+	} );
+}
+
+/**
+ * The fleet board and its three mutations.
  *
  * @param {Object}                       [opts]           Options.
  * @param {(r: TopologyRefusal) => void} [opts.onError]   Called with each refused
- *                                                        mutation. The refusal
- *                                                        arrives here rather than
- *                                                        as a rejected promise:
- *                                                        the answer to an activate
- *                                                        lands on the node that
- *                                                        asked, a tick later,
- *                                                        naming the topology it
- *                                                        was about.
+ *                                                        mutation, a tick later,
+ *                                                        naming the topology.
  * @param {(r: TopologyRefusal) => void} [opts.onWarning] Called with each mutation
  *                                                        that succeeded with a
- *                                                        warning, as an activate
- *                                                        does beside an active
- *                                                        topology that a
- *                                                        conflict check could
- *                                                        not read; the message
- *                                                        is the warning.
- * @param {boolean}                      [opts.paused]    Suspend polling, as the
- *                                                        Overview does while a row
- *                                                        drag is in flight.
- * @param {number}                       [opts.refreshMs] Poll interval in ms, and
- *                                                        the unit of the staleness
- *                                                        window. Defaults to 5000.
- * @return {{ topologies: Array, readRate: number, writeRate: number,
- *   logPartitions: number, unparseableLines: (number|undefined),
- *   unreadable: (Object<string,string>|Array|undefined),
- *   refusedProducers: (Object<string,string>|Array|undefined),
+ *                                                        warning.
+ * @return {ReturnType<typeof useTopologyBoard> & {
  *   activate: (name: string) => void,
  *   deactivate: (name: string) => void,
- *   restart: (name: string, partition?: number) => void, connected: boolean }}
- *   Every topology row, with the live status merged onto the active ones; the
- *   fleet-global read and write byte rates and the on-disk log-partition count
- *   the summary cards draw; the lines the probe-log read skipped as
- *   unparseable, undefined before the first poll; each active topology that
- *   will not read and each log producer the catalog left out, name =>
- *   message, undefined before the first poll; the three mutation commands;
- *   and whether the board is connected.
+ *   restart: (name: string, partition?: number) => void }}
+ *   The board and the three mutation commands.
  */
 export function useTopologyManager( opts = {} ) {
-	const { paused = false } = opts;
-
-	// Read live, so a caller's inline handler is never a stale closure.
+	const board = useTopologyBoard();
 	const onErrorRef = useRef( opts.onError );
 	onErrorRef.current = opts.onError;
 	const onWarningRef = useRef( opts.onWarning );
 	onWarningRef.current = opts.onWarning;
-	// Parsed once here; parseInt stringifies its argument anyway.
-	const refreshMs = parseInt( String( opts.refreshMs ?? 5000 ), 10 );
-
-	const { pollNow } = useBatchedPoll( {
-		build: ( { interpreter, tee } ) => {
-			SLICES.forEach( ( slice ) =>
-				addSliceFetcher( interpreter, { ...slice, tee } )
-			);
-		},
-		timerName: 'topology-manager:timer',
-		teeName: 'topology-manager:tee',
-		paused,
-		// One cadence for the poll and the freshness re-check below.
-		intervalMs: refreshMs,
-	} );
+	const { refresh } = board;
 
 	/**
-	 * Report a refused mutation, or the warning a successful one carries. The
-	 * interpreter echoes the command's arguments into its reply, so
-	 * `args[ 0 ]` is the topology the answer is about.
+	 * Report a refused mutation, or the warning a successful one carries.
+	 * The interpreter echoes the command's arguments, so `args[ 0 ]` is the
+	 * topology the answer is about.
 	 *
-	 * @param {{error: ?string, result: ?Object, args: string[]}} reply One command's answer.
+	 * @param {{error: ?string, result: ?Object, args: string[]}} reply One answer.
 	 */
 	const onMutationDone = useCallback(
 		( { error, result, args } ) => {
-			// The board shows what the mutation did now, not on the next poll.
-			pollNow();
+			refresh();
 			if ( error ) {
 				onErrorRef.current?.( { name: args[ 0 ], message: error } );
 			} else if ( result?.warning ) {
@@ -335,96 +346,29 @@ export function useTopologyManager( opts = {} ) {
 				} );
 			}
 		},
-		[ pollNow ]
+		[ refresh ]
 	);
-	const restartOnce = useCommandOnce( {
-		group: GROUP,
+	const { run: runRestart } = useCommandOnce( {
+		group: BOARD_GROUP,
 		ci: WORKERS_CI,
 		command: 'restart',
 		sendsOnRemoval: true,
 		onDone: onMutationDone,
 	} );
-	const activateOnce = useCommandOnce( {
-		group: GROUP,
+	const { run: runActivate } = useCommandOnce( {
+		group: BOARD_GROUP,
 		ci: TOPOLOGIES_CI,
 		command: 'activate',
 		sendsOnRemoval: true,
 		onDone: onMutationDone,
 	} );
-	const deactivateOnce = useCommandOnce( {
-		group: GROUP,
+	const { run: runDeactivate } = useCommandOnce( {
+		group: BOARD_GROUP,
 		ci: TOPOLOGIES_CI,
 		command: 'deactivate',
 		sendsOnRemoval: true,
 		onDone: onMutationDone,
 	} );
-
-	const workerModel = useNodeField( WORKER_VIEW, 'view' );
-	const topologyModel = useNodeField( TOPOLOGY_VIEW, 'view' );
-
-	// Memoized so the topologies array keeps STABLE identity across renders.
-	const topologies = useMemo( () => {
-		const rows = topologyModel?.topologies || [];
-		const byName = sectionsByName( workerModel );
-		return rows.map( ( row ) => {
-			const status = byName[ row.name ] ?? null;
-			const {
-				partitions,
-				health,
-				etaSeconds: eta,
-			} = deriveHealth( status );
-			return {
-				name: row.name,
-				source: row.source,
-				active: row.active,
-				num_partitions: row.num_partitions,
-				status,
-				partitions,
-				health,
-				etaSeconds: eta,
-			};
-		} );
-	}, [ topologyModel, workerModel ] );
-
-	// Last SUCCESSFUL poll: a fresh model identity is the success signal.
-	const lastSuccessRef = useRef( 0 );
-	useEffect( () => {
-		if ( workerModel || topologyModel ) {
-			lastSuccessRef.current = Date.now();
-		}
-	}, [ workerModel, topologyModel ] );
-
-	// Re-evaluate connected on a heartbeat even with no reply (visible only).
-	const pageVisible = usePageVisibility();
-	const [ , bumpFreshness ] = useState( 0 );
-	const bump = useCallback( () => bumpFreshness( ( n ) => n + 1 ), [] );
-	useRouterTick( {
-		name: 'freshness:timer',
-		onTick: bump,
-		intervalMs: refreshMs,
-	} );
-
-	const connected = deriveConnected( {
-		topologyError: Boolean( topologyModel?.error ),
-		workerError: Boolean( workerModel?.error ),
-		lastPollMs: lastSuccessRef.current,
-		now: Date.now(),
-		refreshMs,
-		pageVisible,
-	} );
-	// Fleet-global byte rates + on-disk log-partition count for SummaryCards.
-	const { readRate, writeRate } = globalRates(
-		workerModel?.byteRates,
-		workerModel?.writeRates
-	);
-	const logPartitions = workerModel?.logPartitions ?? 0;
-	const unparseableLines = workerModel?.unparseableLines;
-	const unreadable = workerModel?.unreadable;
-	const refusedProducers = workerModel?.refusedProducers;
-
-	const { run: runRestart } = restartOnce;
-	const { run: runActivate } = activateOnce;
-	const { run: runDeactivate } = deactivateOnce;
 
 	// Partition is an OPTION; positionally it reads as a second type filter.
 	const restart = useCallback(
@@ -437,28 +381,14 @@ export function useTopologyManager( opts = {} ) {
 			),
 		[ runRestart ]
 	);
-
 	const activate = useCallback(
 		( name ) => runActivate( formatCommandArgs( [ name ] ) ),
 		[ runActivate ]
 	);
-
 	const deactivate = useCallback(
 		( name ) => runDeactivate( formatCommandArgs( [ name ] ) ),
 		[ runDeactivate ]
 	);
 
-	return {
-		topologies,
-		readRate,
-		writeRate,
-		logPartitions,
-		unparseableLines,
-		unreadable,
-		refusedProducers,
-		activate,
-		deactivate,
-		restart,
-		connected,
-	};
+	return { ...board, activate, deactivate, restart };
 }

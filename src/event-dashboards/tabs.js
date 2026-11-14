@@ -10,6 +10,11 @@
  * every other bundle's, so Config Audit ties with Vault at 30 and the registry
  * settles that tie alphabetically by label.
  *
+ * Overview, Jobs and Tables are composed pages (`stationTabs.js`), each a
+ * layout a curator can rearrange; each claims `edit`, the param its layout
+ * editor loads on, which the Console claims too, and asks its layout before a
+ * switch takes it away (`beforeStationLeave`).
+ *
  * The Log Viewer reads every log the substrate knows: packed partition
  * dirs and plain registry files alike, a file streamed as `sources:<name>`. It
  * declares `ownsScroll`, owning a full-height split inside the page inset
@@ -20,9 +25,8 @@
 
 import { __ } from '@wordpress/i18n';
 import { registerTab } from '@newspack-nodes/shared/tabs/tabRegistry';
-import Overview from './Overview';
-import Jobs from './Jobs';
-import Tables from './Tables';
+import { OverviewTab, JobsTab, TablesTab } from './stationTabs';
+import { beforeStationLeave } from '../station/leaveGuard';
 import LogViewer from './LogViewer';
 import ConfigAudit from './ConfigAudit';
 
@@ -31,8 +35,10 @@ registerTab( {
 	label: __( 'Overview', 'newspack-nodes' ),
 	host: 'station',
 	slug: 'overview',
+	params: [ 'edit' ],
+	beforeLeave: beforeStationLeave,
 	order: 0,
-	component: Overview,
+	component: OverviewTab,
 } );
 
 registerTab( {
@@ -40,8 +46,10 @@ registerTab( {
 	label: __( 'Jobs', 'newspack-nodes' ),
 	host: 'station',
 	slug: 'jobs',
+	params: [ 'edit' ],
+	beforeLeave: beforeStationLeave,
 	order: 10,
-	component: Jobs,
+	component: JobsTab,
 } );
 
 registerTab( {
@@ -49,8 +57,10 @@ registerTab( {
 	label: __( 'Tables', 'newspack-nodes' ),
 	host: 'station',
 	slug: 'tables',
+	params: [ 'edit' ],
+	beforeLeave: beforeStationLeave,
 	order: 12,
-	component: Tables,
+	component: TablesTab,
 } );
 
 registerTab( {

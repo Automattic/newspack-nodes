@@ -16,6 +16,10 @@ describe( 'event-aggregator/index', () => {
 			const actual = jest.requireActual( '@wordpress/element' );
 			return { ...actual, createRoot: createRootMock };
 		} );
+		// The composed tab's tree is its own suite's; this one reads the registry.
+		jest.doMock( '../AggregatorTab', () => ( {
+			AggregatorTab: () => null,
+		} ) );
 		while ( document.body.firstChild ) {
 			document.body.firstChild.remove();
 		}

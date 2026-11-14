@@ -28,13 +28,18 @@
  * through CSS alone.
  */
 
-import { memo, useCallback, useMemo } from '@wordpress/element';
+import {
+	memo,
+	useCallback,
+	useDeferredValue,
+	useMemo,
+} from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { chartColor } from '../hooks/useTimeChart';
 import AreaTimeChart from '../components/AreaTimeChart';
 import { buildAlignedSeries } from '../utils/buildAlignedSeries';
 import { formatGroupedCount } from '../utils/formatters';
-import { sourceBlock } from './sourceBlock';
+import { fieldValue, sourceBlock } from './sourceBlock';
 import './time-chart.scss';
 
 /** @typedef {import('../utils/axis-ticks').AxisFormatter} AxisFormatter */
@@ -146,8 +151,9 @@ export function TimeChartPanels( { panels } ) {
 
 /**
  * The block: one panel over the series of every metric it names, every
- * declared series when it names nothing, the axis named by the first metric's label and
- * printed through its `formatFor`, else its `format`. A metric's model is a series map; with
+ * declared series when it names nothing, the axis titled by the first
+ * metric's `axis`, else its label, and printed through its `formatFor`, else
+ * its `format`. The model is deferred, so a redraw stays off the input path. A metric's model is a series map; with
  * more than one metric, each series is named after its metric too, and the
  * panel redraws whenever the model moves.
  *
@@ -157,22 +163,24 @@ export function TimeChartPanels( { panels } ) {
  * @param {import('./sourceBlock').BlockField[]} props.fields     The metrics drawn.
  * @return {import('react').ReactElement} The panel.
  */
-function TimeChartBlock( { attributes, model, fields } ) {
+function TimeChartBlock( { attributes, model: live, fields } ) {
 	const { source, stacked, title } = attributes;
+	const model = useDeferredValue( live );
 	// One metric's map passes as held, so a moving model redraws nothing.
-	const drawn = 1 === fields.length ? model[ fields[ 0 ].key ] : model;
+	const drawn =
+		1 === fields.length ? fieldValue( fields[ 0 ], model ) : model;
 	const series = useMemo(
 		() =>
 			1 === fields.length
 				? drawn ?? {}
 				: Object.fromEntries(
 						fields.flatMap( ( field ) =>
-							Object.entries( model[ field.key ] ?? {} ).map(
-								( [ label, one ] ) => [
-									`${ field.label }: ${ label }`,
-									one,
-								]
-							)
+							Object.entries(
+								fieldValue( field, model ) ?? {}
+							).map( ( [ label, one ] ) => [
+								`${ field.label }: ${ label }`,
+								one,
+							] )
 						)
 				  ),
 		[ drawn, fields, model ]
@@ -186,7 +194,7 @@ function TimeChartBlock( { attributes, model, fields } ) {
 			storageKey={ `newspack-nodes:time-chart:${ source }:${ fields
 				.map( ( field ) => field.key )
 				.join( ',' ) }` }
-			yLabel={ first.label }
+			yLabel={ first.axis ?? first.label }
 			series={ series }
 			formatValue={ first.format ?? formatGroupedCount }
 			formatFor={ first.formatFor }

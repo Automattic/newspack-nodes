@@ -1,5 +1,5 @@
 /**
- * The one freshness rule every live SummaryCards card applies to a reader's
+ * The one freshness rule every live Overview tile applies to a reader's
  * or a partition's `latest` probe sample: "Msgs read/s", "Backlog", "Total
  * Cache", "Total Size" and "Total On Disk", summed by `liveTotal`.
  *

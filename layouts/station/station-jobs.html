@@ -1,0 +1,17 @@
+<!-- wp:columns -->
+<!-- wp:column -->
+<!-- wp:newspack-nodes/time-chart {"source":"nodes/jobstats","metrics":["runsRate"],"stacked":true,"title":"Job Runs Rate"} /-->
+<!-- /wp:column -->
+<!-- wp:column -->
+<!-- wp:newspack-nodes/time-chart {"source":"nodes/jobstats","metrics":["errorsRate"],"stacked":true,"title":"Job Errors Rate"} /-->
+<!-- /wp:column -->
+<!-- /wp:columns -->
+<!-- wp:columns -->
+<!-- wp:column -->
+<!-- wp:newspack-nodes/time-chart {"source":"nodes/topicprobe","metrics":["jobsBacklog"],"stacked":true,"title":"Job Backlog"} /-->
+<!-- /wp:column -->
+<!-- wp:column -->
+<!-- wp:newspack-nodes/time-chart {"source":"nodes/jobstats","metrics":["queueLatencyMs"],"stacked":false,"title":"Job Queue Latency"} /-->
+<!-- /wp:column -->
+<!-- /wp:columns -->
+<!-- wp:newspack-nodes/probe-table {"source":"nodes/jobstats"} /-->

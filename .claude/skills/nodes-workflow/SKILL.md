@@ -119,7 +119,7 @@ npm run lint:types
 npm run lint:shell
 
 # JS. jest runs on the host, and the push holds every src/ file to 90%.
-# `build` recompiles the twelve bundles PHP enqueues; release:archive runs it
+# `build` recompiles the fourteen bundles PHP enqueues; release:archive runs it
 # for you, so this one is for iterating against the live admin.
 npm run test:js
 npm run build

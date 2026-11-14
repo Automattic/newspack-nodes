@@ -124,7 +124,7 @@ export class WorkerStatusTransformNode extends Node {
 		 */
 		this._heartbeatIntervalS = 10;
 		/**
-		 * On-disk log-partition count, which `SummaryCards` shows. Sticky.
+		 * On-disk log-partition count, which the Overview's Partitions tile shows. Sticky.
 		 *
 		 * @type {number}
 		 */

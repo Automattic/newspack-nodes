@@ -16,12 +16,50 @@
  * harness, plus a `sent` log).
  */
 
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook as renderBare, act, waitFor } from '@testing-library/react';
+import { SourcesProvider } from '@newspack-nodes/shared/sources';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { TO, TYPE, VALUE, TM_ERROR, newMessage } from '../../runtime/message';
 import { Core } from '../../runtime/core';
 import { holdRouterCadence } from '@newspack-nodes/shared/test-utils/holdRouterCadence';
-import { useTopologyManager } from '../hooks/useTopologyManager';
+import {
+	useConnected,
+	useTopologyManager as useManager,
+} from '../hooks/useTopologyManager';
+import '../views';
+
+/**
+ * The board, its mutations and its freshness, as the Overview reads them.
+ *
+ * @param {Object} [opts] The manager's options.
+ * @return {Object} The board with `connected`.
+ */
+function useTopologyManager( opts ) {
+	const board = useManager( opts );
+	return { ...board, connected: useConnected( board ) };
+}
+
+/**
+ * Render a hook under the page's sources, as a composed page does.
+ *
+ * @param {Function} hook The hook.
+ * @return {Object} What `renderHook` answers.
+ */
+const renderHook = ( hook ) => renderBare( hook, { wrapper: SourcesProvider } );
+
+/**
+ * A board source's node, by the prefix its live source names its nodes
+ * under.
+ *
+ * @param {string} source The source, `topologies` or `worker-status`.
+ * @param {string} part   The node's part, `fetch`, `tee`, `view` and so on.
+ * @return {?Object} The node.
+ */
+function boardNode( source, part ) {
+	const named = new RegExp( `^nodes:${ source }:\\d+:${ part }$` );
+	const name = [ ...Core.nodes.keys() ].find( ( one ) => named.test( one ) );
+	return name ? Core.node( name ) : null;
+}
 
 let mockPageVisible = true;
 jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
@@ -125,7 +163,7 @@ beforeEach( () => {
 } );
 
 describe( 'useTopologyManager', () => {
-	it( 'throttles the batched poll to refreshMs instead of every router tick', async () => {
+	it( 'throttles the batched poll to the board cadence instead of every router tick', async () => {
 		// refreshMs reaches useBatchedPoll as its intervalMs, not only the
 		// freshness bump: omitted means "fire every router tick", which would
 		// poll the server at 1Hz while the staleness calculation judged it
@@ -134,9 +172,7 @@ describe( 'useTopologyManager', () => {
 		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
-		expect( Core.node( 'topology-manager:timer' ).interval_ms ).toBe(
-			5000
-		);
+		expect( boardNode( 'topologies', 'timer' ).interval_ms ).toBe( 5000 );
 	} );
 
 	it( 'surfaces every topology (active + inactive) with provenance + active flag', async () => {
@@ -426,49 +462,30 @@ describe( 'useTopologyManager', () => {
 		expect( sent.some( ( s ) => 'dump' === s.verb ) ).toBe( true );
 	} );
 
-	it( 'is a genuine node graph: toolkit boundary + a Fetcher per slice fanned from the owned Tee', async () => {
+	it( 'is a genuine node graph: toolkit boundary + a Fetcher per source fanned from its own Tee', async () => {
 		buildClient();
 		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
-		// useBatchedPoll owns the I/O boundary, fan-out Tee, hitchhike Timer.
 		for ( const name of [
 			'_http',
 			'topologies:shell',
-			'topology-manager:timer',
-			'topology-manager:tee',
 			'freshness:timer',
 		] ) {
 			expect( Core.node( name ) ).toBeTruthy();
 		}
-		// One Fetcher per slice, each fanned from the owned Tee.
-		for ( const fetcher of [
-			'worker-status:fetch',
-			'topology-manager:fetch',
-		] ) {
-			expect( Core.node( fetcher ) ).toBeTruthy();
-		}
-		// Both slices pass the fleet board's own Tap, never the console's.
-		expect( Core.node( 'worker-status:fetch' ).target ).toBe(
+		// Both sources pass the fleet board's own Tap, never the console's.
+		expect( boardNode( 'worker-status', 'fetch' ).target ).toBe(
 			'topologies:shell/_http/workers'
 		);
-		expect( Core.node( 'topology-manager:fetch' ).target ).toBe(
+		expect( boardNode( 'topologies', 'fetch' ).target ).toBe(
 			'topologies:shell/_http/topologies'
 		);
-		expect( Core.node( 'topology-manager:tee' ).target ).toEqual(
-			expect.arrayContaining( [
-				'worker-status:fetch',
-				'topology-manager:fetch',
-			] )
-		);
-		// No verb-first or run-together spelling.
-		for ( const name of [
-			'fetch-workers',
-			'fetch-topologies',
-			'topologymanager:tee',
-			'topologymanager:freshness',
-		] ) {
-			expect( Core.node( name ) ).toBeNull();
+		for ( const source of [ 'worker-status', 'topologies' ] ) {
+			expect( boardNode( source, 'tee' ).target ).toEqual( [
+				boardNode( source, 'fetch' ).name,
+			] );
+			expect( boardNode( source, 'timer' ) ).toBeTruthy();
 		}
 	} );
 
@@ -478,12 +495,14 @@ describe( 'useTopologyManager', () => {
 		await act( async () => {} );
 
 		// Transform rides the receiver-Tee to view edge, NOT inside the view.
-		const transform = Core.node( 'worker-status:transform' );
+		const transform = boardNode( 'worker-status', 'transform' );
 		expect( transform ).toBeTruthy();
-		expect( transform.target ).toBe( 'worker-status:view' );
+		expect( transform.target ).toBe(
+			boardNode( 'worker-status', 'view' ).name
+		);
 		// The worker-status gate fans an answer into the transform.
-		expect( Core.node( 'worker-status:in:current' ).target ).toEqual( [
-			'worker-status:transform',
+		expect( boardNode( 'worker-status', 'in:current' ).target ).toEqual( [
+			transform.name,
 		] );
 	} );
 
@@ -496,17 +515,19 @@ describe( 'useTopologyManager', () => {
 		);
 		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
-		expect( Core.node( 'worker-status:fetch' ).outbox ).toHaveLength( 1 );
+		expect( boardNode( 'worker-status', 'fetch' ).outbox ).toHaveLength(
+			1
+		);
 
 		const bounce = newMessage();
 		bounce[ TYPE ] = TM_ERROR;
-		bounce[ TO ] = 'worker-status:in';
+		bounce[ TO ] = boardNode( 'worker-status', 'in' ).name;
 		bounce[ VALUE ] = 'NOT_AVAILABLE\n';
 		await act( async () => {
 			Core.node( '_command_interpreter' ).fill( bounce );
 		} );
 
-		expect( Core.node( 'worker-status:view' ).view.error ).toMatch(
+		expect( boardNode( 'worker-status', 'view' ).view.error ).toMatch(
 			/NOT_AVAILABLE/
 		);
 	} );
@@ -547,16 +568,14 @@ describe( 'useTopologyManager', () => {
 		try {
 			installWedgingWire();
 			const { result, rerender } = renderHook( () =>
-				useTopologyManager( {
-					refreshMs: 4000,
-				} )
+				useTopologyManager( {} )
 			);
 			await act( async () => {} );
 			// First poll succeeded → connected.
 			expect( result.current.connected ).toBe( true );
 
-			// Under 3 × 4000ms of silence is still fresh…
-			await act( async () => jest.advanceTimersByTime( 11000 ) );
+			// Under 3 × 5000ms of silence is still fresh…
+			await act( async () => jest.advanceTimersByTime( 14000 ) );
 			rerender();
 			expect( result.current.connected ).toBe( true );
 
@@ -574,15 +593,13 @@ describe( 'useTopologyManager', () => {
 		try {
 			installWedgingWire();
 			const { result, rerender } = renderHook( () =>
-				useTopologyManager( {
-					refreshMs: 4000,
-				} )
+				useTopologyManager( {} )
 			);
 			await act( async () => {} );
 
 			// Hidden: the same silence that wedges a visible tab is expected.
 			mockPageVisible = false;
-			await act( async () => jest.advanceTimersByTime( 13000 ) );
+			await act( async () => jest.advanceTimersByTime( 16000 ) );
 			rerender();
 			expect( result.current.connected ).toBe( true );
 		} finally {

@@ -14,6 +14,12 @@ describe( 'event-dashboards/index', () => {
 			const actual = jest.requireActual( '@wordpress/element' );
 			return { ...actual, createRoot: createRootMock };
 		} );
+		// The composed tabs' trees are their own suites'; this one reads the registry.
+		jest.doMock( '../stationTabs', () => ( {
+			OverviewTab: () => null,
+			JobsTab: () => null,
+			TablesTab: () => null,
+		} ) );
 		while ( document.body.firstChild ) {
 			document.body.firstChild.remove();
 		}

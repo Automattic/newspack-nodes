@@ -26,6 +26,7 @@ use Newspack_Nodes\Config_System\Reset_Gate;
 use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Config_System\Settings_Renderer;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Station_Pages;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Settings_Schema;
@@ -219,13 +220,15 @@ class Admin {
 	 *
 	 * Its stylesheet depends on the graph sheet rather than the UI sheet, because
 	 * the station draws topology canvases and the graph sheet already pulls the UI
-	 * sheet in behind it.
+	 * sheet in behind it. The station's composed pages read the page data
+	 * `Station_Pages::enqueue()` sets before it, and an edit load gets the
+	 * page's layout editor.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
 	 *                     enqueue_event_dashboards_assets().
 	 */
 	public function enqueue_station_assets( string $hook = '' ): void {
-		self::enqueue_react_page(
+		$handle = self::enqueue_react_page(
 			[
 				'handle'     => 'newspack-nodes-station',
 				'page'       => self::STATION_MENU_SLUG,
@@ -238,6 +241,9 @@ class Admin {
 				],
 			]
 		);
+		if ( null !== $handle ) {
+			Station_Pages::enqueue( $handle, \rtrim( self::build_dir( '' ), '/' ), \rtrim( self::build_url( '' ), '/' ) );
+		}
 	}
 
 	/**

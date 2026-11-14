@@ -643,7 +643,9 @@ final class Composition {
 	 * consumer at the default priority can admit them: the stats,
 	 * time-chart, table, log-stream and sparkline blocks, each reading the
 	 * source its `source` attribute names, and the section, a container, so
-	 * it stands only at the top, in a column or in a group.
+	 * it stands only at the top, in a column or in a group; and the
+	 * station's composed pages and the blocks they alone hold
+	 * (`Station_Pages`).
 	 *
 	 * @param array<mixed> $declared What the filter holds so far.
 	 * @return array<mixed>
@@ -654,8 +656,8 @@ final class Composition {
 			self::refuse_declaration( 'newspack-nodes', 'newspack-nodes', 'belongs to the substrate, which declares its own blocks there' );
 		}
 		$declared['newspack-nodes'] = [
-			'blocks'   => self::SUBSTRATE_BLOCKS,
-			'contexts' => [],
+			'blocks'   => self::SUBSTRATE_BLOCKS + Station_Pages::BLOCKS,
+			'contexts' => Station_Pages::contexts(),
 		];
 		return $declared;
 	}

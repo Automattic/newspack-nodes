@@ -6,8 +6,8 @@
 
 import { __ } from '@wordpress/i18n';
 
-// Stub AggregatorStatus so this stays a pure registry test (ref only).
-jest.mock( '../AggregatorStatus', () => () => null );
+// Stub the composed tab so this stays a pure registry test (ref only).
+jest.mock( '../AggregatorTab', () => ( { AggregatorTab: () => null } ) );
 
 test( 'importing tabs registers the aggregator tab on the station host at order 40', () => {
 	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
@@ -20,4 +20,15 @@ test( 'importing tabs registers the aggregator tab on the station host at order 
 	expect( tab.slug ).toBe( 'aggregator' );
 	expect( tab.label ).toBe( __( 'Aggregator', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
+} );
+
+test( 'the aggregator tab, and the placeholder its descriptor serves, keep the edit param', () => {
+	const tabMeta = require( '../tabMeta' ).default;
+	expect( tabMeta.params ).toEqual( [ 'edit' ] );
+} );
+
+test( 'the aggregator tab asks the station before a switch takes it away', () => {
+	const tabMeta = require( '../tabMeta' ).default;
+	const { beforeStationLeave } = require( '../../station/leaveGuard' );
+	expect( tabMeta.beforeLeave ).toBe( beforeStationLeave );
 } );

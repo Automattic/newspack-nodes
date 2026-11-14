@@ -10,7 +10,8 @@
  * carries the page's `preview`, a "Start from" picker of the
  * context's patterns where it offers any, and the three ways out. A pattern
  * replaces the canvas unsaved, asking first when a change is pending; Restore
- * default always asks.
+ * default always asks. While a change is pending, leaving the whole page
+ * raises the browser's own prompt (`useLeaveGuard`), until a write lands.
  *
  * `onDone( answer, verb )` hands the page the layout it renders next and the
  * write that produced it: `save` or `restore`, or null for Cancel and Back,
@@ -33,6 +34,7 @@ import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import BlockCanvas from '../components/BlockCanvas';
 import { Confirm } from '../components/Modal';
+import { useLeaveGuard } from '../hooks/useLeaveGuard';
 import { useWidthBelow } from '../hooks/useNarrow';
 import { primaryButtonClass } from '../utils/buttonClass';
 import { CANVAS_FEATURES, sweepFormats } from './confineCanvas';
@@ -200,13 +202,16 @@ export default function CompositionEditor( {
 	const [ asking, setAsking ] = useState(
 		/** @type {null|'restore'|{then: ?CompositionPattern}} */ ( null )
 	);
+	const [ dirty, setDirty ] = useState( false );
 	const { answer, error, save, restore, refusal, writing } = useComposition(
 		group,
 		context,
-		onDone
+		( written, verb ) => {
+			setDirty( false );
+			onDone( written, verb );
+		}
 	);
 	const [ blocks, setBlocks ] = useState( null );
-	const [ dirty, setDirty ] = useState( false );
 	const [ selection, setSelection ] = useState(
 		/** @type {?{selectionStart: {clientId: string}, selectionEnd: {clientId: string}}} */ (
 			null
@@ -215,6 +220,7 @@ export default function CompositionEditor( {
 	useEffect( () => {
 		onDirty?.( dirty );
 	}, [ dirty, onDirty ] );
+	useLeaveGuard( dirty );
 	const blocksRef = useRef( blocks );
 	blocksRef.current = blocks;
 	// The layout as read, serialized; dirty means the canvas writes otherwise.

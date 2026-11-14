@@ -9,8 +9,10 @@
  *
  * A key is the source's name plus the stable JSON of its params, so equal
  * params share one live source and different params never do. Each live
- * source names its nodes under a prefix of its own, `<name>:<n>`, so the
- * late answer to one key lands on that key's nodes and nowhere else (ADR-7).
+ * source names its nodes under a prefix of its own, `<name>:<n>` with every
+ * `/` of a namespaced name read as `:`, since a node name never holds `/`,
+ * so the late answer to one key lands on that key's nodes and nowhere else
+ * (ADR-7).
  * The ordinal alone is page-wide, because `Core`'s node names are.
  */
 
@@ -46,11 +48,25 @@ const declared = new Map();
  * @property {Map<string, Entry>} entries   Live sources by key.
  * @property {Set<() => void>}    listeners Told after every change.
  * @property {number}             version   Moves when a source gains its
- *                                          first reader or loses its last.
+ *                                          first reader or loses its last,
+ *                                          or a hold starts or ends.
+ * @property {number}             holds     The holds keeping every source
+ *                                          still, as a row drag does.
  */
 
 /** The kinds a field may declare: a figure, a series map, a line, a column. */
 const FIELD_KINDS = [ 'value', 'series', 'line', 'rows' ];
+
+/** What a field declares, each part compared by identity. */
+const FIELD_PARTS = [
+	'label',
+	'kind',
+	'format',
+	'formatFor',
+	'value',
+	'axis',
+	'modifier',
+];
 
 /**
  * Whether two declarations' fields read alike: the same keys, each with the
@@ -67,7 +83,7 @@ function sameFields( a = {}, b = {} ) {
 		keys.every(
 			( key ) =>
 				Object.hasOwn( b, key ) &&
-				[ 'label', 'kind', 'format', 'formatFor' ].every(
+				FIELD_PARTS.every(
 					( part ) => a[ key ][ part ] === b[ key ][ part ]
 				)
 		)
@@ -111,24 +127,37 @@ function sameDeclaration( a, b ) {
  * `series`, a series map a time chart draws; `line`, a list of numbers a
  * sparkline draws; `rows`, a column of the rows a table or a log stream
  * lists. `format( value )` answers what a block shows, and a chart field's
- * `formatFor( peak )` the axis formatter for the peak drawn. `params` names
+ * `formatFor( peak )` the axis formatter for the peak drawn and `axis` the
+ * words its axis is titled with, its label when it declares none.
+ * `value( model )` derives a field the model does not hold, once per model
+ * (`fieldValue()`), and a figure's `modifier( value )` names the
+ * `nodes-card--<modifier>` its tile wears. `params` names
  * the page-state keys a block reads its params from, each param named as its
  * key, and `label` the words a block's inspector names the source by, its
  * name when it declares none. Two fields of one kind may not share a label,
  * because a block's inspector finds a field by its label.
  *
- * @param {string} name A name holding no `/`, which would split its node paths.
- * @param {Object} decl `{ kind: 'poll', group, ci, command, args, transform?,
- *                      intervalMs }`, `{ kind: 'command', group, ci, command,
- *                      args }` or `{ kind: 'stream', subscribe, viewClass,
- *                      mode }`; `args` and `subscribe` read the params.
- * @throws {TypeError} On a name holding `/`, one declared otherwise, a
+ * @param {string} name A name, `/` namespacing it.
+ * @param {Object} decl `{ kind: 'poll', group, ci, command, args?, transform?,
+ *                      viewClass?, transformClass?, intervalMs, cadence? }`,
+ *                      `{ kind: 'command', group, ci, command, args }`, `{
+ *                      kind: 'stream', subscribe, viewClass, mode }` or `{
+ *                      kind: 'derived', from, derive }`; `args` and
+ *                      `subscribe` read the params. A poll naming a
+ *                      `viewClass` shows that view's model, with a
+ *                      `transformClass` node on the edge before it, and one
+ *                      naming a `cadence` page-state key asks at the
+ *                      milliseconds that key holds, outside its params, so a
+ *                      new cadence re-arms the same fetch; a derived source
+ *                      shows `derive( models, params )` over the models of
+ *                      the sources `from` names.
+ * @throws {TypeError} On an empty name, one declared otherwise, a
  *                     field declaring no kind it knows, or two fields of one
  *                     kind sharing a label.
  */
 export function registerSource( name, decl ) {
-	if ( 'string' !== typeof name || '' === name || name.includes( '/' ) ) {
-		throw new TypeError( `a source name holds no '/': '${ name }'` );
+	if ( 'string' !== typeof name || '' === name ) {
+		throw new TypeError( `a source is named by a string: '${ name }'` );
 	}
 	const labelled = new Map();
 	for ( const [ key, field ] of Object.entries( decl.fields ?? {} ) ) {
@@ -217,14 +246,14 @@ export const sourceKey = ( name, params ) =>
  * provider and bundle on the page.
  *
  * @param {string} name The source.
- * @return {string} `<name>:<n>`.
+ * @return {string} `<name>:<n>`, each `/` read as `:`.
  */
 function nextPrefix( name ) {
 	window[ ORDINALS_KEY ] ??= new WeakMap();
 	const ordinals = window[ ORDINALS_KEY ];
 	const made = ( ordinals.get( Core.registry ) ?? 0 ) + 1;
 	ordinals.set( Core.registry, made );
-	return `${ name }:${ made }`;
+	return `${ name.replaceAll( '/', ':' ) }:${ made }`;
 }
 
 /**
@@ -236,6 +265,7 @@ export const createSources = () => ( {
 	entries: new Map(),
 	listeners: new Set(),
 	version: 0,
+	holds: 0,
 } );
 
 /**
@@ -254,6 +284,21 @@ const announce = ( sources ) =>
 function moved( sources ) {
 	sources.version += 1;
 	announce( sources );
+}
+
+/**
+ * Start or end one hold on every source of a provider: while any stands, a
+ * poll asks nothing and no source shows anything new.
+ *
+ * @param {Sources} sources The provider's sources.
+ * @param {boolean} on      Start one, or end one.
+ */
+export function hold( sources, on ) {
+	const was = 0 < sources.holds;
+	sources.holds += on ? 1 : -1;
+	if ( was !== 0 < sources.holds ) {
+		moved( sources );
+	}
 }
 
 /**

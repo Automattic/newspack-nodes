@@ -1,33 +1,37 @@
 /**
- * AggregatorStatus UI-surface tests — the thin view over the aggregator node
- * graph. The dashboard reads two independent per-concern slices, each from its
- * own view node:
- *
- *   summary:view → the header strip: counts + snapshot clock
- *   servers:view → one card per spoke, a timings line per partition
- *
- * The graph is owned by useAggregatorStatusGraph (tested separately); here we mock
- * it to hand back spy control callbacks, and we register fixture slice nodes in
- * Core so each widget can read its model via useNodeField.
+ * The Aggregator tab — its header strip, the unreadable notice and its
+ * default layout's server cards. The tab reads two sources, the summary and
+ * the servers; here `useSource` hands back each source's model as the test
+ * sets it, and the probe's `useCommandOnce` hands back a spy, so each widget
+ * renders what the graph would have delivered.
  */
 
-jest.mock( '../hooks/useAggregatorStatusGraph', () => {
-	const actual = jest.requireActual( '../hooks/useAggregatorStatusGraph' );
-	return {
-		__esModule: true,
-		...actual,
-		useAggregatorStatusGraph: jest.fn(),
-	};
-} );
+const mockModels = {};
+jest.mock( '@newspack-nodes/shared/sources', () => ( {
+	...jest.requireActual( '@newspack-nodes/shared/sources' ),
+	useSource: ( name ) => ( {
+		model: mockModels[ name ] ?? null,
+		error: null,
+		loading: ! mockModels[ name ],
+		stale: false,
+	} ),
+} ) );
+const mockProbe = {};
+jest.mock( '@newspack-nodes/shared/hooks/useCommandOnce', () => ( {
+	useCommandOnce: ( options ) => {
+		mockProbe.onDone = options.onDone;
+		return {
+			run: ( tokens ) => mockProbe.run( ...tokens ),
+			isPending: ( subject ) => mockProbe.isPending( subject ),
+		};
+	},
+} ) );
 
 import { createElement } from '@wordpress/element';
 import { render, act } from '@testing-library/react';
 import { Core, mountExospine } from '@newspack-nodes/runtime';
-import AggregatorStatus from '../AggregatorStatus';
-
-const {
-	useAggregatorStatusGraph,
-} = require( '../hooks/useAggregatorStatusGraph' );
+import { AggregatorTab } from '../AggregatorTab';
+import { localizeStationPages } from '../../station/__tests__/localizeStationPages';
 
 const SAMPLE_SERVERS = [
 	{
@@ -150,31 +154,9 @@ const CONNECTED_AND_BROKEN = [
 	},
 ];
 
-// A stand-in slice-view node: model in its `view` field; setField announces it.
-function fixtureNode( name, model ) {
-	const node = {
-		registrations: { view: {} },
-		register( event, listener, cb ) {
-			this.registrations[ event ][ listener ] = cb;
-		},
-		unregister( event, listener ) {
-			delete this.registrations[ event ]?.[ listener ];
-		},
-		setField( field, value ) {
-			this[ field ] = value;
-			Object.values( this.registrations[ field ] || {} ).forEach(
-				( cb ) => cb()
-			);
-		},
-	};
-	node.setField( 'view', model );
-	Core.nodes.set( name, node );
-	return node;
-}
-
-// Register the two per-concern slice fixtures the dashboard reads.
+// Set the two sources' models, as their polls would publish them.
 function registerSlices( { summary = {}, servers = {} } = {} ) {
-	fixtureNode( 'summary:view', {
+	mockModels[ 'nodes/aggregator-summary' ] = {
 		connected: 0,
 		idle: 0,
 		total: 0,
@@ -183,19 +165,17 @@ function registerSlices( { summary = {}, servers = {} } = {} ) {
 		loading: true,
 		lastRefresh: null,
 		...summary,
-	} );
-	fixtureNode( 'servers:view', {
+	};
+	mockModels[ 'nodes/aggregator-servers' ] = {
 		servers: null,
 		error: null,
 		loading: true,
 		...servers,
-	} );
+	};
 }
 
-describe( 'AggregatorStatus', () => {
-	let setRefreshInterval;
+describe( 'AggregatorTab', () => {
 	let probeServer;
-	let graphOpts = {};
 	// What the graph reports as outstanding; the card asks rather than keeping
 	// a flag of its own.
 	let pendingSubjects = [];
@@ -204,7 +184,7 @@ describe( 'AggregatorStatus', () => {
 	// the SUBJECT it named, exactly as the reply path delivered it.
 	const answerProbe = ( subject, answer ) =>
 		act( () =>
-			graphOpts.onAnswer?.( {
+			mockProbe.onDone( {
 				subject,
 				result: null,
 				error: null,
@@ -240,20 +220,15 @@ describe( 'AggregatorStatus', () => {
 	beforeEach( () => {
 		Core.reset();
 		window.localStorage.clear();
-		setRefreshInterval = jest.fn();
 		probeServer = jest.fn();
-		graphOpts = {};
 		pendingSubjects = [];
-		useAggregatorStatusGraph.mockClear();
-		useAggregatorStatusGraph.mockImplementation( ( opts = {} ) => {
-			graphOpts = opts;
-			return {
-				setRefreshInterval,
-				refreshInterval: '2000',
-				probeServer,
-				isPending: ( subject ) => pendingSubjects.includes( subject ),
-			};
-		} );
+		for ( const name of Object.keys( mockModels ) ) {
+			delete mockModels[ name ];
+		}
+		mockProbe.run = probeServer;
+		mockProbe.isPending = ( subject ) =>
+			pendingSubjects.includes( subject );
+		localizeStationPages();
 	} );
 
 	afterEach( () => {
@@ -263,15 +238,39 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	function mount() {
-		const r = render( createElement( AggregatorStatus ) );
+		const r = render( createElement( AggregatorTab ) );
 		mounted.push( r );
 		return r;
 	}
 
-	it( 'shows the loading state before the first poll publishes', () => {
+	it( 'shows the shared loading skeleton before the first poll publishes', () => {
 		registerSlices( { servers: { loading: true } } );
 		const { container } = mount();
-		expect( container.textContent ).toContain( 'Loading server status' );
+		expect(
+			container.querySelector( '[role="status"][aria-label="Loading"]' )
+		).not.toBeNull();
+	} );
+
+	it( 'shows the loading skeleton above the unreadable notice on first load', () => {
+		registerSlices( {
+			summary: {
+				loading: false,
+				unreadable: { 'tahr-7970': 'include gone-7970 failed' },
+			},
+			servers: { loading: true },
+		} );
+		const { container } = mount();
+		const skeleton = container.querySelector(
+			'[role="status"][aria-label="Loading"]'
+		);
+		const notice = container.querySelector(
+			'.newspack-nodes-error-banner'
+		);
+		expect( notice.textContent ).toContain( 'tahr-7970' );
+		expect(
+			skeleton.compareDocumentPosition( notice ) &
+				window.Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
 	} );
 
 	it( 'renders server cards from the servers slice', () => {
@@ -799,7 +798,7 @@ describe( 'AggregatorStatus', () => {
 		expect( container.textContent ).toContain( expected );
 	} );
 
-	it( 'renders the refresh select bound to the graph callback', () => {
+	it( 'renders the refresh select, which keeps the cadence picked', () => {
 		registerSlices( { servers: { servers: [], loading: false } } );
 		const { container } = mount();
 		const select = container.querySelector( '.newspack-nodes-select' );
@@ -813,19 +812,17 @@ describe( 'AggregatorStatus', () => {
 			setter.call( select, '5000' );
 			select.dispatchEvent( new Event( 'change', { bubbles: true } ) );
 		} );
-		expect( setRefreshInterval ).toHaveBeenCalledWith( '5000' );
+		expect( select.value ).toBe( '5000' );
+		expect(
+			window.localStorage.getItem( 'aggregator-status-refresh' )
+		).toBe( '5000' );
 	} );
 
-	it( 'mounts the graph (calls useAggregatorStatusGraph)', () => {
-		registerSlices();
-		mount();
-		expect( useAggregatorStatusGraph ).toHaveBeenCalled();
-	} );
-
-	it( 'falls back to a loading model when the slice nodes are absent', () => {
-		// No fixture → useNodeField undefined; must still render loading.
+	it( 'falls back to the loading skeleton before either source has answered', () => {
 		const { container } = mount();
-		expect( container.textContent ).toContain( 'Loading server status' );
+		expect(
+			container.querySelector( '[role="status"][aria-label="Loading"]' )
+		).not.toBeNull();
 	} );
 
 	it( 'keeps ticking the 1s ago clock (re-renders without re-polling)', () => {

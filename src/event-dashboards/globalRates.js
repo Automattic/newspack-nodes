@@ -1,5 +1,5 @@
 /**
- * The fleet-global byte rates behind the SummaryCards "Read" and "Write" cards:
+ * The fleet-global byte rates behind the Overview's "Read" and "Write" tiles:
  * every reader's read rate summed, and every log partition's growth summed,
  * both in bytes per second and both measured on the probe's clock.
  *

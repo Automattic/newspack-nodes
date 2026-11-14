@@ -1,0 +1,395 @@
+{
+    "newspack-nodes/station-overview": [
+        {
+            "name": "newspack-nodes/stats",
+            "attributes": {
+                "source": "nodes/fleet",
+                "fields": [],
+                "columns": 0
+            },
+            "inner": []
+        },
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/topicprobe",
+                                "metrics": [
+                                    "msgRate"
+                                ],
+                                "stacked": true,
+                                "title": "Topics Messages Read"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/topicprobe",
+                                "metrics": [
+                                    "byteRate"
+                                ],
+                                "stacked": true,
+                                "title": "Topics Bytes Read"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/topicprobe",
+                                "metrics": [
+                                    "backlog"
+                                ],
+                                "stacked": true,
+                                "title": "Topics Backlog"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/topicprobe",
+                                "metrics": [
+                                    "cacheSize"
+                                ],
+                                "stacked": true,
+                                "title": "Topics Cache Size"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/topicprobe",
+                                "metrics": [
+                                    "endBytes"
+                                ],
+                                "stacked": true,
+                                "title": "Partition Size"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/topicprobe",
+                                "metrics": [
+                                    "diskBytes"
+                                ],
+                                "stacked": true,
+                                "title": "On Disk"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "newspack-nodes/topology-rows",
+            "attributes": [],
+            "inner": []
+        }
+    ],
+    "newspack-nodes/station-jobs": [
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/jobstats",
+                                "metrics": [
+                                    "runsRate"
+                                ],
+                                "stacked": true,
+                                "title": "Job Runs Rate"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/jobstats",
+                                "metrics": [
+                                    "errorsRate"
+                                ],
+                                "stacked": true,
+                                "title": "Job Errors Rate"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/topicprobe",
+                                "metrics": [
+                                    "jobsBacklog"
+                                ],
+                                "stacked": true,
+                                "title": "Job Backlog"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/jobstats",
+                                "metrics": [
+                                    "queueLatencyMs"
+                                ],
+                                "stacked": false,
+                                "title": "Job Queue Latency"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "newspack-nodes/probe-table",
+            "attributes": {
+                "source": "nodes/jobstats"
+            },
+            "inner": []
+        }
+    ],
+    "newspack-nodes/station-tables": [
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/tablestats",
+                                "metrics": [
+                                    "opsRate"
+                                ],
+                                "stacked": true,
+                                "title": "Table Ops Rate"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/tablestats",
+                                "metrics": [
+                                    "operations"
+                                ],
+                                "stacked": true,
+                                "title": "Table Operation Rate"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/tablestats",
+                                "metrics": [
+                                    "missRate"
+                                ],
+                                "stacked": true,
+                                "title": "Table Miss Rate"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/tablestats",
+                                "metrics": [
+                                    "latency"
+                                ],
+                                "stacked": false,
+                                "title": "Table Latency"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "core/columns",
+            "attributes": {
+                "isStackedOnMobile": true
+            },
+            "inner": [
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/tablestats",
+                                "metrics": [
+                                    "fileBytes"
+                                ],
+                                "stacked": true,
+                                "title": "Table Size"
+                            },
+                            "inner": []
+                        }
+                    ]
+                },
+                {
+                    "name": "core/column",
+                    "attributes": [],
+                    "inner": [
+                        {
+                            "name": "newspack-nodes/time-chart",
+                            "attributes": {
+                                "source": "nodes/tablestats",
+                                "metrics": [
+                                    "fileDiskBytes"
+                                ],
+                                "stacked": true,
+                                "title": "Table On Disk"
+                            },
+                            "inner": []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "newspack-nodes/probe-table",
+            "attributes": {
+                "source": "nodes/tablestats"
+            },
+            "inner": []
+        }
+    ],
+    "newspack-nodes/station-aggregator": [
+        {
+            "name": "newspack-nodes/server-cards",
+            "attributes": [],
+            "inner": []
+        }
+    ]
+}

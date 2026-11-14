@@ -6,7 +6,9 @@
 import { renderHook, act } from '@testing-library/react';
 import { Core } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { SourcesProvider } from '@newspack-nodes/shared/sources';
 import { useTopologyManager } from '../useTopologyManager';
+import '../../views';
 
 beforeEach( () => {
 	Core.reset();
@@ -15,7 +17,7 @@ beforeEach( () => {
 } );
 
 it( 'declares restart, activate and deactivate sent on removal', async () => {
-	renderHook( () => useTopologyManager( { refreshMs: 60000 } ) );
+	renderHook( () => useTopologyManager(), { wrapper: SourcesProvider } );
 	await act( async () => {} );
 	expect(
 		[

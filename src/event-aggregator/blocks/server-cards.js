@@ -1,78 +1,44 @@
 /**
- * Aggregator Status — the hub's screen for every spoke whose log it pulls.
+ * The server-cards block: one card per spoke whose log the hub pulls, each
+ * with a timings line per partition, a line of its stream readers' cursors,
+ * its last deep probe's fleet roll-up and the Probe button; a loading
+ * skeleton before the first answer, then each active topology that will not
+ * read, whose spokes the cards therefore leave out, the servers' refusal, or
+ * how to add a spoke while there is none.
  *
- * A thin view over the `aggregator:*` node graph `useAggregatorStatusGraph`
- * mounts. That graph polls two independent slices, each on its own command with
- * its own reply path:
+ * It is its own block because a card is a spoke's whole connection state —
+ * a rail coloured by its worst partition, a pill summing its partitions, a
+ * probe the reader runs from it — which every shared block leaves undrawn.
  *
- *   summary:view — the header strip: connected/idle/total counts, the
- *                  server's snapshot clock, and each active topology that
- *                  will not read, whose spokes the cards therefore omit.
- *   servers:view — one card per wired `Remote_Source`, each holding a line
- *                  per partition and a line of its stream readers' cursors.
- *
- * This component reads each slice through its own `useNodeField` and renders
- * it. The split belongs to the graph rather than to the layout: a reply is
- * addressed to its own view node, so a slice that errors leaves the other one
- * on screen ([ADR-7](../../docs/architecture-decisions.md)). Both slices still
- * ride one POST per tick.
- *
- * Ages on the screen are measured against the server's snapshot clock, which
- * arrives on the summary slice and is handed down to the cards — a workstation
- * clock minutes out would otherwise read a healthy spoke as stale. The
- * one-second tick lives here because re-rendering those ages asks the server
- * for nothing.
+ * Ages are measured against the server's snapshot clock, which the summary
+ * source carries, so a workstation clock minutes out cannot age a healthy
+ * spoke; a one-second tick re-renders them and asks the server for nothing.
+ * The probe is ONE node for every card: the spoke it answers about rides
+ * in the reply's address, and each card shows its own spoke's last answer.
+ * While its layout is edited, no Probe click sends.
  */
 
-import { useState, useCallback } from '@wordpress/element';
+import { useCallback, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-
-import { useNodeField } from '@newspack-nodes/runtime';
-import {
-	useAggregatorStatusGraph,
-	REFRESH_OPTIONS,
-} from './hooks/useAggregatorStatusGraph';
+import { useWriteControl } from '@newspack-nodes/shared/composition/page';
+import { useSource } from '@newspack-nodes/shared/sources';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import Skeleton from '@newspack-nodes/shared/components/Skeleton';
 import UnreadableNotice from '@newspack-nodes/shared/components/UnreadableNotice';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
+import { useSubjectAnswers } from '@newspack-nodes/shared/hooks/useSubjectAnswers';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
-import { sourceName } from '../runtime/log-stamp';
-import './styles/aggregator-status.scss';
-import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
+import { formatCommandArgs } from '../../runtime/command-args';
+import { sourceName } from '../../runtime/log-stamp';
+import '../styles/aggregator-status.scss';
 
-/**
- * The header slice a first render reads, before the graph exists.
- *
- * `useNodeField` answers undefined until `summary:view` is mounted, and the
- * effect that builds the graph runs after that first render. The shape mirrors
- * the view node's own `empty` declaration in `nodes/register.js`: this screen
- * reads the counts, the clock, `unreadable` and `lastRefresh`, and carries
- * the rest so the two models stay one shape.
- */
-const EMPTY_SUMMARY = {
-	connected: 0,
-	idle: 0,
-	total: 0,
-	serverNow: null,
-	unreadable: {},
-	error: null,
-	loading: true,
-	lastRefresh: null,
-};
+/** The server CI mount owning `summary`, `list_servers` and `probe`. */
+export const AGGREGATOR_CI = 'aggregator';
 
-/**
- * The server-cards slice a first render reads, on the same terms.
- *
- * This slice, not the summary, gates the body of the page: `loading: true`
- * holds the spinner up until the first reply, and `servers: null` keeps the
- * header's up/total count hidden until the cards it counts have arrived.
- */
-const EMPTY_SERVERS = {
-	servers: null,
-	error: null,
-	loading: true,
-};
+/** The group every command this page sends belongs to. */
+export const AGGREGATOR_GROUP = 'aggregator';
 
 /** What a timings cell shows for a reading the spoke has not reported. */
 const ABSENT = '—';
@@ -91,7 +57,7 @@ const ABSENT = '—';
  *                            before the summary slice's first reply.
  * @return {string} The age, the local date and time, or "—".
  */
-const formatTime = ( timestamp, now ) => {
+export const formatTime = ( timestamp, now ) => {
 	if ( ! timestamp ) {
 		return ABSENT;
 	}
@@ -577,6 +543,7 @@ function CursorLine( { readers, multi } ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 function ServerCard( { server, now, answer, probing, onProbe } ) {
+	const probe = useWriteControl( () => onProbe( server.vault_id ) );
 	const partitions = server.partitions || {};
 	const partitionKeys = Object.keys( partitions ).sort(
 		( a, b ) => Number( a ) - Number( b )
@@ -631,7 +598,7 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 			<button
 				type="button"
 				className="button aggregator-fleet-probe-button"
-				onClick={ () => onProbe( server.vault_id ) }
+				{ ...probe }
 				disabled={ probing }
 			>
 				{ probing
@@ -643,108 +610,38 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 }
 
 /**
- * The Aggregator Status dashboard: mount the graph, place the refresh strip in
- * the station's header, and list one card per spoke.
+ * The block.
  *
- * @param {Object}   props                      Component props.
- * @param {?Element} [props.headerControlsSlot] Station shared-header slot to portal
- *                                              the refresh strip into; null
- *                                              renders none, undefined renders
- *                                              it inline.
- * @return {import('react').ReactElement} Rendered component.
+ * @return {import('react').ReactElement} The cards.
  */
-export default function AggregatorStatus( { headerControlsSlot } ) {
-	// @longform Each spoke's last probe answer, put there BY the reply that
-	// named it. Not a correlation table: the graph did the matching in the
-	// ADDRESS, before this screen saw it — which is why one card keeps its
-	// roll-up while a sibling is probed.
-	const [ answers, setAnswers ] = useState( {} );
-	const { setRefreshInterval, refreshInterval, probeServer, isPending } =
-		useAggregatorStatusGraph( {
-			onAnswer: ( { subject, result, error: refusal } ) =>
-				setAnswers( ( prior ) => ( {
-					...prior,
-					[ subject ]: { result, error: refusal },
-				} ) ),
-		} );
-
-	// Two independent read surfaces — one per slice the graph publishes.
-	const summary = useNodeField( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
-	const serversSlice =
-		useNodeField( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
-	// Summary slice: counts, clock, refresh marker, unreadable topologies.
-	const { connected, idle, total, serverNow, unreadable, lastRefresh } =
-		summary;
-	// Server cards read the servers slice (data + its own loading/error gate).
-	const { servers, error, loading } = serversSlice;
-
-	const [ , setTick ] = useState( 0 );
-
-	// Tick every second to update relative timestamps (pure display — no poll).
-	const bumpClock = useCallback( () => setTick( ( t ) => t + 1 ), [] );
-	useRouterTick( { name: 'aggregator-clock:timer', onTick: bumpClock } );
-
-	// Refresh strip: a slot portals, null withholds, undefined inlines.
-	const controls = (
-		<div className="aggregator-status-meta">
-			<div className="aggregator-status-refresh-indicator">
-				<span className="aggregator-status-refresh-dot" />
-				<span>
-					{ lastRefresh
-						? sprintf(
-								// translators: %s: formatted time of the last update.
-								__( 'Updated %s', 'newspack-nodes' ),
-								formatTime( lastRefresh / 1000 )
-						  )
-						: __( 'Loading…', 'newspack-nodes' ) }
-				</span>
-			</div>
-			{ servers && (
-				<div className="aggregator-status-server-count">
-					{ /* Idle spokes are healthy; they count as up. */ }
-					<strong>{ connected + idle }</strong> / { total }{ ' ' }
-					{ __( 'up', 'newspack-nodes' ) }
-					{ idle > 0 && (
-						<span className="aggregator-status-idle-count">
-							{ sprintf(
-								// translators: %d: number of spokes between streams.
-								__( '%d idle', 'newspack-nodes' ),
-								idle
-							) }
-						</span>
-					) }
-				</div>
-			) }
-			<select
-				className="newspack-nodes-select"
-				value={ refreshInterval }
-				onChange={ ( e ) => setRefreshInterval( e.target.value ) }
-				aria-label={ __( 'Refresh interval', 'newspack-nodes' ) }
-			>
-				{ REFRESH_OPTIONS.map( ( opt ) => (
-					<option key={ opt.value } value={ opt.value }>
-						{ opt.label }
-					</option>
-				) ) }
-			</select>
-		</div>
+function View() {
+	const summary = useSource( 'nodes/aggregator-summary' );
+	const servers = useSource( 'nodes/aggregator-servers' );
+	const { file, answerFor } = useSubjectAnswers();
+	const { run, isPending } = useCommandOnce( {
+		group: AGGREGATOR_GROUP,
+		ci: AGGREGATOR_CI,
+		command: 'probe',
+		scope: 'aggregator:probe',
+		onDone: ( { subject, result, error } ) =>
+			file( subject, { result, error } ),
+	} );
+	const probeServer = useCallback(
+		( vaultId ) => run( formatCommandArgs( [ vaultId ] ) ),
+		[ run ]
 	);
+	const [ , setTick ] = useState( 0 );
+	const bumpClock = useCallback( () => setTick( ( t ) => t + 1 ), [] );
+	useRouterTick( { name: 'server-cards:clock', onTick: bumpClock } );
 
+	const list = servers.model?.servers ?? null;
+	const error = servers.model?.error ?? servers.error;
+	const loading = ! servers.model || servers.model.loading;
 	return (
 		<div className="aggregator-status-dashboard">
-			<HeaderSlot slot={ headerControlsSlot }>{ controls }</HeaderSlot>
-
-			{ loading && (
-				<div className="newspack-nodes-performance-loading aggregator-status-loading">
-					<div className="spinner" />
-					<span>
-						{ __( 'Loading server status…', 'newspack-nodes' ) }
-					</span>
-				</div>
-			) }
-
+			{ loading && <Skeleton shape="row" count={ 2 } /> }
 			<UnreadableNotice
-				failures={ unreadable }
+				failures={ summary.model?.unreadable }
 				describe={ ( name, message ) =>
 					sprintf(
 						// translators: 1: topology name, 2: why it will not read.
@@ -757,23 +654,21 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 					)
 				}
 			/>
-
 			{ ! loading && (
 				<ConnectionBanner
 					connectionError={ !! error }
 					message={ error }
 				/>
 			) }
-
 			{ ! loading && ! error && (
 				<div className="aggregator-status-servers">
-					{ servers && servers.length > 0 ? (
-						servers.map( ( server ) => (
+					{ list && list.length > 0 ? (
+						list.map( ( server ) => (
 							<ServerCard
 								key={ server.id }
 								server={ server }
-								now={ serverNow }
-								answer={ answers[ server.vault_id ] ?? null }
+								now={ summary.model?.serverNow ?? null }
+								answer={ answerFor( server.vault_id ) }
 								probing={ isPending( server.vault_id ) }
 								onProbe={ probeServer }
 							/>
@@ -791,3 +686,5 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 		</div>
 	);
 }
+
+export default { View };
