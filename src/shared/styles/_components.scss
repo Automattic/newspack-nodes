@@ -1089,6 +1089,11 @@
 				#{$table-surface}
 			);
 		}
+
+		// After the stripe, so an odd selected row still shows it is selected.
+		tbody tr.is-selected {
+			background: var(--cyan-subtle, var(--np-primary-subtle));
+		}
 	}
 }
 

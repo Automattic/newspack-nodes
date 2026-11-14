@@ -136,6 +136,23 @@ describe( 'queryParams', () => {
 			expect( pushSpy ).not.toHaveBeenCalled();
 			pushSpy.mockRestore();
 		} );
+
+		it( 'replaces the entry when writing a param a pushing reader holds, and tells the reader', () => {
+			window.history.replaceState( {}, '', '/?page=perf' );
+			const entry = openParam( 'record', {
+				parse: ( raw ) => raw ?? '',
+				format: ( value ) => value,
+				push: true,
+			} );
+			let told = 0;
+			const release = subscribeParam( entry, () => ( told += 1 ) );
+			const entries = window.history.length;
+			setQueryParams( { record: '7713' } );
+			expect( window.history.length ).toBe( entries );
+			expect( entry.value ).toBe( '7713' );
+			expect( told ).toBe( 1 );
+			release();
+		} );
 	} );
 	describe( 'getQueryParams', () => {
 		it( 'returns every value of a repeated param, in order', () => {

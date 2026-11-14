@@ -3566,6 +3566,22 @@ describe( 'stock tables and the shared mixins', () => {
 		);
 	} );
 
+	it( 'paints the selected row of a stock table over its stripe', () => {
+		const SELECTED = '.widefat tbody tr.is-selected';
+		expect( of( SELECTED )?.background ).toBe(
+			'var(--cyan-subtle, var(--np-primary-subtle))'
+		);
+		const order = [];
+		ui.walkRules( ( rule ) => order.push( rule.selector ) );
+		const at = ( selector ) =>
+			order.indexOf(
+				`.newspack-nodes-ui.newspack-nodes-ui ${ selector }`
+			);
+		expect( at( SELECTED ) ).toBeGreaterThan(
+			at( '.widefat tbody tr:nth-child(odd)' )
+		);
+	} );
+
 	it( 'declares no mixin that nothing includes', () => {
 		const source = fs.readFileSync(
 			path.join( NODES_SRC, 'shared/styles/_mixins.scss' ),
