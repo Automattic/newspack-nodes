@@ -2,7 +2,8 @@
  * The one shape every substrate block that reads a source takes: its View
  * reads the source its `source` attribute names, with the page state that
  * source declares as its params, and shows it through the block's own
- * `Render` once a model stands, the read error or a loading line before.
+ * `Render` once the source answers, a null answer included, the read error
+ * or a loading line before.
  * Its Controls pick the source by its label, the fields by theirs and the
  * block's own settings by their declared schemas, in the block inspector,
  * writing the fields' keys. A stream renders at once, because its rows
@@ -328,7 +329,7 @@ export function sourceBlock( Render, { kind, list, settings = [] } ) {
 	function Read( { attributes } ) {
 		const names = namesOf( attributes[ list ] );
 		const { params = [] } = sourceDeclaration( attributes.source );
-		const { model, error, stream } = useSource(
+		const { model, error, loading, stream } = useSource(
 			attributes.source,
 			usePageParams( params )
 		);
@@ -340,7 +341,7 @@ export function sourceBlock( Render, { kind, list, settings = [] } ) {
 		if ( error ) {
 			return <Unread error={ error } />;
 		}
-		if ( null === model && ! stream ) {
+		if ( loading && null === model && ! stream ) {
 			return <Skeleton shape="line" count={ 1 } />;
 		}
 		return (

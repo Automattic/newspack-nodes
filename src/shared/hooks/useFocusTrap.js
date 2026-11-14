@@ -1,7 +1,8 @@
 /**
  * useFocusTrap — what `aria-modal="true"` promises the keyboard: Tab and
- * Shift+Tab stay inside the dialog, and closing it returns focus to whatever
- * held it when the dialog opened.
+ * Shift+Tab stay inside the dialog, and closing it returns focus to the
+ * element a `returnFocus` ref holds, else to whatever held it when the
+ * dialog opened.
  *
  * Only the two edges are handled. Tab between inner fields is left to the
  * browser, so the trap adds nothing to the dialog's own tab order.
@@ -17,12 +18,14 @@ const TABBABLE =
 	'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
 /**
- * Keeps Tab inside `ref`, and on unmount returns focus to what held it.
+ * Keeps Tab inside `ref`, and on unmount returns focus to the element
+ * `returnFocus` held as the dialog opened, else to what held focus then.
  *
- * @param {{current: HTMLElement|null}} ref The dialog element.
+ * @param {{current: HTMLElement|null}} ref           The dialog element.
+ * @param {{current: HTMLElement|null}} [returnFocus] The element closing hands focus to, such as the dialog's trigger.
  * @return {void}
  */
-export function useFocusTrap( ref ) {
+export function useFocusTrap( ref, returnFocus = null ) {
 	const [ opener ] = useState(
 		() =>
 			/** @type {HTMLElement|null} */ (
@@ -59,11 +62,12 @@ export function useFocusTrap( ref ) {
 			}
 		};
 		doc.addEventListener( 'keydown', onKey );
+		const back = returnFocus?.current ?? opener;
 		return () => {
 			doc.removeEventListener( 'keydown', onKey );
-			if ( opener?.isConnected ) {
-				opener.focus();
+			if ( back?.isConnected ) {
+				back.focus();
 			}
 		};
-	}, [ ref, opener ] );
+	}, [ ref, opener, returnFocus ] );
 }

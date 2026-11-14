@@ -67,6 +67,30 @@ registerSource( 'moana-7861', {
 	},
 } );
 
+registerSource( 'kiwi-7990', {
+	kind: 'command',
+	group: 'alpine-7990',
+	ci: 'tern-7990',
+	command: 'roost',
+	args: () => [],
+	rowKey: 'band',
+	fields: {
+		name: { label: 'Name 7990', kind: 'rows' },
+	},
+} );
+
+registerSource( 'ruru-7992', {
+	kind: 'command',
+	group: 'alpine-7992',
+	ci: 'tern-7992',
+	command: 'hoot',
+	args: () => [],
+	fields: {
+		calls: { label: 'Calls 7992', kind: 'value' },
+		perch: { label: 'Perch 7992', kind: 'rows' },
+	},
+} );
+
 registerSource( 'kaka-7842', {
 	kind: 'command',
 	group: 'alpine-7842',
@@ -227,12 +251,20 @@ beforeEach( () => {
 		configurable: true,
 		get: () => 'visible',
 	} );
+	const answers = {
+		hoot: null,
+		roost: [
+			{ band: 41, name: 'Roroa 7990' },
+			{ band: 57, name: 'Tokoeka 7990' },
+		],
+		perch: [
+			{ id: 'k1', name: 'Kea', age: 7 },
+			{ id: 'k2', name: 'Kaka', age: 3 },
+		],
+	};
 	replyFor = ( m ) =>
-		'perch' === m[ VALUE ].name
-			? [
-					{ id: 'k1', name: 'Kea', age: 7 },
-					{ id: 'k2', name: 'Kaka', age: 3 },
-			  ]
+		Object.hasOwn( answers, m[ VALUE ].name )
+			? answers[ m[ VALUE ].name ]
 			: {
 					height: 41,
 					wings: 2,
@@ -572,6 +604,70 @@ describe( 'the table block', () => {
 		expect(
 			screen.getByRole( 'heading', { name: 'Flock 7842' } )
 		).toBeTruthy();
+	} );
+} );
+
+describe( 'a source that answers nothing', () => {
+	it( 'shows the stats as an empty model, not as a skeleton', async () => {
+		const { container } = renderBlock( 'newspack-nodes/stats', {
+			source: 'ruru-7992',
+			fields: [],
+			columns: 0,
+		} );
+		await screen.findByText( 'Calls 7992' );
+		expect(
+			container.querySelector( '.newspack-nodes-stat-value' ).textContent
+		).toBe( '' );
+		expect(
+			container.querySelector( '.newspack-nodes-skeleton' )
+		).toBeNull();
+	} );
+
+	it( 'shows the table’s empty state', async () => {
+		renderBlock( 'newspack-nodes/table', {
+			source: 'ruru-7992',
+			columns: [],
+			sort: { field: '', direction: 'desc' },
+			perPage: 20,
+			title: '',
+		} );
+		expect(
+			await screen.findByText( 'Nothing to show yet.' )
+		).toBeTruthy();
+	} );
+
+	it( 'shows a skeleton while its answer is owed', async () => {
+		replyFor = () => new Promise( () => {} );
+		const { container } = renderBlock( 'newspack-nodes/stats', {
+			source: 'ruru-7992',
+			fields: [],
+			columns: 0,
+		} );
+		await clock.tick( 1 );
+		expect( sent( 'hoot' ) ).toEqual( [ [] ] );
+		expect(
+			container.querySelector( '.newspack-nodes-skeleton' )
+		).not.toBeNull();
+		expect( screen.queryByText( 'Calls 7992' ) ).toBeNull();
+	} );
+} );
+
+describe( 'a table over a source naming its row key', () => {
+	it( 'keys each row by that field', async () => {
+		renderBlock( 'newspack-nodes/table', {
+			source: 'kiwi-7990',
+			columns: [],
+			sort: { field: '', direction: 'desc' },
+			perPage: 20,
+			title: '',
+		} );
+		await screen.findByText( 'Tokoeka 7990' );
+		expect(
+			screen
+				.getAllByRole( 'row' )
+				.slice( 1 )
+				.map( ( row ) => row.textContent.trim() )
+		).toEqual( [ 'Roroa 7990', 'Tokoeka 7990' ] );
 	} );
 } );
 

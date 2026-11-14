@@ -126,7 +126,7 @@ export function ModalHeader( {
  *
  * Callers own their own initial focus, so each dialog can focus the element
  * that fits it; `useFocusTrap` keeps Tab inside the box and hands focus back
- * to the opener on close.
+ * on close to the element `returnFocus` holds, else to the opener.
  *
  * Given `onSubmit`, the box itself is the dialog's `<form>` (see
  * `submitProps`), so Enter in a field runs the default action; the caller's
@@ -143,6 +143,9 @@ export function ModalHeader( {
  *                                                              opened over another modal layer raises
  *                                                              itself here.
  * @param {() => void}                [props.onSubmit]          The default action; makes the box a form.
+ * @param {{current: ?HTMLElement}}   [props.returnFocus]       The element closing hands focus to, such as
+ *                                                              the dialog's trigger, over what held focus
+ *                                                              as it opened.
  * @param {import('react').ReactNode} props.children            Dialog body.
  * @return {import('react').ReactElement} The modal.
  */
@@ -152,12 +155,13 @@ export default function Modal( {
 	className = '',
 	backdropClassName = '',
 	onSubmit,
+	returnFocus,
 	children,
 } ) {
 	const dialogRef = useRef( null );
 	const titleId = useId();
 	useDismissable( dialogRef, onClose );
-	useFocusTrap( dialogRef );
+	useFocusTrap( dialogRef, returnFocus );
 	const Box = onSubmit ? 'form' : 'div';
 
 	return (

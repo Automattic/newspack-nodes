@@ -7,9 +7,9 @@ import { render, renderHook, screen, fireEvent } from '@testing-library/react';
 import { useRef } from '@wordpress/element';
 import { useFocusTrap } from '../useFocusTrap';
 
-function Dialog( { children } ) {
+function Dialog( { children, returnFocus } ) {
 	const ref = useRef( null );
-	useFocusTrap( ref );
+	useFocusTrap( ref, returnFocus );
 	return (
 		<div ref={ ref } role="dialog">
 			{ children }
@@ -41,4 +41,38 @@ test( 'a ref that never attaches traps nothing', () => {
 	renderHook( () => useFocusTrap( { current: null } ) );
 
 	expect( fireEvent.keyDown( document, { key: 'Tab' } ) ).toBe( true );
+} );
+
+test( 'closing hands focus to the element returnFocus names', () => {
+	render(
+		<>
+			<button type="button">trigger-734</button>
+			<button type="button">elsewhere-734</button>
+		</>
+	);
+	const trigger = { current: screen.getByText( 'trigger-734' ) };
+	screen.getByText( 'elsewhere-734' ).focus();
+	const { unmount } = render(
+		<Dialog returnFocus={ trigger }>
+			<button type="button">inside-734</button>
+		</Dialog>
+	);
+
+	unmount();
+	expect( document.activeElement ).toBe( trigger.current );
+} );
+
+test( 'a returnFocus holding nothing hands focus back to what held it', () => {
+	render( <button type="button">opener-735</button> );
+	const opener = screen.getByText( 'opener-735' );
+	opener.focus();
+	const { unmount } = render(
+		<Dialog returnFocus={ { current: null } }>
+			<button type="button">inside-735</button>
+		</Dialog>
+	);
+	screen.getByText( 'inside-735' ).focus();
+
+	unmount();
+	expect( document.activeElement ).toBe( opener );
 } );

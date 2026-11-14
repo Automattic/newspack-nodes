@@ -70,6 +70,12 @@ final class Composition {
 	 */
 	public const MAX_MARKUP_BYTES = 65536;
 
+	/**
+	 * The most rows a table block shows on one page: a schema's whole class
+	 * list on one page, as a dashboard listing every class shows it.
+	 */
+	private const MAX_TABLE_PAGE = 1000;
+
 	/** The most blocks that may hold one block: a group, a column and its columns. */
 	private const MAX_DEPTH = 3;
 
@@ -403,7 +409,7 @@ final class Composition {
 				'perPage' => [
 					'type'    => 'integer',
 					'minimum' => 1,
-					'maximum' => 100,
+					'maximum' => self::MAX_TABLE_PAGE,
 					'default' => 20,
 				],
 				'title'   => self::NAME_ATTRIBUTE,

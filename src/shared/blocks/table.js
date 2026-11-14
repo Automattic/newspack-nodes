@@ -1,5 +1,6 @@
 /**
- * The table block: its source's model, a list of rows each carrying an `id`,
+ * The table block: its source's model, a list of rows each keyed by the field
+ * its source names as `rowKey`, else by its `id`,
  * as a `DataViewsList` table whose columns are the fields it names, every
  * declared field when it names nothing, each headed by its declared label. The reader
  * sorts and pages it in the page, from the sort and page size its
@@ -11,7 +12,7 @@ import { filterSortAndPaginate } from '@wordpress/dataviews';
 import { __ } from '@wordpress/i18n';
 import DataViewsList from '../components/DataViewsList';
 import Section from '../components/Section';
-import { stableJson } from '../sources';
+import { sourceDeclaration, stableJson } from '../sources';
 import { display, sourceBlock } from './sourceBlock';
 
 /**
@@ -55,13 +56,18 @@ function Table( { attributes, model, fields } ) {
  *
  * @param {Object}                               props
  * @param {Object}                               props.attributes `{ source, columns, sort, perPage, title }`.
- * @param {Object[]}                             props.model      The rows.
+ * @param {?Object[]}                            props.model      The rows, null for none.
  * @param {import('./sourceBlock').BlockField[]} props.fields     The columns.
  * @return {import('react').ReactElement} The table.
  */
 function Rows( { attributes, model, fields: named } ) {
 	const { sort, perPage, title } = attributes;
 	const fields = useMemo( () => named.map( dataViewsField ), [ named ] );
+	const { rowKey } = sourceDeclaration( attributes.source );
+	const getItemId = useMemo(
+		() => ( rowKey ? ( item ) => String( item[ rowKey ] ) : undefined ),
+		[ rowKey ]
+	);
 	const [ view, setView ] = useState(
 		() =>
 			/** @type {import('@wordpress/dataviews').View} */ ( {
@@ -73,7 +79,7 @@ function Rows( { attributes, model, fields: named } ) {
 			} )
 	);
 	const { data, paginationInfo } = useMemo(
-		() => filterSortAndPaginate( model, view, fields ),
+		() => filterSortAndPaginate( model ?? [], view, fields ),
 		[ model, view, fields ]
 	);
 	const table = (
@@ -87,6 +93,7 @@ function Rows( { attributes, model, fields: named } ) {
 			render={ fields[ 0 ].render }
 			fields={ fields }
 			columns={ fields.map( ( field ) => field.id ) }
+			getItemId={ getItemId }
 		/>
 	);
 	return title ? <Section heading={ title }>{ table }</Section> : table;

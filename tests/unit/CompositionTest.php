@@ -555,6 +555,16 @@ final class CompositionTest extends TestCase {
 		);
 	}
 
+	public function test_a_table_page_holds_up_to_a_thousand_rows(): void {
+		$this->declare_shared( [ 'newspack-nodes/table' ] );
+
+		$tree = Composition::validate( 'weka-7711/board', '<!-- wp:newspack-nodes/table {"source":"weka/7718","perPage":1000} /-->' );
+		$this->assertSame( 1000, $tree[0]['attributes']['perPage'] );
+
+		$this->expectException( \RuntimeException::class );
+		Composition::validate( 'weka-7711/board', '<!-- wp:newspack-nodes/table {"source":"weka/7718","perPage":1001} /-->' );
+	}
+
 	public function test_an_unadmitted_shared_block_is_refused_on_a_context(): void {
 		$this->declare_shared( [] );
 
@@ -686,7 +696,7 @@ final class CompositionTest extends TestCase {
 							'additionalProperties' => false,
 							'default'              => [ 'field' => '', 'direction' => 'desc' ],
 						],
-						'perPage' => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 100, 'default' => 20 ],
+						'perPage' => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 1000, 'default' => 20 ],
 						'title'   => $source,
 					]
 				),

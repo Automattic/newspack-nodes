@@ -212,6 +212,26 @@ test( 'closing it returns focus to the opener even when a child took focus on mo
 	expect( document.activeElement ).toBe( opener );
 } );
 
+test( 'closing it returns focus to the element returnFocus names, over what held focus', () => {
+	render(
+		<>
+			<button type="button">trigger-833</button>
+			<button type="button">elsewhere-833</button>
+		</>
+	);
+	const trigger = { current: screen.getByText( 'trigger-833' ) };
+	screen.getByText( 'elsewhere-833' ).focus();
+	const { unmount } = render(
+		<Modal ariaLabel="x" onClose={ () => {} } returnFocus={ trigger }>
+			<button type="button">inside-833</button>
+		</Modal>
+	);
+	screen.getByText( 'inside-833' ).focus();
+
+	unmount();
+	expect( document.activeElement ).toBe( trigger.current );
+} );
+
 test( 'the listener is removed on unmount', () => {
 	const onClose = jest.fn();
 	const { unmount } = render(
