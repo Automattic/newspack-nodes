@@ -1920,8 +1920,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$data   = \json_decode( \substr( $set[0][1], \strlen( $prefix ), -1 ), true );
 		$this->assertSame(
 			[
-				'context' => 'newspack-nodes/station-overview',
-				'error'   => 'composition declaration kiwi-desk: kiwi-desk/board admits newspack-nodes/aside, which is not a shared block',
+				'context'     => 'newspack-nodes/station-overview',
+				'error'       => 'composition declaration kiwi-desk: kiwi-desk/board admits newspack-nodes/aside, which is not a shared block',
+				'declaration' => true,
 			],
 			$data['compositions']['newspack-nodes/station-overview']
 		);
