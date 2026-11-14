@@ -604,6 +604,20 @@ describe( 'AreaTimeChart on a narrow screen', () => {
 	} );
 } );
 
+describe( 'AreaTimeChart tooltip title', () => {
+	it( 'hands the tooltip the caller’s slot words, and none when it gives none', () => {
+		const formatSlot = ( d ) => `Shift of ${ d.getUTCMinutes() }`;
+		mount( { formatSlot } );
+		expect( setupTooltip.mock.calls.at( -1 )[ 1 ].formatHeader ).toBe(
+			formatSlot
+		);
+		mount();
+		expect(
+			setupTooltip.mock.calls.at( -1 )[ 1 ].formatHeader
+		).toBeUndefined();
+	} );
+} );
+
 describe( 'AreaTimeChart with a partial bucket', () => {
 	// jsdom lays nothing out, so `openFrame` falls back to 800px.
 	const INNER_W = 800 - MARGIN.left - MARGIN.right;
@@ -747,5 +761,113 @@ describe( 'AreaTimeChart with a partial bucket', () => {
 		const { container } = mount( { series: weekly, stacked: true } );
 		expect( partialBar( container ) ).toHaveLength( 0 );
 		expect( container.querySelector( 'pattern' ) ).toBeNull();
+	} );
+
+	describe( 'carrying a count per series', () => {
+		const SPLIT = {
+			bucket: '2026-11-02',
+			count: 13,
+			counts: { offboarding: 6, awards: 3 },
+			label: 'so far, week of 2 Nov',
+		};
+		const segments = ( container ) => [
+			...container.querySelectorAll(
+				'.newspack-nodes-chart__partial-segment'
+			),
+		];
+		const bottomOf = ( rect ) =>
+			Number( rect.getAttribute( 'y' ) ) +
+			Number( rect.getAttribute( 'height' ) );
+		const lastCall = () => setupTooltip.mock.calls.at( -1 )[ 1 ];
+		const split = ( props ) =>
+			mount( { series: pair, partial: SPLIT, stacked: true, ...props } );
+
+		it( 'stacks one segment per series in its colour under the hatch, topped at their sum', () => {
+			const { container } = split();
+			const [ low, high ] = segments( container );
+			expect( segments( container ) ).toHaveLength( 2 );
+			expect( low.style.fill ).toBe( '#111111' );
+			expect( high.style.fill ).toBe( '#222222' );
+			expect( bottomOf( low ) ).toBeCloseTo( INNER_H, 3 );
+			expect( bottomOf( high ) ).toBeCloseTo(
+				Number( low.getAttribute( 'y' ) ),
+				3
+			);
+			// 6 + 3 outranks the stack's peak of 7, so the sum is the peak.
+			expect( Number( high.getAttribute( 'y' ) ) ).toBeCloseTo(
+				CEILING,
+				3
+			);
+			const [ bar ] = partialBar( container );
+			expect( Number( bar.getAttribute( 'y' ) ) ).toBeCloseTo(
+				CEILING,
+				3
+			);
+			expect( bar.querySelector( 'title' ).textContent ).toBe(
+				'so far, week of 2 Nov: 13u'
+			);
+		} );
+
+		it( 'hands the tooltip the bucket as one slot past the dates, each series its count and the total', () => {
+			split( { totalLabel: 'All' } );
+			const { dates: slots, formatEntry } = lastCall();
+			expect( slots ).toEqual( [ ...weeks, new Date( '2026-11-02' ) ] );
+			expect( formatEntry( weeks.length ) ).toEqual( [
+				{ label: 'All', value: '13u' },
+				{ label: 'offboarding', value: '6u', raw: 6 },
+				{ label: 'awards', value: '3u', raw: 3 },
+			] );
+		} );
+
+		it( 'lets a click or a drag name the complete slots alone', () => {
+			const onSlotClick = jest.fn();
+			const onSlotRange = jest.fn();
+			split( { onSlotClick, onSlotRange } );
+			expect( lastCall() ).toEqual(
+				expect.objectContaining( {
+					onSlotClick,
+					onSlotRange,
+					selectable: weeks.length,
+				} )
+			);
+		} );
+
+		it( 'draws the picked series’ segment alone, as the bands are', () => {
+			const { container } = split();
+			act( () =>
+				fireEvent.click(
+					container.querySelector(
+						'.newspack-nodes-chart-legend button'
+					)
+				)
+			);
+			expect(
+				segments( container ).map( ( s ) => s.style.fill )
+			).toEqual( [ '#111111' ] );
+			expect(
+				lastCall()
+					.formatEntry( weeks.length )
+					.map( ( e ) => e.label )
+			).toEqual( [ 'offboarding' ] );
+		} );
+
+		it( 'draws no segment for a series counting nothing in the bucket', () => {
+			const { container } = split( {
+				partial: { ...SPLIT, counts: { offboarding: 6, awards: 0 } },
+			} );
+			expect(
+				segments( container ).map( ( s ) => s.style.fill )
+			).toEqual( [ '#111111' ] );
+		} );
+
+		it( 'overlays each series’ segment from the axis while the bands are overlaid', () => {
+			const { container } = split( { stacked: false } );
+			const drawn = segments( container );
+			expect( drawn ).toHaveLength( 2 );
+			for ( const segment of drawn ) {
+				expect( bottomOf( segment ) ).toBeCloseTo( INNER_H, 3 );
+			}
+			expect( partialBar( container ) ).toHaveLength( 1 );
+		} );
 	} );
 } );

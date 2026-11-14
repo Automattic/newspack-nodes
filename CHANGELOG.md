@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A time chart's tooltip can name its slot in the caller's words.** `AreaTimeChart` takes `formatSlot`, handed to `setupTooltip()` as `formatHeader`, which titles the tooltip for each slot, the running bucket's included; a chart giving none keeps the slot's local time, as every five-minute chart does.
+
+- **A time chart's running bucket can carry a count per series.** `AreaTimeChart`'s `partial` takes `counts`, each series' count keyed by its label, beside its total. Given them, the hatched bar after the last slot is a segment per drawn series in its colour under the hatch, none for a series counting nothing, stacked as the bands are or each from the axis while they are overlaid, and it shows whatever the stack toggle or a legend pick; the tooltip reads it as the slot one past the last, each series its count and the total row the caller's `count`, and a click or a drag never hands that slot to the caller: `setupTooltip()` takes `selectable`, the leading slots a click or a drag may name, so a drag into the bucket shades and reports up to the last slot alike, and a selected slot's shade is as wide as its hover column. A `partial` with a total alone draws the single hatched bar it drew before.
+
 ### Fixed
 
 - **A layout editor no longer shows an error for a block switch's preview.** Core previews a transform by rendering the blocks a second time, `Disabled`, in an iframe, and a composition block's View there mounted a second copy of the page's live reads, whose node names collide with the first (`node name collision: …:tee already registered`). A composition block inside a `Disabled` subtree now renders its wrapper and a container's children alone and mounts no View. The preview iframe carries neither the page's skin nor its reads, so the layout editor hides the switcher's preview popover.

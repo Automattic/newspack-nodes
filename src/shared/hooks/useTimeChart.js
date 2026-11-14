@@ -419,19 +419,21 @@ const capture = ( el, pointerId ) => {
  * panel on a long dashboard from opening its tooltip off-screen. Flipped, it
  * clears the row's title too, since the wrapper is what it measures against.
  *
- * @param {Object}         g                    D3 group selection (inner chart area).
- * @param {Object}         params               Configuration.
- * @param {number}         params.innerW        Chart inner width.
- * @param {number}         params.innerH        Chart inner height.
- * @param {Array}          params.dates         One `Date` per slot, ascending; the hover snaps to the nearest.
- * @param {Object}         params.x             D3 x scale over `dates`.
- * @param {EntryFormatter} params.formatEntry   Rows to list for the hovered slot.
- * @param {Object}         params.tooltipRef    React ref to tooltip div.
- * @param {Object}         params.lastMouseXRef React ref tracking mouse x.
- * @param {Object}         params.containerRef  React ref to container div.
- * @param {SlotClick}      [params.onSlotClick] Takes the clicked slot's index into `dates`.
- * @param {SlotRange}      [params.onSlotRange] Takes a drag's span of indexes into `dates`; absent, a drag is a click.
- * @param {Object}         [params.dragRef]     React ref holding the press in progress; required with `onSlotRange`.
+ * @param {Object}              g                     D3 group selection (inner chart area).
+ * @param {Object}              params                Configuration.
+ * @param {number}              params.innerW         Chart inner width.
+ * @param {number}              params.innerH         Chart inner height.
+ * @param {Array}               params.dates          One `Date` per slot, ascending; the hover snaps to the nearest.
+ * @param {Object}              params.x              D3 x scale over `dates`.
+ * @param {EntryFormatter}      params.formatEntry    Rows to list for the hovered slot.
+ * @param {(d: Date) => string} [params.formatHeader] Titles the hovered slot; its local time when absent.
+ * @param {Object}              params.tooltipRef     React ref to tooltip div.
+ * @param {Object}              params.lastMouseXRef  React ref tracking mouse x.
+ * @param {Object}              params.containerRef   React ref to container div.
+ * @param {SlotClick}           [params.onSlotClick]  Takes the clicked slot's index into `dates`.
+ * @param {SlotRange}           [params.onSlotRange]  Takes a drag's span of indexes into `dates`; absent, a drag is a click.
+ * @param {Object}              [params.dragRef]      React ref holding the press in progress; required with `onSlotRange`.
+ * @param {number}              [params.selectable]   The leading slots a click or a drag may name, every one when absent: a click past them names none, and a drag shades and reports up to the last of them.
  */
 export const setupTooltip = (
 	g,
@@ -447,6 +449,8 @@ export const setupTooltip = (
 		onSlotClick,
 		onSlotRange,
 		dragRef,
+		selectable = dates.length,
+		formatHeader = ( d ) => d.toLocaleTimeString(),
 	}
 ) => {
 	const bisect = d3.bisector( ( d ) => d ).left;
@@ -480,7 +484,7 @@ export const setupTooltip = (
 		// Labels are wire data: build with textContent, never innerHTML.
 		tooltip.textContent = '';
 		const header = document.createElement( 'strong' );
-		header.textContent = dates[ idx ].toLocaleTimeString();
+		header.textContent = formatHeader( dates[ idx ] );
 		tooltip.appendChild( header );
 
 		const entries = formatEntry( idx );
@@ -548,8 +552,13 @@ export const setupTooltip = (
 				dragRef.current = null;
 				return;
 			}
-			if ( onSlotClick && ! isDragSelection( event ) ) {
-				onSlotClick( slotAt( d3.pointer( event )[ 0 ] ), {
+			const idx = slotAt( d3.pointer( event )[ 0 ] );
+			if (
+				onSlotClick &&
+				idx < selectable &&
+				! isDragSelection( event )
+			) {
+				onSlotClick( idx, {
 					additive: Boolean( event.metaKey || event.ctrlKey ),
 				} );
 			}
@@ -558,7 +567,7 @@ export const setupTooltip = (
 		bindDrag( overlay, {
 			dragRef,
 			onSlotRange,
-			slotAt,
+			slotAt: ( mx ) => Math.min( slotAt( mx ), selectable - 1 ),
 			scheduleHover,
 			threshold: Math.max( column.width, MIN_DRAG_PX ),
 			paint: () => paintDrag( dragShade, frame, dragRef.current ),

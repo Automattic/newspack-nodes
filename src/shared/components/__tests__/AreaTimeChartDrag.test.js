@@ -331,3 +331,54 @@ describe( 'AreaTimeChart drag-to-select', () => {
 		expect( onSlotClick ).toHaveBeenCalledWith( 3, { additive: false } );
 	} );
 } );
+
+describe( 'AreaTimeChart with a running bucket carrying counts', () => {
+	// The bucket after the last slot is a sixth slot: x = 0, 141.6, … 708.
+	const RUN_X = [ 0, 141.6, 283.2, 424.8, 566.4, 708 ];
+	const running = {
+		bucket: new Date( 1700000000000 + 5 * 300000 ),
+		count: 19,
+		counts: { 'jobs.p0': 19 },
+		label: 'so far',
+	};
+	const mountRunning = ( props ) =>
+		mount( { stacked: true, partial: running, ...props } );
+	const widthOf = ( rect ) => Number( rect.getAttribute( 'width' ) );
+	const hoverColumn = ( c ) =>
+		c.querySelector( 'rect[fill="rgba(128,128,128,0.18)"]' );
+
+	it( 'shades a selected slot as wide as the hover column over it', () => {
+		const { container } = mountRunning( {
+			selectedSlots: new Set( [ 2 ] ),
+		} );
+		const shade = container.querySelector(
+			'.newspack-nodes-chart__selected'
+		);
+		expect( widthOf( shade ) ).toBeCloseTo( 708 / 6, 3 );
+		expect( widthOf( shade ) ).toBeCloseTo(
+			widthOf( hoverColumn( container ) ),
+			3
+		);
+	} );
+
+	it( 'shades a drag into the running bucket only to the last slot, the span it reports', () => {
+		const onSlotRange = jest.fn();
+		const { container } = mountRunning( { onSlotRange } );
+		fireEvent.pointerDown( overlay( container ), at( RUN_X[ 2 ] ) );
+		fireEvent.pointerMove( overlay( container ), at( RUN_X[ 5 ] ) );
+		expect( shaded( container ) ).toBe( 3 );
+		fireEvent.pointerUp( overlay( container ), at( RUN_X[ 5 ] ) );
+		expect( onSlotRange ).toHaveBeenCalledWith( 2, 4, {
+			additive: false,
+		} );
+	} );
+
+	it( 'hands a click on the running bucket to no caller, and one on a slot as ever', () => {
+		const onSlotClick = jest.fn();
+		const { container } = mountRunning( { onSlotClick } );
+		fireEvent.click( overlay( container ), at( RUN_X[ 5 ] ) );
+		expect( onSlotClick ).not.toHaveBeenCalled();
+		fireEvent.click( overlay( container ), at( RUN_X[ 3 ] ) );
+		expect( onSlotClick ).toHaveBeenCalledWith( 3, { additive: false } );
+	} );
+} );

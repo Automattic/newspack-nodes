@@ -32,11 +32,16 @@
  * `partial` names the current bucket, still filling, its count so far and the
  * caller's label for it. It is drawn as a hatched bar ending at its bucket,
  * after the last slot, labelled only when the caller names a label, and never
- * as a point on the line, so `series` holds only complete buckets; the bar
- * takes no slot index, so a tooltip or a click never reads it. Its count is a
- * total, which compares only with a stack of every series, so the bar, and
- * its share of the axis, show only while the chart is stacked and no pick
- * leaves a series out.
+ * as a point on the line, so `series` holds only complete buckets. A count
+ * alone is a total, which compares only with a stack of every series, so
+ * that bar, and its share of the axis, show only while the chart is stacked
+ * and no pick leaves a series out, and it takes no slot index, so a tooltip
+ * or a click never reads it. With `counts`, each drawn series' count keyed
+ * by its label, the bar is a segment per drawn series in its colour under
+ * the hatch, stacked as the bands are or overlaid from the axis, shown
+ * whatever the stack toggle or a pick; the tooltip reads it as the slot one
+ * past the last, each series its count and the total row the caller's
+ * count, and a click or a drag never hands that slot to the caller.
  *
  * On a narrow screen (`useNarrow`) the legend moves below the plot, which it
  * always follows in DOM order.
@@ -183,6 +188,62 @@ const drawPartial = (
 };
 
 /**
+ * The current bucket's per-series segments, under the hatch `drawPartial()`
+ * lays over them: each drawn series' count in its colour, stacked from the
+ * axis as the bands are, or each from the axis while they are overlaid; a
+ * series counting nothing draws none, as an empty band draws none.
+ *
+ * @param {Object}                                g              The plot-area group.
+ * @param {Object}                                params         Configuration.
+ * @param {Array<{label: string, color: string}>} params.drawn   The drawn series.
+ * @param {Object<string, number>}                params.counts  Each series' count, keyed by its label.
+ * @param {boolean}                               params.stacked Whether the series add up.
+ * @param {number}                                params.x       The bucket's x.
+ * @param {number}                                params.column  One slot column's width.
+ * @param {(value: number) => number}             params.y       The y scale.
+ */
+const drawSegments = ( g, { drawn, counts, stacked, x, column, y } ) => {
+	const width = column * PARTIAL_BAR_SHARE;
+	let base = 0;
+	drawn.forEach( ( s ) => {
+		const count = counts[ s.label ] ?? 0;
+		if ( ! count ) {
+			return;
+		}
+		const y0 = stacked ? base : 0;
+		base = y0 + count;
+		g.append( 'rect' )
+			.attr( 'class', 'newspack-nodes-chart__partial-segment' )
+			.attr( 'x', x - width )
+			.attr( 'y', y( y0 + count ) )
+			.attr( 'width', width )
+			.attr( 'height', y( y0 ) - y( y0 + count ) )
+			.attr( 'fill-opacity', stacked ? 0.7 : 0.5 )
+			.attr( 'pointer-events', 'none' )
+			.style( 'fill', s.color );
+	} );
+};
+
+/**
+ * Where the current bucket's bar tops out: its count alone, else the stack
+ * of the drawn series' counts, or the tallest while they are overlaid.
+ *
+ * @param {{count: number, counts?: Object<string, number>}} partial The bucket.
+ * @param {Array<{label: string}>}                           drawn   The drawn series.
+ * @param {boolean}                                          stacked Whether the series add up.
+ * @return {number} The bar's top, in counts.
+ */
+const partialTop = ( partial, drawn, stacked ) => {
+	if ( ! partial.counts ) {
+		return partial.count;
+	}
+	const counts = drawn.map( ( s ) => partial.counts[ s.label ] ?? 0 );
+	return stacked
+		? counts.reduce( ( sum, n ) => sum + n, 0 )
+		: Math.max( 0, ...counts );
+};
+
+/**
  * The stack glyph: three bands, one on another.
  *
  * @return {import('react').ReactElement} A 12px icon.
@@ -207,23 +268,24 @@ const ExpandIcon = () => (
 );
 
 /**
- * @param {Object}                                                               props                 Component props.
- * @param {Array<{label: string, values: Array<{date: Date, value?: ?number}>}>} props.series          Every series shares one slot list; a null value is unmeasured and draws as a gap.
- * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}      props.yFormatFor      Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
- * @param {( label: string, index: number ) => string}                           props.colorAt         The colour for a series at its place in the full list: area, stroke and legend swatch.
- * @param {string}                                                               props.title           Translated heading.
- * @param {number}                                                               props.height          Collapsed SVG height in pixels; the expand button doubles it.
- * @param {string}                                                               props.storageKey      Stable, untranslated name unique to this chart; see the persistence rule above.
- * @param {string}                                                               props.yLabel          Translated Y-axis title naming the quantity; the ticks carry the unit.
- * @param {boolean}                                                              [props.stacked]       Stack the series until the reader picks; the corner toggle overrides it.
- * @param {boolean}                                                              [props.stackable]     Offer the toggle at all; `false` for bands that must not be summed.
- * @param {string}                                                               [props.totalLabel]    Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
- * @param {string}                                                               [props.className]     Class for the chart element, beside the shared role.
- * @param {import('../hooks/useTimeChart').SlotClick}                            [props.onSlotClick]   Takes a click's nearest slot, as an index into `series[0].values`, and whether cmd or ctrl made it additive.
- * @param {import('../hooks/useTimeChart').SlotRange}                            [props.onSlotRange]   Takes a drag's first and last slot, `fromIndex <= toIndex`, as indexes into `series[0].values`, and whether cmd or ctrl held at release made it additive; absent, a drag is a click.
- * @param {ReadonlySet<number>}                                                  [props.selectedSlots] Indexes into `series[0].values` to shade; absent or empty shades none.
- * @param {{bucket: (string|Date), count: number, label: ?string}}               [props.partial]       The current bucket, after the last slot, its count so far, and its translated label, without which the bar is unlabelled; absent draws no bar.
- * @param {(d: Date) => string}                                                  [props.formatX]       Words each time tick, drawn level; absent, ticks read day and time, slanted.
+ * @param {Object}                                                                                  props                 Component props.
+ * @param {Array<{label: string, values: Array<{date: Date, value?: ?number}>}>}                    props.series          Every series shares one slot list; a null value is unmeasured and draws as a gap.
+ * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}                         props.yFormatFor      Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
+ * @param {( label: string, index: number ) => string}                                              props.colorAt         The colour for a series at its place in the full list: area, stroke and legend swatch.
+ * @param {string}                                                                                  props.title           Translated heading.
+ * @param {number}                                                                                  props.height          Collapsed SVG height in pixels; the expand button doubles it.
+ * @param {string}                                                                                  props.storageKey      Stable, untranslated name unique to this chart; see the persistence rule above.
+ * @param {string}                                                                                  props.yLabel          Translated Y-axis title naming the quantity; the ticks carry the unit.
+ * @param {boolean}                                                                                 [props.stacked]       Stack the series until the reader picks; the corner toggle overrides it.
+ * @param {boolean}                                                                                 [props.stackable]     Offer the toggle at all; `false` for bands that must not be summed.
+ * @param {string}                                                                                  [props.totalLabel]    Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
+ * @param {string}                                                                                  [props.className]     Class for the chart element, beside the shared role.
+ * @param {import('../hooks/useTimeChart').SlotClick}                                               [props.onSlotClick]   Takes a click's nearest slot, as an index into `series[0].values`, and whether cmd or ctrl made it additive.
+ * @param {import('../hooks/useTimeChart').SlotRange}                                               [props.onSlotRange]   Takes a drag's first and last slot, `fromIndex <= toIndex`, as indexes into `series[0].values`, and whether cmd or ctrl held at release made it additive; absent, a drag is a click.
+ * @param {ReadonlySet<number>}                                                                     [props.selectedSlots] Indexes into `series[0].values` to shade; absent or empty shades none.
+ * @param {{bucket: (string|Date), count: number, counts?: Object<string, number>, label: ?string}} [props.partial]       The current bucket, after the last slot, its count so far, each series' count keyed by its label when given, and its translated label, without which the bar is unlabelled; absent draws no bar.
+ * @param {(d: Date) => string}                                                                     [props.formatX]       Words each time tick, drawn level; absent, ticks read day and time, slanted.
+ * @param {(d: Date) => string}                                                                     [props.formatSlot]    Titles the tooltip for a slot, the running bucket's included, in the caller's words; absent, the slot's local time.
  * @return {import('react').ReactElement} Rendered chart.
  */
 function AreaTimeChart( {
@@ -243,6 +305,7 @@ function AreaTimeChart( {
 	selectedSlots,
 	partial,
 	formatX,
+	formatSlot,
 } ) {
 	if ( ! storageKey ) {
 		throw new TypeError( 'AreaTimeChart: storageKey is required' );
@@ -294,9 +357,11 @@ function AreaTimeChart( {
 			const totalAt = ( idx, over ) =>
 				over.reduce( ( sum, s ) => sum + valueAt( s, idx ), 0 );
 
-			// A total compares only with a stack of every series.
+			// A bare total compares only with a stack of every series.
 			const shown =
-				partial && stacked && drawn.length === series.length
+				partial &&
+				( partial.counts ||
+					( stacked && drawn.length === series.length ) )
 					? partial
 					: null;
 			const partialDate = shown && new Date( shown.bucket );
@@ -308,10 +373,8 @@ function AreaTimeChart( {
 				.range( [ 0, innerW ] );
 
 			// The axis and its unit follow what is drawn.
-			const peak = Math.max(
-				peakOf( drawn, stacked ),
-				shown?.count ?? 0
-			);
+			const top = shown ? partialTop( shown, drawn, stacked ) : 0;
+			const peak = Math.max( peakOf( drawn, stacked ), top );
 			const yFormat = yFormatFor( peak );
 			// 10% headroom clears the peak band; an all-zero one gets [0,1].
 			const y = d3
@@ -328,8 +391,17 @@ function AreaTimeChart( {
 				yLabel,
 				xFormat: formatX,
 			} );
+			// A bucket with per-series counts is one more tooltip slot.
+			const split = shown?.counts ? shown : null;
+			const slots = split ? [ ...dates, partialDate ] : dates;
 			if ( selectedSlots ) {
-				shadeSlots( g, { innerW, innerH, dates, x, selectedSlots } );
+				shadeSlots( g, {
+					innerW,
+					innerH,
+					dates: slots,
+					x,
+					selectedSlots,
+				} );
 			}
 
 			// Stacked bands ride on the running baseline; overlaid ones on 0.
@@ -386,28 +458,45 @@ function AreaTimeChart( {
 			} );
 
 			if ( shown ) {
+				const column = innerW / ( dates.length + 1 );
+				if ( shown.counts ) {
+					drawSegments( g, {
+						drawn,
+						counts: shown.counts,
+						stacked,
+						x: x( partialDate ),
+						column,
+						y,
+					} );
+				}
 				drawPartial( svg, g, {
 					id: hatchId,
 					x: x( partialDate ),
-					top: y( shown.count ),
+					top: y( top ),
 					innerH,
-					column: innerW / ( dates.length + 1 ),
+					column,
 					value: yFormat( shown.count ),
 					label: shown.label,
 				} );
 			}
 
+			const last = dates.length - 1;
+			const countAt = ( s, idx ) =>
+				idx > last ? split.counts[ s.label ] ?? 0 : valueAt( s, idx );
+			const totalOf = ( idx ) =>
+				idx > last ? split.count : totalAt( idx, series );
+
 			setupTooltip( g, {
 				innerW,
 				innerH,
-				dates,
+				dates: slots,
 				x,
 				formatEntry: ( idx ) => {
 					const entries = drawn
 						.map( ( s ) => ( {
 							label: s.label,
-							value: yFormat( valueAt( s, idx ) ),
-							raw: valueAt( s, idx ),
+							value: yFormat( countAt( s, idx ) ),
+							raw: countAt( s, idx ),
 						} ) )
 						.filter( ( e ) => e.raw > 0 )
 						.sort( ( a, b ) => b.raw - a.raw )
@@ -416,9 +505,7 @@ function AreaTimeChart( {
 						? [
 								{
 									label: totalLabel,
-									value: totalFormat(
-										totalAt( idx, series )
-									),
+									value: totalFormat( totalOf( idx ) ),
 								},
 								...entries,
 						  ]
@@ -430,6 +517,8 @@ function AreaTimeChart( {
 				onSlotClick,
 				onSlotRange,
 				dragRef: refs.dragRef,
+				selectable: dates.length,
+				formatHeader: formatSlot,
 			} );
 		},
 		[
@@ -448,6 +537,7 @@ function AreaTimeChart( {
 			partial,
 			hatchId,
 			formatX,
+			formatSlot,
 		]
 	);
 

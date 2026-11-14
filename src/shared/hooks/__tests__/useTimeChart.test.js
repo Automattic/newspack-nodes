@@ -253,6 +253,34 @@ describe( 'setupTooltip', () => {
 		);
 	} );
 
+	it( 'titles the tooltip in the words formatHeader gives the hovered slot', () => {
+		const g = makeFluent();
+		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 8 ) ];
+		const xScale = ( d ) => d.getDate() * 10;
+		xScale.invert = () => dates[ 1 ];
+		const { tooltipRef, lastMouseXRef, containerRef } = refs();
+		setupTooltip( g, {
+			innerW: 200,
+			innerH: 50,
+			dates,
+			x: xScale,
+			formatEntry: () => [ { label: 'gulls', value: 41 } ],
+			formatHeader: ( d ) => `Fortnight of ${ d.getDate() }`,
+			tooltipRef,
+			lastMouseXRef,
+			containerRef,
+		} );
+		g.handlers.mousemove( {} );
+		return new Promise( ( resolve ) =>
+			window.requestAnimationFrame( () => {
+				expect(
+					tooltipRef.current.querySelector( 'strong' ).textContent
+				).toBe( 'Fortnight of 8' );
+				resolve();
+			} )
+		);
+	} );
+
 	it( 'hideTooltip via mouseleave hides the tooltip', () => {
 		const g = makeFluent();
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
