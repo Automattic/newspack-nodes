@@ -4,11 +4,16 @@
  * with its Controls in the block inspector and, for a container, its
  * children through `InnerBlocks`.
  *
+ * In a block preview, which core renders a second time, `Disabled`, in its
+ * own iframe, the block shows its wrapper and children alone and never mounts its View,
+ * whose live reads are the page's own.
+ *
  * `@wordpress/block-editor` is a stand-in: the real one needs the single
  * `wp.privateApis` copy WordPress hands every package.
  */
 
 import { render, screen, within } from '@testing-library/react';
+import { Disabled } from '@wordpress/components';
 import CompositionBlockEdit from '../CompositionBlockEdit';
 
 jest.mock( '@wordpress/block-editor', () => ( {
@@ -108,5 +113,27 @@ describe( 'CompositionBlockEdit', () => {
 		const inner = screen.getByTestId( 'inner' );
 		expect( inner.dataset.allowed ).toBe( 'acme-desk/tally' );
 		expect( screen.getByTestId( 'view' ).contains( inner ) ).toBe( true );
+	} );
+
+	it( 'mounts no View in a preview, keeping the wrapper and its children', () => {
+		const Live = jest.fn( () => {
+			throw new Error(
+				'node name collision: briefing:since:tee already registered'
+			);
+		} );
+		render(
+			<Disabled>
+				<CompositionBlockEdit
+					attributes={ { heading: 'Tide table' } }
+					setAttributes={ () => {} }
+					view={ { View: Live, Controls } }
+					allowedBlocks={ [ 'acme-desk/tally' ] }
+				/>
+			</Disabled>
+		);
+		expect( Live ).not.toHaveBeenCalled();
+		const block = screen.getByTestId( 'block' );
+		expect( block.contains( screen.getByTestId( 'inner' ) ) ).toBe( true );
+		expect( screen.queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 } );

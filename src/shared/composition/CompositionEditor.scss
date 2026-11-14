@@ -31,4 +31,9 @@
 		grid-column: 2;
 		grid-row: 1 / span 2;
 	}
+
+	// Core's switch preview iframe lacks the skin and the page's reads.
+	.block-editor-block-switcher__popover-preview {
+		display: none;
+	}
 }

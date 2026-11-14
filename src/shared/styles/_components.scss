@@ -1210,6 +1210,13 @@
 		background-color: var(--ink, var(--np-text));
 	}
 
+	// The block switcher's preview frame, which core paints white and black.
+	.block-editor-block-switcher__popover-preview .components-popover__content {
+		@include mix.raised-surface(background-color);
+		border-color: var(--paper-shadow, var(--np-border-strong));
+		color: var(--ink, var(--np-text));
+	}
+
 	.block-editor-block-card,
 	.block-editor-block-inspector h2,
 	.block-editor-block-inspector h3,

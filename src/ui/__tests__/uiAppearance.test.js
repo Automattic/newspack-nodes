@@ -997,6 +997,18 @@ describe( 'canonical UI appearance', () => {
 		).toMatchObject( { 'background-color': 'var(--ink,var(--np-text))' } );
 	} );
 
+	it( "paints the block switcher's preview frame on the skin, heavier than core's", () => {
+		expect(
+			exactSelectorRule(
+				'.newspack-nodes-ui .block-editor-block-switcher__popover-preview .components-popover__content'
+			)?.declarations
+		).toMatchObject( {
+			'background-color': 'var(--paper-2,var(--np-surface-subtle))',
+			'border-color': 'var(--paper-shadow,var(--np-border-strong))',
+			color: 'var(--ink,var(--np-text))',
+		} );
+	} );
+
 	it( 'owns native option paint in canonical controls', () => {
 		const option = exactSelectorRule( `${ UI_ROOT } select option` );
 

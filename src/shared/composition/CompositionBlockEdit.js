@@ -4,6 +4,11 @@
  * holds, its Controls in the block inspector, handed its attribute schemas,
  * and a container's children through `InnerBlocks`.
  *
+ * A block preview, which core renders as a second, `Disabled` block list in
+ * its own iframe, shows the wrapper and a container's children alone: the
+ * View's live reads carry node names unique to the page, so a second View
+ * would collide with the first.
+ *
  * The editor half of the composition layer: it imports
  * `@wordpress/block-editor`, so only the editor's own bundle carries it.
  */
@@ -13,6 +18,8 @@ import {
 	InspectorControls,
 	useBlockProps,
 } from '@wordpress/block-editor';
+import { Disabled } from '@wordpress/components';
+import { useContext } from '@wordpress/element';
 
 /**
  * @param {Object}                                           props
@@ -30,8 +37,16 @@ export default function CompositionBlockEdit( {
 	allowedBlocks,
 	schema,
 } ) {
+	const blockProps = useBlockProps();
+	const previewing = useContext( Disabled.Context );
+	const inner = allowedBlocks && (
+		<InnerBlocks allowedBlocks={ allowedBlocks } />
+	);
+	if ( previewing ) {
+		return <div { ...blockProps }>{ inner }</div>;
+	}
 	return (
-		<div { ...useBlockProps() }>
+		<div { ...blockProps }>
 			{ Controls && (
 				<InspectorControls>
 					<Controls
@@ -42,9 +57,7 @@ export default function CompositionBlockEdit( {
 				</InspectorControls>
 			) }
 			<View attributes={ attributes } editing>
-				{ allowedBlocks && (
-					<InnerBlocks allowedBlocks={ allowedBlocks } />
-				) }
+				{ inner }
 			</View>
 		</div>
 	);

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A layout editor no longer shows an error for a block switch's preview.** Core previews a transform by rendering the blocks a second time, `Disabled`, in an iframe, and a composition block's View there mounted a second copy of the page's live reads, whose node names collide with the first (`node name collision: …:tee already registered`). A composition block inside a `Disabled` subtree now renders its wrapper and a container's children alone and mounts no View. The preview iframe carries neither the page's skin nor its reads, so the layout editor hides the switcher's preview popover.
+- **The block switcher's preview frame takes the skin.** WordPress paints it white with a near-black rule; the shared sheet paints it on the skin's paper, rule and ink.
+
 ## [2.158.1] - 2026-11-14
 
 ### Fixed
