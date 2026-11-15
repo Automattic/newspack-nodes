@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.160.0] - 2026-11-15
+
 ### Added
 
 - **The build kit builds a plugin's blocks.** `buildBlocks( { esbuild, sass, rtlcss, root, srcDir, outDir, manifest, alias, nodePaths, watch, logLevel } )` builds every `<srcDir>/<slug>/` holding a `block.json` into `<outDir>/<slug>/` by the `wp-scripts build` convention: `index.js` and, when there is one, `view.js` each to `<base>.js`, `<base>.css` with its `-rtl.css` and `<base>.asset.php`; each `style.scss` the editor entry reaches to `style-index.css` with its `-rtl.css`, kept out of `index.css`; each `<slug>/lazy/<name>.js` to `<slug>/lazy/` as a bundle of its own, with its stylesheets and `.asset.php`, which the block loads by URL when it needs it; `block.json` and `render.php` copied; and, when `manifest` names a path, every block's metadata in slug order as the PHP collection `wp_register_block_types_from_metadata_collection()` reads. A `buildDashboards()` entry takes the same split as `splitStyle: true`. `WP_EXTERNALS` adds `@wordpress/url`, `@wordpress/hooks`, `@wordpress/html-entities`, `@wordpress/rich-text`, `@wordpress/plugins`, `@wordpress/editor` and `@wordpress/server-side-render`, which block and format builds import.

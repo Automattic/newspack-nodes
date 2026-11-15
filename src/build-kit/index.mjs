@@ -58,7 +58,7 @@ const { aliasImporter } = aliasMap;
  *
  * @type {string}
  */
-const SUBSTRATE_VERSION = '2.159.0';
+const SUBSTRATE_VERSION = '2.160.0';
 
 /**
  * Read the substrate version this kit stamps into every bundle.

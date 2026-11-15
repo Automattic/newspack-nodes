@@ -6,6 +6,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+## 2.160.0
+
 - **`Vault::get_enabled()` is gone.** It was an alias of `get_all()`;
   call `Vault::get_instance()->get_all()` instead.
 
