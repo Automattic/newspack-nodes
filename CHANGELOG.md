@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.159.0] - 2026-11-14
+
 ### Added
 
 - **A time chart's tooltip can name its slot in the caller's words.** `AreaTimeChart` takes `formatSlot`, handed to `setupTooltip()` as `formatHeader`, which titles the tooltip for each slot, the running bucket's included; a chart giving none keeps the slot's local time, as every five-minute chart does.
