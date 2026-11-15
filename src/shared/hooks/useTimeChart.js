@@ -402,6 +402,53 @@ const capture = ( el, pointerId ) => {
 };
 
 /**
+ * The top of the visible area: below WordPress's admin bar while it is fixed
+ * across the top, and below the dashboard header while any of it shows, since
+ * the header paints over a tooltip reaching into it.
+ *
+ * @return {number} The y, in viewport pixels, a tooltip may start at.
+ */
+function visibleTop() {
+	let top = 0;
+	const bar = document.getElementById( 'wpadminbar' );
+	if ( bar && 'fixed' === window.getComputedStyle( bar ).position ) {
+		top = Math.max( top, bar.getBoundingClientRect().bottom );
+	}
+	const header = document.querySelector( '.topology-header' );
+	if ( header ) {
+		top = Math.max( top, header.getBoundingClientRect().bottom );
+	}
+	return top;
+}
+
+/**
+ * Move a placed tooltip until all of it is on screen, over the chart where it
+ * must: down past the visible top, else up off the bottom, and right past the
+ * left edge, else left off the right. A tooltip taller or wider than the
+ * viewport keeps its top and left edge in view.
+ *
+ * @param {HTMLElement} tooltip The tooltip, already placed by style.
+ */
+function keepOnScreen( tooltip ) {
+	const rect = tooltip.getBoundingClientRect();
+	const top = visibleTop();
+	let dy = 0;
+	if ( rect.top < top ) {
+		dy = top - rect.top;
+	} else if ( rect.bottom > window.innerHeight ) {
+		dy = Math.max( top - rect.top, window.innerHeight - rect.bottom );
+	}
+	let dx = 0;
+	if ( rect.left < 0 ) {
+		dx = -rect.left;
+	} else if ( rect.right > window.innerWidth ) {
+		dx = Math.max( -rect.left, window.innerWidth - rect.right );
+	}
+	tooltip.style.top = `${ parseFloat( tooltip.style.top || '0' ) + dy }px`;
+	tooltip.style.left = `${ parseFloat( tooltip.style.left || '0' ) + dx }px`;
+}
+
+/**
  * Bind the hover: a highlight column on the nearest bucket, and a tooltip
  * listing that bucket's rows. A click on the plot hands that bucket's index
  * to `onSlotClick`, with `additive` true when cmd or ctrl was held; the click
@@ -429,6 +476,8 @@ const capture = ( el, pointerId ) => {
  * when that would carry it past a viewport edge, which is what keeps the last
  * panel on a long dashboard from opening its tooltip off-screen. Flipped, it
  * clears the row's title too, since the wrapper is what it measures against.
+ * Where neither side has room, it then moves over the chart until all of it
+ * is on screen, clear of a fixed admin bar (`keepOnScreen()`).
  *
  * @param {Object}              g                     D3 group selection (inner chart area).
  * @param {Object}              params                Configuration.
@@ -521,9 +570,7 @@ export const setupTooltip = (
 		if ( tooltipRect.right > window.innerWidth ) {
 			tooltip.style.left = `${ left - tooltip.offsetWidth }px`;
 		}
-		if ( tooltip.getBoundingClientRect().left < 0 ) {
-			tooltip.style.left = '0px';
-		}
+		keepOnScreen( tooltip );
 	};
 
 	const scheduleHover = ( mx ) => {

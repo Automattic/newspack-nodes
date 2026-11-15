@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A time chart's tooltip stays wholly on screen.** It still opens below the chart, or above it when there is no room below, and where neither fits it now moves over the chart until all of it shows, below WordPress's admin bar and the dashboard header. A tall tooltip on a chart filling the screen used to start behind the header.
+
 ### Changed
 
 - The release workflow builds with read-only permissions and publishes from a separate job.

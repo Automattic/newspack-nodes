@@ -343,12 +343,14 @@ describe( 'setupTooltip', () => {
 			configurable: true,
 			value: 10,
 		} );
-		const { tooltipRef, frameRef, containerRef } = refs( {
-			left: -5,
-			right: 80,
-			top: 0,
-			bottom: 40,
-		} );
+		const { tooltipRef, frameRef, containerRef } = refs();
+		// The rectangle follows the style, 115px left of the wrapper's origin.
+		const el = tooltipRef.current;
+		el.getBoundingClientRect = () => {
+			const top = parseFloat( el.style.top || '0' );
+			const left = parseFloat( el.style.left || '0' ) - 115;
+			return { top, bottom: top + 40, left, right: left + 85 };
+		};
 		try {
 			setupTooltip( g, {
 				innerW: 200,
@@ -361,8 +363,10 @@ describe( 'setupTooltip', () => {
 				frameRef,
 				containerRef,
 			} );
-			expect( tooltipRef.current.style.top ).toBe( '-24px' );
-			expect( tooltipRef.current.style.left ).toBe( '0px' );
+			// Bigger than the viewport, it keeps its top and left edge in view.
+			const rect = el.getBoundingClientRect();
+			expect( rect.top ).toBe( 0 );
+			expect( rect.left ).toBe( 0 );
 		} finally {
 			Object.defineProperty( window, 'innerHeight', {
 				configurable: true,
@@ -373,6 +377,117 @@ describe( 'setupTooltip', () => {
 				value: innerWidth,
 			} );
 		}
+	} );
+
+	describe( 'a tooltip with room neither below nor above the chart', () => {
+		// The wrapper sits 117px down the viewport; the row ends at 213.
+		const WRAPPER_TOP = 117;
+		const TALL = 263;
+		const VIEWPORT = 311;
+		let saved;
+		let bar;
+
+		/**
+		 * A tooltip whose rectangle follows its own `style.top` and `left`.
+		 *
+		 * @return {Object} The refs setupTooltip takes.
+		 */
+		const placed = () => {
+			const r = refs();
+			const el = r.tooltipRef.current;
+			Object.defineProperty( el, 'offsetHeight', {
+				configurable: true,
+				get: () => TALL,
+			} );
+			el.getBoundingClientRect = () => {
+				const top = WRAPPER_TOP + parseFloat( el.style.top || '0' );
+				const left = parseFloat( el.style.left || '0' );
+				return { top, bottom: top + TALL, left, right: left + 60 };
+			};
+			const row = r.containerRef.current.parentElement;
+			Object.defineProperty( row, 'offsetHeight', {
+				configurable: true,
+				get: () => 183,
+			} );
+			return r;
+		};
+
+		const hover = ( r ) => {
+			const dates = [
+				new Date( 2026, 0, 1 ),
+				new Date( 2026, 0, 1, 0, 5 ),
+			];
+			const xScale = jest.fn( ( d ) => d.getMinutes() * 10 );
+			xScale.invert = jest.fn( () => dates[ 1 ] );
+			setupTooltip( makeFluent(), {
+				innerW: 200,
+				innerH: 50,
+				dates,
+				x: xScale,
+				formatEntry: () => [],
+				...r,
+				lastMouseXRef: { current: 25 },
+			} );
+			return r.tooltipRef.current.getBoundingClientRect();
+		};
+
+		beforeEach( () => {
+			saved = window.innerHeight;
+			Object.defineProperty( window, 'innerHeight', {
+				configurable: true,
+				value: VIEWPORT,
+			} );
+		} );
+
+		afterEach( () => {
+			Object.defineProperty( window, 'innerHeight', {
+				configurable: true,
+				value: saved,
+			} );
+			bar?.remove();
+			bar = null;
+		} );
+
+		it( 'shifts down over the chart until its top is on screen', () => {
+			const rect = hover( placed() );
+
+			expect( rect.top ).toBe( 0 );
+			expect( rect.bottom ).toBeLessThanOrEqual( VIEWPORT );
+		} );
+
+		it( 'keeps clear of a fixed admin bar across the top', () => {
+			bar = document.createElement( 'div' );
+			bar.id = 'wpadminbar';
+			bar.style.position = 'fixed';
+			bar.getBoundingClientRect = () => ( { top: 0, bottom: 37 } );
+			document.body.appendChild( bar );
+
+			const rect = hover( placed() );
+
+			expect( rect.top ).toBe( 37 );
+			expect( rect.bottom ).toBeLessThanOrEqual( VIEWPORT );
+		} );
+
+		it( 'keeps clear of the dashboard header while it shows', () => {
+			bar = document.createElement( 'header' );
+			bar.className = 'topology-header';
+			bar.getBoundingClientRect = () => ( { top: 9, bottom: 41 } );
+			document.body.appendChild( bar );
+
+			const rect = hover( placed() );
+
+			expect( rect.top ).toBe( 41 );
+			expect( rect.bottom ).toBeLessThanOrEqual( VIEWPORT );
+		} );
+
+		it( 'ignores a dashboard header scrolled out of view', () => {
+			bar = document.createElement( 'header' );
+			bar.className = 'topology-header';
+			bar.getBoundingClientRect = () => ( { top: -90, bottom: -23 } );
+			document.body.appendChild( bar );
+
+			expect( hover( placed() ).top ).toBe( 0 );
+		} );
 	} );
 
 	it( 'cancels a pending tooltip frame when a newer mousemove arrives', () => {
