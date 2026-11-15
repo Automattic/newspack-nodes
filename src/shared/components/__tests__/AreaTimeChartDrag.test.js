@@ -13,7 +13,7 @@ import { useState } from '@wordpress/element';
 import AreaTimeChart from '../AreaTimeChart';
 
 // Five slots; an unlaid container draws 800px wide, a 708px plot box, so the
-// slots sit at x = 0, 177, 354, 531 and 708 and a column is 141.6px wide.
+// slots sit at x = 0, 177, 354, 531 and 708 and an inner column is 177px.
 const SLOT_X = [ 0, 177, 354, 531, 708 ];
 const dates = SLOT_X.map( ( _x, i ) => new Date( 1700000000000 + i * 300000 ) );
 const SERIES = [
@@ -188,6 +188,22 @@ describe( 'AreaTimeChart drag-to-select', () => {
 		} );
 	} );
 
+	it( 'leaves the drag to its first pointer when a second presses mid-drag', () => {
+		const onSlotRange = jest.fn();
+		const { container } = mount( { onSlotRange } );
+		const other = { pointerId: 41 };
+		fireEvent.pointerDown( overlay( container ), at( SLOT_X[ 1 ] ) );
+		fireEvent.pointerMove( overlay( container ), at( SLOT_X[ 3 ] ) );
+		fireEvent.pointerDown( overlay( container ), at( SLOT_X[ 0 ], other ) );
+		fireEvent.pointerMove( overlay( container ), at( SLOT_X[ 4 ] ) );
+		expect( shaded( container ) ).toBe( 4 );
+		fireEvent.pointerUp( overlay( container ), at( SLOT_X[ 4 ] ) );
+		expect( onSlotRange ).toHaveBeenCalledWith( 1, 4, {
+			additive: false,
+		} );
+		expect( captured.map( ( [ , id ] ) => id ) ).toEqual( [ POINTER ] );
+	} );
+
 	it( "ignores a second pointer's cancel mid-drag", () => {
 		const onSlotRange = jest.fn();
 		const { container } = mount( { onSlotRange } );
@@ -351,10 +367,18 @@ describe( 'AreaTimeChart with a running bucket carrying counts', () => {
 		const { container } = mountRunning( {
 			selectedSlots: new Set( [ 2 ] ),
 		} );
+		const frame = jest
+			.spyOn( window, 'requestAnimationFrame' )
+			.mockImplementation( ( paint ) => paint() || 1 );
+		try {
+			fireEvent.mouseMove( overlay( container ), at( RUN_X[ 2 ] ) );
+		} finally {
+			frame.mockRestore();
+		}
 		const shade = container.querySelector(
 			'.newspack-nodes-chart__selected'
 		);
-		expect( widthOf( shade ) ).toBeCloseTo( 708 / 6, 3 );
+		expect( widthOf( shade ) ).toBeCloseTo( 708 / 5, 3 );
 		expect( widthOf( shade ) ).toBeCloseTo(
 			widthOf( hoverColumn( container ) ),
 			3

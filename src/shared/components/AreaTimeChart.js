@@ -513,6 +513,7 @@ function AreaTimeChart( {
 				},
 				tooltipRef: refs.tooltipRef,
 				lastMouseXRef: refs.lastMouseXRef,
+				frameRef: refs.frameRef,
 				containerRef: refs.containerRef,
 				onSlotClick,
 				onSlotRange,

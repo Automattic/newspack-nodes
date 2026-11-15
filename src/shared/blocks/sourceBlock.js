@@ -147,10 +147,11 @@ const isShown = ( field, model ) =>
 	! field.shown || field.shown( fieldValue( field, model ) );
 
 /**
- * Each model's derived fields, by key, so a field is derived once a model
- * however many blocks show it.
+ * Each model's derived values, by the function deriving them, so a field is
+ * derived once a model however many blocks show it, and two declarations
+ * sharing a key never share a value.
  *
- * @type {WeakMap<Object, Map<string, *>>}
+ * @type {WeakMap<Object, Map<Function, *>>}
  */
 const derived = new WeakMap();
 
@@ -173,10 +174,10 @@ export function fieldValue( field, model ) {
 		derived.set( model, new Map() );
 	}
 	const values = derived.get( model );
-	if ( ! values.has( field.key ) ) {
-		values.set( field.key, field.value( model ) );
+	if ( ! values.has( field.value ) ) {
+		values.set( field.value, field.value( model ) );
 	}
-	return values.get( field.key );
+	return values.get( field.value );
 }
 
 /**

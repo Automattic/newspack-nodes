@@ -185,13 +185,12 @@ export default function TopologySettingsPanel( {
 	 */
 	const commit = ( next ) => {
 		setEntries( next );
-		const map = {};
-		for ( const [ n, v ] of next ) {
-			const tv = String( v ).trim();
-			if ( '' !== tv ) {
-				map[ n ] = tv;
-			}
-		}
+		// fromEntries keeps a `__proto__` name an own key, never the prototype.
+		const map = Object.fromEntries(
+			next
+				.map( ( [ n, v ] ) => [ n, String( v ).trim() ] )
+				.filter( ( [ , tv ] ) => '' !== tv )
+		);
 		replaceFrontmatter( map );
 	};
 
@@ -252,9 +251,9 @@ export default function TopologySettingsPanel( {
 	 * Add the pending name/value pair as a new generic var.
 	 *
 	 * Refuses a name the file would not read back, a name already in use — the
-	 * recognized keys included, since those have inputs of their own — and an
-	 * empty value, which `commit` would drop, leaving no key at all. The refusal
-	 * lands in `addError` under the row.
+	 * recognized keys included, since those have inputs of their own — and a
+	 * value left empty once sanitized and trimmed, which `commit` would drop,
+	 * leaving no key at all. The refusal lands in `addError` under the row.
 	 */
 	const addVar = () => {
 		const name = newName.trim();
@@ -280,11 +279,12 @@ export default function TopologySettingsPanel( {
 			);
 			return;
 		}
-		if ( '' === newValue.trim() ) {
+		const value = sanitizeValue( newValue ).trim();
+		if ( '' === value ) {
 			setAddError( __( 'Value cannot be empty.', 'newspack-nodes' ) );
 			return;
 		}
-		commit( [ ...entries, [ name, sanitizeValue( newValue ) ] ] );
+		commit( [ ...entries, [ name, value ] ] );
 		setNewName( '' );
 		setNewValue( '' );
 		setAddError( '' );
@@ -345,12 +345,13 @@ export default function TopologySettingsPanel( {
 				/>
 				<small>
 					{ sprintf(
-						// translators: %d: configured default partition count.
+						// translators: 1: default partition count, 2: partition ceiling.
 						__(
-							'Empty = config default (%d). Max 16.',
+							'Empty = config default (%1$d). Max %2$d.',
 							'newspack-nodes'
 						),
-						configDefaultPartitions
+						configDefaultPartitions,
+						MAX_PARTITIONS
 					) }
 				</small>
 			</label>

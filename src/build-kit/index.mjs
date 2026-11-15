@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import aliasMap from './alias-map.cjs';
 
 const { aliasImporter } = aliasMap;
@@ -273,6 +274,10 @@ function scssPlugin( sass, alias ) {
 				return {
 					contents: result.css,
 					loader: 'css',
+					// esbuild's watcher rebuilds when any of these changes.
+					watchFiles: result.loadedUrls
+						.filter( ( url ) => 'file:' === url.protocol )
+						.map( ( url ) => fileURLToPath( url ) ),
 				};
 			} );
 		},

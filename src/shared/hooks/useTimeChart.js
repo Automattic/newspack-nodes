@@ -162,8 +162,11 @@ export const buildTimeSlots = (
 	const now = new Date();
 	const slots = [];
 	for ( let i = buckets - 1; i >= 0; i-- ) {
-		const date = new Date( now.getTime() - i * BUCKET_MS );
-		date.setMinutes( Math.floor( date.getMinutes() / 5 ) * 5, 0, 0 );
+		// Floored in absolute time, so a repeated local hour cannot move it.
+		const date = new Date(
+			Math.floor( ( now.getTime() - i * BUCKET_MS ) / BUCKET_MS ) *
+				BUCKET_MS
+		);
 		const bucketKey = [
 			date.getUTCFullYear(),
 			String( date.getUTCMonth() + 1 ).padStart( 2, '0' ),
@@ -289,9 +292,11 @@ export const drawAxes = (
 };
 
 /**
- * A slot's column: one bucket wide, the plot tall, centred on the slot. The
- * hover highlight and the selected-slot shading both draw it, so the two
- * cover the same strip.
+ * A slot's column: the plot tall, running from the midpoint to the slot
+ * before it to the midpoint to the slot after it, the first starting and the
+ * last ending at the plot's edge. Neighbouring columns therefore meet, and
+ * none overhangs the plot. The hover highlight and the selected-slot shading
+ * both draw it, so the two cover the same strip.
  *
  * @param {Object} g             D3 group selection (inner chart area).
  * @param {Object} params        Configuration.
@@ -299,21 +304,24 @@ export const drawAxes = (
  * @param {number} params.innerH Chart inner height.
  * @param {Array}  params.dates  One `Date` per slot, ascending.
  * @param {Object} params.x      D3 x scale over `dates`.
- * @return {{append: () => Object, left: (idx: number) => number, width: number}}
- * `append` adds an unplaced column rect to `g`; `left` is slot `idx`'s
- * column's x; `width` is one column's width.
+ * @return {{append: () => Object, place: (rect: Object, idx: number) => Object, pitch: number}}
+ * `append` adds an unplaced column rect to `g`; `place` sets a rect's x and
+ * width to slot `idx`'s column and returns it; `pitch` is the plot's width
+ * over its gaps between slots, an inner column's width.
  */
 const slotColumns = ( g, { innerW, innerH, dates, x } ) => {
-	const width = innerW / dates.length;
+	const last = dates.length - 1;
+	const clamp = ( edge ) => Math.min( innerW, Math.max( 0, edge ) );
+	const mid = ( a, b ) => ( x( dates[ a ] ) + x( dates[ b ] ) ) / 2;
 	return {
-		width,
+		pitch: innerW / Math.max( 1, last ),
 		append: () =>
-			g
-				.append( 'rect' )
-				.attr( 'y', 0 )
-				.attr( 'width', width )
-				.attr( 'height', innerH ),
-		left: ( idx ) => x( dates[ idx ] ) - width / 2,
+			g.append( 'rect' ).attr( 'y', 0 ).attr( 'height', innerH ),
+		place: ( rect, idx ) => {
+			const left = 0 === idx ? 0 : clamp( mid( idx - 1, idx ) );
+			const right = last === idx ? innerW : clamp( mid( idx, idx + 1 ) );
+			return rect.attr( 'x', left ).attr( 'width', right - left );
+		},
 	};
 };
 
@@ -335,10 +343,12 @@ export const shadeSlots = ( g, { selectedSlots, ...frame } ) => {
 	const column = slotColumns( g, frame );
 	frame.dates.forEach( ( date, idx ) => {
 		if ( selectedSlots.has( idx ) ) {
-			column
-				.append()
-				.attr( 'class', 'newspack-nodes-chart__selected' )
-				.attr( 'x', column.left( idx ) );
+			column.place(
+				column
+					.append()
+					.attr( 'class', 'newspack-nodes-chart__selected' ),
+				idx
+			);
 		}
 	} );
 };
@@ -402,7 +412,8 @@ const capture = ( el, pointerId ) => {
  * shades live as the pointer moves, clamped to the edge slot once it leaves
  * the plot, and the release hands it to `onSlotRange` and swallows the click
  * that follows. The press captures its pointer, so a drag ending off the plot
- * still releases here, and answers that pointer alone. Escape cancels the
+ * still releases here, and answers that pointer alone: another pointer's
+ * press, move, release or cancel does nothing until the press settles. Escape cancels the
  * drag, through the listener `useTimeChart` holds. The
  * press lives in `dragRef` rather than in this draw, so a redraw mid-drag —
  * a poll landing, or the caller's own answer to the span — keeps it.
@@ -429,6 +440,7 @@ const capture = ( el, pointerId ) => {
  * @param {(d: Date) => string} [params.formatHeader] Titles the hovered slot; its local time when absent.
  * @param {Object}              params.tooltipRef     React ref to tooltip div.
  * @param {Object}              params.lastMouseXRef  React ref tracking mouse x.
+ * @param {Object}              params.frameRef       React ref holding the hover's pending frame id; this draw cancels the one an earlier draw left.
  * @param {Object}              params.containerRef   React ref to container div.
  * @param {SlotClick}           [params.onSlotClick]  Takes the clicked slot's index into `dates`.
  * @param {SlotRange}           [params.onSlotRange]  Takes a drag's span of indexes into `dates`; absent, a drag is a click.
@@ -445,6 +457,7 @@ export const setupTooltip = (
 		formatEntry,
 		tooltipRef,
 		lastMouseXRef,
+		frameRef,
 		containerRef,
 		onSlotClick,
 		onSlotRange,
@@ -453,6 +466,7 @@ export const setupTooltip = (
 		formatHeader = ( d ) => d.toLocaleTimeString(),
 	}
 ) => {
+	cancelFrame( frameRef );
 	const bisect = d3.bisector( ( d ) => d ).left;
 	const frame = { innerW, innerH, dates, x };
 	const column = slotColumns( g, frame );
@@ -479,7 +493,7 @@ export const setupTooltip = (
 		const idx = slotAt( mx );
 		const xPos = x( dates[ idx ] );
 
-		highlight.attr( 'x', column.left( idx ) ).attr( 'opacity', 1 );
+		column.place( highlight, idx ).attr( 'opacity', 1 );
 
 		// Labels are wire data: build with textContent, never innerHTML.
 		tooltip.textContent = '';
@@ -512,14 +526,11 @@ export const setupTooltip = (
 		}
 	};
 
-	let rafId = null;
 	const scheduleHover = ( mx ) => {
 		lastMouseXRef.current = mx;
-		if ( rafId ) {
-			cancelAnimationFrame( rafId );
-		}
-		rafId = requestAnimationFrame( () => {
-			rafId = null;
+		cancelFrame( frameRef );
+		frameRef.current = requestAnimationFrame( () => {
+			frameRef.current = null;
 			if ( lastMouseXRef.current === null ) {
 				return;
 			}
@@ -527,10 +538,7 @@ export const setupTooltip = (
 		} );
 	};
 	function hideTooltip() {
-		if ( rafId ) {
-			cancelAnimationFrame( rafId );
-			rafId = null;
-		}
+		cancelFrame( frameRef );
 		lastMouseXRef.current = null;
 		tooltip.style.display = 'none';
 		highlight.attr( 'opacity', 0 );
@@ -569,7 +577,7 @@ export const setupTooltip = (
 			onSlotRange,
 			slotAt: ( mx ) => Math.min( slotAt( mx ), selectable - 1 ),
 			scheduleHover,
-			threshold: Math.max( column.width, MIN_DRAG_PX ),
+			threshold: Math.max( column.pitch, MIN_DRAG_PX ),
 			paint: () => paintDrag( dragShade, frame, dragRef.current ),
 		} );
 	}
@@ -577,6 +585,18 @@ export const setupTooltip = (
 	// Restore the hover this redraw would otherwise have dropped.
 	if ( lastMouseXRef.current !== null ) {
 		showTooltip( lastMouseXRef.current );
+	}
+};
+
+/**
+ * Cancel the hover frame a ref holds, if any, and empty the ref.
+ *
+ * @param {Object} frameRef React ref holding a pending frame id, or null.
+ */
+const cancelFrame = ( frameRef ) => {
+	if ( null !== frameRef.current ) {
+		cancelAnimationFrame( frameRef.current );
+		frameRef.current = null;
 	}
 };
 
@@ -640,7 +660,8 @@ const bindDrag = (
 	overlay
 		.style( 'touch-action', 'pan-y' )
 		.on( 'pointerdown', ( event ) => {
-			if ( event.button !== 0 ) {
+			// A second touch mid-drag leaves the press with the first.
+			if ( event.button !== 0 || pressing() ) {
 				return;
 			}
 			// The press would otherwise start a text selection over the labels.
@@ -708,6 +729,7 @@ const bindDrag = (
  * @property {Object} containerRef  Ref to the element the SVG is drawn into.
  * @property {Object} tooltipRef    Ref to the tooltip element.
  * @property {Object} lastMouseXRef Ref holding the last pointer x, or null.
+ * @property {Object} frameRef      Ref holding the hover's pending frame id, or null.
  * @property {Object} dragRef       Ref holding the drag press in progress, or null.
  */
 
@@ -732,11 +754,27 @@ export function useTimeChart( renderFn ) {
 	const containerRef = useRef( null );
 	const tooltipRef = useRef( null );
 	const lastMouseXRef = useRef( null );
+	const frameRef = useRef( null );
 	const dragRef = useRef( null );
 
 	const renderChart = useCallback( () => {
-		renderFn( { containerRef, tooltipRef, lastMouseXRef, dragRef } );
+		renderFn( {
+			containerRef,
+			tooltipRef,
+			lastMouseXRef,
+			frameRef,
+			dragRef,
+		} );
 	}, [ renderFn ] );
+
+	// A frame left pending would paint into a container React has let go.
+	useEffect(
+		() => () => {
+			cancelFrame( frameRef );
+			lastMouseXRef.current = null;
+		},
+		[]
+	);
 
 	// Settled rather than cleared, so the click the release makes is swallowed.
 	useEffect( () => {
@@ -787,5 +825,5 @@ export function useTimeChart( renderFn ) {
 		};
 	}, [] );
 
-	return { containerRef, tooltipRef, lastMouseXRef, dragRef };
+	return { containerRef, tooltipRef, lastMouseXRef, frameRef, dragRef };
 }

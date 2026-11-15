@@ -340,7 +340,6 @@ describe( 'AreaTimeChart', () => {
 				values: five.map( ( date ) => ( { date, value: 30 } ) ),
 			},
 		];
-		const SLOT_W = 708 / 5;
 		const PITCH = 708 / 4;
 		const shaded = ( container ) => [
 			...container.querySelectorAll(
@@ -349,18 +348,18 @@ describe( 'AreaTimeChart', () => {
 		];
 		const at = ( rect ) => Number( rect.getAttribute( 'x' ) );
 
-		it( 'shades each selected slot one bucket wide, centred on it', () => {
+		it( 'shades each selected slot between the midpoints to its neighbours', () => {
 			const { container } = mount( {
 				series: FIVE,
 				selectedSlots: new Set( [ 1, 3 ] ),
 			} );
 			const rects = shaded( container );
 			expect( rects ).toHaveLength( 2 );
-			expect( at( rects[ 0 ] ) ).toBeCloseTo( PITCH - SLOT_W / 2, 3 );
-			expect( at( rects[ 1 ] ) ).toBeCloseTo( 3 * PITCH - SLOT_W / 2, 3 );
+			expect( at( rects[ 0 ] ) ).toBeCloseTo( PITCH / 2, 3 );
+			expect( at( rects[ 1 ] ) ).toBeCloseTo( 2.5 * PITCH, 3 );
 			for ( const rect of rects ) {
 				expect( Number( rect.getAttribute( 'width' ) ) ).toBeCloseTo(
-					SLOT_W,
+					PITCH,
 					3
 				);
 				expect( Number( rect.getAttribute( 'height' ) ) ).toBe(
@@ -412,7 +411,7 @@ describe( 'AreaTimeChart', () => {
 			);
 			const rects = shaded( container );
 			expect( rects ).toHaveLength( 1 );
-			expect( at( rects[ 0 ] ) ).toBeCloseTo( 4 * PITCH - SLOT_W / 2, 3 );
+			expect( at( rects[ 0 ] ) ).toBeCloseTo( 3.5 * PITCH, 3 );
 		} );
 	} );
 

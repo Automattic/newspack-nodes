@@ -20,7 +20,7 @@ import {
 import { LogStreamViewNode } from '../../nodes/log-stream-view-node';
 import CompositionView from '../../composition/CompositionView';
 import { SUBSTRATE_VIEWS } from '..';
-import { namedFields } from '../sourceBlock';
+import { fieldValue, namedFields } from '../sourceBlock';
 import { logRow } from '../log-stream';
 
 /** The poll's cadence, distinct from every default. */
@@ -417,6 +417,14 @@ describe( 'a field derived from the model', () => {
 		expect( await screen.findByText( '42' ) ).toBeTruthy();
 		expect( screen.getAllByText( '6 m' ) ).toHaveLength( 2 );
 		expect( spans ).toBe( 1 );
+	} );
+
+	it( 'derives two fields sharing a key by their own value functions', () => {
+		const model = { gust: 31 };
+		const knots = { key: 'wind', value: ( m ) => m.gust };
+		const metres = { key: 'wind', value: ( m ) => m.gust * 0.5 };
+		expect( fieldValue( knots, model ) ).toBe( 31 );
+		expect( fieldValue( metres, model ) ).toBe( 15.5 );
 	} );
 
 	it( 'gives a tile the modifier its figure names', async () => {

@@ -834,7 +834,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			delete this.frontmatter[ name ];
 			return 'ok';
 		}
-		this.frontmatter[ name ] = tail.trim();
+		// A computed key keeps `__proto__` an own entry, never the prototype.
+		this.frontmatter = { ...this.frontmatter, [ name ]: tail.trim() };
 		return 'ok';
 	}
 

@@ -117,6 +117,12 @@ describe( 'TopologySettingsPanel', () => {
 		expect( input.getAttribute( 'placeholder' ) ).toBe( '2' );
 	} );
 
+	it( 'names the partition ceiling the input clamps to', () => {
+		setup( {}, { configDefaultPartitions: 3 } );
+		const help = screen.getByLabelText( /partitions/i ).nextElementSibling;
+		expect( help.textContent ).toBe( 'Empty = config default (3). Max 8.' );
+	} );
+
 	it( 'clamps partitions to 1..8 and commits', () => {
 		const { interpreter } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /partitions/i ), {
@@ -151,6 +157,55 @@ describe( 'TopologySettingsPanel', () => {
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
 		expect( interpreter.frontmatter ).toEqual( { foo: 'bar' } );
+	} );
+
+	it( 'adds a var named __proto__ as an entry of its own', () => {
+		const { interpreter } = setup( {} );
+		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
+			target: { value: '__proto__' },
+		} );
+		fireEvent.change( screen.getByLabelText( /new variable value/i ), {
+			target: { value: 'kea' },
+		} );
+		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
+		expect( Object.hasOwn( interpreter.frontmatter, '__proto__' ) ).toBe(
+			true
+		);
+		expect( interpreter.frontmatter.__proto__ ).toBe( 'kea' );
+	} );
+
+	it( 'refuses a value that sanitizes to nothing, adding no row', () => {
+		const { interpreter } = setup( { custom_thing: 'x' } );
+		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
+			target: { value: 'flag' },
+		} );
+		fireEvent.change( screen.getByLabelText( /new variable value/i ), {
+			target: { value: ';;' },
+		} );
+		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
+		expect( screen.getByRole( 'alert' ).textContent ).toBe(
+			'Value cannot be empty.'
+		);
+		expect( screen.queryByLabelText( /value for flag/i ) ).toBeNull();
+		expect( interpreter.frontmatter ).toEqual( { custom_thing: 'x' } );
+		expect( screen.getByLabelText( /new variable name/i ).value ).toBe(
+			'flag'
+		);
+	} );
+
+	it( 'commits a value trimmed after sanitizing', () => {
+		const { interpreter } = setup( {} );
+		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
+			target: { value: 'flag' },
+		} );
+		fireEvent.change( screen.getByLabelText( /new variable value/i ), {
+			target: { value: ' ;kea; ' },
+		} );
+		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
+		expect( interpreter.frontmatter ).toEqual( { flag: 'kea' } );
+		expect( screen.getByLabelText( /value for flag/i ).value ).toBe(
+			'kea'
+		);
 	} );
 
 	it( 'rejects an invalid var name (contains colon)', () => {

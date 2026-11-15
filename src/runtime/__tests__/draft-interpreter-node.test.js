@@ -116,6 +116,16 @@ describe( 'document commands touch no node table', () => {
 		expect( d.childRegistry.nodes.size ).toBe( 0 );
 	} );
 
+	it( 'keeps a var named __proto__ as an entry of its own', () => {
+		const d = draft();
+
+		d.run( 'var __proto__ = kea' );
+
+		expect( Object.hasOwn( d.frontmatter, '__proto__' ) ).toBe( true );
+		expect( d.frontmatter.__proto__ ).toBe( 'kea' );
+		expect( d.dumpDocument() ).toContain( 'var __proto__ = kea' );
+	} );
+
 	it( 'secure is freely reversible here, unlike the live ratchet', () => {
 		// Live it climbs 1..3 and never descends, and that irreversibility is
 		// the security property. In a draft it edits a line of a file.

@@ -196,6 +196,7 @@ describe( 'setupTooltip', () => {
 		return {
 			tooltipRef: { current: tooltipEl },
 			lastMouseXRef: { current: null },
+			frameRef: { current: null },
 			containerRef: { current: container },
 		};
 	};
@@ -205,7 +206,7 @@ describe( 'setupTooltip', () => {
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
 		const xScale = ( d ) => d.getMinutes();
 		xScale.invert = () => dates[ 0 ];
-		const { tooltipRef, lastMouseXRef, containerRef } = refs();
+		const { tooltipRef, lastMouseXRef, frameRef, containerRef } = refs();
 		setupTooltip( g, {
 			innerW: 100,
 			innerH: 50,
@@ -214,6 +215,7 @@ describe( 'setupTooltip', () => {
 			formatEntry: () => [ { label: 'val', value: 5 } ],
 			tooltipRef,
 			lastMouseXRef,
+			frameRef,
 			containerRef,
 		} );
 		// Overlay registers mousemove + mouseleave.
@@ -226,7 +228,7 @@ describe( 'setupTooltip', () => {
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
 		const xScale = jest.fn( ( d ) => d.getMinutes() * 10 );
 		xScale.invert = jest.fn( () => dates[ 0 ] );
-		const { tooltipRef, lastMouseXRef, containerRef } = refs();
+		const { tooltipRef, lastMouseXRef, frameRef, containerRef } = refs();
 		setupTooltip( g, {
 			innerW: 200,
 			innerH: 50,
@@ -235,6 +237,7 @@ describe( 'setupTooltip', () => {
 			formatEntry: () => [ { label: 'val', value: 99 } ],
 			tooltipRef,
 			lastMouseXRef,
+			frameRef,
 			containerRef,
 		} );
 		// Drive a mousemove. requestAnimationFrame defaults to next tick.
@@ -258,7 +261,7 @@ describe( 'setupTooltip', () => {
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 8 ) ];
 		const xScale = ( d ) => d.getDate() * 10;
 		xScale.invert = () => dates[ 1 ];
-		const { tooltipRef, lastMouseXRef, containerRef } = refs();
+		const { tooltipRef, lastMouseXRef, frameRef, containerRef } = refs();
 		setupTooltip( g, {
 			innerW: 200,
 			innerH: 50,
@@ -268,6 +271,7 @@ describe( 'setupTooltip', () => {
 			formatHeader: ( d ) => `Fortnight of ${ d.getDate() }`,
 			tooltipRef,
 			lastMouseXRef,
+			frameRef,
 			containerRef,
 		} );
 		g.handlers.mousemove( {} );
@@ -286,7 +290,7 @@ describe( 'setupTooltip', () => {
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
 		const xScale = ( d ) => d.getMinutes() * 10;
 		xScale.invert = () => dates[ 0 ];
-		const { tooltipRef, lastMouseXRef, containerRef } = refs();
+		const { tooltipRef, lastMouseXRef, frameRef, containerRef } = refs();
 		setupTooltip( g, {
 			innerW: 200,
 			innerH: 50,
@@ -295,6 +299,7 @@ describe( 'setupTooltip', () => {
 			formatEntry: () => [ { label: 'a', value: 1 } ],
 			tooltipRef,
 			lastMouseXRef,
+			frameRef,
 			containerRef,
 		} );
 		tooltipRef.current.style.display = 'block';
@@ -308,7 +313,7 @@ describe( 'setupTooltip', () => {
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
 		const xScale = ( d ) => d.getMinutes() * 10;
 		xScale.invert = () => dates[ 0 ];
-		const { tooltipRef, containerRef } = refs();
+		const { tooltipRef, frameRef, containerRef } = refs();
 		setupTooltip( g, {
 			innerW: 200,
 			innerH: 50,
@@ -317,6 +322,7 @@ describe( 'setupTooltip', () => {
 			formatEntry: () => [ { label: 'b', value: 2 } ],
 			tooltipRef,
 			lastMouseXRef: { current: 10 },
+			frameRef,
 			containerRef,
 		} );
 		expect( tooltipRef.current.style.display ).toBe( 'block' );
@@ -337,7 +343,7 @@ describe( 'setupTooltip', () => {
 			configurable: true,
 			value: 10,
 		} );
-		const { tooltipRef, containerRef } = refs( {
+		const { tooltipRef, frameRef, containerRef } = refs( {
 			left: -5,
 			right: 80,
 			top: 0,
@@ -352,6 +358,7 @@ describe( 'setupTooltip', () => {
 				formatEntry: () => [],
 				tooltipRef,
 				lastMouseXRef: { current: 25 },
+				frameRef,
 				containerRef,
 			} );
 			expect( tooltipRef.current.style.top ).toBe( '-24px' );
@@ -373,7 +380,7 @@ describe( 'setupTooltip', () => {
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
 		const xScale = ( d ) => d.getMinutes() * 10;
 		xScale.invert = () => dates[ 0 ];
-		const { tooltipRef, lastMouseXRef, containerRef } = refs();
+		const { tooltipRef, lastMouseXRef, frameRef, containerRef } = refs();
 		const rafSpy = jest
 			.spyOn( window, 'requestAnimationFrame' )
 			.mockImplementation( () => 101 );
@@ -389,6 +396,7 @@ describe( 'setupTooltip', () => {
 				formatEntry: () => [],
 				tooltipRef,
 				lastMouseXRef,
+				frameRef,
 				containerRef,
 			} );
 			g.handlers.mousemove( {} );
@@ -504,12 +512,13 @@ describe( 'setupTooltip', () => {
 		xScale.invert = () => dates[ 2 ];
 		const frame = { innerW: 333, innerH: 71, dates, x: xScale };
 		const hover = plot();
-		const { tooltipRef, containerRef } = refs();
+		const { tooltipRef, frameRef, containerRef } = refs();
 		setupTooltip( hover.g, {
 			...frame,
 			formatEntry: () => [],
 			tooltipRef,
 			lastMouseXRef: { current: 260 },
+			frameRef,
 			containerRef,
 		} );
 		const shaded = plot();
@@ -522,14 +531,64 @@ describe( 'setupTooltip', () => {
 			attrs.height,
 		];
 		expect( column( hover.rects[ 0 ] ) ).toEqual( [
-			37 + 226 - 55.5,
+			37 + 113 + 56.5,
 			0,
-			111,
+			333 - 206.5,
 			71,
 		] );
 		expect( column( shaded.rects[ 0 ] ) ).toEqual(
 			column( hover.rects[ 0 ] )
 		);
+	} );
+} );
+
+describe( 'shadeSlots', () => {
+	const shade = ( count, selected ) => {
+		const rects = [];
+		const g = {
+			append: () => {
+				const rect = { attrs: {} };
+				rect.attr = ( name, value ) => {
+					rect.attrs[ name ] = value;
+					return rect;
+				};
+				rects.push( rect );
+				return rect;
+			},
+		};
+		const dates = Array.from(
+			{ length: count },
+			( _v, i ) => new Date( 2026, 0, 1, 0, i * 5 )
+		);
+		const innerW = 412;
+		const x = ( d ) => ( dates.indexOf( d ) * innerW ) / ( count - 1 );
+		shadeSlots( g, {
+			innerW,
+			innerH: 59,
+			dates,
+			x,
+			selectedSlots: new Set( selected ),
+		} );
+		return rects.map( ( { attrs } ) => [ attrs.x, attrs.width ] );
+	};
+
+	it( 'butts neighbouring columns and keeps the edge ones inside the plot', () => {
+		const [ [ x0, w0 ], [ x1, w1 ], [ x2, w2 ] ] = shade( 5, [ 0, 1, 2 ] );
+		expect( x0 ).toBe( 0 );
+		expect( x0 + w0 ).toBe( x1 );
+		expect( x1 + w1 ).toBe( x2 );
+		expect( w1 ).toBe( 103 );
+		expect( x2 + w2 ).toBe( 257.5 );
+	} );
+
+	it( 'ends the last column at the plot edge', () => {
+		const [ [ x4, w4 ] ] = shade( 5, [ 4 ] );
+		expect( x4 ).toBe( 360.5 );
+		expect( x4 + w4 ).toBe( 412 );
+	} );
+
+	it( 'spans the whole plot for a lone slot', () => {
+		expect( shade( 1, [ 0 ] ) ).toEqual( [ [ 0, 412 ] ] );
 	} );
 } );
 

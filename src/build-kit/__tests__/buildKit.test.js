@@ -188,6 +188,52 @@ describe( 'build-kit pure exports', () => {
 		] );
 	} );
 
+	test( 'the scss plugin hands esbuild every Sass partial to watch', async () => {
+		const { pathToFileURL } = require( 'node:url' );
+		const partial = '/tmp/kea-styles-7731/_tokens.scss';
+		const entryScss = '/tmp/kea-styles-7731/style.scss';
+		const stubSass = {
+			compileAsync: async () => ( {
+				css: '.kea{}',
+				loadedUrls: [
+					pathToFileURL( entryScss ),
+					pathToFileURL( partial ),
+					new URL( 'https://example.invalid/remote.scss' ),
+				],
+			} ),
+		};
+		let onLoad;
+		const fakeEsbuild = {
+			context: async ( { plugins } ) => {
+				plugins
+					.find( ( p ) => 'scss' === p.name )
+					.setup( {
+						onLoad: ( _opts, cb ) => {
+							onLoad = cb;
+						},
+					} );
+				return { rebuild: async () => {}, dispose: async () => {} };
+			},
+		};
+
+		await kit.buildDashboards( {
+			esbuild: fakeEsbuild,
+			sass: stubSass,
+			rtlcss: {},
+			root: '/tmp',
+			entries: [
+				{
+					entry: 'kea-entry.js',
+					outDir: `/tmp/newspack-build-kit-watch-${ process.pid }`,
+				},
+			],
+			alias: {},
+		} );
+		const result = await onLoad( { path: entryScss } );
+
+		expect( result.watchFiles ).toEqual( [ entryScss, partial ] );
+	} );
+
 	test( 'substrateVersion reads the substrate package.json version', () => {
 		// eslint-disable-next-line import/no-relative-packages
 		const pkg = require( '../../../package.json' );
