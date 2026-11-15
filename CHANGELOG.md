@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A DataViews date filter shows both dates whole.** Its popover widens from 250px to 300px, its From and To fields share the row evenly, and its month is centered, so a date field no longer clips the year beside Chrome's picker icon and the calendar's Saturday column no longer runs past its panel.
+
 ## [2.159.0] - 2026-11-14
 
 ### Added

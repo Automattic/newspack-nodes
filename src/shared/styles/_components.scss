@@ -1335,6 +1335,21 @@
 		color: var(--ink-3, var(--np-text-secondary));
 	}
 
+	// Stock's 250px cap clips a date's year and the calendar's seventh column.
+	.dataviews-filters__summary-popover:has(.dataviews-controls__date) {
+		.components-popover__content {
+			max-width: 300px;
+		}
+
+		.dataviews-controls__date-range-inputs > * {
+			flex: 1;
+		}
+
+		.components-calendar__months {
+			margin-inline: auto;
+		}
+	}
+
 	.dataviews-filters__summary-chip-container
 		.dataviews-filters__summary-chip {
 		background: var(--paper, var(--np-surface));
