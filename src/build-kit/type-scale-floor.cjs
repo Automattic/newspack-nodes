@@ -201,8 +201,8 @@ const floorOf = ( prop, value ) => {
  */
 const belowFloor = ( prop, value ) => 'below' === floorOf( prop, value );
 
-// A font string's word that names rather than sizes: a family, weight or style.
-const NAME = /^(?:(?:-?[a-z_][\w-]*|"[^"]*"|'[^']*'),?)+$|^\d*\.?\d+$/i;
+// A font string's word that names rather than sizes; each identifier is atomic.
+const NAME = /^(?:(?:(?=(-?[a-z_][\w-]*))\1|"[^"]*"|'[^']*'),?)+$|^\d*\.?\d+$/i;
 
 /**
  * How a script's font text reads against the floor, read leniently: by the

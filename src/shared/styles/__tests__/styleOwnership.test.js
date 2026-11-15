@@ -3439,7 +3439,10 @@ describe( 'a table steps up a rung inside a card or modal', () => {
 	] )( 'lifts every table inside %s to the lightest rung', ( container ) => {
 		const declared = mergedDeclarationsForSelectors( ui, ( selector ) =>
 			new RegExp(
-				`${ container.replace( /[.]/g, '\\.' ) }(?![\\w-])`
+				`${ container.replace(
+					/[.*+?^${}()|[\]\\]/g,
+					'\\$&'
+				) }(?![\\w-])`
 			).test( selector )
 		);
 		expect( declared?.[ '--nodes-table-surface' ] ).toBe(

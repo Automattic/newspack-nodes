@@ -222,6 +222,13 @@ describe( 'scriptOffenders', () => {
 		] );
 	} );
 
+	it( 'reads a long run of name characters ending in one that names nothing in linear time', () => {
+		const source = `ctx.font = '${ '_'.repeat( 40 ) }!';`;
+		expect( scriptOffenders( source, 'Run.js' ) ).toEqual( [
+			'Run.js:1 (unreadable)',
+		] );
+	}, 1000 );
+
 	it( 'reads a quoted key, an interpolated size and a slash inside a function', () => {
 		const source = [
 			"const a = { 'fontSize': '10px' };",
