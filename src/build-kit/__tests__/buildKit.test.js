@@ -73,6 +73,32 @@ describe( 'build-kit pure exports', () => {
 		}
 	);
 
+	test.each( [
+		[ '@wordpress/url', 'window.wp.url', 'wp-url' ],
+		[ '@wordpress/hooks', 'window.wp.hooks', 'wp-hooks' ],
+		[
+			'@wordpress/html-entities',
+			'window.wp.htmlEntities',
+			'wp-html-entities',
+		],
+		[ '@wordpress/rich-text', 'window.wp.richText', 'wp-rich-text' ],
+		[ '@wordpress/plugins', 'window.wp.plugins', 'wp-plugins' ],
+		[ '@wordpress/editor', 'window.wp.editor', 'wp-editor' ],
+		[
+			'@wordpress/server-side-render',
+			'window.wp.serverSideRender',
+			'wp-server-side-render',
+		],
+	] )(
+		'WP_EXTERNALS maps %s, which a block build reaches, to its WordPress global',
+		( specifier, global, handle ) => {
+			expect( kit.WP_EXTERNALS[ specifier ] ).toEqual( {
+				global,
+				handle,
+			} );
+		}
+	);
+
 	test( 'WP_EXTERNALS maps @wordpress/dataviews to the substrate handle', () => {
 		expect( kit.WP_EXTERNALS[ '@wordpress/dataviews' ] ).toEqual( {
 			global: 'window.newspackNodesDataViews',
@@ -319,6 +345,71 @@ describe( 'buildDashboards (integration, real esbuild)', () => {
 			'utf8'
 		);
 		expect( rtl ).toContain( 'margin-right' );
+	} );
+} );
+
+// A side-effect-free package's unused module drops out of the bundle, and the
+// handle only it imported drops out of the manifest with it.
+describe( 'buildDashboards tree-shaken externals (integration)', () => {
+	const fs = require( 'node:fs/promises' );
+	const os = require( 'node:os' );
+	const path = require( 'node:path' );
+
+	let root;
+	let outDir;
+
+	beforeAll( async () => {
+		const kit = await import( '../index.mjs' );
+		const esbuild = ( await import( 'esbuild' ) ).default;
+		const sass = await import( 'sass' );
+		const rtlcss = ( await import( 'rtlcss' ) ).default;
+
+		root = await fs.mkdtemp( path.join( os.tmpdir(), 'buildkit-ts-' ) );
+		const pkg = path.join( root, 'fake_modules/kea-icons' );
+		await fs.mkdir( pkg, { recursive: true } );
+		await fs.writeFile(
+			path.join( pkg, 'package.json' ),
+			'{ "name": "kea-icons", "main": "index.js", "sideEffects": false }'
+		);
+		await fs.writeFile(
+			path.join( pkg, 'index.js' ),
+			"export { Icon } from './icon.js';\nexport { marker } from './marker.js';\n"
+		);
+		await fs.writeFile(
+			path.join( pkg, 'icon.js' ),
+			"import { cloneElement } from '@wordpress/element';\nexport const Icon = ( i ) => cloneElement( i );\n"
+		);
+		await fs.writeFile(
+			path.join( pkg, 'marker.js' ),
+			"export const marker = 'kea-marker-6034';\n"
+		);
+		await fs.writeFile(
+			path.join( root, 'entry.js' ),
+			"import { marker } from 'kea-icons';\nimport { __ } from '@wordpress/i18n';\nwindow.kea = __( marker );\n"
+		);
+		outDir = path.join( root, 'build/shaken' );
+		await kit.buildDashboards( {
+			esbuild,
+			sass,
+			rtlcss,
+			root,
+			entries: [ { entry: 'entry.js', outDir } ],
+			alias: {},
+			nodePaths: [ path.join( root, 'fake_modules' ) ],
+		} );
+	}, 30000 );
+
+	afterAll( async () => {
+		await fs.rm( root, { recursive: true, force: true } );
+	} );
+
+	test( 'the manifest names only the handles the bundle reads', async () => {
+		const js = await fs.readFile( path.join( outDir, 'entry.js' ), 'utf8' );
+		expect( js ).toContain( 'kea-marker-6034' );
+		expect( js ).not.toContain( 'window.wp.element' );
+		expect(
+			await fs.readFile( path.join( outDir, 'entry.asset.php' ), 'utf8' )
+		).toContain( "array('wp-i18n')" );
 	} );
 } );
 

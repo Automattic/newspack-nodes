@@ -1,0 +1,15 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "fixture/kea-card",
+	"title": "Kea's \"Card\"",
+	"category": "widgets",
+	"supports": { "html": false },
+	"keywords": [],
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-index.css",
+	"viewScript": "file:./view.js",
+	"viewStyle": "file:./view.css",
+	"render": "file:./render.php"
+}

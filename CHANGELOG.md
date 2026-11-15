@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The build kit builds a plugin's blocks.** `buildBlocks( { esbuild, sass, rtlcss, root, srcDir, outDir, manifest, alias, nodePaths, watch, logLevel } )` builds every `<srcDir>/<slug>/` holding a `block.json` into `<outDir>/<slug>/` by the `wp-scripts build` convention: `index.js` and, when there is one, `view.js` each to `<base>.js`, `<base>.css` with its `-rtl.css` and `<base>.asset.php`; each `style.scss` the editor entry reaches to `style-index.css` with its `-rtl.css`, kept out of `index.css`; each `<slug>/lazy/<name>.js` to `<slug>/lazy/` as a bundle of its own, with its stylesheets and `.asset.php`, which the block loads by URL when it needs it; `block.json` and `render.php` copied; and, when `manifest` names a path, every block's metadata in slug order as the PHP collection `wp_register_block_types_from_metadata_collection()` reads. A `buildDashboards()` entry takes the same split as `splitStyle: true`. `WP_EXTERNALS` adds `@wordpress/url`, `@wordpress/hooks`, `@wordpress/html-entities`, `@wordpress/rich-text`, `@wordpress/plugins`, `@wordpress/editor` and `@wordpress/server-side-render`, which block and format builds import.
+
 ### Fixed
+
+- **A build kit bundle's `.asset.php` names only the handles its code reads.** The handles come from the metafile, so a WordPress package that only tree-shaken code imports, such as the `@wordpress/element` that `@wordpress/icons`' unused `Icon` reaches, is no longer listed as a dependency.
 
 - **A DataViews date filter shows both dates whole.** Its popover widens from 250px to 300px, its From and To fields share the row evenly, and its month is centered, so a date field no longer clips the year beside Chrome's picker icon and the calendar's Saturday column no longer runs past its panel.
 - **A Vault password that starts with `$enc$` is sealed as typed.** `add()` and `update()` read such a password as one already sealed, failed to open it, and stored the entry with no password while answering true, so the spoke was reached with no credential. Every password a caller hands in is plaintext, since `update()` merges over the opened entries `get_all()` answers, so each is now sealed as given.

@@ -1,0 +1,7 @@
+{
+	"apiVersion": 3,
+	"name": "fixture/wren-note",
+	"title": "Wren note",
+	"editorScript": "file:./index.js",
+	"style": "file:./style-index.css"
+}
