@@ -5,13 +5,16 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-
+# The build runs this repository's code with a read-only token; only the
+# release job, which checks out and runs none of it, can write.
 jobs:
-  release:
-    name: Build and release plugin zip
+  build:
+    name: Build plugin zip
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      is_release: ${{ steps.validate.outputs.is_release }}
     steps:
       - name: Validate tag shape
         id: validate
@@ -31,6 +34,8 @@ jobs:
       - name: Checkout
         if: steps.validate.outputs.is_release == 'true'
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup PHP
         if: steps.validate.outputs.is_release == 'true'
@@ -68,8 +73,31 @@ jobs:
             echo "No CHANGELOG.md section for ${version}; see CHANGELOG.md." > RELEASE_NOTES.md
           fi
 
-      - name: Create GitHub Release
+      - name: Upload release files
         if: steps.validate.outputs.is_release == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            release/*.zip
+            RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Release plugin zip
+    needs: build
+    if: needs.build.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: release/*.zip

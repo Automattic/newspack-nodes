@@ -60,6 +60,7 @@ if [ -n "$SUBSTRATE_PIN" ]; then
 	require_substrate_pin "$SUBSTRATE_PIN"
 	# shellcheck disable=SC2153  # set by the wrapper
 	SUBSTRATE_VERSION_TO_PIN=$(substrate_version "$SUBSTRATE_DIR")
+	SUBSTRATE_COMMIT_TO_PIN=$(substrate_commit "$SUBSTRATE_DIR" "$SUBSTRATE_VERSION_TO_PIN")
 fi
 
 # A drop-in's header line; the check and the rewrite share it, so any header
@@ -90,7 +91,7 @@ if [ -f package.json ]; then
 fi
 
 if [ -n "$SUBSTRATE_PIN" ]; then
-	write_substrate_pin "$SUBSTRATE_PIN" "$SUBSTRATE_VERSION_TO_PIN"
+	write_substrate_pin "$SUBSTRATE_PIN" "$SUBSTRATE_COMMIT_TO_PIN" "$SUBSTRATE_VERSION_TO_PIN"
 	echo "Updated $SUBSTRATE_PIN (substrate pin)"
 fi
 

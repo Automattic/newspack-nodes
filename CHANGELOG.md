@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The release workflow builds with read-only permissions and publishes from a separate job.
+- `scripts/lib/bump-substrate-pin.sh` writes a consumer's substrate pin as `ref: <commit> # v<version>`, the commit the local `v<version>` tag names, and refuses a tag that origin does not carry as tagged locally or whose commit is not on `origin/main`; `write_substrate_pin()` takes the commit and the version, and `scripts/lib/bump-version.sh` resolves the commit through the new `substrate_commit()` before it edits anything.
+
 ## [2.160.0] - 2026-11-15
 
 ### Added
