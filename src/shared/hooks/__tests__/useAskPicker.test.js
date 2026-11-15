@@ -485,7 +485,7 @@ test( 'escape clears every mark, and the next session starts empty', () => {
 	expect( picked( getByTestId( 'row' ) ) ).toBe( true );
 } );
 
-// UrlTable and UrlDetailView rows set their own tabIndex; React never puts
+// UrlTable and RequestTable rows set their own tabIndex; React never puts
 // back what the picker takes away, so the picker takes away only its own.
 test( "an element's own tabindex survives a pick session", () => {
 	const { getByTestId } = setup();
