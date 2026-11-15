@@ -122,21 +122,6 @@ class Vault {
 	}
 
 	/**
-	 * Every server in the Vault, under the name that reads as intent.
-	 *
-	 * A spoke is enabled by being present — wired into the graph — so a stored
-	 * flag never decides it and this is an alias for `get_all()`. It keeps a
-	 * name of its own so a caller expressing "the enabled spokes" stays
-	 * readable.
-	 *
-	 * @api
-	 * @return array<array-key,array<string,mixed>> Keys are array-key, not string: PHP coerces a numeric server id to int.
-	 */
-	public function get_enabled(): array {
-		return $this->get_all();
-	}
-
-	/**
 	 * One server, credentials decrypted.
 	 *
 	 * @api
@@ -296,9 +281,9 @@ class Vault {
 	 * loaded; the password is stripped of control characters. Both cap at 256
 	 * bytes.
 	 *
-	 * A password arriving with `ENCRYPTED_PREFIX` was read back out of storage
-	 * by the caller, so it is verified rather than re-sealed, and dropped when it no
-	 * longer opens under the current key.
+	 * Every password a caller hands in is plaintext, `update()`'s merge
+	 * included, since it merges over `get_all()`'s opened entries; so each is
+	 * sealed as given, one that starts with `ENCRYPTED_PREFIX` too.
 	 *
 	 * The group, when set, must obey `is_valid_id()`, the header
 	 * `is_valid_auth_header()` and the scheme `is_valid_auth_scheme()`; an
@@ -336,22 +321,11 @@ class Vault {
 
 		// auth_password — strip control chars, 256-byte cap, encrypt.
 		if ( ! empty( $config['auth_password'] ) && \is_string( $config['auth_password'] ) ) {
-			$password = $config['auth_password'];
-			if ( 0 !== \strpos( $password, self::ENCRYPTED_PREFIX ) ) {
-				// New plaintext password — sanitize, cap, encrypt.
-				$password = \preg_replace( '/[\x00-\x1f\x7f]/', '', $password ) ?? '';
-				if ( \strlen( $password ) > 256 ) {
-					$password = \substr( $password, 0, 256 );
-				}
-				$password = self::encrypt( $password );
-			} else {
-				// Already encrypted — verify it decrypts; reject if not.
-				$decrypted = self::decrypt( $password );
-				if ( '' === $decrypted ) {
-					$password = '';
-				}
+			$password = \preg_replace( '/[\x00-\x1f\x7f]/', '', $config['auth_password'] ) ?? '';
+			if ( \strlen( $password ) > 256 ) {
+				$password = \substr( $password, 0, 256 );
 			}
-			$validated['auth_password'] = $password;
+			$validated['auth_password'] = self::encrypt( $password );
 		}
 
 		$group = $config['group'] ?? '';
@@ -409,9 +383,9 @@ class Vault {
 	/**
 	 * Seal a value for storage as `$enc$<base64 of nonce and ciphertext>`.
 	 *
-	 * Empty input, or a site without libsodium, yields the empty string, and the
-	 * caller stores that: such a site holds no password rather than a plaintext
-	 * one.
+	 * Empty input yields the empty string, which the caller stores as no
+	 * password. A site without libsodium cannot seal, so it throws rather than
+	 * store a plaintext password or none.
 	 *
 	 * @param string $plaintext Value to encrypt.
 	 * @return string The prefixed wire format, or '' for an empty plaintext.
@@ -638,9 +612,9 @@ class Vault {
 	/**
 	 * Refuse loudly on a host without libsodium.
 	 *
-	 * Returning '' here stored an empty password and reported success, so an
-	 * operator believed a credential was in place when nothing was; and a sealed
-	 * value that cannot be opened is a deployment fault, not bad data.
+	 * An empty password in its place would report success and leave the spoke
+	 * unauthenticated, and a sealed value that cannot be opened is a deployment
+	 * fault, not bad data.
 	 *
 	 * @param string $verb What was being attempted, for the message.
 	 * @throws \RuntimeException When the extension is absent.

@@ -6,6 +6,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Vault::get_enabled()` is gone.** It was an alias of `get_all()`;
+  call `Vault::get_instance()->get_all()` instead.
+
 ## 2.65.7 – 2.157.0
 
 - **Every bundle that inlines `queryParams.js` ships in this release.** The

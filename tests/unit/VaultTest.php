@@ -158,16 +158,6 @@ final class VaultTest extends TestCase {
 		$this->assertStringStartsWith( '$enc$', $raw['spoke2']['auth_password'] );
 	}
 
-	public function test_get_enabled_returns_all_present_servers(): void {
-		$vault = Vault::get_instance();
-		$vault->add( 'a', [ 'url' => 'https://a.com' ] );
-		$vault->add( 'b', [ 'url' => 'https://b.com' ] );
-		$vault->reset_cache();
-		// Presence in the vault = enabled; get_enabled() is an alias for get_all().
-		$this->assertArrayHasKey( 'a', $vault->get_enabled() );
-		$this->assertArrayHasKey( 'b', $vault->get_enabled() );
-	}
-
 	/**
 	 * The option is the ONE source. An entry the config file declares under
 	 * `vault` is not a Vault entry: it never shows in `get_all()`, and a stored
@@ -407,16 +397,42 @@ final class VaultTest extends TestCase {
 		$this->assertSame( 256, \strlen( $rec['auth_password'] ) );
 	}
 
-	public function test_add_blanks_an_already_encrypted_password_that_will_not_decrypt(): void {
-		// A pre-encrypted password handed to add() is verified, not re-encrypted;
-		// one that fails to decrypt is blanked rather than stored as junk.
+	/**
+	 * Every password a caller hands add() is plaintext and is sealed as typed,
+	 * so one that happens to start with the seal's prefix is kept, not blanked.
+	 */
+	public function test_add_seals_a_password_that_starts_with_the_seal_prefix(): void {
 		$vault = Vault::get_instance();
+		$typed = Vault::ENCRYPTED_PREFIX . 'saffron-quokka-41';
 		$this->assertTrue( $vault->add( 'enc', [
 			'url'           => 'https://e.com',
-			'auth_password' => Vault::ENCRYPTED_PREFIX . '@@@not-base64',
+			'auth_username' => 'marigold-7',
+			'auth_password' => $typed,
 		] ) );
+		$raw = \get_option( Vault::OPTION_KEY );
+		$this->assertNotSame( $typed, $raw['enc']['auth_password'] );
 		$vault->reset_cache();
-		$this->assertSame( '', $vault->get( 'enc' )['auth_password'] );
+		$this->assertSame( $typed, $vault->get( 'enc' )['auth_password'] );
+	}
+
+	/** The same through update(): the password is what the operator typed. */
+	public function test_update_seals_a_password_that_starts_with_the_seal_prefix(): void {
+		$vault = Vault::get_instance();
+		$this->assertTrue( $vault->add( 'enc2', [ 'url' => 'https://e.com', 'auth_password' => 'first-9931' ] ) );
+		$typed = Vault::ENCRYPTED_PREFIX . 'juniper-otter-58';
+		$this->assertTrue( $vault->update( 'enc2', [ 'auth_password' => $typed ] ) );
+		$vault->reset_cache();
+		$this->assertSame( $typed, $vault->get( 'enc2' )['auth_password'] );
+	}
+
+	/** An update leaving the password alone re-seals the one already held. */
+	public function test_update_without_a_password_keeps_the_held_one(): void {
+		$vault = Vault::get_instance();
+		$this->assertTrue( $vault->add( 'keep', [ 'url' => 'https://e.com', 'auth_password' => 'held-tern-3307' ] ) );
+		$this->assertTrue( $vault->update( 'keep', [ 'group' => 'heron-grp' ] ) );
+		$vault->reset_cache();
+		$this->assertSame( 'held-tern-3307', $vault->get( 'keep' )['auth_password'] );
+		$this->assertStringStartsWith( Vault::ENCRYPTED_PREFIX, \get_option( Vault::OPTION_KEY )['keep']['auth_password'] );
 	}
 
 	// ---------------------------------------------------------------------

@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A DataViews date filter shows both dates whole.** Its popover widens from 250px to 300px, its From and To fields share the row evenly, and its month is centered, so a date field no longer clips the year beside Chrome's picker icon and the calendar's Saturday column no longer runs past its panel.
+- **A Vault password that starts with `$enc$` is sealed as typed.** `add()` and `update()` read such a password as one already sealed, failed to open it, and stored the entry with no password while answering true, so the spoke was reached with no credential. Every password a caller hands in is plaintext, since `update()` merges over the opened entries `get_all()` answers, so each is now sealed as given.
+- **`Vault::encrypt()`'s docblock says a site without libsodium throws,** as it does, where it said such a site stores an empty password.
+
+### Removed
+
+- **`Vault::get_enabled()`,** an alias of `get_all()` that nothing but its own test called. Call `get_all()`.
 
 ## [2.159.0] - 2026-11-14
 
