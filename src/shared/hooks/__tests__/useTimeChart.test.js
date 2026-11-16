@@ -22,6 +22,7 @@ import {
 	shadeSlots,
 	useTimeChart,
 } from '../useTimeChart';
+import { clientBox as measureClientBox } from '../../utils/viewportChrome';
 
 // jsdom has no ResizeObserver; capture its callback to fire a synthetic resize.
 let resizeObserverCb = null;
@@ -159,45 +160,82 @@ describe( 'formatXTick', () => {
 } );
 
 describe( 'setupTooltip', () => {
-	const refs = ( rect = null ) => {
+	// The viewport less its gutters; jsdom's own client box measures 0 x 0.
+	const VIEW_W = 997;
+	const VIEW_H = 757;
+
+	/**
+	 * Set the client box, the viewport less its scrollbar gutter, as its
+	 * hidden fixed sentinel measures it.
+	 *
+	 * @param {number} width  Its right edge.
+	 * @param {number} height Its bottom edge.
+	 * @param {number} [left] Its left edge, past a gutter drawn on the left.
+	 */
+	const clientBox = ( width, height, left = 0 ) => {
+		measureClientBox();
+		document.querySelector(
+			'.newspack-nodes-client-box'
+		).getBoundingClientRect = () => ( {
+			left,
+			top: 0,
+			right: width,
+			bottom: height,
+		} );
+	};
+
+	beforeEach( () => clientBox( VIEW_W, VIEW_H ) );
+
+	/**
+	 * A chart's refs: the plot inside its row inside the chart, and the
+	 * tooltip portaled to `<body>`, each with a viewport rectangle. The
+	 * tooltip's rectangle follows its own `style.left` and `style.top`.
+	 *
+	 * @param {Object} [geometry]           Where it sits.
+	 * @param {number} [geometry.chartTop]  The chart's top, its title's.
+	 * @param {number} [geometry.rowLeft]   The row's left.
+	 * @param {number} [geometry.rowBottom] The row's bottom.
+	 * @param {number} [geometry.wide]      The tooltip's width.
+	 * @param {number} [geometry.tall]      The tooltip's height.
+	 * @return {Object} The refs setupTooltip takes.
+	 */
+	const refs = ( {
+		chartTop = 0,
+		rowLeft = 0,
+		rowBottom = 230,
+		wide = 60,
+		tall = 20,
+	} = {} ) => {
 		const tooltipEl = document.createElement( 'div' );
-		Object.defineProperty( tooltipEl, 'offsetHeight', {
-			configurable: true,
-			get: () => 20,
-		} );
-		Object.defineProperty( tooltipEl, 'offsetWidth', {
-			configurable: true,
-			get: () => 60,
-		} );
-		tooltipEl.getBoundingClientRect = () =>
-			rect ?? {
-				left: 0,
-				right: 60,
-				top: 0,
-				bottom: 20,
-			};
-		// The chart row sits 30px down its positioned wrapper, under a title.
+		tooltipEl.getBoundingClientRect = () => {
+			const top = parseFloat( tooltipEl.style.top || '0' );
+			const left = parseFloat( tooltipEl.style.left || '0' );
+			return { top, bottom: top + tall, left, right: left + wide };
+		};
 		const container = document.createElement( 'div' );
-		const parent = document.createElement( 'div' );
-		Object.defineProperty( parent, 'offsetTop', {
-			configurable: true,
-			get: () => 30,
-		} );
-		Object.defineProperty( parent, 'offsetLeft', {
-			configurable: true,
-			get: () => 0,
-		} );
-		Object.defineProperty( parent, 'offsetHeight', {
-			configurable: true,
-			get: () => 200,
-		} );
-		parent.appendChild( container );
-		document.body.appendChild( parent );
+		const row = document.createElement( 'div' );
+		row.getBoundingClientRect = jest.fn( () => ( {
+			top: chartTop + 30,
+			bottom: rowBottom,
+			left: rowLeft,
+			right: rowLeft + 400,
+		} ) );
+		const chart = document.createElement( 'div' );
+		chart.getBoundingClientRect = jest.fn( () => ( {
+			top: chartTop,
+			bottom: rowBottom,
+			left: rowLeft,
+			right: rowLeft + 400,
+		} ) );
+		row.appendChild( container );
+		chart.appendChild( row );
+		document.body.append( chart, tooltipEl );
 		return {
 			tooltipRef: { current: tooltipEl },
 			lastMouseXRef: { current: null },
 			frameRef: { current: null },
 			containerRef: { current: container },
+			hideRef: { current: null },
 		};
 	};
 
@@ -217,6 +255,7 @@ describe( 'setupTooltip', () => {
 			lastMouseXRef,
 			frameRef,
 			containerRef,
+			hideRef: { current: null },
 		} );
 		// Overlay registers mousemove + mouseleave.
 		expect( g.handlers.mousemove ).toBeDefined();
@@ -239,6 +278,7 @@ describe( 'setupTooltip', () => {
 			lastMouseXRef,
 			frameRef,
 			containerRef,
+			hideRef: { current: null },
 		} );
 		// Drive a mousemove. requestAnimationFrame defaults to next tick.
 		const move = g.handlers.mousemove;
@@ -273,6 +313,7 @@ describe( 'setupTooltip', () => {
 			lastMouseXRef,
 			frameRef,
 			containerRef,
+			hideRef: { current: null },
 		} );
 		g.handlers.mousemove( {} );
 		return new Promise( ( resolve ) =>
@@ -301,6 +342,7 @@ describe( 'setupTooltip', () => {
 			lastMouseXRef,
 			frameRef,
 			containerRef,
+			hideRef: { current: null },
 		} );
 		tooltipRef.current.style.display = 'block';
 		g.handlers.mouseleave();
@@ -324,6 +366,7 @@ describe( 'setupTooltip', () => {
 			lastMouseXRef: { current: 10 },
 			frameRef,
 			containerRef,
+			hideRef: { current: null },
 		} );
 		expect( tooltipRef.current.style.display ).toBe( 'block' );
 	} );
@@ -333,82 +376,64 @@ describe( 'setupTooltip', () => {
 		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
 		const xScale = jest.fn( ( d ) => d.getMinutes() * 10 );
 		xScale.invert = jest.fn( () => dates[ 1 ] );
-		const innerHeight = window.innerHeight;
-		const innerWidth = window.innerWidth;
-		Object.defineProperty( window, 'innerHeight', {
-			configurable: true,
-			value: 10,
+		clientBox( 10, 10 );
+		const { tooltipRef, frameRef, containerRef } = refs( {
+			rowLeft: -115,
+			wide: 85,
+			tall: 40,
 		} );
-		Object.defineProperty( window, 'innerWidth', {
-			configurable: true,
-			value: 10,
+		setupTooltip( g, {
+			innerW: 200,
+			innerH: 50,
+			dates,
+			x: xScale,
+			formatEntry: () => [],
+			tooltipRef,
+			lastMouseXRef: { current: 25 },
+			frameRef,
+			containerRef,
+			hideRef: { current: null },
 		} );
-		const { tooltipRef, frameRef, containerRef } = refs();
-		// The rectangle follows the style, 115px left of the wrapper's origin.
-		const el = tooltipRef.current;
-		el.getBoundingClientRect = () => {
-			const top = parseFloat( el.style.top || '0' );
-			const left = parseFloat( el.style.left || '0' ) - 115;
-			return { top, bottom: top + 40, left, right: left + 85 };
-		};
-		try {
-			setupTooltip( g, {
-				innerW: 200,
-				innerH: 50,
-				dates,
-				x: xScale,
-				formatEntry: () => [],
-				tooltipRef,
-				lastMouseXRef: { current: 25 },
-				frameRef,
-				containerRef,
-			} );
-			// Bigger than the viewport, it keeps its top and left edge in view.
-			const rect = el.getBoundingClientRect();
-			expect( rect.top ).toBe( 0 );
-			expect( rect.left ).toBe( 0 );
-		} finally {
-			Object.defineProperty( window, 'innerHeight', {
-				configurable: true,
-				value: innerHeight,
-			} );
-			Object.defineProperty( window, 'innerWidth', {
-				configurable: true,
-				value: innerWidth,
-			} );
-		}
+		// Bigger than the viewport, it keeps its top and left edge in view.
+		const rect = tooltipRef.current.getBoundingClientRect();
+		expect( rect.top ).toBe( 0 );
+		expect( rect.left ).toBe( 0 );
 	} );
 
-	describe( 'a tooltip with room neither below nor above the chart', () => {
-		// The wrapper sits 117px down the viewport; the row ends at 213.
-		const WRAPPER_TOP = 117;
-		const TALL = 263;
-		const VIEWPORT = 311;
-		let saved;
-		let bar;
+	describe( 'placement against what bounds the tooltip', () => {
+		// Below the row, where a tooltip 263 tall fits nowhere in 311.
+		const CRAMPED = { chartTop: 117, rowBottom: 330, tall: 263, view: 311 };
+		const added = [];
 
 		/**
-		 * A tooltip whose rectangle follows its own `style.top` and `left`.
+		 * Add an element to the document, removed after the test.
 		 *
+		 * @param {string} tag   Tag name.
+		 * @param {Object} props Properties to assign.
+		 * @return {HTMLElement} The element.
+		 */
+		const add = ( tag, props ) => {
+			const el = Object.assign( document.createElement( tag ), props );
+			document.body.appendChild( el );
+			added.push( el );
+			return el;
+		};
+
+		/**
+		 * A chart and its tooltip in a client box `view` tall.
+		 *
+		 * @param {Object} geometry          The refs' geometry.
+		 * @param {number} geometry.view     The client box's height.
+		 * @param {number} [geometry.gutter] A scrollbar gutter on the left.
 		 * @return {Object} The refs setupTooltip takes.
 		 */
-		const placed = () => {
-			const r = refs();
-			const el = r.tooltipRef.current;
-			Object.defineProperty( el, 'offsetHeight', {
-				configurable: true,
-				get: () => TALL,
-			} );
-			el.getBoundingClientRect = () => {
-				const top = WRAPPER_TOP + parseFloat( el.style.top || '0' );
-				const left = parseFloat( el.style.left || '0' );
-				return { top, bottom: top + TALL, left, right: left + 60 };
-			};
-			const row = r.containerRef.current.parentElement;
-			Object.defineProperty( row, 'offsetHeight', {
-				configurable: true,
-				get: () => 183,
-			} );
+		const placed = ( { view, gutter = 0, ...geometry } ) => {
+			clientBox( VIEW_W, view, gutter );
+			const r = refs( geometry );
+			added.push(
+				r.containerRef.current.parentElement.parentElement,
+				r.tooltipRef.current
+			);
 			return r;
 		};
 
@@ -431,62 +456,278 @@ describe( 'setupTooltip', () => {
 			return r.tooltipRef.current.getBoundingClientRect();
 		};
 
-		beforeEach( () => {
-			saved = window.innerHeight;
-			Object.defineProperty( window, 'innerHeight', {
-				configurable: true,
-				value: VIEWPORT,
+		/**
+		 * Hover a drawn chart again, its frame run at once.
+		 *
+		 * @param {Object} r The refs setupTooltip took.
+		 * @param {Object} g The chart group it bound.
+		 * @return {Object} The tooltip's rectangle.
+		 */
+		const rehover = ( r, g ) => {
+			const frames = jest
+				.spyOn( window, 'requestAnimationFrame' )
+				.mockImplementation( ( fn ) => fn() );
+			try {
+				g.handlers.mousemove( {} );
+			} finally {
+				frames.mockRestore();
+			}
+			return r.tooltipRef.current.getBoundingClientRect();
+		};
+
+		/**
+		 * Draw a chart for the refs, hovering it once.
+		 *
+		 * @param {Object} r The refs setupTooltip takes.
+		 * @return {Object} The chart group it bound.
+		 */
+		const drawn = ( r ) => {
+			const g = makeFluent();
+			const dates = [
+				new Date( 2026, 0, 1 ),
+				new Date( 2026, 0, 1, 0, 5 ),
+			];
+			const xScale = ( d ) => d.getMinutes() * 10;
+			xScale.invert = () => dates[ 1 ];
+			setupTooltip( g, {
+				innerW: 200,
+				innerH: 50,
+				dates,
+				x: xScale,
+				formatEntry: () => [],
+				...r,
 			} );
-		} );
+			rehover( r, g );
+			return g;
+		};
+
+		/**
+		 * An admin chrome element at a viewport rectangle.
+		 *
+		 * @param {string} id   `wpadminbar` or `adminmenuwrap`.
+		 * @param {Object} rect Its left, top, right and bottom.
+		 * @return {HTMLElement} The element.
+		 */
+		const chrome = ( id, rect ) => {
+			const el = add( 'div', { id } );
+			let box = rect;
+			el.getBoundingClientRect = () => ( {
+				...box,
+				width: box.right - box.left,
+				height: box.bottom - box.top,
+			} );
+			el.moveTo = ( next ) => {
+				box = next;
+			};
+			return el;
+		};
 
 		afterEach( () => {
-			Object.defineProperty( window, 'innerHeight', {
-				configurable: true,
-				value: saved,
-			} );
-			bar?.remove();
-			bar = null;
+			added.splice( 0 ).forEach( ( el ) => el.remove() );
 		} );
 
-		it( 'shifts down over the chart until its top is on screen', () => {
-			const rect = hover( placed() );
+		it( 'writes viewport px: below the row, right of the cursor', () => {
+			const rect = hover(
+				placed( {
+					chartTop: 211,
+					rowLeft: 37,
+					rowBottom: 419,
+					tall: 50,
+					view: 700,
+				} )
+			);
+
+			expect( rect.top ).toBe( 419 );
+			expect( rect.left ).toBe( 37 + MARGIN.left + 50 );
+		} );
+
+		it( 'flips above the chart, clear of its title, when that fits', () => {
+			// Below ends at 660, past 600; above, 211 - 50 - 4, fits.
+			const rect = hover(
+				placed( {
+					chartTop: 211,
+					rowBottom: 610,
+					tall: 50,
+					view: 600,
+				} )
+			);
+
+			expect( rect.top ).toBe( 157 );
+		} );
+
+		it( 'moves over the chart until its top is on screen', () => {
+			const rect = hover( placed( CRAMPED ) );
 
 			expect( rect.top ).toBe( 0 );
-			expect( rect.bottom ).toBeLessThanOrEqual( VIEWPORT );
+			expect( rect.bottom ).toBe( CRAMPED.tall );
 		} );
 
-		it( 'keeps clear of a fixed admin bar across the top', () => {
-			bar = document.createElement( 'div' );
-			bar.id = 'wpadminbar';
-			bar.style.position = 'fixed';
-			bar.getBoundingClientRect = () => ( { top: 0, bottom: 37 } );
-			document.body.appendChild( bar );
+		it( 'stays below, nudged up, when below overflows less than above', () => {
+			// Below ends 10 past the bottom; above starts 200 above the top.
+			const rect = hover(
+				placed( {
+					chartTop: 67,
+					rowBottom: 347,
+					tall: 263,
+					view: 600,
+				} )
+			);
 
-			const rect = hover( placed() );
-
-			expect( rect.top ).toBe( 37 );
-			expect( rect.bottom ).toBeLessThanOrEqual( VIEWPORT );
+			expect( rect.top ).toBe( 337 );
+			expect( rect.bottom ).toBe( 600 );
 		} );
 
-		it( 'keeps clear of the dashboard header while it shows', () => {
-			bar = document.createElement( 'header' );
-			bar.className = 'topology-header';
-			bar.getBoundingClientRect = () => ( { top: 9, bottom: 41 } );
-			document.body.appendChild( bar );
+		it( 'measures the bottom by the client box, above the scrollbar', () => {
+			// Below ends at 760: inside jsdom's innerHeight of 768, past 755.
+			const rect = hover(
+				placed( {
+					chartTop: 400,
+					rowBottom: 530,
+					tall: 230,
+					view: 755,
+				} )
+			);
 
-			const rect = hover( placed() );
-
-			expect( rect.top ).toBe( 41 );
-			expect( rect.bottom ).toBeLessThanOrEqual( VIEWPORT );
+			expect( rect.top ).toBe( 166 );
 		} );
 
-		it( 'ignores a dashboard header scrolled out of view', () => {
-			bar = document.createElement( 'header' );
-			bar.className = 'topology-header';
-			bar.getBoundingClientRect = () => ( { top: -90, bottom: -23 } );
-			document.body.appendChild( bar );
+		it( 'keeps clear of an admin bar across the top', () => {
+			chrome( 'wpadminbar', {
+				top: 0,
+				bottom: 37,
+				left: 0,
+				right: VIEW_W,
+			} );
 
-			expect( hover( placed() ).top ).toBe( 0 );
+			expect( hover( placed( CRAMPED ) ).top ).toBe( 37 );
+		} );
+
+		it( 'counts an admin bar that scrolls with the page while it shows', () => {
+			chrome( 'wpadminbar', {
+				top: 0,
+				bottom: 46,
+				left: 0,
+				right: VIEW_W,
+			} );
+
+			expect( hover( placed( CRAMPED ) ).top ).toBe( 46 );
+		} );
+
+		it( 'ignores an admin bar scrolled off the top', () => {
+			chrome( 'wpadminbar', {
+				top: -46,
+				bottom: 0,
+				left: 0,
+				right: VIEW_W,
+			} );
+
+			expect( hover( placed( CRAMPED ) ).top ).toBe( 0 );
+		} );
+
+		it( 'ignores admin chrome that is not displayed', () => {
+			chrome( 'wpadminbar', { top: 0, bottom: 0, left: 0, right: 0 } );
+			chrome( 'adminmenuwrap', { top: 0, bottom: 0, left: 0, right: 0 } );
+			// The cursor's column starts 100px in.
+			const rowLeft = 100 - MARGIN.left - 50;
+
+			const rect = hover( placed( { ...CRAMPED, rowLeft } ) );
+
+			expect( rect.top ).toBe( 0 );
+			expect( rect.left ).toBe( 100 );
+		} );
+
+		it( 'keeps right of an admin menu down the left', () => {
+			chrome( 'adminmenuwrap', {
+				top: 32,
+				bottom: 700,
+				left: 0,
+				right: 173,
+			} );
+			// The cursor's column starts 100px in, under the menu.
+			const rowLeft = 100 - MARGIN.left - 50;
+
+			const rect = hover(
+				placed( {
+					chartTop: 100,
+					rowBottom: 230,
+					tall: 50,
+					view: 700,
+					rowLeft,
+				} )
+			);
+
+			expect( rect.left ).toBe( 173 );
+			expect( rect.top ).toBe( 230 );
+		} );
+
+		it( 'keeps left of an admin menu down the right, as RTL draws it', () => {
+			chrome( 'adminmenuwrap', {
+				top: 32,
+				bottom: 700,
+				left: VIEW_W - 166,
+				right: VIEW_W,
+			} );
+			// The cursor's column starts 700px in; the menu starts at 831.
+			const rowLeft = 700 - MARGIN.left - 50;
+
+			const rect = hover(
+				placed( {
+					chartTop: 100,
+					rowBottom: 230,
+					tall: 50,
+					view: 700,
+					rowLeft,
+					wide: 200,
+				} )
+			);
+
+			// Right of the cursor runs under the menu, so it flips left.
+			expect( rect.left ).toBe( 500 );
+			expect( rect.right ).toBe( 700 );
+		} );
+
+		it( 'keeps clear of a scrollbar gutter drawn on the left, as RTL may', () => {
+			// The cursor's column starts 5px in, inside the 15px gutter.
+			const rowLeft = 5 - MARGIN.left - 50;
+
+			const rect = hover(
+				placed( {
+					chartTop: 100,
+					rowBottom: 230,
+					tall: 50,
+					view: 700,
+					rowLeft,
+					gutter: 15,
+				} )
+			);
+
+			expect( rect.left ).toBe( 15 );
+		} );
+
+		it( 'measures the chrome, the row and the chart once a hover, and again after a hide', () => {
+			const bar = chrome( 'wpadminbar', {
+				top: 0,
+				bottom: 37,
+				left: 0,
+				right: VIEW_W,
+			} );
+			const r = placed( CRAMPED );
+			const row = r.containerRef.current.parentElement;
+			const reads = () => [
+				row.getBoundingClientRect.mock.calls.length,
+				row.parentElement.getBoundingClientRect.mock.calls.length,
+			];
+			const g = drawn( r );
+
+			bar.moveTo( { top: -37, bottom: 0, left: 0, right: VIEW_W } );
+
+			expect( rehover( r, g ).top ).toBe( 37 );
+			expect( reads() ).toEqual( [ 1, 1 ] );
+
+			g.handlers.mouseleave();
+
+			expect( rehover( r, g ).top ).toBe( 0 );
+			expect( reads() ).toEqual( [ 2, 2 ] );
 		} );
 	} );
 
@@ -513,6 +754,7 @@ describe( 'setupTooltip', () => {
 				lastMouseXRef,
 				frameRef,
 				containerRef,
+				hideRef: { current: null },
 			} );
 			g.handlers.mousemove( {} );
 			g.handlers.mousemove( {} );
@@ -635,6 +877,7 @@ describe( 'setupTooltip', () => {
 			lastMouseXRef: { current: 260 },
 			frameRef,
 			containerRef,
+			hideRef: { current: null },
 		} );
 		const shaded = plot();
 		shadeSlots( shaded.g, { ...frame, selectedSlots: new Set( [ 2 ] ) } );
@@ -810,31 +1053,92 @@ describe( 'useTimeChart hook lifecycle', () => {
 		expect( resizeObserverDisconnected ).toBe( true );
 	} );
 
-	it( 'hides an open tooltip when the nearest modal content scrolls', () => {
-		let refsFromHook;
-		const modal = document.createElement( 'div' );
-		modal.className = 'components-modal__content';
-		const container = document.createElement( 'div' );
-		const tooltip = document.createElement( 'div' );
-		tooltip.style.display = 'block';
-		modal.appendChild( container );
-		document.body.appendChild( modal );
+	describe( 'hiding the tooltip on a scroll or a resize', () => {
+		/**
+		 * Mount the hook over a chart in `host`, its draw's hide a spy.
+		 *
+		 * @param {HTMLElement} host The chart's parent.
+		 * @return {Object} The hide spy and the hook's unmount.
+		 */
+		const opened = ( host ) => {
+			const container = document.createElement( 'div' );
+			host.appendChild( container );
+			const hide = jest.fn();
+			const renderFn = jest.fn( ( refs ) => {
+				refs.containerRef.current = container;
+				refs.hideRef.current = hide;
+			} );
+			const { unmount } = renderHook( () => useTimeChart( renderFn ) );
+			return { hide, unmount };
+		};
 
-		const renderFn = jest.fn( ( refs ) => {
-			refsFromHook = refs;
-			refs.containerRef.current = container;
-			refs.tooltipRef.current = tooltip;
-			refs.lastMouseXRef.current = 12;
+		const scroll = ( el ) => el.dispatchEvent( new Event( 'scroll' ) );
+
+		it( 'hides it when the modal content around the chart scrolls', () => {
+			const modal = document.createElement( 'div' );
+			modal.className = 'components-modal__content';
+			document.body.appendChild( modal );
+			const { hide, unmount } = opened( modal );
+
+			scroll( modal );
+
+			expect( hide ).toHaveBeenCalledTimes( 1 );
+			unmount();
+			modal.remove();
 		} );
-		const { unmount } = renderHook( () => useTimeChart( renderFn ) );
-		modal.dispatchEvent( new Event( 'scroll' ) );
-		expect( refsFromHook.lastMouseXRef.current ).toBeNull();
-		expect( tooltip.style.display ).toBe( 'none' );
 
-		const spy = jest.spyOn( modal, 'removeEventListener' );
-		unmount();
-		expect( spy ).toHaveBeenCalledWith( 'scroll', expect.any( Function ) );
-		spy.mockRestore();
-		modal.remove();
+		it( 'hides it when any scroller around the chart scrolls, the page included', () => {
+			const pane = document.createElement( 'div' );
+			const inner = document.createElement( 'div' );
+			pane.appendChild( inner );
+			document.body.appendChild( pane );
+			const { hide, unmount } = opened( inner );
+
+			scroll( pane );
+			scroll( document );
+
+			expect( hide ).toHaveBeenCalledTimes( 2 );
+			unmount();
+			pane.remove();
+		} );
+
+		it( 'hides it when the window resizes', () => {
+			const host = document.createElement( 'div' );
+			document.body.appendChild( host );
+			const { hide, unmount } = opened( host );
+
+			window.dispatchEvent( new Event( 'resize' ) );
+
+			expect( hide ).toHaveBeenCalledTimes( 1 );
+			unmount();
+			host.remove();
+		} );
+
+		it( 'leaves it open when a scroller beside the chart scrolls', () => {
+			const host = document.createElement( 'div' );
+			const beside = document.createElement( 'div' );
+			document.body.append( host, beside );
+			const { hide, unmount } = opened( host );
+
+			scroll( beside );
+
+			expect( hide ).not.toHaveBeenCalled();
+			unmount();
+			host.remove();
+			beside.remove();
+		} );
+
+		it( 'stops listening once the chart unmounts', () => {
+			const host = document.createElement( 'div' );
+			document.body.appendChild( host );
+			const { hide, unmount } = opened( host );
+			unmount();
+
+			scroll( host );
+			window.dispatchEvent( new Event( 'resize' ) );
+
+			expect( hide ).not.toHaveBeenCalled();
+			host.remove();
+		} );
 	} );
 } );

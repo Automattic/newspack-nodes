@@ -5,7 +5,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useEffect, useRef } from '@wordpress/element';
-import Modal, { Confirm, ModalHeader, ModalPortal } from '../Modal';
+import Modal, { Confirm, ModalHeader, BodyPortal } from '../Modal';
 
 test( 'it renders a labelled dialog carrying the canonical modal role', () => {
 	render(
@@ -248,12 +248,12 @@ test( 'the listener is removed on unmount', () => {
 // The topology console's ModalShell renders through this too, rather than its
 // own copy of the three skin classes, the `display: contents`, the document
 // guard and the body target. Two spellings of one contract drift; this is one.
-test( 'ModalPortal is the shared host both dialogs render through', () => {
+test( 'BodyPortal is the shared host both dialogs render through', () => {
 	const { container } = render(
 		<div style={ { position: 'fixed', zIndex: 99 } }>
-			<ModalPortal>
+			<BodyPortal>
 				<div className="console-shaped">geometry of its own</div>
-			</ModalPortal>
+			</BodyPortal>
 		</div>
 	);
 

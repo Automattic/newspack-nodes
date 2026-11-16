@@ -6,6 +6,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`ModalPortal` is renamed `BodyPortal`.** Import `BodyPortal` from
+  `@newspack-nodes/shared/components/Modal` in its place; nothing else
+  changes.
+
 ## 2.160.0
 
 - **`Vault::get_enabled()` is gone.** It was an alias of `get_all()`;

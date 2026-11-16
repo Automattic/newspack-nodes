@@ -8,9 +8,9 @@
  * from throwing.
  */
 
-import { ModalPortal } from '../Modal';
+import { BodyPortal } from '../Modal';
 
-test( 'ModalPortal renders nothing where there is no document', () => {
+test( 'BodyPortal renders nothing where there is no document', () => {
 	expect( typeof document ).toBe( 'undefined' );
-	expect( ModalPortal( { children: 'anything' } ) ).toBeNull();
+	expect( BodyPortal( { children: 'anything' } ) ).toBeNull();
 } );

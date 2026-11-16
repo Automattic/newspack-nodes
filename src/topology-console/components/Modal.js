@@ -24,7 +24,7 @@ import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
 import { useFocusTrap } from '@newspack-nodes/shared/hooks/useFocusTrap';
 import {
 	ModalHeader,
-	ModalPortal,
+	BodyPortal,
 	ModalTitleId,
 } from '@newspack-nodes/shared/components/Modal';
 import { __, sprintf } from '@wordpress/i18n';
@@ -68,7 +68,7 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  * ModalShell — the backdrop, panel, header and dismiss wiring every dialog in
  * the console and the debug overlay reuses.
  *
- * It renders through the shared `ModalPortal`, so an ancestor's overflow or
+ * It renders through the shared `BodyPortal`, so an ancestor's overflow or
  * stacking context can never clip it and the fixed backdrop dims the whole
  * page, overlay panel included. That host is what re-establishes the skin
  * classes out at body level, and it is shared because two spellings of one
@@ -189,7 +189,7 @@ export function ModalShell( {
 		: undefined;
 	const Panel = onSubmit ? 'form' : 'div';
 	const portal = (
-		<ModalPortal>
+		<BodyPortal>
 			<div className="topology-modal-backdrop" role="presentation">
 				<Panel
 					className={ `topology-modal newspack-nodes-modal${
@@ -208,7 +208,7 @@ export function ModalShell( {
 					</ModalTitleId.Provider>
 				</Panel>
 			</div>
-		</ModalPortal>
+		</BodyPortal>
 	);
 	return (
 		<>

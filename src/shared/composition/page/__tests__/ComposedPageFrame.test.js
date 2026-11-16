@@ -148,3 +148,84 @@ it( 'orders its header: its controls, then its blocks’ toolbars, then the layo
 	).toBeTruthy();
 	slot.remove();
 } );
+
+describe( 'a leave while the editor holds a change', () => {
+	let guard;
+
+	/**
+	 * The frame on its edit load, the editor marking a change at once, and
+	 * the guard it registers held in `guard`.
+	 */
+	const editing = () => {
+		window.history.replaceState(
+			null,
+			'',
+			'/wp-admin/admin.php?page=x&edit=roost-7950'
+		);
+		registerCompositionEditor( 'acme-7950/roost', ( { onDirty } ) => {
+			useEffect( () => onDirty( true ), [ onDirty ] );
+			return <p>roost editor 7950</p>;
+		} );
+		render(
+			<ComposedPageFrame
+				context="acme-7950/roost"
+				page="roost-7950"
+				pages={ PAGES }
+				group="roost-7950"
+				canTune
+				canManage={ false }
+				layout={ LAYOUT }
+				views={ VIEWS }
+				guardLeave={ ( answer ) => {
+					guard = answer;
+					return () => {
+						guard = null;
+					};
+				} }
+			/>
+		);
+	};
+
+	const press = ( name ) =>
+		act( () => {
+			screen.getByRole( 'button', { name } ).click();
+		} );
+
+	it( 'runs the leave it asked about first, not one arriving while it asks', () => {
+		editing();
+		const tabA = jest.fn();
+		const backB = jest.fn();
+
+		act( () => {
+			guard( { leave: tabA } );
+		} );
+		act( () => {
+			guard( { leave: backB } );
+		} );
+		press( 'Discard changes' );
+
+		expect( tabA ).toHaveBeenCalledTimes( 1 );
+		expect( backB ).not.toHaveBeenCalled();
+		expect(
+			screen.queryByText( 'Discard your changes to this layout?' )
+		).toBeNull();
+	} );
+
+	it( 'asks again about a new leave once Keep editing closes the question', () => {
+		editing();
+		const searchC = jest.fn();
+		const tabD = jest.fn();
+
+		act( () => {
+			guard( { leave: searchC } );
+		} );
+		press( 'Keep editing' );
+		act( () => {
+			guard( { leave: tabD } );
+		} );
+		press( 'Discard changes' );
+
+		expect( searchC ).not.toHaveBeenCalled();
+		expect( tabD ).toHaveBeenCalledTimes( 1 );
+	} );
+} );

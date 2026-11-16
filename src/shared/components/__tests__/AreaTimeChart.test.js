@@ -108,12 +108,36 @@ describe( 'AreaTimeChart', () => {
 				'.newspack-nodes-chart__row > .newspack-nodes-chart-legend li'
 			)
 		).toHaveLength( 2 );
-		// The tooltip is the elevated card, a child of the positioned chart.
-		const tooltip = chart.querySelector( '.newspack-nodes-chart__tooltip' );
+		// The tooltip is the elevated card, out of the chart at body level.
+		expect(
+			chart.querySelector( '.newspack-nodes-chart__tooltip' )
+		).toBeNull();
+		const tooltip = document.querySelector(
+			'.newspack-nodes-chart__tooltip'
+		);
 		expect(
 			tooltip.classList.contains( 'newspack-nodes-card--elevated' )
 		).toBe( true );
-		expect( chart.style.position ).toBe( 'relative' );
+	} );
+
+	it( 'portals its tooltip to the body, inside a root wearing the skin', () => {
+		const { unmount } = mount();
+		const tooltip = document.querySelector(
+			'.newspack-nodes-chart__tooltip'
+		);
+		const root = tooltip.parentElement;
+
+		expect( root.parentElement ).toBe( document.body );
+		expect( root.classList.contains( 'newspack-nodes-theme' ) ).toBe(
+			true
+		);
+		expect( root.classList.contains( 'newspack-nodes-ui' ) ).toBe( true );
+
+		unmount();
+
+		expect(
+			document.querySelector( '.newspack-nodes-chart__tooltip' )
+		).toBeNull();
 	} );
 
 	it( 'overlays by default: every band rises from the baseline', () => {

@@ -99,7 +99,8 @@ export default function ComposedPageFrame( {
 	useEffect( () => {
 		if ( editing && dirty && guardLeave ) {
 			return guardLeave( ( next ) => {
-				setLeaving( next );
+				// The open question wins: Discard runs the leave it asked.
+				setLeaving( ( held ) => held ?? next );
 				return false;
 			} );
 		}

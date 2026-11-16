@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A time chart's tooltip stays wholly on screen.** It still opens below the chart, or above it when there is no room below, and where neither fits it now moves over the chart until all of it shows, below WordPress's admin bar and the dashboard header. A tall tooltip on a chart filling the screen used to start behind the header.
+- **A time chart's tooltip stays wholly on screen.** It shows inside the viewport, clear of the scrollbar on whichever side it sits and of WordPress's admin bar and admin menu, on the page, in modals and in the debug overlay, overlapping the chart where it must. It opens below the chart. When that does not fit, it flips above the chart if the above position fits; only where neither side fits does it take the side that overflows less and move the least that brings all of it on screen. A tall tooltip on a chart filling the screen used to start behind the header, and one overflowing below by a few pixels used to flip above and slide far down over the plot.
+- The debug overlay's panel keeps clear of WordPress's admin menu on the right, and of a scrollbar on the left, where a right-to-left page draws them.
+- A composed page's discard question answers the leave it was asked about. A second leave arriving while it is open, the browser's Back or a search reply, used to replace the first, so Discard ran the wrong one.
 
 ### Changed
 
 - The release workflow builds with read-only permissions and publishes from a separate job.
-- `scripts/lib/bump-substrate-pin.sh` writes a consumer's substrate pin as `ref: <commit> # v<version>`, the commit the local `v<version>` tag names, and refuses a tag that origin does not carry as tagged locally or whose commit is not on `origin/main`; `write_substrate_pin()` takes the commit and the version, and `scripts/lib/bump-version.sh` resolves the commit through the new `substrate_commit()` before it edits anything.
+- `ModalPortal`, exported from `@newspack-nodes/shared/components/Modal`, is renamed `BodyPortal`, since it hosts more than dialogs.
+- `scripts/lib/bump-substrate-pin.sh` writes a consumer's substrate pin as `ref: <commit> # v<version>`, the commit the local `v<version>` tag names, and refuses a tag that origin does not carry as tagged locally or whose commit is not on origin's `main`, fetched at bump time rather than read from a local `origin/main` that may be stale; `write_substrate_pin()` takes the commit and the version, and `scripts/lib/bump-version.sh` resolves the commit through the new `substrate_commit()` before it edits anything.
 
 ## [2.160.0] - 2026-11-15
 

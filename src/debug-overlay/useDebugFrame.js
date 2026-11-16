@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { holdPageScroll, releasePageScroll } from './pageScrollLock';
-import { scrollbarWidth } from './scrollbarWidth';
+import { adminChromeRects, clientBox } from '../shared/utils/viewportChrome';
 import { isTypingTarget } from '../shared/utils/isTypingTarget';
 
 /**
@@ -94,30 +94,31 @@ function defaultFrame() {
 }
 
 /**
- * Measure where the panel may sit: the viewport, less the WordPress admin
- * chrome and the scrollbar gutter.
+ * Measure where the panel may sit: the client box, less the WordPress admin
+ * chrome.
  *
- * The admin bar and the admin menu are fixed elements the panel would slide
- * under, so their height and width come off the top and the left edge. The
- * gutter comes off the right, which keeps the east handles clear of the
- * scrollbar. Chrome that is absent — a front-end page — measures zero and
- * gives that edge back.
+ * The client box is the viewport less its scrollbar gutters, on whichever side
+ * the browser draws them, which keeps the handles clear of the scrollbar. The
+ * admin bar and the admin menu are elements the panel would slide under, so
+ * the bar's height comes off the top and the menu's width off the side it
+ * sits on, the left or, as RTL draws it, the right, wherever they sit. Chrome
+ * that is absent — a front-end page — measures zero and gives that edge back.
  *
  * @param {Object}  [root0]                 Options.
- * @param {boolean} [root0.ignoreScrollbar] Count the gutter as usable. A maximized panel does, because the page-scroll lock it holds has hidden the scrollbar. Absent, the gutter comes off the right edge.
+ * @param {boolean} [root0.ignoreScrollbar] Count the gutter as usable. A maximized panel does, because the page-scroll lock it holds has hidden the scrollbar. Absent, the gutter is left out.
  * @return {{left:number,top:number,right:number,bottom:number}} Usable box in viewport px.
  */
 function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
-	const adminBar = document.getElementById( 'wpadminbar' );
-	const adminMenu = document.getElementById( 'adminmenuwrap' );
-	const top = adminBar ? adminBar.offsetHeight : 0;
-	const left = adminMenu ? adminMenu.offsetWidth : 0;
-	const scrollbarW = ignoreScrollbar ? 0 : scrollbarWidth();
+	const box = ignoreScrollbar
+		? { left: 0, right: window.innerWidth, bottom: window.innerHeight }
+		: clientBox();
+	const { bar, menu, menuSide } = adminChromeRects();
 	return {
-		left,
-		top,
-		right: window.innerWidth - scrollbarW,
-		bottom: window.innerHeight,
+		left: 'left' === menuSide ? Math.max( box.left, menu.right ) : box.left,
+		top: bar?.height ?? 0,
+		right:
+			'right' === menuSide ? Math.min( box.right, menu.left ) : box.right,
+		bottom: box.bottom,
 	};
 }
 
@@ -133,7 +134,7 @@ function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
  *
  * @param {{x:number,y:number,w:number,h:number}}                root0  Frame to fit.
  * @param {Object}                                               opts   Forwarded to `getAvailableBounds` when it has to measure.
- * @param {?{left:number,top:number,right:number,bottom:number}} bounds Bounds read once at gesture start. `getAvailableBounds` reads `offsetHeight` and `clientWidth`, which force a synchronous reflow, and paying that per pointermove stutters on a dashboard that keeps dirtying its own layout.
+ * @param {?{left:number,top:number,right:number,bottom:number}} bounds Bounds read once at gesture start. `getAvailableBounds` reads the chrome's and the client box's rectangles, which force a synchronous reflow, and paying that per pointermove stutters on a dashboard that keeps dirtying its own layout.
  * @return {{x:number,y:number,w:number,h:number}} The fitted frame.
  */
 function clampFrame( { x, y, w, h }, opts = {}, bounds = null ) {

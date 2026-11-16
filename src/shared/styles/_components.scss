@@ -570,9 +570,9 @@
 		}
 	}
 
-	// A dashboard time chart: the title, the two toggles in the corner, the
-	// plot beside its legend, and the tooltip. The tooltip measures against
-	// the row but is positioned by the chart, so a flip clears the title.
+	// A dashboard time chart: the title, the two toggles in the corner, and
+	// the plot beside its legend. Its tooltip is portaled to the body and
+	// fixed in the viewport, placed below the row or above the title.
 	.newspack-nodes-chart {
 		$control: 24px;
 		$corner-gap: 2px;
@@ -684,12 +684,12 @@
 
 		&__tooltip {
 			display: none;
-			position: absolute;
+			position: fixed;
 			padding: 7px 11px;
 			font-size: var(--np-text-2xs);
 			pointer-events: none;
 			white-space: nowrap;
-			z-index: 10;
+			z-index: $layer-chart-tooltip;
 		}
 	}
 

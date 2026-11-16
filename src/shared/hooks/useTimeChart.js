@@ -22,6 +22,7 @@ import * as d3 from 'd3';
 
 import { useContainerRefit } from './useContainerRefit';
 import { cycledToken } from '../utils/formatUtils';
+import { adminChromeRects, clientBox } from '../utils/viewportChrome';
 
 /**
  * Window `buildTimeSlots()` covers when its caller names none: 24 hours.
@@ -401,51 +402,106 @@ const capture = ( el, pointerId ) => {
 	}
 };
 
+/** Px between a tooltip flipped above its chart row and the row's top. */
+const ABOVE_GAP = 4;
+
 /**
- * The top of the visible area: below WordPress's admin bar while it is fixed
- * across the top, and below the dashboard header while any of it shows, since
- * the header paints over a tooltip reaching into it.
+ * The rectangle a tooltip may show in, in viewport px: the client box less
+ * WordPress's admin bar where it shows at the top and its admin menu on the
+ * side it shows.
  *
- * @return {number} The y, in viewport pixels, a tooltip may start at.
+ * @return {{left:number,top:number,right:number,bottom:number}} The area.
  */
-function visibleTop() {
-	let top = 0;
-	const bar = document.getElementById( 'wpadminbar' );
-	if ( bar && 'fixed' === window.getComputedStyle( bar ).position ) {
-		top = Math.max( top, bar.getBoundingClientRect().bottom );
+function clientArea() {
+	const area = clientBox();
+	const { bar, menu, menuSide } = adminChromeRects();
+	const shows = ( r ) =>
+		r &&
+		r.bottom > area.top &&
+		r.top < area.bottom &&
+		r.right > area.left &&
+		r.left < area.right;
+	if ( shows( bar ) && bar.top <= area.top ) {
+		area.top = bar.bottom;
 	}
-	const header = document.querySelector( '.topology-header' );
-	if ( header ) {
-		top = Math.max( top, header.getBoundingClientRect().bottom );
+	if ( shows( menu ) && 'right' === menuSide ) {
+		area.right = Math.min( area.right, menu.left );
+	} else if ( shows( menu ) ) {
+		area.left = Math.max( area.left, menu.right );
 	}
-	return top;
+	return area;
 }
 
 /**
- * Move a placed tooltip until all of it is on screen, over the chart where it
- * must: down past the visible top, else up off the bottom, and right past the
- * left edge, else left off the right. A tooltip taller or wider than the
- * viewport keeps its top and left edge in view.
+ * Where a tooltip's near edge goes on one axis: at `first` when it fits
+ * between `lo` and `hi` there, else at `second` when it fits there, else at
+ * whichever overflows less; then moved the least that brings it inside, a
+ * tooltip larger than the span keeping its near edge in view.
  *
- * @param {HTMLElement} tooltip The tooltip, already placed by style.
+ * @param {number} first  The preferred near edge.
+ * @param {number} second The flipped near edge.
+ * @param {number} size   The tooltip's extent on this axis.
+ * @param {number} lo     The span's near edge.
+ * @param {number} hi     The span's far edge.
+ * @return {number} The near edge, in viewport px.
  */
-function keepOnScreen( tooltip ) {
-	const rect = tooltip.getBoundingClientRect();
-	const top = visibleTop();
-	let dy = 0;
-	if ( rect.top < top ) {
-		dy = top - rect.top;
-	} else if ( rect.bottom > window.innerHeight ) {
-		dy = Math.max( top - rect.top, window.innerHeight - rect.bottom );
-	}
-	let dx = 0;
-	if ( rect.left < 0 ) {
-		dx = -rect.left;
-	} else if ( rect.right > window.innerWidth ) {
-		dx = Math.max( -rect.left, window.innerWidth - rect.right );
-	}
-	tooltip.style.top = `${ parseFloat( tooltip.style.top || '0' ) + dy }px`;
-	tooltip.style.left = `${ parseFloat( tooltip.style.left || '0' ) + dx }px`;
+function placeOnAxis( first, second, size, lo, hi ) {
+	const overflow = ( at ) =>
+		Math.max( 0, lo - at ) + Math.max( 0, at + size - hi );
+	const at = overflow( second ) < overflow( first ) ? second : first;
+	return Math.max( lo, Math.min( at, hi - size ) );
+}
+
+/**
+ * What a hover places its tooltip against, measured as it starts: the area,
+ * the row's left and bottom, and the chart's top. A scroll or a resize hides
+ * the tooltip first, so none of them moves while the hover lasts.
+ *
+ * @param {HTMLElement} row The chart row; its parent is the chart.
+ * @return {{area:Object,rowLeft:number,rowBottom:number,chartTop:number}} The measures.
+ */
+function measureHover( row ) {
+	const { left, bottom } = row.getBoundingClientRect();
+	return {
+		area: clientArea(),
+		rowLeft: left,
+		rowBottom: bottom,
+		chartTop: row.parentElement.getBoundingClientRect().top,
+	};
+}
+
+/**
+ * Place a shown tooltip in viewport px: right of the cursor and below the
+ * chart row when it fits, else as `placeOnAxis()` decides, flipping left of
+ * the cursor or above the chart, clear of its title. Only the tooltip's own
+ * size is measured here.
+ *
+ * @param {HTMLElement} tooltip  The tooltip, shown.
+ * @param {Object}      measured The `measureHover()` this hover took.
+ * @param {number}      x        The cursor's x across the row.
+ */
+function placeTooltip( tooltip, measured, x ) {
+	const box = tooltip.getBoundingClientRect();
+	const wide = box.right - box.left;
+	const tall = box.bottom - box.top;
+	const { area, rowLeft, rowBottom, chartTop } = measured;
+	const cursor = rowLeft + x;
+	const left = placeOnAxis(
+		cursor,
+		cursor - wide,
+		wide,
+		area.left,
+		area.right
+	);
+	const top = placeOnAxis(
+		rowBottom,
+		chartTop - tall - ABOVE_GAP,
+		tall,
+		area.top,
+		area.bottom
+	);
+	tooltip.style.left = `${ left }px`;
+	tooltip.style.top = `${ top }px`;
 }
 
 /**
@@ -471,13 +527,17 @@ function keepOnScreen( tooltip ) {
  * far more often than the display refreshes, and each pass rebuilds the
  * tooltip's children and re-measures the viewport.
  *
- * The tooltip anchors below the chart row — the container's parent, inside
- * the positioned wrapper the tooltip is a child of — and flips above or left
- * when that would carry it past a viewport edge, which is what keeps the last
- * panel on a long dashboard from opening its tooltip off-screen. Flipped, it
- * clears the row's title too, since the wrapper is what it measures against.
- * Where neither side has room, it then moves over the chart until all of it
- * is on screen, clear of a fixed admin bar (`keepOnScreen()`).
+ * The tooltip is fixed at body level, out of every box the chart sits in,
+ * and placed in viewport px inside the client box, which is the viewport
+ * less its scrollbar gutters on whichever side, less WordPress's admin bar
+ * where it shows at the top and its admin menu on the side it shows. That
+ * area and the row's and the chart's rects are measured as a hover starts and
+ * again after the next hide; each frame measures only the tooltip. It opens
+ * right of the cursor and below the chart row; on each axis it flips (left of
+ * the cursor, above the chart, clear of its title) when its first side does
+ * not fit and the flipped side does, else takes the side overflowing less and
+ * moves the least that brings it inside, over the chart where it must. One
+ * larger than the area keeps its top and left edges in view.
  *
  * @param {Object}              g                     D3 group selection (inner chart area).
  * @param {Object}              params                Configuration.
@@ -491,6 +551,7 @@ function keepOnScreen( tooltip ) {
  * @param {Object}              params.lastMouseXRef  React ref tracking mouse x.
  * @param {Object}              params.frameRef       React ref holding the hover's pending frame id; this draw cancels the one an earlier draw left.
  * @param {Object}              params.containerRef   React ref to container div.
+ * @param {Object}              params.hideRef        React ref the draw's hide goes in, which a scroll or a resize calls.
  * @param {SlotClick}           [params.onSlotClick]  Takes the clicked slot's index into `dates`.
  * @param {SlotRange}           [params.onSlotRange]  Takes a drag's span of indexes into `dates`; absent, a drag is a click.
  * @param {Object}              [params.dragRef]      React ref holding the press in progress; required with `onSlotRange`.
@@ -508,6 +569,7 @@ export const setupTooltip = (
 		lastMouseXRef,
 		frameRef,
 		containerRef,
+		hideRef,
 		onSlotClick,
 		onSlotRange,
 		dragRef,
@@ -530,6 +592,8 @@ export const setupTooltip = (
 	const dragShade = onSlotRange ? g.append( 'g' ) : null;
 
 	const tooltip = tooltipRef.current;
+	// Measured as a hover starts; a scroll or a resize hides it first.
+	let measured = null;
 
 	const slotAt = ( mx ) => {
 		const dateAtMouse = x.invert( mx );
@@ -559,18 +623,8 @@ export const setupTooltip = (
 		} );
 		tooltip.style.display = 'block';
 
-		const row = containerRef.current.parentElement;
-		const left = row.offsetLeft + MARGIN.left + xPos;
-		tooltip.style.left = `${ left }px`;
-		tooltip.style.top = `${ row.offsetTop + row.offsetHeight }px`;
-		const tooltipRect = tooltip.getBoundingClientRect();
-		if ( tooltipRect.bottom > window.innerHeight ) {
-			tooltip.style.top = `-${ tooltip.offsetHeight + 4 }px`;
-		}
-		if ( tooltipRect.right > window.innerWidth ) {
-			tooltip.style.left = `${ left - tooltip.offsetWidth }px`;
-		}
-		keepOnScreen( tooltip );
+		measured ??= measureHover( containerRef.current.parentElement );
+		placeTooltip( tooltip, measured, MARGIN.left + xPos );
 	};
 
 	const scheduleHover = ( mx ) => {
@@ -587,9 +641,11 @@ export const setupTooltip = (
 	function hideTooltip() {
 		cancelFrame( frameRef );
 		lastMouseXRef.current = null;
+		measured = null;
 		tooltip.style.display = 'none';
 		highlight.attr( 'opacity', 0 );
 	}
+	hideRef.current = hideTooltip;
 
 	const overlay = g
 		.append( 'rect' )
@@ -778,6 +834,7 @@ const bindDrag = (
  * @property {Object} lastMouseXRef Ref holding the last pointer x, or null.
  * @property {Object} frameRef      Ref holding the hover's pending frame id, or null.
  * @property {Object} dragRef       Ref holding the drag press in progress, or null.
+ * @property {Object} hideRef       Ref holding the draw's hide, which a scroll or a resize calls.
  */
 
 /**
@@ -785,9 +842,11 @@ const bindDrag = (
  *
  * The hook redraws on the two events that change what a chart shows —
  * `renderFn`'s own identity, which carries its data and theme, and a resize of
- * the container. It also hides the tooltip when the page scrolls, or when the
- * modal body does for a chart opened inside one: the tooltip is positioned
- * against the chart, and a scroll it does not hear about strands it. Escape
+ * the container. It also runs the draw's own hide, which drops the tooltip,
+ * the lit column and any pending frame, when anything around the chart
+ * scrolls, the page, a modal body or a dashboard's pane, or the window
+ * resizes: the tooltip is fixed in the viewport, so either would strand it,
+ * and a hover measures its area only once. Escape
  * cancels a drag in progress, ahead of any other Escape handler, so a chart
  * in a modal drops the drag without closing the modal.
  *
@@ -803,6 +862,7 @@ export function useTimeChart( renderFn ) {
 	const lastMouseXRef = useRef( null );
 	const frameRef = useRef( null );
 	const dragRef = useRef( null );
+	const hideRef = useRef( null );
 
 	const renderChart = useCallback( () => {
 		renderFn( {
@@ -811,6 +871,7 @@ export function useTimeChart( renderFn ) {
 			lastMouseXRef,
 			frameRef,
 			dragRef,
+			hideRef,
 		} );
 	}, [ renderFn ] );
 
@@ -850,27 +911,33 @@ export function useTimeChart( renderFn ) {
 	// The dep that binds it: a chart rendering null has no container yet.
 	useContainerRefit( containerRef, renderChart, [ renderChart ] );
 
-	// The tooltip is positioned against the chart; a scroll strands it.
+	// @longform Scroll does not bubble, so listen in the capture phase and hide
+	// only when a box around the chart scrolls, or the window resizes.
 	useEffect( () => {
-		const el = containerRef.current;
-		if ( ! el ) {
-			return;
-		}
-		const scrollParent =
-			el.closest( '.components-modal__content' ) || window;
-		const hideOnScroll = () => {
-			lastMouseXRef.current = null;
-			if ( tooltipRef.current ) {
-				tooltipRef.current.style.display = 'none';
+		const hide = ( event ) => {
+			const chart = containerRef.current;
+			if (
+				chart &&
+				( window === event.target || event.target.contains?.( chart ) )
+			) {
+				hideRef.current?.();
 			}
 		};
-		scrollParent.addEventListener( 'scroll', hideOnScroll, {
-			passive: true,
-		} );
+		const options = { capture: true, passive: true };
+		window.addEventListener( 'scroll', hide, options );
+		window.addEventListener( 'resize', hide );
 		return () => {
-			scrollParent.removeEventListener( 'scroll', hideOnScroll );
+			window.removeEventListener( 'scroll', hide, options );
+			window.removeEventListener( 'resize', hide );
 		};
 	}, [] );
 
-	return { containerRef, tooltipRef, lastMouseXRef, frameRef, dragRef };
+	return {
+		containerRef,
+		tooltipRef,
+		lastMouseXRef,
+		frameRef,
+		dragRef,
+		hideRef,
+	};
 }

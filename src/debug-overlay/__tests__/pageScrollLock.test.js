@@ -4,6 +4,7 @@ import {
 	releasePageScroll,
 	unlockPageScroll,
 } from '../pageScrollLock';
+import { clientBox } from '../../shared/utils/viewportChrome';
 
 describe( 'pageScrollLock', () => {
 	const html = () => document.documentElement;
@@ -14,6 +15,7 @@ describe( 'pageScrollLock', () => {
 		releasePageScroll( 'maximize' );
 		html().style.overflow = '';
 		html().style.paddingRight = '';
+		html().style.paddingLeft = '';
 		body().style.overflow = '';
 	} );
 
@@ -55,6 +57,58 @@ describe( 'pageScrollLock', () => {
 		releasePageScroll( 'maximize' );
 		expect( html().style.overflow ).toBe( 'auto' );
 		expect( body().style.overflow ).toBe( 'scroll' );
+	} );
+
+	describe( 'padding the gutter back on its own side', () => {
+		const inner = Object.getOwnPropertyDescriptor( window, 'innerWidth' );
+
+		/**
+		 * A 17px gutter, its client box starting at `left`.
+		 *
+		 * @param {number} left The client box's left edge.
+		 */
+		const gutterAt = ( left ) => {
+			Object.defineProperty( window, 'innerWidth', {
+				value: 1017,
+				writable: true,
+				configurable: true,
+			} );
+			Object.defineProperty( html(), 'clientWidth', {
+				configurable: true,
+				get: () => 1000,
+			} );
+			clientBox();
+			document.querySelector(
+				'.newspack-nodes-client-box'
+			).getBoundingClientRect = () => ( {
+				left,
+				top: 0,
+				right: left + 1000,
+				bottom: 600,
+			} );
+		};
+
+		afterEach( () => {
+			Object.defineProperty( window, 'innerWidth', inner );
+			delete html().clientWidth;
+		} );
+
+		it( 'pads the right where the scrollbar stands on the right', () => {
+			gutterAt( 0 );
+			holdPageScroll( 'maximize' );
+			expect( html().style.paddingRight ).toBe( '17px' );
+			expect( html().style.paddingLeft ).toBe( '' );
+		} );
+
+		it( 'pads the left where an RTL page draws its scrollbar there', () => {
+			html().style.paddingLeft = '3px';
+			gutterAt( 17 );
+			holdPageScroll( 'maximize' );
+			expect( html().style.paddingLeft ).toBe( '17px' );
+			expect( html().style.paddingRight ).toBe( '' );
+			releasePageScroll( 'maximize' );
+			expect( html().style.paddingLeft ).toBe( '3px' );
+		} );
 	} );
 
 	it( 'ignores a gutter measured against a bogus clientWidth', () => {

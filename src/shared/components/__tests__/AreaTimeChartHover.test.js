@@ -54,7 +54,9 @@ const flush = () => {
 
 const overlay = ( c ) =>
 	c.querySelector( '.newspack-nodes-chart__plot rect[pointer-events="all"]' );
-const tooltip = ( c ) => c.querySelector( '.newspack-nodes-chart__tooltip' );
+// The tooltip is portaled to the body, out of the chart's container.
+const tooltip = () =>
+	document.querySelector( '.newspack-nodes-chart__tooltip' );
 
 describe( "AreaTimeChart hover's pending frame", () => {
 	it( 'runs nothing after the chart unmounts', () => {
@@ -72,13 +74,35 @@ describe( "AreaTimeChart hover's pending frame", () => {
 		);
 		fireEvent.mouseMove( overlay( container ), { clientX: 354 } );
 		flush();
-		expect( tooltip( container ).textContent ).toContain( 'kea.p3: 41u' );
+		expect( tooltip().textContent ).toContain( 'kea.p3: 41u' );
 
 		fireEvent.mouseMove( overlay( container ), { clientX: 360 } );
 		rerender(
 			<AreaTimeChart series={ seriesOf( 83 ) } { ...chartProps } />
 		);
 		flush();
-		expect( tooltip( container ).textContent ).toContain( 'kea.p3: 83u' );
+		expect( tooltip().textContent ).toContain( 'kea.p3: 83u' );
+	} );
+} );
+
+describe( 'AreaTimeChart hover on a scroll', () => {
+	it( 'drops the tooltip, the lit column and the pending frame together', () => {
+		const { container } = render(
+			<AreaTimeChart series={ seriesOf( 59 ) } { ...chartProps } />
+		);
+		const lit = () =>
+			container.querySelector(
+				'.newspack-nodes-chart__plot rect[fill="rgba(128,128,128,0.18)"]'
+			);
+		fireEvent.mouseMove( overlay( container ), { clientX: 354 } );
+		flush();
+		expect( lit().getAttribute( 'opacity' ) ).toBe( '1' );
+		fireEvent.mouseMove( overlay( container ), { clientX: 360 } );
+
+		document.dispatchEvent( new Event( 'scroll' ) );
+
+		expect( lit().getAttribute( 'opacity' ) ).toBe( '0' );
+		expect( tooltip().style.display ).toBe( 'none' );
+		expect( frames.size ).toBe( 0 );
 	} );
 } );

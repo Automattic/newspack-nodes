@@ -7,7 +7,7 @@
  * that MOUNTS ONCE per armed session rather than appearing and vanishing as
  * the pointer crosses the rows inside it.
  *
- * It renders at body level through `ModalPortal`, the same escape the dialogs
+ * It renders at body level through `BodyPortal`, the same escape the dialogs
  * take, since the shell it rings is a stacking context of its own.
  *
  * A picked page shows here too. The page box cannot wear the picked fill,
@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from '@wordpress/element';
-import { ModalPortal } from './Modal';
+import { BodyPortal } from './Modal';
 import { ASK_PAGE_ATTR, ASK_PICKED_ATTR } from '../hooks/useAskPicker';
 import useAdminMenuWidth from '../hooks/useAdminMenuWidth';
 
@@ -89,12 +89,12 @@ export default function AskPageRing( { active } ) {
 
 	const { picked, ...geometry } = box;
 	return (
-		<ModalPortal>
+		<BodyPortal>
 			<div
 				className="newspack-nodes-ask-ring"
 				style={ geometry }
 				{ ...( picked ? { [ ASK_PICKED_ATTR ]: '' } : {} ) }
 			/>
-		</ModalPortal>
+		</BodyPortal>
 	);
 }

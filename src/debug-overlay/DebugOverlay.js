@@ -1,7 +1,7 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { initSkin } from '@newspack-nodes/shared/theme';
-import { ModalPortal } from '@newspack-nodes/shared/components/Modal';
+import { BodyPortal } from '@newspack-nodes/shared/components/Modal';
 import { isDebugEnabled } from './isDebugEnabled';
 import DebugPanel from './DebugPanel';
 import { startOverviewSampler, stopOverviewSampler } from './overviewSampler';
@@ -25,7 +25,7 @@ import './debug-overlay.scss';
  * subtree's first render: `shell.sink` is bound during the build, before any
  * typed line can dispatch, so nothing has to resolve a sink at dispatch time.
  *
- * It renders at BODY level, through the `ModalPortal` the dialogs take. A
+ * It renders at BODY level, through the `BodyPortal` the dialogs take. A
  * dashboard shell is `position: fixed; z-index: 99`, and a z-index inside one
  * ranks only against its siblings there — so the overlay's own 999999 put it
  * under any dialog portalled to the body at 100000, which is the one thing
@@ -83,7 +83,7 @@ export default function DebugOverlay( {
 	}
 
 	return (
-		<ModalPortal>
+		<BodyPortal>
 			<div className="nodes-debug">
 				{ ! open && (
 					<button
@@ -106,6 +106,6 @@ export default function DebugOverlay( {
 					/>
 				) }
 			</div>
-		</ModalPortal>
+		</BodyPortal>
 	);
 }

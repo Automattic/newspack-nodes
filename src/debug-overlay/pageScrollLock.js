@@ -10,10 +10,11 @@
  * The lock sets `overflow` on BOTH `<html>` and `<body>`: Chrome's scrolling
  * element is `<html>`, while Safari ignores `overflow:hidden` there and keeps
  * scrolling `<body>`, so locking one element leaves the other browser
- * scrolling. Right padding compensates for the scrollbar gutter the lock
+ * scrolling. Padding on the gutter's own side, the right or, where an RTL
+ * page draws its scrollbar, the left, compensates for the gutter the lock
  * reclaims, which keeps the page from shifting sideways as it engages.
  *
- * This module is the ONLY writer of those three styles. Two owners saving and
+ * This module is the ONLY writer of those four styles. Two owners saving and
  * restoring the same property under separate bookkeeping leave the page
  * permanently unscrollable: whichever restores last writes the other's `hidden`
  * back, and the lock that would undo it is gone. So a hold is keyed by REASON —
@@ -21,7 +22,7 @@
  * to leave restores the saved styles.
  */
 
-import { scrollbarWidth } from './scrollbarWidth';
+import { clientBox, scrollbarWidth } from '../shared/utils/viewportChrome';
 
 /** Reason key for the hold the pointer takes on entering the panel. */
 const POINTER = 'pointer';
@@ -37,7 +38,7 @@ const holds = new Set();
  * The inline styles the first hold captures and the last release writes back.
  * Null while there is no hold.
  *
- * @type {?{htmlOverflow:string,htmlPaddingRight:string,bodyOverflow:string}}
+ * @type {?{htmlOverflow:string,htmlPaddingLeft:string,htmlPaddingRight:string,bodyOverflow:string}}
  */
 let saved = null;
 
@@ -79,13 +80,16 @@ export function holdPageScroll( reason ) {
 	const gutter = scrollbarWidth();
 	saved = {
 		htmlOverflow: html.style.overflow,
+		htmlPaddingLeft: html.style.paddingLeft,
 		htmlPaddingRight: html.style.paddingRight,
 		bodyOverflow: body.style.overflow,
 	};
 	html.style.overflow = 'hidden';
 	body.style.overflow = 'hidden';
 	if ( gutter > 0 ) {
-		html.style.paddingRight = `${ gutter }px`;
+		// An RTL page may draw its scrollbar on the left.
+		const side = clientBox().left > 0 ? 'paddingLeft' : 'paddingRight';
+		html.style[ side ] = `${ gutter }px`;
 	}
 }
 
@@ -104,6 +108,7 @@ export function releasePageScroll( reason ) {
 	}
 	const html = document.documentElement;
 	html.style.overflow = saved.htmlOverflow;
+	html.style.paddingLeft = saved.htmlPaddingLeft;
 	html.style.paddingRight = saved.htmlPaddingRight;
 	document.body.style.overflow = saved.bodyOverflow;
 	saved = null;

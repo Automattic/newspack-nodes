@@ -27,8 +27,9 @@ substrate_version() {
 }
 
 # substrate_commit DIR VERSION — the commit tag vVERSION names at DIR, refused
-# unless origin carries that same tag and its origin/main holds the commit, so
-# a pin CI cannot fetch is never written.
+# unless origin carries that same tag and origin's main holds the commit, so a
+# pin CI cannot fetch is never written. The fetch forces origin/main to the
+# remote's main, so a stale or force-pushed-past tracking ref is not trusted.
 substrate_commit() {
 	_dir="$1"
 	_tag="refs/tags/v$2"
@@ -39,8 +40,10 @@ substrate_commit() {
 	_pushed=$(printf '%s\n' "$_listing" | awk -v ref="$_tag" '$2 == ref { print $1 }')
 	[ "$_pushed" = "$(git -C "$_dir" rev-parse "$_tag")" ] \
 		|| die "newspack-nodes v$2 is not pushed to origin as tagged here; push the tag before pinning it"
-	git -C "$_dir" merge-base --is-ancestor "$_commit" origin/main \
-		|| die "newspack-nodes v$2 ($_commit) is not on origin/main; fetch origin, or tag a commit main holds"
+	git -C "$_dir" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main \
+		|| die "Could not fetch newspack-nodes main from origin in $_dir"
+	git -C "$_dir" merge-base --is-ancestor "$_commit" refs/remotes/origin/main \
+		|| die "newspack-nodes v$2 ($_commit) is not on origin's main; tag a commit main holds"
 	echo "$_commit"
 }
 

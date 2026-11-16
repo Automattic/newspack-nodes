@@ -2,6 +2,20 @@ import { renderHook, render, act } from '@testing-library/react';
 import { useRef } from '@wordpress/element';
 import { useDebugFrame } from '../useDebugFrame';
 import { lockPageScroll, unlockPageScroll } from '../pageScrollLock';
+import { clientBox } from '../../shared/utils/viewportChrome';
+
+/**
+ * Set the client box, the viewport less its scrollbar gutter, as its hidden
+ * fixed sentinel measures it.
+ *
+ * @param {Object} rect Its left, top, right and bottom.
+ */
+function clientBoxAt( rect ) {
+	clientBox();
+	document.querySelector(
+		'.newspack-nodes-client-box'
+	).getBoundingClientRect = () => rect;
+}
 
 const KEY = 'newspack-nodes:debug:test-frame';
 
@@ -67,6 +81,7 @@ describe( 'useDebugFrame', () => {
 			value: 800,
 			writable: true,
 		} );
+		clientBoxAt( { left: 0, top: 0, right: 1200, bottom: 800 } );
 	} );
 
 	it( 'returns a default frame and a style prop with concrete dimensions', () => {
@@ -88,6 +103,90 @@ describe( 'useDebugFrame', () => {
 				height: `${ frame.h }px`,
 			} )
 		);
+	} );
+
+	/**
+	 * Admin chrome at viewport rectangles, removed by the returned function.
+	 *
+	 * @param {Object} rects Rectangle by element id.
+	 * @return {() => void} Removes the elements.
+	 */
+	const adminChrome = ( rects ) => {
+		const els = Object.entries( rects ).map( ( [ id, r ] ) => {
+			const el = document.createElement( 'div' );
+			el.id = id;
+			el.getBoundingClientRect = () => ( {
+				...r,
+				width: r.right - r.left,
+				height: r.bottom - r.top,
+			} );
+			document.body.appendChild( el );
+			return el;
+		} );
+		return () => els.forEach( ( el ) => el.remove() );
+	};
+
+	it( 'reserves the admin bar and a left admin menu wherever they sit', () => {
+		// The bar is half scrolled away; the panel still keeps its height clear.
+		const remove = adminChrome( {
+			wpadminbar: { top: -20, bottom: 26, left: 0, right: 1200 },
+			adminmenuwrap: { top: 26, bottom: 900, left: 0, right: 161 },
+		} );
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 10, y: 5, w: 400, h: 300 } )
+		);
+		try {
+			const { result } = renderHook( () => useDebugFrame( KEY ) );
+
+			expect( result.current.frame ).toEqual( {
+				x: 161,
+				y: 46,
+				w: 400,
+				h: 300,
+			} );
+		} finally {
+			remove();
+		}
+	} );
+
+	it( 'reserves a right-hand admin menu, as RTL draws it, on the right', () => {
+		const remove = adminChrome( {
+			adminmenuwrap: { top: 32, bottom: 900, left: 1043, right: 1200 },
+		} );
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 900, y: 50, w: 400, h: 300 } )
+		);
+		try {
+			const { result } = renderHook( () => useDebugFrame( KEY ) );
+
+			expect( result.current.frame ).toEqual( {
+				x: 643,
+				y: 50,
+				w: 400,
+				h: 300,
+			} );
+		} finally {
+			remove();
+		}
+	} );
+
+	it( 'keeps clear of a scrollbar gutter drawn on the left, as RTL may', () => {
+		clientBoxAt( { left: 15, top: 0, right: 1200, bottom: 800 } );
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 5, y: 60, w: 400, h: 300 } )
+		);
+
+		const { result } = renderHook( () => useDebugFrame( KEY ) );
+
+		expect( result.current.frame ).toEqual( {
+			x: 15,
+			y: 60,
+			w: 400,
+			h: 300,
+		} );
 	} );
 
 	it( 'header pointerdown→move→up shifts the frame by the delta', () => {

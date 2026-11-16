@@ -68,6 +68,7 @@ import useNarrow from '../hooks/useNarrow';
 import { usePersistedFlag } from '../hooks/usePersistedState';
 import { useLegend } from '../hooks/useSeriesSelection';
 import ChartLegend from './ChartLegend';
+import { BodyPortal } from './Modal';
 
 /** How many series the tooltip lists for a column, largest first. */
 const TOOLTIP_ROWS = 12;
@@ -515,6 +516,7 @@ function AreaTimeChart( {
 				lastMouseXRef: refs.lastMouseXRef,
 				frameRef: refs.frameRef,
 				containerRef: refs.containerRef,
+				hideRef: refs.hideRef,
 				onSlotClick,
 				onSlotRange,
 				dragRef: refs.dragRef,
@@ -544,7 +546,7 @@ function AreaTimeChart( {
 
 	const { containerRef, tooltipRef } = useTimeChart( renderFn );
 
-	// `position: relative` makes the chart the tooltip's offset parent.
+	// `position: relative` anchors the corner buttons.
 	return (
 		<div
 			className={ `newspack-nodes-chart${
@@ -599,10 +601,13 @@ function AreaTimeChart( {
 					height={ height }
 				/>
 			</div>
-			<div
-				ref={ tooltipRef }
-				className="newspack-nodes-card newspack-nodes-card--elevated newspack-nodes-chart__tooltip"
-			/>
+			{ /* Fixed at body level, so no box the chart sits in clips it. */ }
+			<BodyPortal>
+				<div
+					ref={ tooltipRef }
+					className="newspack-nodes-card newspack-nodes-card--elevated newspack-nodes-chart__tooltip"
+				/>
+			</BodyPortal>
 		</div>
 	);
 }
