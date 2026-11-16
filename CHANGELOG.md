@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `DataViewsList` list row is read, not picked.** A list given `selectLabel`, or not given both `selection` and `onChangeSelection`, hands DataViews an empty selection and a no-op, so no click, Enter or Space selects a row; only a picker, given both without `selectLabel`, lets a row be picked. A list that picks nothing carries `newspack-nodes-dataviews__unpicked` on its layout, so a hovered or focused row takes no wash, and its row buttons drop the `aria-pressed` DataViews gives them, so a screen reader does not announce a toggle that does nothing; a picker's row keeps the skin's hover fill and its `aria-pressed`. The button DataViews lays over each row stays, naming the row and moving between rows by arrow key. Focused from the keyboard it wears one ring, the shared focus contract's outline in the skin's ink, drawn 2px inside the button with the contract's halo inset beside it, so the list's scroller cannot clip either; `_focus.scss` takes away stock's second, inset ring, which painted the admin accent. A picked row keeps the skin's fill and ink while focus is inside it: stock's `.is-selected:focus-within` rule tied the shared one on weight and won on order, painting `#1e1e1e` over a dark skin's paper, so a selected row's title and summary vanished under crt.
+
+### Changed
+
+- A `DataViewsList` whose caller passes no `selection` no longer lets DataViews keep a selection of its own, and one given `supportsBulk` actions in a table or grid without `selection` and `onChangeSelection` throws, since their checkboxes would check nothing.
+- `@testing-library/user-event` joins the dev dependencies, so a test can press a key as a browser activates a button.
+
 ## [2.161.0] - 2026-11-15
 
 ### Fixed

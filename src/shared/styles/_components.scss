@@ -1308,6 +1308,7 @@
 			}
 		}
 
+		// A row a picker holds; doubled past stock's `.is-selected:focus-within`.
 		&.is-selected.is-selected {
 			border-top-color: var(--paper-shadow, var(--np-border-strong));
 
@@ -1317,7 +1318,7 @@
 			}
 		}
 
-		&.is-selected .dataviews-view-list__item-wrapper {
+		&.is-selected.is-selected .dataviews-view-list__item-wrapper {
 			background-color: var(--hover, var(--np-surface-muted));
 			color: var(--ink, var(--np-text));
 
@@ -1328,6 +1329,16 @@
 			.dataviews-view-list__field {
 				color: var(--ink-3, var(--np-text-secondary));
 			}
+		}
+	}
+
+	// A list that picks nothing is read, so its rows take no wash.
+	.newspack-nodes-dataviews__unpicked.dataviews-view-list
+		:is(div[role="row"], div[role="article"]) {
+		&:hover,
+		&.is-hovered,
+		&:focus-within {
+			background-color: transparent;
 		}
 	}
 

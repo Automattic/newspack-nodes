@@ -2,7 +2,9 @@
 /**
  * The focus ring's halo reads its own token, `--focus-halo`, falling back to
  * `--paper`, so a dark surface inside a light skin re-points the halo alone
- * and leaves every fill that reads `--paper` as it was.
+ * and leaves every fill that reads `--paper` as it was. A halo sits 1px
+ * outside an outset ring, or, beside a DataViews row button's inset ring,
+ * 3px inset under it.
  */
 
 import path from 'path';
@@ -24,6 +26,10 @@ const SKIN = {
 	'--cyan': '#1f6fa8',
 };
 
+// A halo of the given colour, in either shape.
+const halo = ( color ) =>
+	new RegExp( `^(?:0 0 0 1px|inset 0 0 0 3px) ${ color }$` );
+
 // Every declaration whose resolved value differs between the two envs.
 const changed = ( before, after ) => {
 	const found = [];
@@ -43,12 +49,10 @@ const changed = ( before, after ) => {
 it( 'draws the halo from --paper until a surface re-points --focus-halo', () => {
 	const halos = changed( SKIN, { ...SKIN, '--focus-halo': '#20262e' } );
 	expect( halos.length ).toBeGreaterThan( 0 );
-	for ( const halo of halos ) {
-		expect( halo ).toEqual( {
-			prop: 'box-shadow',
-			was: '0 0 0 1px #fbf8f1',
-			now: '0 0 0 1px #20262e',
-		} );
+	for ( const { prop, was, now } of halos ) {
+		expect( prop ).toBe( 'box-shadow' );
+		expect( was ).toMatch( halo( '#fbf8f1' ) );
+		expect( now ).toMatch( halo( '#20262e' ) );
 	}
 } );
 
@@ -63,7 +67,7 @@ ui.walkDecls( 'box-shadow', ( decl ) => {
 it( 'draws every halo from --focus-halo over a re-pointed --paper', () => {
 	const env = { ...SKIN, '--paper': '#20262e', '--focus-halo': '#fdfaf0' };
 	expect( halos.length ).toBeGreaterThan( 0 );
-	for ( const halo of halos ) {
-		expect( resolve( halo, env ) ).toBe( '0 0 0 1px #fdfaf0' );
+	for ( const value of halos ) {
+		expect( resolve( value, env ) ).toMatch( halo( '#fdfaf0' ) );
 	}
 } );

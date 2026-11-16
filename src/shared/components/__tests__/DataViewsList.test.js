@@ -6,6 +6,7 @@
  */
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Popover } from '@wordpress/components';
 import { DataViews } from '@wordpress/dataviews';
 import {
@@ -794,6 +795,195 @@ describe( 'DataViewsList', () => {
 		render( list() );
 		await screen.findByText( /Heron Gazette/ );
 		expect( screen.queryByRole( 'checkbox', { name: /Pick/ } ) ).toBeNull();
+	} );
+
+	describe( 'a list read, not picked', () => {
+		beforeAll( () => {
+			// jsdom has no scrollIntoView, which DataViews calls on a picked row.
+			window.HTMLElement.prototype.scrollIntoView = () => {};
+		} );
+		afterAll( () => {
+			delete window.HTMLElement.prototype.scrollIntoView;
+		} );
+		const unpicked = ( container ) =>
+			container.querySelector( '.newspack-nodes-dataviews__unpicked' );
+		const KEA = {
+			slug: 'kea-63',
+			title: 'Kea Bulletin hires a night editor',
+		};
+
+		it( 'takes no selection from a click, Enter or Space on a row its caller holds none for', async () => {
+			const user = userEvent.setup();
+			const { container } = render(
+				list( { items: [ HERON, OTTER, KEA ] } )
+			);
+			await screen.findByText( /Kea Bulletin/ );
+			const bodies = container.querySelectorAll(
+				'.dataviews-view-list__item'
+			);
+			await user.click( bodies[ 1 ] );
+			act( () => bodies[ 2 ].focus() );
+			await user.keyboard( '{Enter}' );
+			await user.keyboard( ' ' );
+			expect( container.querySelector( '.is-selected' ) ).toBeNull();
+			expect(
+				container.querySelector( '[aria-pressed="true"]' )
+			).toBeNull();
+		} );
+
+		it( 'keeps the row button, which names the row, in a list that picks nothing', async () => {
+			const { container } = render( list() );
+			await screen.findByText( /Heron Gazette/ );
+			expect(
+				screen.getByRole( 'button', {
+					name: 'Dry: Heron Gazette moves to weekly',
+				} )
+			).toBe( container.querySelector( '.dataviews-view-list__item' ) );
+		} );
+
+		it( 'announces no row of a list that picks nothing as a toggle, a picker’s rows still pressed or not', async () => {
+			const pressed = ( container ) =>
+				[
+					...container.querySelectorAll(
+						'.dataviews-view-list__item'
+					),
+				].map( ( row ) => row.getAttribute( 'aria-pressed' ) );
+			const { container, rerender } = render(
+				list( { items: [ HERON, OTTER ] } )
+			);
+			await screen.findByText( /Otter Ledger/ );
+			expect( pressed( container ) ).toEqual( [ null, null ] );
+			rerender( list( { items: [ HERON, OTTER, KEA ] } ) );
+			await screen.findByText( /Kea Bulletin/ );
+			expect( pressed( container ) ).toEqual( [ null, null, null ] );
+			rerender(
+				list( {
+					items: [ HERON, OTTER, KEA ],
+					selection: [],
+					onChangeSelection: () => {},
+					selectLabel: ( item ) => `Pick ${ item.slug }`,
+				} )
+			);
+			expect( pressed( container ) ).toEqual( [ null, null, null ] );
+
+			const picker = render(
+				list( {
+					items: [ HERON, OTTER ],
+					selection: [ 'otter-2' ],
+					onChangeSelection: () => {},
+				} )
+			);
+			await picker.findAllByText( /Otter Ledger/ );
+			expect( pressed( picker.container ) ).toEqual( [
+				'false',
+				'true',
+			] );
+		} );
+
+		it( 'gives the toggle back to rows once the list turns into a picker', async () => {
+			const pressed = ( container ) =>
+				[
+					...container.querySelectorAll(
+						'.dataviews-view-list__item'
+					),
+				].map( ( row ) => row.getAttribute( 'aria-pressed' ) );
+			const { container, rerender } = render(
+				list( { items: [ HERON, KEA ] } )
+			);
+			await screen.findByText( /Kea Bulletin/ );
+			rerender(
+				list( {
+					items: [ HERON, KEA ],
+					selection: [ 'kea-63' ],
+					onChangeSelection: () => {},
+				} )
+			);
+			await screen.findByText( /Kea Bulletin/ );
+			expect( pressed( container ) ).toEqual( [ 'false', 'true' ] );
+		} );
+
+		it( 'strips the toggle from a row DataViews mounts in a render of its own', async () => {
+			const { container } = render( list() );
+			await screen.findByText( /Heron Gazette/ );
+			const late = document.createElement( 'button' );
+			late.className = 'dataviews-view-list__item';
+			late.setAttribute( 'aria-pressed', 'false' );
+			container.querySelector( '.dataviews-view-list' ).append( late );
+			const kept = container.querySelector(
+				'.dataviews-view-list__item'
+			);
+			kept.setAttribute( 'aria-pressed', 'true' );
+			await act( () => Promise.resolve() );
+			expect( late.hasAttribute( 'aria-pressed' ) ).toBe( false );
+			expect( kept.hasAttribute( 'aria-pressed' ) ).toBe( false );
+		} );
+
+		it( 'marks a list that picks nothing as unpicked, a checked list included', async () => {
+			const { container, rerender } = render( list() );
+			await screen.findByText( /Heron Gazette/ );
+			expect(
+				unpicked( container )?.classList.contains(
+					'dataviews-view-list'
+				)
+			).toBe( true );
+			rerender(
+				list( {
+					selection: [],
+					onChangeSelection: () => {},
+					selectLabel: ( item ) => `Pick ${ item.slug }`,
+				} )
+			);
+			expect( unpicked( container ) ).not.toBeNull();
+		} );
+
+		it( 'refuses bulk actions in a table or grid without the selection they act on', () => {
+			const bulk = [
+				{
+					id: 'archive-8812',
+					label: 'Archive 8812',
+					supportsBulk: true,
+					callback: () => {},
+				},
+			];
+			jest.spyOn( console, 'error' ).mockImplementation( () => {} );
+			for ( const layout of [ 'table', 'grid', [ 'list', 'table' ] ] ) {
+				expect( () =>
+					render(
+						list( {
+							layout,
+							view: view( {
+								page: 1,
+								type: [].concat( layout )[ 0 ],
+							} ),
+							actions: bulk,
+						} )
+					)
+				).toThrow( /supportsBulk/ );
+			}
+			console.error.mockRestore();
+			expect( () => render( list( { actions: bulk } ) ) ).not.toThrow();
+		} );
+
+		it( 'lets a caller holding the selection pick a row with a click', async () => {
+			const onChangeSelection = jest.fn();
+			const { container } = render(
+				list( {
+					items: [ HERON, OTTER ],
+					selection: [ 'heron-7' ],
+					onChangeSelection,
+				} )
+			);
+			await screen.findByText( /Otter Ledger/ );
+			expect( unpicked( container ) ).toBeNull();
+			const rows = container.querySelectorAll( 'div[role="row"]' );
+			expect( rows[ 0 ].classList.contains( 'is-selected' ) ).toBe(
+				true
+			);
+			fireEvent.click(
+				rows[ 1 ].querySelector( '.dataviews-view-list__item' )
+			);
+			expect( onChangeSelection ).toHaveBeenCalledWith( [ 'otter-2' ] );
+		} );
 	} );
 
 	it( 'stands the header above the list, inside the DataViews it reads', async () => {

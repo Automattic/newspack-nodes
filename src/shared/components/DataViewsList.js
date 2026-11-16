@@ -15,6 +15,7 @@ import {
 	createContext,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -30,10 +31,10 @@ const ROW = 'row';
 /** What the one cell draws each row with, set by the list around it. */
 const RowContext = createContext( null );
 
-/** The selection DataViews holds in a checked list: none, and always this one. */
+/** The selection DataViews holds in a list its caller picks no row of: none. */
 const NO_SELECTION = [];
 
-/** What DataViews may change a checked list's selection through: nothing. */
+/** What DataViews may change that selection through: nothing. */
 const keepRun = () => {};
 
 /**
@@ -606,10 +607,20 @@ const columnFields = ( fields, columns ) =>
  * puts it, so a row that leaves still hands focus to the next. Nothing
  * remounts, so every row keeps its state.
  *
+ * Only a picker, a list handed `selection` and `onChangeSelection` without
+ * `selectLabel`, lets DataViews select: a click on a row picks it, and the
+ * picked row reads as pressed. Every other list is read, not picked:
+ * DataViews is handed an empty selection and a no-op in its place, so no
+ * click or key selects a row, none reads as pressed and none is scrolled to.
+ * The button DataViews lays over each row stays, naming the row and moving
+ * between rows by arrow key, and the layout carries
+ * `newspack-nodes-dataviews__unpicked`, so a hovered or focused row takes no
+ * wash. `supportsBulk` actions in a table or grid without `selection` and
+ * `onChangeSelection` throw, since their checkboxes would check nothing.
+ *
  * Given `selectLabel`, the list owns the run and DataViews holds no part of
- * it: DataViews is handed an empty selection and a no-op in its place, so no
- * DataViews control changes the run, and no row reads as pressed or is
- * scrolled to. Each row draws a checkbox named `selectLabel( item )` that adds
+ * it, so no DataViews control changes the run. Each row draws a checkbox
+ * named `selectLabel( item )` that adds
  * it to `selection` or takes it out, through `onChangeSelection`. A toolbar of
  * the list's own stands above it, in DataViews' bulk-footer classes: a
  * checkbox adding this page's bulk-eligible rows to the run or taking them out,
@@ -669,7 +680,17 @@ export default function DataViewsList( {
 		);
 	}
 	const layouts = [].concat( layout );
+	if (
+		( ! selection || ! onChangeSelection ) &&
+		actions.some( ( action ) => action.supportsBulk ) &&
+		layouts.some( ( type ) => 'table' === type || 'grid' === type )
+	) {
+		throw new Error(
+			'DataViewsList: supportsBulk actions in a table or grid check rows into a selection, so they need selection and onChangeSelection'
+		);
+	}
 	const columned = columns && 'table' === view.type;
+	const picks = ! selectLabel && !! selection && !! onChangeSelection;
 	const layoutRef = useRef( null );
 	const held = useRef( null );
 	const ids = useMemo(
@@ -682,6 +703,30 @@ export default function DataViewsList( {
 		held.current = null;
 		giveFocusBack( layoutRef.current, was );
 	}, [ ids ] );
+	useLayoutEffect( () => {
+		if ( picks ) {
+			return undefined;
+		}
+		// @longform DataViews gives every list row's button `aria-pressed`, a
+		// third-party attribute with no prop to turn it off, and mounts rows in
+		// renders of its own; a list that picks nothing is not a toggle, so a
+		// watch on its layout strips the attribute wherever it lands.
+		const strip = () => {
+			for ( const row of layoutRef.current.querySelectorAll(
+				'.dataviews-view-list__item[aria-pressed]'
+			) ) {
+				row.removeAttribute( 'aria-pressed' );
+			}
+		};
+		strip();
+		const watch = new window.MutationObserver( strip );
+		watch.observe( layoutRef.current, {
+			subtree: true,
+			childList: true,
+			attributeFilter: [ 'aria-pressed' ],
+		} );
+		return () => watch.disconnect();
+	}, [ picks ] );
 	return (
 		<RowContext.Provider
 			value={ {
@@ -719,10 +764,8 @@ export default function DataViewsList( {
 					actions={ actions }
 					paginationInfo={ paginationInfo }
 					empty={ empty }
-					selection={ selectLabel ? NO_SELECTION : selection }
-					onChangeSelection={
-						selectLabel ? keepRun : onChangeSelection
-					}
+					selection={ picks ? selection : NO_SELECTION }
+					onChangeSelection={ picks ? onChangeSelection : keepRun }
 					{ ...rest }
 				>
 					{ header }
@@ -743,10 +786,15 @@ export default function DataViewsList( {
 							held={ held }
 						/>
 						<DataViews.Layout
+							// A picker's rows remount, restoring aria-pressed.
+							key={ picks ? 'picks' : 'reads' }
 							className={
-								selectLabel
-									? 'newspack-nodes-dataviews__run-only'
-									: undefined
+								picks
+									? undefined
+									: 'newspack-nodes-dataviews__unpicked' +
+									  ( selectLabel
+											? ' newspack-nodes-dataviews__run-only'
+											: '' )
 							}
 						/>
 					</div>
