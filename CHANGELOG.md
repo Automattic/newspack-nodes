@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.161.0] - 2026-11-15
+
 ### Fixed
 
 - **A time chart's tooltip stays wholly on screen.** It shows inside the viewport, clear of the scrollbar on whichever side it sits and of WordPress's admin bar and admin menu, on the page, in modals and in the debug overlay, overlapping the chart where it must. It opens below the chart. When that does not fit, it flips above the chart if the above position fits; only where neither side fits does it take the side that overflows less and move the least that brings all of it on screen. A tall tooltip on a chart filling the screen used to start behind the header, and one overflowing below by a few pixels used to flip above and slide far down over the plot.
