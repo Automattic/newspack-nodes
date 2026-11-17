@@ -12,6 +12,8 @@
 
 $stream-gap: 12px;
 $stream-padding-x: 12px;
+// The rows' size, which the header shares so a ch is one width in both.
+$stream-font-size: 12px;
 
 .newspack-nodes-log-rows {
 	flex: 1;
@@ -28,10 +30,7 @@ $stream-padding-x: 12px;
 	gap: $stream-gap;
 	padding: 6px $stream-padding-x;
 	flex-shrink: 0;
-}
-
-.newspack-nodes-log-header__th {
-	font-size: var(--np-text-2xs);
+	font-size: $stream-font-size;
 }
 
 .newspack-nodes-log-rows__content {
@@ -61,7 +60,7 @@ $stream-padding-x: 12px;
 	height: var(--log-row-height, 33px);
 	padding: 0 12px;
 	box-sizing: border-box;
-	font-size: 12px;
+	font-size: $stream-font-size;
 	white-space: pre;
 	overflow: hidden;
 

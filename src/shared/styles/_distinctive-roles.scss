@@ -176,7 +176,9 @@
 		}
 	}
 
-	.newspack-nodes-log-row {
+	// The header too, so its fixed columns measure in the rows' font.
+	.newspack-nodes-log-row,
+	.newspack-nodes-log-header {
 		font-family: var(--font-terminal, var(--np-font-mono));
 	}
 

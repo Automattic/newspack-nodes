@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The log viewer's Key column holds an event logger request id**, 32 characters, at 33ch where 28ch clipped its last four.
+- **A log list's column header is set in the rows' font**, the terminal face at 12px, so its fixed ID and Key columns, sized in `ch`, line up with the rows; the header labels had measured in the UI face at the smallest text size, a narrower `ch`.
 
 - **An icon-only destructive component button is a glyph, not a slab.** A `.components-button.is-destructive` whose only child is its icon, such as a row's trash, paints the icon in the error ink with no fill or border, and takes the danger fill on hover; a destructive button with text keeps the filled danger role. The `danger-glyph` role in `_button-roles.scss` carries it, and shares its hover with `danger` through `danger-hover`, which gives the slab's hover the dark edge too.
 
