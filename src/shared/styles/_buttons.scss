@@ -177,4 +177,11 @@
 		):not(.is-link) {
 		@include role.danger;
 	}
+
+	// An icon alone, such as a row's trash, reads as a glyph, not a slab.
+	.components-button.is-destructive.has-icon:not(.has-text):has(
+			> svg:only-child
+		):not(.is-primary):not(.is-secondary):not(.is-tertiary):not(.is-link) {
+		@include role.danger-glyph;
+	}
 }

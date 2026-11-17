@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The log viewer's Key column holds an event logger request id**, 32 characters, at 33ch where 28ch clipped its last four.
+
+- **An icon-only destructive component button is a glyph, not a slab.** A `.components-button.is-destructive` whose only child is its icon, such as a row's trash, paints the icon in the error ink with no fill or border, and takes the danger fill on hover; a destructive button with text keeps the filled danger role. The `danger-glyph` role in `_button-roles.scss` carries it, and shares its hover with `danger` through `danger-hover`, which gives the slab's hover the dark edge too.
+
 ## [2.162.0] - 2026-11-16
 
 ### Fixed

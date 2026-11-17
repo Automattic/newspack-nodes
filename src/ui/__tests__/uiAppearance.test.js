@@ -1087,6 +1087,41 @@ describe( 'canonical UI appearance', () => {
 		} );
 	} );
 
+	it( 'draws an icon-only destructive button as a glyph in the error ink, filling on hover', () => {
+		const slab =
+			'.components-button.is-destructive:not(.is-primary):not(.is-secondary):not(.is-tertiary):not(.is-link)';
+		const glyph = `${ STOCK_UI_ROOT } .components-button.is-destructive.has-icon:not(.has-text):has(> svg:only-child):not(.is-primary):not(.is-secondary):not(.is-tertiary):not(.is-link)`;
+		const rule = exactSelectorRule( glyph );
+
+		expect( rule?.declarations ).toMatchObject( {
+			background: 'transparent',
+			'border-color': 'transparent',
+			color: 'var(--oxide-text,var(--np-error-text))',
+		} );
+		expect(
+			compareSpecificity(
+				stateSpecificity( glyph ),
+				stateSpecificity( `${ STOCK_UI_ROOT } ${ slab }` )
+			)
+		).toBeGreaterThan( 0 );
+		expect( rule?.importantProperties ).toEqual( [] );
+
+		const hover = exactSelectorRule(
+			`${ glyph }:hover:not(:disabled):not([disabled]):not([aria-disabled=true])`
+		);
+		expect( hover?.declarations ).toMatchObject( {
+			background: 'var(--oxide-dark,var(--np-error))',
+			'border-color': 'var(--oxide-dark,var(--np-error))',
+			color: 'var(--on-oxide-dark,var(--np-on-status))',
+		} );
+		// The slab's hover is the same state, from the one block both include.
+		expect(
+			exactSelectorRule(
+				`${ STOCK_UI_ROOT } ${ slab }:hover:not(:disabled):not([disabled]):not([aria-disabled=true])`
+			)?.declarations
+		).toMatchObject( hover?.declarations );
+	} );
+
 	it( 'owns switch track, knob, and checked paint in the canonical button layer', () => {
 		const switchButton = exactSelectorRule(
 			`${ UI_ROOT } .button[role=switch]`

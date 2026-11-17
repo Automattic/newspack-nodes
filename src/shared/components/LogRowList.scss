@@ -89,7 +89,8 @@ $stream-padding-x: 12px;
 
 .newspack-nodes-log-row__key {
 	flex: 0 0 auto;
-	width: 28ch;
+	// An event logger request id, 32 characters, and room beside it.
+	width: 33ch;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;

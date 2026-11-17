@@ -46,16 +46,30 @@
 	}
 }
 
+// The danger roles' hover: the dark fill, edge and the ink it carries.
+@mixin danger-hover {
+	&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+		background: var(--oxide-dark, var(--np-error));
+		border-color: var(--oxide-dark, var(--np-error));
+		color: var(--on-oxide-dark, var(--np-on-status));
+	}
+}
+
 @mixin danger {
 	background: tokens.$error-bg;
 	color: var(--on-oxide, var(--np-on-status));
 	border-color: var(--oxide-dark, var(--np-error));
 	@include disabled;
+	@include danger-hover;
+}
 
-	&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
-		background: var(--oxide-dark, var(--np-error));
-		color: var(--on-oxide-dark, var(--np-on-status));
-	}
+// A destructive glyph: the error ink alone, the danger fill on hover.
+@mixin danger-glyph {
+	background: transparent;
+	border-color: transparent;
+	color: tokens.$error-text;
+	@include disabled;
+	@include danger-hover;
 }
 
 @mixin toggle-active {
