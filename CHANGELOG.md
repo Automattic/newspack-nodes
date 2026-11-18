@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.163.1] - 2026-11-18
+
 ### Fixed
 
 - **A consumer's jest run no longer ends on "A worker process has failed to exit gracefully".** Each of thirteen workers ended a run holding up to about 770MB of heap, and one often outlasted Jest's 500ms exit grace. `createJestConfig()` sets `workerIdleMemoryLimit: '300MB'`, so a worker past it is replaced between test files; newspack-nodes, event-logger-nodes and intelligence, which force-exited in 2, 1 and 3 of 4 runs, did so in none of 4, a second faster or level.
