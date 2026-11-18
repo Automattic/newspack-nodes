@@ -52,7 +52,10 @@ function createJestConfig( {
 	moduleNameMapper[ '\\.(css|scss)$' ] = '<rootDir>/jest.style-mock.js';
 
 	const config = {
-		testEnvironment: 'jsdom',
+		testEnvironment: path.join(
+			aliasBase,
+			'build-kit/jest-environment.cjs'
+		),
 		// Node-timer teardown first: it installs the accounting wrapper.
 		setupFilesAfterEnv: [
 			path.join( aliasBase, 'build-kit/jest-node-timers.js' ),

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A consumer's jest run no longer prints `Could not parse CSS stylesheet`.** `@wordpress/ui` attaches stylesheets on import that nest rules inside its `wp-ui-*` cascade layers, which jsdom's CSS parser cannot read. `createJestConfig()` now runs suites on `src/build-kit/jest-environment.cjs`: the consumer's own `jest-environment-jsdom`, resolved from its root, which drops jsdom's report of a sheet opening on a `wp-ui-` layer and still reports every other sheet it cannot parse.
+
 ## [2.163.0] - 2026-11-17
 
 ### Changed
