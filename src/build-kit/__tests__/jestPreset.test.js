@@ -23,6 +23,13 @@ describe( 'createJestConfig', () => {
 		expect( cfg.transform ).toEqual( { '\\.m?[jt]sx?$': 'babel-jest' } );
 	} );
 
+	test( 'recycles a worker whose heap passes 300MB between test files', () => {
+		// Thirteen workers ending on 700MB heaps overrun Jest's 500ms exit grace.
+		expect( createJestConfig( { aliasBase } ).workerIdleMemoryLimit ).toBe(
+			'300MB'
+		);
+	} );
+
 	test( 'hands every test the base it maps, as NEWSPACK_NODES_SRC', () => {
 		const cfg = createJestConfig( { aliasBase } );
 		expect( cfg.globals ).toEqual( { NEWSPACK_NODES_SRC: aliasBase } );
