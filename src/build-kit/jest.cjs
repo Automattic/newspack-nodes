@@ -62,7 +62,7 @@ function createJestConfig( {
 			'<rootDir>/jest.setup.js',
 		],
 		testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
-		// Full heaps at the end outlast Jest's 500ms grace and force-exit a worker.
+		// Full heaps outlast Jest's 500ms exit grace.
 		workerIdleMemoryLimit: '300MB',
 		// A test or a test helper is not code the coverage gate holds.
 		coveragePathIgnorePatterns: [
