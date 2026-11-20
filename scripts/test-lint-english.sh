@@ -619,8 +619,9 @@ prose_clean \
 # ---- the staged half of the wiring ----
 
 # Every plugin hands lint-staged's whole list to the gate, whose READERS choose.
-for plugin in "$( pwd )"/../../newspack-*/; do
-	[[ -f "$plugin/scripts/pre-commit" ]] || continue
+# Each lives at services/<service>/sources/<plugin>, beside links to its siblings.
+for plugin in "$( pwd )"/../../../../*/sources/newspack-*/; do
+	[[ -L "${plugin%/}" || ! -f "$plugin/scripts/pre-commit" ]] && continue
 	name="$( basename "$plugin" )"
 	wired="$( node -p \
 		'require( process.argv[ 1 ] )[ "lint-staged" ][ "*" ]' \
