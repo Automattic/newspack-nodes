@@ -354,7 +354,7 @@ it( 'discloses the issued key once, in place of the form', () => {
 const sharedHeaderOf = () => {
 	const dialog = document.querySelector( '[role="dialog"]' );
 	const header = dialog.querySelector(
-		':scope > header.newspack-nodes-modal__header'
+		':scope > div.newspack-nodes-modal__header'
 	);
 	expect( dialog.hasAttribute( 'aria-label' ) ).toBe( false );
 	expect( dialog.getAttribute( 'aria-labelledby' ) ).toBe(

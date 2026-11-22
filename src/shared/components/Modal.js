@@ -113,7 +113,7 @@ export function ModalHeader( {
 		);
 	}
 	return (
-		<header
+		<div
 			className={ classes(
 				'newspack-nodes-modal__header',
 				compact && 'newspack-nodes-modal__header--compact'
@@ -143,7 +143,7 @@ export function ModalHeader( {
 					<CloseIcon />
 				</button>
 			) }
-		</header>
+		</div>
 	);
 }
 
@@ -156,11 +156,11 @@ export function ModalHeader( {
  * ESC and a mousedown on the backdrop close it, through the shared
  * `useDialog`, and only while it is the topmost open dialog, so a dialog
  * opened from another closes alone. An ESC something inside already took, and
- * a press in a popover the dialog opened, leave it open. On open, focus moves
- * to the title, or to the box without one, unless the caller has already
- * focused a field of its own. Every close plays the exit: the backdrop
- * wears `is-closing`, and `onClose` runs once the animation has had its time,
- * the box `inert` meanwhile, so an exiting dialog takes no click and no focus.
+ * a press in a popover the dialog opened, leave it open. A press on the
+ * backdrop never moves focus out of the box. Every close plays the exit: the
+ * backdrop wears `is-closing`, and `onClose` runs once the animation has had
+ * its time, the box `inert` meanwhile, so an exiting dialog takes no click
+ * and no focus.
  * A caller closes the same way through `handleRef.current.close()`, or through
  * `closeWith( run )` to run `run` in place of `onClose`; only the first close
  * counts. Without `onClose` nothing dismisses it. The backdrop covers the
@@ -171,9 +171,10 @@ export function ModalHeader( {
  * It renders through `BodyPortal`, which is what lets a dialog cover the
  * `@wordpress/components` modal it was summoned from.
  *
- * First focus goes to the title, or to the box without one, unless the
- * caller focuses a field of its own, which wins: each dialog can focus the
- * element that fits it. `useFocusTrap` keeps Tab inside the box, from the
+ * First focus goes to the title, or to the box without one, unless a field
+ * inside the dialog focused itself on mount, which wins: each dialog can
+ * focus the element that fits it. A close the caller declines puts focus
+ * back the same way, unless another dialog stands above it. `useFocusTrap` keeps Tab inside the box, from the
  * title or the box as from any control, and hands focus back on close to the
  * element `returnFocus` holds, else to the opener. Only the topmost dialog
  * traps Tab.
@@ -186,10 +187,12 @@ export function ModalHeader( {
  * @param {Object}                                                props
  * @param {string}                                                [props.ariaLabel]         The name of a dialog with no `ModalHeader`;
  *                                                                                          one headed by it is named by its title.
+ * @param {string}                                                [props.ariaDescribedby]   The id of the element that describes the
+ *                                                                                          dialog, such as an alert's message.
  * @param {() => void}                                            [props.onClose]           Runs once a close (ESC, backdrop, header close,
  *                                                                                          handle) has played the exit; omitted, the
  *                                                                                          dialog cannot be dismissed.
- * @param {string}                                                [props.size]              `small`, `medium`, `large` or `fullscreen`.
+ * @param {string}                                                [props.size]              `medium`, the default, or `large`.
  * @param {string}                                                [props.role]              `dialog`, or `alertdialog` for a refusal.
  * @param {{current: ?import('../hooks/useDialog').DialogHandle}} [props.handleRef]         Takes `{ close, closeWith }`, the animated close.
  * @param {string}                                                [props.className]         Extra classes on the dialog box.
@@ -206,6 +209,7 @@ export function ModalHeader( {
  */
 export default function Modal( {
 	ariaLabel,
+	ariaDescribedby,
 	onClose,
 	size = 'medium',
 	role = 'dialog',
@@ -246,6 +250,7 @@ export default function Modal( {
 					) }
 					role={ role }
 					ariaLabel={ ariaLabel }
+					ariaDescribedby={ ariaDescribedby }
 					onSubmit={ onSubmit }
 				>
 					{ children }
@@ -262,15 +267,16 @@ export default function Modal( {
  * shell keeps its own classes, style and backdrop.
  *
  * @param {Object}                        props
- * @param {import('react').Ref<any>}      props.boxRef      Takes the box, a `div` or a `form`, as `useDialog`'s `ref`.
- * @param {boolean}                       props.closing     `useDialog`'s `closing`.
- * @param {(() => void)|null}             props.close       `useDialog`'s `close`, null for a box that stays open until its caller unmounts it.
- * @param {string}                        props.className   The box's classes.
- * @param {string}                        [props.role]      `dialog`, or `alertdialog` for a refusal.
- * @param {string}                        [props.ariaLabel] The name of a box with no `ModalHeader`.
- * @param {() => void}                    [props.onSubmit]  The default action; makes the box a form.
- * @param {import('react').CSSProperties} [props.style]     Inline style on the box.
- * @param {import('react').ReactNode}     props.children    The header and body.
+ * @param {import('react').Ref<any>}      props.boxRef            Takes the box, a `div` or a `form`, as `useDialog`'s `ref`.
+ * @param {boolean}                       props.closing           `useDialog`'s `closing`.
+ * @param {(() => void)|null}             props.close             `useDialog`'s `close`, null for a box that stays open until its caller unmounts it.
+ * @param {string}                        props.className         The box's classes.
+ * @param {string}                        [props.role]            `dialog`, or `alertdialog` for a refusal.
+ * @param {string}                        [props.ariaLabel]       The name of a box with no `ModalHeader`.
+ * @param {string}                        [props.ariaDescribedby] The id of the element that describes the box.
+ * @param {() => void}                    [props.onSubmit]        The default action; makes the box a form.
+ * @param {import('react').CSSProperties} [props.style]           Inline style on the box.
+ * @param {import('react').ReactNode}     props.children          The header and body.
  * @return {import('react').ReactElement} The box.
  */
 export function ModalBox( {
@@ -280,6 +286,7 @@ export function ModalBox( {
 	className,
 	role = 'dialog',
 	ariaLabel,
+	ariaDescribedby,
 	onSubmit,
 	style,
 	children,
@@ -297,6 +304,7 @@ export function ModalBox( {
 			aria-modal="true"
 			aria-label={ ariaLabel }
 			aria-labelledby={ ariaLabel ? undefined : titleId }
+			aria-describedby={ ariaDescribedby }
 			style={ style }
 			{ ...( onSubmit && submitProps( onSubmit ) ) }
 		>

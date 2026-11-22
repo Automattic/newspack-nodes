@@ -179,7 +179,7 @@
 }
 
 // Narrows the shared shell to a refusal's width.
-.newspack-nodes-modal__backdrop > .nodes-tm__alert.newspack-nodes-modal {
+.newspack-nodes-modal__backdrop > .newspack-nodes-modal.nodes-tm__alert {
 	width: 360px;
-	max-width: calc(100vw - 40px);
+	max-width: calc(100vw - 32px);
 }

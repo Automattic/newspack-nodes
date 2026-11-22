@@ -216,7 +216,7 @@ export function ModalShell( {
 				<ModalBox
 					boxRef={ ref }
 					closing={ closing }
-					close={ onDismiss ? close : null }
+					close={ close }
 					className={ classes(
 						'topology-modal',
 						'newspack-nodes-modal',

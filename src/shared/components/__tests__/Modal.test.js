@@ -44,7 +44,8 @@ test( 'its header holds the title and a labelled icon close as siblings', () => 
 	const title = screen.getByText( 'Quarry notes 62' );
 	const close = screen.getByRole( 'button', { name: 'Close' } );
 	const header = title.parentElement;
-	expect( header.tagName ).toBe( 'HEADER' );
+	expect( header.tagName ).toBe( 'DIV' );
+	expect( screen.queryByRole( 'banner' ) ).toBeNull();
 	expect( header.className ).toBe( 'newspack-nodes-modal__header' );
 	expect( title.className ).toBe( 'newspack-nodes-modal__title' );
 	expect( close.parentElement ).toBe( header );
@@ -523,6 +524,133 @@ test( 'role alertdialog reaches the box', () => {
 	expect( screen.queryByRole( 'dialog' ) ).toBeNull();
 } );
 
+test( 'ariaDescribedby reaches the box', () => {
+	render(
+		<Modal ariaLabel="described-319" ariaDescribedby="why-319">
+			<p id="why-319">The spoke refused.</p>
+		</Modal>
+	);
+
+	expect(
+		screen
+			.getByRole( 'dialog', { name: 'described-319' } )
+			.getAttribute( 'aria-describedby' )
+	).toBe( 'why-319' );
+} );
+
+test( 'a backdrop press on a dialog without onClose keeps focus inside the box', () => {
+	render(
+		<Modal>
+			<ModalHeader title="Crop the curlew 431" />
+			<button type="button">curlew action</button>
+		</Modal>
+	);
+	const dialog = screen.getByRole( 'dialog', {
+		name: 'Crop the curlew 431',
+	} );
+	screen.getByRole( 'button', { name: 'curlew action' } ).focus();
+
+	expect( fireEvent.mouseDown( backdropOf( dialog ) ) ).toBe( false );
+	expect( dialog.contains( document.activeElement ) ).toBe( true );
+} );
+
+test( 'a backdrop press on a dismissible dialog takes the default too', () => {
+	jest.useFakeTimers();
+	render(
+		<Modal ariaLabel="press-432" onClose={ () => {} }>
+			b
+		</Modal>
+	);
+
+	expect(
+		fireEvent.mouseDown(
+			backdropOf( screen.getByRole( 'dialog', { name: 'press-432' } ) )
+		)
+	).toBe( false );
+} );
+
+test( 'a close the caller declines puts focus back on the title', () => {
+	jest.useFakeTimers();
+	const handle = { current: null };
+	const onClose = jest.fn();
+	render(
+		<Modal onClose={ onClose } handleRef={ handle }>
+			<ModalHeader title="Kept godwit 433" />
+			<button type="button">godwit action</button>
+		</Modal>
+	);
+	const title = screen.getByRole( 'heading', { name: 'Kept godwit 433' } );
+
+	act( () => handle.current.close() );
+	// `inert` blurs the focused element in a browser; jsdom leaves it.
+	document.activeElement.blur();
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( onClose ).toHaveBeenCalledTimes( 1 );
+	expect( document.activeElement ).toBe( title );
+} );
+
+test( 'a declined close of a header-less dialog puts focus back on the box', () => {
+	jest.useFakeTimers();
+	const handle = { current: null };
+	render(
+		<Modal
+			ariaLabel="Kept knot 434"
+			onClose={ () => {} }
+			handleRef={ handle }
+		>
+			<button type="button">knot action</button>
+		</Modal>
+	);
+
+	act( () => handle.current.close() );
+	document.activeElement.blur();
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( document.activeElement ).toBe(
+		screen.getByRole( 'dialog', { name: 'Kept knot 434' } )
+	);
+} );
+
+test( 'a declined close on a dialog beneath another leaves focus in the one above', () => {
+	jest.useFakeTimers();
+	const outer = { current: null };
+	render(
+		<Modal onClose={ () => {} } handleRef={ outer }>
+			<ModalHeader title="Outer avocet 436" />
+			<Modal onClose={ () => {} }>
+				<ModalHeader title="Inner avocet 436" />
+				<button type="button">inner avocet action</button>
+			</Modal>
+		</Modal>
+	);
+	const inner = screen.getByRole( 'button', { name: 'inner avocet action' } );
+	inner.focus();
+
+	act( () => outer.current.close() );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( document.activeElement ).toBe( inner );
+} );
+
+test( 'a declined close leaves a field that still holds focus alone', () => {
+	jest.useFakeTimers();
+	const handle = { current: null };
+	render(
+		<Modal onClose={ () => {} } handleRef={ handle }>
+			<ModalHeader title="Kept stilt 435" />
+			<input aria-label="stilt name" />
+		</Modal>
+	);
+	const field = screen.getByRole( 'textbox', { name: 'stilt name' } );
+	field.focus();
+
+	act( () => handle.current.close() );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( document.activeElement ).toBe( field );
+} );
+
 test( 'without onClose, Escape and an outside mousedown do nothing and the header draws no close', () => {
 	jest.useFakeTimers();
 	const errors = [];
@@ -869,6 +997,31 @@ test.each( [
 		expect( document.activeElement ).toBe( title );
 
 		expect( fireEvent.keyDown( title, { key: 'Tab', shiftKey } ) ).toBe(
+			false
+		);
+
+		expect( document.activeElement ).toBe(
+			screen.getByRole( 'button', { name: target } )
+		);
+	}
+);
+
+test.each( [
+	[ 'Shift+Tab', 'the last control', true, 'Dunlin last' ],
+	[ 'Tab', 'the first control', false, 'Dunlin first' ],
+] )(
+	'%s from the focused box of a header-less dialog stays in it, at %s',
+	( key, where, shiftKey, target ) => {
+		render(
+			<Modal ariaLabel="Dunlin remove" onClose={ () => {} }>
+				<button type="button">Dunlin first</button>
+				<button type="button">Dunlin last</button>
+			</Modal>
+		);
+		const box = screen.getByRole( 'dialog', { name: 'Dunlin remove' } );
+		expect( document.activeElement ).toBe( box );
+
+		expect( fireEvent.keyDown( box, { key: 'Tab', shiftKey } ) ).toBe(
 			false
 		);
 

@@ -22,9 +22,7 @@ import {
 } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import CloseIcon from './CloseIcon';
-import Modal, { ModalHeader } from './Modal';
 import useNarrow from '../hooks/useNarrow';
-import { TABBABLE } from '../hooks/useFocusTrap';
 
 /** The one field every layout draws an item by. */
 const ROW = 'row';
@@ -203,9 +201,8 @@ function runCount( run, on, shown, total ) {
  * another page; the run's count; a button per bulk action some checked row on
  * this page is eligible for, named by those rows and handed every checked row
  * of this page a bulk action takes, as DataViews' own toolbar hands them, busy
- * while its callback runs, or opening its `RenderModal` over the checked rows
- * it is eligible for; and a clear button emptying the run. Deselecting takes
- * out every row of this page, one no bulk action takes included.
+ * while its callback runs; and a clear button emptying the run. Deselecting
+ * takes out every row of this page, one no bulk action takes included.
  *
  * @param {Object}                        props
  * @param {Object[]}                      props.items             The page's items.
@@ -225,7 +222,6 @@ function RunToolbar( {
 	totalItems,
 } ) {
 	const [ busy, setBusy ] = useState( null );
-	const [ open, setOpen ] = useState( null );
 	const narrow = useNarrow();
 	const bulk = actions.filter( ( action ) => action.supportsBulk );
 	const page = items.filter( ( item ) =>
@@ -237,10 +233,6 @@ function RunToolbar( {
 	const whole = 0 < page.length && checked.length === page.length;
 	const elsewhere = selection.filter( ( id ) => ! here.has( id ) );
 	const act = async ( action ) => {
-		if ( action.RenderModal ) {
-			setOpen( action.id );
-			return;
-		}
 		setBusy( action.id );
 		try {
 			await action.callback( checked );
@@ -248,7 +240,6 @@ function RunToolbar( {
 			setBusy( null );
 		}
 	};
-	const opened = bulk.find( ( action ) => action.id === open );
 	return (
 		<div className="dataviews-bulk-actions-footer__container newspack-nodes-dataviews__run-toolbar">
 			{ 0 < page.length && (
@@ -325,75 +316,7 @@ function RunToolbar( {
 					/>
 				) }
 			</div>
-			{ opened && (
-				<RunModal
-					action={ opened }
-					rows={ checked.filter( ( item ) => fits( opened, item ) ) }
-					close={ () => setOpen( null ) }
-				/>
-			) }
 		</div>
-	);
-}
-
-/** The shared size each `modalSize` an action names draws at. */
-const SIZES = { small: 'small', large: 'large', fill: 'large' };
-
-/**
- * The size an action's `modalSize` draws at: `small` and `large` as named,
- * `fill` as `large`, every other value as `medium`.
- *
- * @param {string} [modalSize] The action's `modalSize`.
- * @return {string} A shared modal size.
- */
-const sizeOf = ( modalSize ) =>
-	Object.hasOwn( SIZES, modalSize ) ? SIZES[ modalSize ] : 'medium';
-
-/**
- * A bulk action's own modal over the checked rows it is eligible for, on the
- * shared shell: headed `modalHeader`, else the action's label, or named by
- * the label alone under `hideModalHeader`. The first tabbable in the action's content takes
- * focus on mount unless the action's `modalFocusOnMount` is `false`, and the
- * body's `closeModal` plays the shell's exit.
- *
- * @param {Object}     props
- * @param {Object}     props.action The action, carrying `RenderModal`.
- * @param {Object[]}   props.rows   The checked rows it is eligible for.
- * @param {() => void} props.close  Runs once the modal has closed.
- * @return {import('react').ReactElement} The modal.
- */
-function RunModal( { action, rows, close } ) {
-	const handle = useRef( null );
-	const body = useRef( null );
-	const label =
-		'string' === typeof action.label ? action.label : action.label( rows );
-	const header =
-		'function' === typeof action.modalHeader
-			? action.modalHeader( rows )
-			: action.modalHeader;
-	const focus = false !== action.modalFocusOnMount;
-	useEffect( () => {
-		if ( focus ) {
-			body.current.querySelector( TABBABLE )?.focus();
-		}
-	}, [ focus ] );
-	return (
-		<Modal
-			size={ sizeOf( action.modalSize ) }
-			onClose={ close }
-			handleRef={ handle }
-			ariaLabel={ action.hideModalHeader ? label : undefined }
-		>
-			{ ! action.hideModalHeader && (
-				<ModalHeader title={ header || label } />
-			) }
-			<div ref={ body }>
-				<action.RenderModal
-					items={ rows }
-					closeModal={ () => handle.current.close() }
-				/>
-			</div>
-		</Modal>
 	);
 }
 

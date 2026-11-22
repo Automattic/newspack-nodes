@@ -35,8 +35,30 @@ describe( 'AlertModal', () => {
 			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
 		);
 		expect( backdrop.parentElement.parentElement ).toBe( document.body );
-		expect( dialog.querySelector( ':scope > header' ).className ).toBe(
+		expect(
+			dialog.querySelector( ':scope > .newspack-nodes-modal__header' )
+				.className
+		).toBe(
 			'newspack-nodes-modal__header newspack-nodes-modal__header--compact'
+		);
+	} );
+
+	it( 'AlertModal is described by its message', () => {
+		const { getByRole } = render(
+			<AlertModal
+				title="Turnstone refused"
+				message="two fleets on one log"
+				onClose={ jest.fn() }
+			/>
+		);
+		const dialog = getByRole( 'alertdialog', {
+			name: 'Turnstone refused',
+		} );
+		const described = dialog.getAttribute( 'aria-describedby' );
+
+		expect( described ).toBeTruthy();
+		expect( document.getElementById( described ).textContent ).toBe(
+			'two fleets on one log'
 		);
 	} );
 
@@ -136,7 +158,7 @@ describe( 'AlertModal', () => {
 			/>
 		);
 		const header = getByRole( 'alertdialog' ).querySelector(
-			':scope > header.newspack-nodes-modal__header'
+			':scope > div.newspack-nodes-modal__header'
 		);
 
 		const title = header.querySelector( 'h2.newspack-nodes-modal__title' );

@@ -9,6 +9,35 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`ModalPortal` is renamed `BodyPortal`.** Import `BodyPortal` from
   `@newspack-nodes/shared/components/Modal` in its place; nothing else
   changes.
+- **`ModalHeader` takes no `onClose`.** Its close button plays the close of
+  the dialog it sits in, and draws only when that dialog has an `onClose`.
+  Drop the prop from every `ModalHeader` call.
+- **Every close plays a 240ms exit before `onClose` runs.** ESC, a press on
+  the backdrop, the header's close and `handleRef.current.close()` all wait
+  `MODAL_EXIT_MS` (`hooks/useModalExit`), so a test that closes a dialog
+  advances the clock before asserting. `throughExit( press )` and
+  `fakeExitClock()` from `test-utils/answerConfirm` do it, and
+  `answerConfirm( button )` answers a `Confirm`;
+  `expectExitThenGone()` from `test-utils/expectExitThenGone` checks the
+  exit played and the dialog unmounted. Under
+  `prefers-reduced-motion: reduce` the close runs at once.
+- **`useDismissable` skips an ESC whose default was prevented, and an
+  `onDismiss` that answers `false` declines.** A caller that handled ESC
+  itself, such as a picker clearing its search, calls `preventDefault()` so
+  the dialog around it stays open. An `onDismiss` that does not act returns
+  `false`, leaving the ESC to the listeners after it.
+- **A dialog dismisses only on a press on its own backdrop.** A mousedown
+  anywhere else, a popover the dialog opened or a dialog stacked above it
+  included, leaves it open. A test that closed a dialog by pressing
+  `document.body` presses the `.newspack-nodes-modal__backdrop` instead.
+- **`Modal` has two sizes, `medium` (640px, the default) and `large`
+  (840px).** There is no `small` or `fullscreen`; a dialog that needs another
+  geometry sets it on its own class, spelled
+  `.newspack-nodes-modal__backdrop > .newspack-nodes-modal.<own-class>`.
+- **`DataViewsList` draws no action modal.** A bulk action carrying
+  `RenderModal`, `modalSize`, `modalHeader`, `hideModalHeader` or
+  `modalFocusOnMount` is not supported in a checked list's toolbar; give the
+  action a `callback` that opens a `Modal` of its own.
 
 ## 2.160.0
 

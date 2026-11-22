@@ -334,7 +334,7 @@ describe( 'VaultAdmin', () => {
 
 		const dialog = document.querySelector( '[role="dialog"]' );
 		const header = dialog.querySelector(
-			':scope > header.newspack-nodes-modal__header'
+			':scope > div.newspack-nodes-modal__header'
 		);
 		const title = header.querySelector( 'h2.newspack-nodes-modal__title' );
 		expect( title.textContent ).toBe( 'Add New Server' );

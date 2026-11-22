@@ -5,7 +5,7 @@
 
 import { render, renderHook, screen, fireEvent } from '@testing-library/react';
 import { useRef } from '@wordpress/element';
-import { useFocusTrap } from '../useFocusTrap';
+import { TABBABLE, useFocusTrap } from '../useFocusTrap';
 
 function Dialog( { children, returnFocus } ) {
 	const ref = useRef( null );
@@ -78,4 +78,149 @@ test( 'a returnFocus holding nothing hands focus back to what held it', () => {
 
 	unmount();
 	expect( document.activeElement ).toBe( opener );
+} );
+
+test( 'Tab from a summary between two controls is left to the browser', () => {
+	render(
+		<Dialog>
+			<button type="button">first-736</button>
+			<details>
+				<summary>summary-736</summary>
+			</details>
+			<button type="button">last-736</button>
+		</Dialog>
+	);
+	const summary = screen.getByText( 'summary-736' );
+	summary.focus();
+
+	expect( fireEvent.keyDown( summary, { key: 'Tab' } ) ).toBe( true );
+	expect( document.activeElement ).toBe( summary );
+} );
+
+test( 'Tab from a focused element off the list is left to the browser', () => {
+	render(
+		<Dialog>
+			<button type="button">first-737</button>
+			<div tabIndex={ -1 }>region-737</div>
+			<button type="button">last-737</button>
+		</Dialog>
+	);
+	const region = screen.getByText( 'region-737' );
+	region.focus();
+
+	expect( fireEvent.keyDown( region, { key: 'Tab' } ) ).toBe( true );
+	expect( document.activeElement ).toBe( region );
+} );
+
+test.each( [
+	[ 'a summary', <summary key="s">last-738</summary>, 'summary' ],
+	[
+		'a contenteditable region',
+		<div
+			key="c"
+			contentEditable="plaintext-only"
+			suppressContentEditableWarning
+		>
+			last-738
+		</div>,
+		'div',
+	],
+] )( 'Shift+Tab from the first control wraps to %s', ( _, last, tag ) => {
+	const { container } = render(
+		<Dialog>
+			<button type="button">first-738</button>
+			{ 'summary' === tag ? <details>{ last }</details> : last }
+		</Dialog>
+	);
+	const first = screen.getByText( 'first-738' );
+	first.focus();
+
+	fireEvent.keyDown( first, { key: 'Tab', shiftKey: true } );
+
+	expect( document.activeElement ).toBe(
+		container.ownerDocument.querySelector( `[role="dialog"] ${ tag }` )
+	);
+} );
+
+test( 'a contenteditable false region is off the list', () => {
+	render(
+		<Dialog>
+			<button type="button">first-739</button>
+			<button type="button">last-739</button>
+			<div contentEditable={ false } tabIndex={ -1 }>
+				fixed-739
+			</div>
+		</Dialog>
+	);
+	const first = screen.getByText( 'first-739' );
+	first.focus();
+
+	fireEvent.keyDown( first, { key: 'Tab', shiftKey: true } );
+
+	expect( document.activeElement ).toBe( screen.getByText( 'last-739' ) );
+} );
+
+test.each( [
+	[ '<audio controls></audio>', true ],
+	[ '<video controls></video>', true ],
+	[ '<audio></audio>', false ],
+	[ '<video></video>', false ],
+] )( 'the tabbable list holds %s: %s', ( markup, listed ) => {
+	const host = document.createElement( 'div' );
+	host.innerHTML = markup;
+
+	expect( host.firstElementChild.matches( TABBABLE ) ).toBe( listed );
+} );
+
+test( 'Tab from an off-list element after the last control wraps to the first', () => {
+	render(
+		<Dialog>
+			<button type="button">first-740</button>
+			<button type="button">last-740</button>
+			<ul>
+				<li tabIndex={ -1 }>row-740</li>
+			</ul>
+		</Dialog>
+	);
+	const row = screen.getByText( 'row-740' );
+	row.focus();
+
+	expect( fireEvent.keyDown( row, { key: 'Tab' } ) ).toBe( false );
+	expect( document.activeElement ).toBe( screen.getByText( 'first-740' ) );
+} );
+
+test( 'Shift+Tab from an off-list element before the first control wraps to the last', () => {
+	render(
+		<Dialog>
+			<ul>
+				<li tabIndex={ -1 }>row-741</li>
+			</ul>
+			<button type="button">first-741</button>
+			<button type="button">last-741</button>
+		</Dialog>
+	);
+	const row = screen.getByText( 'row-741' );
+	row.focus();
+
+	expect( fireEvent.keyDown( row, { key: 'Tab', shiftKey: true } ) ).toBe(
+		false
+	);
+	expect( document.activeElement ).toBe( screen.getByText( 'last-741' ) );
+} );
+
+test( 'Shift+Tab from an off-list region between two controls is left to the browser', () => {
+	render(
+		<Dialog>
+			<button type="button">first-742</button>
+			<div tabIndex={ -1 }>region-742</div>
+			<button type="button">last-742</button>
+		</Dialog>
+	);
+	const region = screen.getByText( 'region-742' );
+	region.focus();
+
+	expect( fireEvent.keyDown( region, { key: 'Tab', shiftKey: true } ) ).toBe(
+		true
+	);
+	expect( document.activeElement ).toBe( region );
 } );

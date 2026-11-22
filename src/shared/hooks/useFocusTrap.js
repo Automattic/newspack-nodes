@@ -6,8 +6,11 @@
  *
  * Only the two edges are handled. Tab between inner fields is left to the
  * browser, so the trap adds nothing to the dialog's own tab order. Focus on
- * the dialog itself, its title or plain text inside it sits before the first
- * control, so Tab goes to the first and Shift+Tab to the last.
+ * the dialog itself or on the title that labels it sits before the first
+ * control, so Tab goes to the first and Shift+Tab to the last. Focus on any
+ * other element off the tabbable list is left to the browser while a control
+ * lies beyond it in the Tab's direction; past the last control, Tab wraps to
+ * the first, and before the first, Shift+Tab wraps to the last.
  *
  * Only a Tab from inside the dialog is trapped, as WordPress's `Modal` trapped
  * its own frame. A popover the dialog opened renders into a slot outside it,
@@ -21,7 +24,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 
 /** Every element Tab can reach, by the browser's own rule. */
 export const TABBABLE =
-	'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+	'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, summary, audio[controls], video[controls], [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Keeps Tab inside `ref`, and on unmount returns focus to the element
@@ -69,8 +72,21 @@ export function useFocusTrap( ref, returnFocus = null, isActive = () => true ) {
 			const last = tabbable[ tabbable.length - 1 ];
 			const edge = e.shiftKey ? first : last;
 			const held = /** @type {HTMLElement} */ ( doc.activeElement );
-			// Focus on the title or the box, off the list, sits before first.
-			if ( held === edge || ! tabbable.includes( held ) ) {
+			const named = el.getAttribute( 'aria-labelledby' );
+			// Focus on the box or its title sits before the first control.
+			const before =
+				held === el ||
+				( !! named && held === doc.getElementById( named ) );
+			// Off the list, focus wraps once every control lies behind it.
+			const beyond = e.shiftKey
+				? held.DOCUMENT_POSITION_PRECEDING
+				: held.DOCUMENT_POSITION_FOLLOWING;
+			const stranded =
+				! tabbable.includes( held ) &&
+				! tabbable.some(
+					( t ) => held.compareDocumentPosition( t ) & beyond
+				);
+			if ( held === edge || before || stranded ) {
 				e.preventDefault();
 				( e.shiftKey ? last : first ).focus();
 			}

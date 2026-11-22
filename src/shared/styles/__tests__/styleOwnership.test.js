@@ -2131,6 +2131,20 @@ describe( 'canonical appearance ownership', () => {
 		expect( alertChromeRules ).toEqual( [] );
 	} );
 
+	it( "narrows the alert in the shared size-override spelling, inside the viewport's gutter", () => {
+		expect(
+			declarationsForSelector(
+				compile(
+					path.join(
+						NODES_SRC,
+						'event-dashboards/styles/topology-row.scss'
+					)
+				),
+				'.newspack-nodes-modal__backdrop > .newspack-nodes-modal.nodes-tm__alert'
+			)
+		).toEqual( { width: '360px', 'max-width': 'calc(100vw - 32px)' } );
+	} );
+
 	// One column: side by side, a long "Open <name>.tsl" overflows its half.
 	// minmax(0, …) and a wrapping label, or a no-wrap label still pushes the
 	// column past the panel: WordPress's `.button` is `white-space: nowrap`.

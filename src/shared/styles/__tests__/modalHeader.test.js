@@ -167,30 +167,22 @@ describe( 'the padded shared box', () => {
 	} );
 
 	it.each( [
-		[ 'small', '384px' ],
 		[ 'medium', '640px' ],
 		[ 'large', '840px' ],
 	] )( 'caps %s at %s', ( size, width ) => {
 		expect( value( modal, SIZED( size ), 'max-width' ) ).toBe( width );
 	} );
 
-	it( 'fills the viewport for fullscreen, unrounded', () => {
-		const full = SIZED( 'fullscreen' );
-		expect( value( modal, full, 'width' ) ).toBe( '100vw' );
-		expect( value( modal, full, 'height' ) ).toBe( '100vh' );
-		expect( value( modal, full, 'max-width' ) ).toBe( 'none' );
-		expect( value( modal, full, 'max-height' ) ).toBe( 'none' );
-		expect( value( modal, full, 'border-radius' ) ).toBe( '0' );
-	} );
-
-	it( 'sizes fullscreen in the shared backdrop alone, with no padding reset', () => {
-		const fullscreen = [];
+	it( 'draws two sizes, medium and large', () => {
+		const sizes = new Set();
 		modal.walkRules( ( rule ) => {
-			if ( rule.selector.includes( `${ BOX }--fullscreen` ) ) {
-				fullscreen.push( rule.selector );
+			for ( const [ , size ] of rule.selector.matchAll(
+				new RegExp( `${ BOX }--([a-z]+)`, 'g' )
+			) ) {
+				sizes.add( size );
 			}
 		} );
-		expect( fullscreen ).toEqual( [ SIZED( 'fullscreen' ) ] );
+		expect( [ ...sizes ].sort() ).toEqual( [ 'large', 'medium' ] );
 	} );
 } );
 

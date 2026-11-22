@@ -11,12 +11,13 @@
  *
  * It is the shared `Modal` as an `alertdialog`, the role for a message the
  * operator has to read before carrying on, headed by the compact
- * `ModalHeader`. The `nodes-tm__alert*` classes carry only its width and its
- * body; its OK sits in the shared actions row and closes through the shell's
- * handle, so it plays the same exit as ESC and the close icon.
+ * `ModalHeader` and described by its message. The `nodes-tm__alert*` classes
+ * carry only its width and its body; its OK sits in the shared actions row
+ * and closes through the shell's handle, so it plays the same exit as ESC and
+ * the close icon.
  */
 
-import { useEffect, useRef } from '@wordpress/element';
+import { useEffect, useId, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import Modal, { ModalHeader } from '@newspack-nodes/shared/components/Modal';
 
@@ -33,6 +34,7 @@ import Modal, { ModalHeader } from '@newspack-nodes/shared/components/Modal';
 export default function AlertModal( { title, message, onClose } ) {
 	const okRef = useRef( null );
 	const handle = useRef( null );
+	const messageId = useId();
 	// OK takes focus, so Enter dismisses without a tab stop.
 	useEffect( () => okRef.current?.focus(), [] );
 
@@ -41,10 +43,13 @@ export default function AlertModal( { title, message, onClose } ) {
 			role="alertdialog"
 			onClose={ onClose }
 			handleRef={ handle }
+			ariaDescribedby={ messageId }
 			className="nodes-tm__alert"
 		>
 			<ModalHeader title={ title } compact />
-			<div className="nodes-tm__alert-body">{ message }</div>
+			<div id={ messageId } className="nodes-tm__alert-body">
+				{ message }
+			</div>
 			<div className="newspack-nodes-modal__actions">
 				<button
 					type="button"
