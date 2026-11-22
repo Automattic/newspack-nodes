@@ -10,6 +10,7 @@ import { createPortal, useEffect, useState } from '@wordpress/element';
 import { registerCompositionEditor } from '../../editorRegistry';
 import ComposedPageFrame from '../ComposedPageFrame';
 import { usePage } from '../pageContext';
+import { answerConfirm } from '@newspack-nodes/shared/test-utils/answerConfirm';
 
 /** The page's one composed page. */
 const PAGES = { 'roost-7950': { view: null, subject: null } };
@@ -187,9 +188,7 @@ describe( 'a leave while the editor holds a change', () => {
 	};
 
 	const press = ( name ) =>
-		act( () => {
-			screen.getByRole( 'button', { name } ).click();
-		} );
+		answerConfirm( screen.getByRole( 'button', { name } ) );
 
 	it( 'runs the leave it asked about first, not one arriving while it asks', () => {
 		editing();

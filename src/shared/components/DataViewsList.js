@@ -9,7 +9,7 @@
  * script and its stylesheet on the page.
  */
 
-import { Button, CheckboxControl, Modal } from '@wordpress/components';
+import { Button, CheckboxControl } from '@wordpress/components';
 import { DataViews } from '@wordpress/dataviews';
 import {
 	createContext,
@@ -22,8 +22,9 @@ import {
 } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import CloseIcon from './CloseIcon';
-import { SKIN_ROOT_CLASSES } from './ThemedRoot';
+import Modal, { ModalHeader } from './Modal';
 import useNarrow from '../hooks/useNarrow';
+import { TABBABLE } from '../hooks/useFocusTrap';
 
 /** The one field every layout draws an item by. */
 const ROW = 'row';
@@ -335,34 +336,63 @@ function RunToolbar( {
 	);
 }
 
+/** The shared size each `modalSize` an action names draws at. */
+const SIZES = { small: 'small', large: 'large', fill: 'large' };
+
 /**
- * A bulk action's own modal over the checked rows it is eligible for, framed
- * as DataViews frames one: headed `modalHeader`, else the action's label.
+ * The size an action's `modalSize` draws at: `small` and `large` as named,
+ * `fill` as `large`, every other value as `medium`.
+ *
+ * @param {string} [modalSize] The action's `modalSize`.
+ * @return {string} A shared modal size.
+ */
+const sizeOf = ( modalSize ) =>
+	Object.hasOwn( SIZES, modalSize ) ? SIZES[ modalSize ] : 'medium';
+
+/**
+ * A bulk action's own modal over the checked rows it is eligible for, on the
+ * shared shell: headed `modalHeader`, else the action's label, or named by
+ * the label alone under `hideModalHeader`. The first tabbable in the action's content takes
+ * focus on mount unless the action's `modalFocusOnMount` is `false`, and the
+ * body's `closeModal` plays the shell's exit.
  *
  * @param {Object}     props
  * @param {Object}     props.action The action, carrying `RenderModal`.
  * @param {Object[]}   props.rows   The checked rows it is eligible for.
- * @param {() => void} props.close  Shuts the modal.
+ * @param {() => void} props.close  Runs once the modal has closed.
  * @return {import('react').ReactElement} The modal.
  */
 function RunModal( { action, rows, close } ) {
+	const handle = useRef( null );
+	const body = useRef( null );
 	const label =
 		'string' === typeof action.label ? action.label : action.label( rows );
 	const header =
 		'function' === typeof action.modalHeader
 			? action.modalHeader( rows )
 			: action.modalHeader;
+	const focus = false !== action.modalFocusOnMount;
+	useEffect( () => {
+		if ( focus ) {
+			body.current.querySelector( TABBABLE )?.focus();
+		}
+	}, [ focus ] );
 	return (
 		<Modal
-			title={ header || label }
-			__experimentalHideHeader={ !! action.hideModalHeader }
-			onRequestClose={ close }
-			focusOnMount={ action.modalFocusOnMount ?? true }
-			size={ action.modalSize || 'medium' }
-			overlayClassName="dataviews-action-modal"
-			className={ `newspack-nodes-modal ${ SKIN_ROOT_CLASSES }` }
+			size={ sizeOf( action.modalSize ) }
+			onClose={ close }
+			handleRef={ handle }
+			ariaLabel={ action.hideModalHeader ? label : undefined }
 		>
-			<action.RenderModal items={ rows } closeModal={ close } />
+			{ ! action.hideModalHeader && (
+				<ModalHeader title={ header || label } onClose={ close } />
+			) }
+			<div ref={ body }>
+				<action.RenderModal
+					items={ rows }
+					closeModal={ () => handle.current.close() }
+				/>
+			</div>
 		</Modal>
 	);
 }

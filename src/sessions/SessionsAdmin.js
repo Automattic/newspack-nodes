@@ -113,11 +113,12 @@ function ScopeBadge( { scope } ) {
  */
 function RevokeCell( { id, answer, busy, onRevoke, title, warning } ) {
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
+	const confirmModal = useRef( null );
 	const status = answerStatus( answer, REVOKE_TEXTS, busy ).text;
 
 	const confirmRevoke = () => {
-		setIsConfirmOpen( false );
 		onRevoke( id );
+		confirmModal.current.close();
 	};
 
 	return (
@@ -137,13 +138,14 @@ function RevokeCell( { id, answer, busy, onRevoke, title, warning } ) {
 				<Modal
 					ariaLabel={ title }
 					onClose={ () => setIsConfirmOpen( false ) }
+					handleRef={ confirmModal }
 				>
 					<p>{ warning }</p>
 					<div className="newspack-nodes-modal__actions">
 						<button
 							type="button"
 							className="button"
-							onClick={ () => setIsConfirmOpen( false ) }
+							onClick={ () => confirmModal.current.close() }
 						>
 							{ __( 'Cancel', 'newspack-nodes' ) }
 						</button>
@@ -323,6 +325,7 @@ function CreateSessionModal( {
 	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
 	const labelRef = useRef( null );
+	const modal = useRef( null );
 
 	const status = invalid
 		? invalid
@@ -348,7 +351,11 @@ function CreateSessionModal( {
 	};
 
 	return (
-		<Modal onClose={ onCancel } onSubmit={ handleCreate }>
+		<Modal
+			onClose={ onCancel }
+			onSubmit={ handleCreate }
+			handleRef={ modal }
+		>
 			<ModalHeader
 				title={ __( 'Issue a Session', 'newspack-nodes' ) }
 				onClose={ onCancel }
@@ -427,7 +434,11 @@ function CreateSessionModal( {
 			</table>
 			<div className="newspack-nodes-modal__actions">
 				<span className="newspack-nodes-status">{ status }</span>
-				<button type="button" className="button" onClick={ onCancel }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => modal.current.close() }
+				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
@@ -459,8 +470,9 @@ function CreateSessionModal( {
  * @return {import('react').ReactElement} The dialog.
  */
 function IssuedKeyModal( { session, onClose } ) {
+	const modal = useRef( null );
 	return (
-		<Modal onClose={ onClose }>
+		<Modal onClose={ onClose } handleRef={ modal }>
 			<ModalHeader
 				title={ __( 'Session key', 'newspack-nodes' ) }
 				onClose={ onClose }
@@ -491,7 +503,7 @@ function IssuedKeyModal( { session, onClose } ) {
 				<button
 					type="button"
 					className={ primaryButtonClass( false ) }
-					onClick={ onClose }
+					onClick={ () => modal.current.close() }
 				>
 					{ __( 'Done', 'newspack-nodes' ) }
 				</button>

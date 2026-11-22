@@ -2516,11 +2516,6 @@
 	flex-direction: column;
 }
 
-// The shared sheet lays the header out; the console's panel pads it.
-.topology-modal > .newspack-nodes-modal__header {
-	padding: 8px 8px 8px 16px;
-}
-
 .topology-modal__body {
 	padding: 16px 14px;
 	font-size: 13px;

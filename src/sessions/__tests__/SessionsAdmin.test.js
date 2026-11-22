@@ -19,6 +19,8 @@ jest.mock( '../hooks/useSessionsGraph', () => {
 import { render, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import SessionsAdmin from '../SessionsAdmin';
+import { MODAL_EXIT_MS } from '../../shared/hooks/useModalExit';
+import { expectExitThenGone } from '../../shared/test-utils/expectExitThenGone';
 
 const { useSessionsGraph } = require( '../hooks/useSessionsGraph' );
 
@@ -361,14 +363,50 @@ const sharedHeaderOf = () => {
 	return header;
 };
 
-const clickHeaderClose = ( header ) =>
+const clickHeaderClose = ( header ) => {
 	act( () =>
 		header
 			.querySelector( 'button[aria-label="Close"]' )
 			.dispatchEvent( new Event( 'click', { bubbles: true } ) )
 	);
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+};
+
+afterEach( () => jest.useRealTimers() );
+
+it( 'the create dialog plays its exit on Cancel, then closes', () => {
+	jest.useFakeTimers();
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+
+	act( () => dialogButton( /cancel/i ).click() );
+	expectExitThenGone();
+	expect( createSession ).not.toHaveBeenCalled();
+} );
+
+it( 'the issued-key dialog plays its exit on Done, then closes', () => {
+	jest.useFakeTimers();
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+	setInput( document.querySelector( '#new-session-label' ), 'egret desk' );
+	act( () => dialogButton( /issue session/i ).click() );
+	answer( 'create', {
+		subject: 'egret desk',
+		result: {
+			handle: 'h-6611',
+			secret: 's-6611',
+			scope: 'read',
+			expires_in: 1200,
+		},
+	} );
+
+	expect( document.body.textContent ).toContain( 'h-6611.s-6611' );
+	act( () => dialogButton( /done/i ).click() );
+	expectExitThenGone();
+} );
 
 it( 'heads the create dialog with the shared header, and closes on its icon', () => {
+	jest.useFakeTimers();
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );
 
@@ -383,6 +421,7 @@ it( 'heads the create dialog with the shared header, and closes on its icon', ()
 } );
 
 it( 'heads the issued-key dialog with the shared header, and closes on its icon', () => {
+	jest.useFakeTimers();
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );
 	setInput( document.querySelector( '#new-session-label' ), 'heron desk' );
@@ -485,6 +524,7 @@ it( 'surfaces a graph error in the banner', () => {
 } );
 
 it( 'cancels a revoke without sending it', () => {
+	jest.useFakeTimers();
 	const { container } = render( <SessionsAdmin /> );
 	clickRevoke( rowsOf( container )[ 0 ] );
 	act( () =>
@@ -492,8 +532,8 @@ it( 'cancels a revoke without sending it', () => {
 			new Event( 'click', { bubbles: true } )
 		)
 	);
+	expectExitThenGone();
 	expect( revoke ).not.toHaveBeenCalled();
-	expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
 } );
 
 // A connection is listed by the name its approver gave it, idle or not, and
@@ -526,6 +566,17 @@ it( 'lists each connection with its name, client, scope and times', () => {
 	expect( row.textContent ).toContain(
 		new Date( 1792619746 * 1000 ).toLocaleString()
 	);
+} );
+
+it( 'sends the revoke at once, then plays the exit', () => {
+	jest.useFakeTimers();
+	const { container } = render( <SessionsAdmin /> );
+	clickRevoke( rowsOf( container )[ 0 ] );
+	confirmDialog();
+
+	expect( revoke ).toHaveBeenCalledWith( 'h-4471' );
+	expectExitThenGone();
+	expect( revoke ).toHaveBeenCalledTimes( 1 );
 } );
 
 it( 'revokes a connection by its grant', () => {

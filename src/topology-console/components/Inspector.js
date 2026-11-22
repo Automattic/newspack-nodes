@@ -66,6 +66,8 @@ import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import CommitInput from '@newspack-nodes/shared/components/CommitInput';
 import { useCatalog } from '../CatalogContext';
 
+/** @typedef {import('../hooks/useGraphHandlers').ComposeForm} ComposeForm */
+
 /**
  * Whether the node reads a durable log, so the Time Travel panel applies.
  *
@@ -1351,8 +1353,8 @@ function parseStruct( text ) {
  * @param {string[]}   props.formatters Registered formatter names.
  * @param {Array}      props.vaults     Vault entries.
  * @param {string[]}   props.nodeNames  Nodes offered for `node_name` arguments.
- * @param {Function}   props.onAction   (action, nodeId, payload) — dispatches the invoke.
- * @param {() => void} props.onDismiss  Closes the dialog.
+ * @param {Function}   props.onAction   (action, nodeId, payload) — dispatches the invoke, at once on Run.
+ * @param {() => void} props.onDismiss  Closes the dialog, once its exit has played.
  * @return {import('react').ReactElement} The dialog.
  */
 function CommandArgModal( {
@@ -1372,6 +1374,7 @@ function CommandArgModal( {
 	);
 	const [ refused, reportRefusal ] = useFieldRefusals();
 	const bodyRef = useRef( null );
+	const handleRef = useRef( null );
 	useEffect( () => {
 		bodyRef.current?.querySelector( 'input, select, textarea' )?.focus();
 	}, [] );
@@ -1388,7 +1391,7 @@ function CommandArgModal( {
 	const run = () => {
 		if ( undefined !== struct ) {
 			onAction( 'invoke', nodeId, { verb, kind, struct } );
-			onDismiss();
+			handleRef.current.close();
 			return;
 		}
 		const tokens = [];
@@ -1403,11 +1406,16 @@ function CommandArgModal( {
 			}
 		} );
 		onAction( 'invoke', nodeId, { verb, kind, args: tokens } );
-		onDismiss();
+		handleRef.current.close();
 	};
 
 	return (
-		<ModalShell title={ verb } onDismiss={ onDismiss } onSubmit={ run }>
+		<ModalShell
+			title={ verb }
+			onDismiss={ onDismiss }
+			handleRef={ handleRef }
+			onSubmit={ run }
+		>
 			<div className="topology-modal__body" ref={ bodyRef }>
 				{ args.map( ( arg, i ) => (
 					<CtorField
@@ -1429,7 +1437,11 @@ function CommandArgModal( {
 				) ) }
 			</div>
 			<div className="topology-modal__actions">
-				<button type="button" className="button" onClick={ onDismiss }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => handleRef.current.close() }
+				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
@@ -1565,13 +1577,14 @@ const NO_NODE_COMMANDS = [
  * @param {string}                                  props.source    Node publishing the event.
  * @param {string[]}                                props.events    Registration events the class declares.
  * @param {string[]}                                props.nodeNames Nodes offered as the listener.
- * @param {(target: string, event: string) => void} props.onConfirm Registers the listener.
- * @param {() => void}                              props.onCancel  Closes without registering.
+ * @param {(target: string, event: string) => void} props.onConfirm Registers the listener, once the exit has played.
+ * @param {() => void}                              props.onCancel  Closes without registering, once the exit has played.
  * @return {import('react').ReactElement} The dialog.
  */
 function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 	const [ event, setEvent ] = useState( events[ 0 ] || '' );
 	const [ target, setTarget ] = useState( nodeNames[ 0 ] || '' );
+	const handleRef = useRef( null );
 	return (
 		<ModalShell
 			title={ sprintf(
@@ -1580,6 +1593,7 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 				source
 			) }
 			onDismiss={ onCancel }
+			handleRef={ handleRef }
 		>
 			<div className="topology-modal__body">
 				<ModalField
@@ -1616,14 +1630,22 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 				</ModalField>
 			</div>
 			<div className="topology-modal__actions">
-				<button type="button" className="button" onClick={ onCancel }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => handleRef.current.close() }
+				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
 					className={ primaryButtonClass( ! event || ! target ) }
 					disabled={ ! event || ! target }
-					onClick={ () => onConfirm( target, event ) }
+					onClick={ () =>
+						handleRef.current.closeWith( () =>
+							onConfirm( target, event )
+						)
+					}
 				>
 					{ __( 'Register', 'newspack-nodes' ) }
 				</button>
@@ -1673,15 +1695,15 @@ const COMPOSE_FLAGS = [
  * sends it; the Value and Payload textareas keep Enter. A refusal it
  * hands back — malformed JSON, no Shell or sink to send through, no SSE
  * session for a worker, or a throw from the send — shows here, and the dialog
- * stays open for the fix.
+ * stays open for the fix. A send it accepts plays the exit, then closes.
  *
- * @param {Object}                                                             props
- * @param {string[]}                                                           props.nodeNames Nodes offered as the destination.
- * @param {(form: import('../hooks/useGraphHandlers').ComposeForm) => ?string} props.onSend    Mints and sends the form; the refusal, or null once sent.
- * @param {() => void}                                                         props.onCancel  Closes without sending.
+ * @param {Object}                         props
+ * @param {string[]}                       props.nodeNames Nodes offered as the destination.
+ * @param {(form: ComposeForm) => ?string} props.onSend    Mints and sends the form; the refusal, or null once sent.
+ * @param {() => void}                     props.onDismiss Closes, once the exit has played.
  * @return {import('react').ReactElement} The dialog.
  */
-function ComposeModal( { nodeNames, onSend, onCancel } ) {
+function ComposeModal( { nodeNames, onSend, onDismiss } ) {
 	const [ form, setForm ] = useState( () => ( {
 		type: TM_COMMAND,
 		response: false,
@@ -1698,6 +1720,14 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
 		payload: '',
 	} ) );
 	const [ refusal, setRefusal ] = useState( null );
+	const handleRef = useRef( null );
+	const send = () => {
+		const refused = onSend( form );
+		setRefusal( refused );
+		if ( null === refused ) {
+			handleRef.current.close();
+		}
+	};
 	const set = ( field, value ) =>
 		setForm( ( prev ) => ( { ...prev, [ field ]: value } ) );
 	const isCommand = TM_COMMAND === form.type;
@@ -1731,8 +1761,9 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
 	return (
 		<ModalShell
 			title={ __( 'Compose a message', 'newspack-nodes' ) }
-			onDismiss={ onCancel }
-			onSubmit={ () => setRefusal( onSend( form ) ) }
+			onDismiss={ onDismiss }
+			handleRef={ handleRef }
+			onSubmit={ send }
 		>
 			<div className="topology-modal__body topology-modal__body--pairs">
 				<ModalField
@@ -1823,7 +1854,11 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
 				</p>
 			) }
 			<div className="topology-modal__actions">
-				<button type="button" className="button" onClick={ onCancel }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => handleRef.current.close() }
+				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
@@ -1848,40 +1883,40 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  * place: its row is the one the console polls by name, and its own sidecars
  * open from the "…" on its card in its owner's grid.
  *
- * @param {Object}                  props
- * @param {?string}                 props.selectedId         Selected node id; null falls through to the hull or process view.
- * @param {?string}                 [props.sidecar]          An owned node shown in the selection's place; null shows the selection.
- * @param {?Object}                 [props.sidecarGraph]     The polled rows the shown sidecar's is among; null until they answer.
- * @param {(name: string) => void}  [props.onOpenNode]       Shows a node an owner link or a back link names.
- * @param {?string}                 [props.selectedHull]     Selected include,
- *                                                           shown only without a selected node.
- * @param {Array}                   [props.hulls]            Every hull, `{ include, nodeIds }[]`.
- * @param {Function}                [props.onOpenTopology]   (name) — drill into a hull's own topology.
- * @param {Object}                  props.parsed             The graph — `{ nodes, edges, pwd, profiling }`.
- * @param {?string}                 props.streamStatus       SSE state; absent or 'open' reads as live.
- * @param {?Object}                 props.rateInfo           The shown node's rate history and last-changed timestamp, a sidecar's included.
- * @param {Object}                  props.rateSeries         `{ in, out, read, write }` sample rings for the whole graph.
- * @param {Object}                  props.hullRateSeries     The same rings, scoped to the selected hull.
- * @param {boolean}                 [props.local]            Browser graph: read IoTelemetry rather than rolling up dump_metadata.
- * @param {number}                  [props.debugLevel]       Live `debug_level`; lights the debug and verbose toggles.
- * @param {Function}                [props.onAction]         (action, nodeId, value) — every command this pane sends but a compose.
- * @param {Function}                props.onCompose          (form) — sends the Compose modal's message; returns the refusal, or null once sent.
- * @param {(name: string) => void}  [props.onSelect]         Follows a node link.
- * @param {(name: ?string) => void} [props.onHover]          Highlights a link's target on the canvas, null on leave.
- * @param {Set<string>}             [props.nodeIds]          Ids that exist; a name outside it renders as dim text, not a link.
- * @param {boolean}                 [props.editMode]         Draft graph: the node view becomes the config form.
- * @param {Function}                [props.onUpdateArgs]     (nodeId, args) — writes constructor args back to the draft.
- * @param {Function}                [props.onUpdateCommands] (nodeId, invocations) — writes command calls back to the draft.
- * @param {Function}                [props.onRemoveNode]     (nodeId) — delete the node from the draft.
- * @param {Function}                [props.onRenameNode]     (oldId, newId) — returns false when the name is already taken.
- * @param {Function}                [props.onRemoveEdge]     (from, to) — drop a physical edge.
- * @param {Function}                [props.onConnect]        (from, to) — add a target; a non-fan-out node replaces its own.
- * @param {Object}                  [props.tree]             Nested include tree, for the no-selection Includes list.
- * @param {string[]}                [props.includes]         Directly-declared includes — only those have a line to remove.
- * @param {(name: string) => void}  [props.onRemoveInclude]  Removes a declared include line.
- * @param {Function}                [props.onRemoveHull]     (name) — remove the include a hull stands for.
- * @param {(name: string) => void}  [props.onSelectHull]     Selects an include's hull by its name in a list.
- * @param {string}                  [props.currentTopology]  The topology being edited; titles the edit-mode panel shown with nothing selected.
+ * @param {Object}                         props
+ * @param {?string}                        props.selectedId         Selected node id; null falls through to the hull or process view.
+ * @param {?string}                        [props.sidecar]          An owned node shown in the selection's place; null shows the selection.
+ * @param {?Object}                        [props.sidecarGraph]     The polled rows the shown sidecar's is among; null until they answer.
+ * @param {(name: string) => void}         [props.onOpenNode]       Shows a node an owner link or a back link names.
+ * @param {?string}                        [props.selectedHull]     Selected include,
+ *                                                                  shown only without a selected node.
+ * @param {Array}                          [props.hulls]            Every hull, `{ include, nodeIds }[]`.
+ * @param {Function}                       [props.onOpenTopology]   (name) — drill into a hull's own topology.
+ * @param {Object}                         props.parsed             The graph — `{ nodes, edges, pwd, profiling }`.
+ * @param {?string}                        props.streamStatus       SSE state; absent or 'open' reads as live.
+ * @param {?Object}                        props.rateInfo           The shown node's rate history and last-changed timestamp, a sidecar's included.
+ * @param {Object}                         props.rateSeries         `{ in, out, read, write }` sample rings for the whole graph.
+ * @param {Object}                         props.hullRateSeries     The same rings, scoped to the selected hull.
+ * @param {boolean}                        [props.local]            Browser graph: read IoTelemetry rather than rolling up dump_metadata.
+ * @param {number}                         [props.debugLevel]       Live `debug_level`; lights the debug and verbose toggles.
+ * @param {Function}                       [props.onAction]         (action, nodeId, value) — every command this pane sends but a compose.
+ * @param {(form: ComposeForm) => ?string} props.onCompose          Sends the Compose modal's message; returns the refusal, or null once sent.
+ * @param {(name: string) => void}         [props.onSelect]         Follows a node link.
+ * @param {(name: ?string) => void}        [props.onHover]          Highlights a link's target on the canvas, null on leave.
+ * @param {Set<string>}                    [props.nodeIds]          Ids that exist; a name outside it renders as dim text, not a link.
+ * @param {boolean}                        [props.editMode]         Draft graph: the node view becomes the config form.
+ * @param {Function}                       [props.onUpdateArgs]     (nodeId, args) — writes constructor args back to the draft.
+ * @param {Function}                       [props.onUpdateCommands] (nodeId, invocations) — writes command calls back to the draft.
+ * @param {Function}                       [props.onRemoveNode]     (nodeId) — delete the node from the draft.
+ * @param {Function}                       [props.onRenameNode]     (oldId, newId) — returns false when the name is already taken.
+ * @param {Function}                       [props.onRemoveEdge]     (from, to) — drop a physical edge.
+ * @param {Function}                       [props.onConnect]        (from, to) — add a target; a non-fan-out node replaces its own.
+ * @param {Object}                         [props.tree]             Nested include tree, for the no-selection Includes list.
+ * @param {string[]}                       [props.includes]         Directly-declared includes — only those have a line to remove.
+ * @param {(name: string) => void}         [props.onRemoveInclude]  Removes a declared include line.
+ * @param {Function}                       [props.onRemoveHull]     (name) — remove the include a hull stands for.
+ * @param {(name: string) => void}         [props.onSelectHull]     Selects an include's hull by its name in a list.
+ * @param {string}                         [props.currentTopology]  The topology being edited; titles the edit-mode panel shown with nothing selected.
  * @return {import('react').ReactElement} The inspector pane.
  */
 export default function Inspector( {
@@ -2222,14 +2257,8 @@ export default function Inspector( {
 						nodeNames={
 							composeTargets ?? parsed.nodes.map( ( n ) => n.id )
 						}
-						onSend={ ( form ) => {
-							const refusal = onCompose( form );
-							if ( null === refusal ) {
-								setComposeOpen( false );
-							}
-							return refusal;
-						} }
-						onCancel={ () => setComposeOpen( false ) }
+						onSend={ onCompose }
+						onDismiss={ () => setComposeOpen( false ) }
 					/>
 				) }
 				{ stripModal && (

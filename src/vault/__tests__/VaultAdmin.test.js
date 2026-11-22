@@ -21,6 +21,8 @@ jest.mock( '../hooks/useVaultGraph', () => {
 import { render, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import VaultAdmin from '../VaultAdmin';
+import { MODAL_EXIT_MS } from '../../shared/hooks/useModalExit';
+import { expectExitThenGone } from '../../shared/test-utils/expectExitThenGone';
 
 const { useVaultGraph } = require( '../hooks/useVaultGraph' );
 
@@ -141,6 +143,7 @@ describe( 'VaultAdmin', () => {
 		while ( mounted.length ) {
 			mounted.pop().unmount();
 		}
+		jest.useRealTimers();
 	} );
 
 	// The shared Modal portals to the body, so the dialog is outside RTL's own
@@ -277,7 +280,9 @@ describe( 'VaultAdmin', () => {
 		openAddModal( container );
 		const dialog = document.querySelector( '[role="dialog"]' );
 		expect( dialog ).toBeTruthy();
-		expect( dialog.className ).toBe( 'newspack-nodes-modal' );
+		expect( dialog.className ).toBe(
+			'newspack-nodes-modal newspack-nodes-modal--medium'
+		);
 		expect( dialog.querySelector( '#vault-server-id' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#vault-server-url' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#vault-server-group' ) ).toBeTruthy();
@@ -307,6 +312,7 @@ describe( 'VaultAdmin', () => {
 	} );
 
 	it( 'closes the add modal when the footer Cancel is clicked (without adding)', async () => {
+		jest.useFakeTimers();
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
 		openAddModal( container );
@@ -316,11 +322,12 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
-		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+		expectExitThenGone();
 		expect( addServer ).not.toHaveBeenCalled();
 	} );
 
 	it( 'heads the server dialog with the shared header, and closes on its icon', async () => {
+		jest.useFakeTimers();
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
 		openAddModal( container );
@@ -338,12 +345,14 @@ describe( 'VaultAdmin', () => {
 				.querySelector( 'button[aria-label="Close"]' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
+		act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
 
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
 		expect( addServer ).not.toHaveBeenCalled();
 	} );
 
 	it( 'closes the add modal after a successful add', async () => {
+		jest.useFakeTimers();
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
 		openAddModal( container );
@@ -357,8 +366,8 @@ describe( 'VaultAdmin', () => {
 		} );
 		expect( addServer ).toHaveBeenCalled();
 		await act( async () => answer( 'add', { subject: 'spoke-09' } ) );
-		// The modal is gone once the add's answer lands.
-		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+		// The modal plays its exit once the add's answer lands, then goes.
+		expectExitThenGone();
 		expect( container.querySelector( '#vault-server-id' ) ).toBeNull();
 	} );
 
@@ -698,6 +707,7 @@ describe( 'VaultAdmin', () => {
 	} );
 
 	it( 'closes the edit modal on the update answer, which names the OLD id', async () => {
+		jest.useFakeTimers();
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
 		openEditModal( container, 'spoke-01' );
@@ -705,8 +715,9 @@ describe( 'VaultAdmin', () => {
 		await act( async () => {
 			container.querySelector( '#vault-server-save' ).click();
 		} );
+		expect( updateServer ).toHaveBeenCalled();
 		await act( async () => answer( 'update', { subject: 'spoke-01' } ) );
-		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+		expectExitThenGone();
 	} );
 
 	it( 'keeps the edit modal open and shows the refusal when the update fails', async () => {
@@ -746,6 +757,7 @@ describe( 'VaultAdmin', () => {
 	} );
 
 	it( 'opens the add modal blank even after an edit was opened first', () => {
+		jest.useFakeTimers();
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
 		openEditModal( container, 'spoke-01' );
@@ -754,6 +766,7 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
+		expectExitThenGone();
 		openAddModal( container );
 		const dialog = document.querySelector( '[role="dialog"]' );
 		expect( dialog.textContent ).toContain( 'Add New Server' );
@@ -778,6 +791,7 @@ describe( 'VaultAdmin', () => {
 	} );
 
 	it( 'calls removeServer when the dialog confirm is clicked', async () => {
+		jest.useFakeTimers();
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
@@ -792,9 +806,12 @@ describe( 'VaultAdmin', () => {
 			);
 		} );
 		expect( removeServer ).toHaveBeenCalledWith( 'spoke-01' );
+		expectExitThenGone();
+		expect( removeServer ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'does NOT call removeServer when the dialog is cancelled', async () => {
+		jest.useFakeTimers();
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
@@ -808,8 +825,8 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
+		expectExitThenGone();
 		expect( removeServer ).not.toHaveBeenCalled();
-		// Closing the dialog removes it from the document.
 		expect( document.body.textContent ).not.toContain(
 			'Are you sure you want to remove this server?'
 		);

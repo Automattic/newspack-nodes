@@ -17,6 +17,7 @@ import {
 import { SIDECAR_POLLER } from '../../hooks/useSidecarRows';
 import { NODE_H, NODE_SHADOW, NODE_W } from '../NodeCard';
 import { ConfirmModal, ModalShell } from '../Modal';
+import { throughExit } from '@newspack-nodes/shared/test-utils/answerConfirm';
 import { MAX_FROM_SIZE } from '../../../runtime/node';
 import names from '../../../runtime/reserved-node-names.json';
 
@@ -1868,7 +1869,9 @@ describe( 'GraphView — sidecars', () => {
 			</ModalShell>
 		);
 		canvasSvg().focus();
-		fireEvent.keyDown( canvasSvg(), { key: 'Escape' } );
+		throughExit( () =>
+			fireEvent.keyDown( canvasSvg(), { key: 'Escape' } )
+		);
 		await flush();
 		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
 		expect( grids() ).toHaveLength( 1 );
@@ -1878,7 +1881,9 @@ describe( 'GraphView — sidecars', () => {
 		await openGrid();
 		render( <OwnDialog /> );
 		canvasSvg().focus();
-		fireEvent.keyDown( canvasSvg(), { key: 'Escape' } );
+		throughExit( () =>
+			fireEvent.keyDown( canvasSvg(), { key: 'Escape' } )
+		);
 		await flush();
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 		expect( grids() ).toHaveLength( 1 );
@@ -1915,8 +1920,11 @@ describe( 'GraphView — sidecars', () => {
 		);
 		await flush();
 		render( <OwnDialog /> );
-		fireEvent.mouseDown(
-			document.body.querySelector( '.topology-modal-backdrop' )
+		// A long press: the dialog has gone by the time the button comes up.
+		throughExit( () =>
+			fireEvent.mouseDown(
+				document.body.querySelector( '.topology-modal-backdrop' )
+			)
 		);
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 		fireEvent.mouseUp( document.body );

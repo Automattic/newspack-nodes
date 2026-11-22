@@ -12,6 +12,7 @@ import names from '../../../runtime/reserved-node-names.json';
 import { MetadataNode } from '../../../runtime/metadata-node';
 import { FROM, TO, VALUE } from '../../../runtime/message';
 import InspectorViewModal from '../InspectorViewModal';
+import { MODAL_EXIT_MS } from '@newspack-nodes/shared/hooks/useModalExit';
 
 beforeEach( () => {
 	Core.reset();
@@ -231,28 +232,52 @@ test( 'the Triage view renders the node DLQ table inside a wide modal', () => {
 	);
 } );
 
-test( 'ESC dismisses the modal', () => {
-	const onDismiss = jest.fn();
-	render( <InspectorViewModal view="timeline" onDismiss={ onDismiss } /> );
-	fireEvent.keyDown( document, { key: 'Escape' } );
-	expect( onDismiss ).toHaveBeenCalledTimes( 1 );
-} );
+// Each dismissal plays the shell's exit before onDismiss runs.
+describe( 'dismissal', () => {
+	beforeEach( () => {
+		jest.useFakeTimers();
+	} );
 
-test( 'the close button dismisses the modal', () => {
-	const onDismiss = jest.fn();
-	render( <InspectorViewModal view="timeline" onDismiss={ onDismiss } /> );
-	fireEvent.click(
-		document.body.querySelector( '.newspack-nodes-modal__close' )
-	);
-	expect( onDismiss ).toHaveBeenCalledTimes( 1 );
-} );
+	afterEach( () => {
+		jest.useRealTimers();
+	} );
 
-test( 'a backdrop click dismisses the modal', () => {
-	const onDismiss = jest.fn();
-	render( <InspectorViewModal view="timeline" onDismiss={ onDismiss } /> );
-	const backdrop = document.body.querySelector( '.topology-modal-backdrop' );
-	fireEvent.mouseDown( backdrop );
-	expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+	const exit = () => act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	test( 'ESC dismisses the modal', () => {
+		const onDismiss = jest.fn();
+		render(
+			<InspectorViewModal view="timeline" onDismiss={ onDismiss } />
+		);
+		fireEvent.keyDown( document, { key: 'Escape' } );
+		exit();
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	test( 'the close button dismisses the modal', () => {
+		const onDismiss = jest.fn();
+		render(
+			<InspectorViewModal view="timeline" onDismiss={ onDismiss } />
+		);
+		fireEvent.click(
+			document.body.querySelector( '.newspack-nodes-modal__close' )
+		);
+		exit();
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	test( 'a backdrop click dismisses the modal', () => {
+		const onDismiss = jest.fn();
+		render(
+			<InspectorViewModal view="timeline" onDismiss={ onDismiss } />
+		);
+		const backdrop = document.body.querySelector(
+			'.topology-modal-backdrop'
+		);
+		fireEvent.mouseDown( backdrop );
+		exit();
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+	} );
 } );
 
 test.each( [ 'runtime', 'stats', 'timeline', 'triage' ] )(

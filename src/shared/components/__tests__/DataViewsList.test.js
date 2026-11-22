@@ -15,6 +15,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
+import { expectExitThenGone } from '../../test-utils/expectExitThenGone';
 import DataViewsList from '../DataViewsList';
 
 const HERON = { slug: 'heron-7', title: 'Heron Gazette moves to weekly' };
@@ -583,46 +584,139 @@ describe( 'DataViewsList', () => {
 			] );
 		} );
 
-		it( 'opens a bulk action that renders a modal over the checked rows it is eligible for', async () => {
-			render(
-				run( [ 'kea-4', 'heron-7', ELSEWHERE ], () => {}, {
-					actions: [
-						{
-							id: 'confirm',
-							label: 'Confirm the run',
-							supportsBulk: true,
-							isEligible: ( item ) => 'kea-4' === item.slug,
-							RenderModal: ( { items, closeModal } ) => (
-								<button type="button" onClick={ closeModal }>
-									{ `Confirm ${ items
-										.map( ( item ) => item.slug )
-										.join( ' ' ) }` }
-								</button>
-							),
-						},
-					],
-				} )
-			);
-			fireEvent.click(
-				await screen.findByRole( 'button', { name: 'Confirm the run' } )
-			);
-			const inside = await screen.findByRole( 'button', {
-				name: 'Confirm kea-4',
+		describe( 'an action modal on the shared shell', () => {
+			const modalAction = ( over = {} ) => ( {
+				id: 'confirm',
+				label: 'Confirm the run',
+				supportsBulk: true,
+				isEligible: ( item ) => 'kea-4' === item.slug,
+				RenderModal: ( { items, closeModal } ) => (
+					<button type="button" onClick={ closeModal }>
+						{ `Confirm ${ items
+							.map( ( item ) => item.slug )
+							.join( ' ' ) }` }
+					</button>
+				),
+				...over,
 			} );
-			// Portalled to the body, the frame wears the skin roots itself.
-			const frame = inside.closest( '.components-modal__frame' );
-			for ( const root of [
-				'newspack-nodes-modal',
-				'newspack-nodes-skin-root',
-				'newspack-nodes-theme',
-				'newspack-nodes-ui',
-			] ) {
-				expect( frame.classList ).toContain( root );
-			}
-			fireEvent.click( inside );
-			expect(
-				screen.queryByRole( 'button', { name: 'Confirm kea-4' } )
-			).toBeNull();
+
+			const open = async ( over ) => {
+				render(
+					run( [ 'kea-4', 'heron-7', ELSEWHERE ], () => {}, {
+						actions: [ modalAction( over ) ],
+					} )
+				);
+				fireEvent.click(
+					await screen.findByRole( 'button', {
+						name: 'Confirm the run',
+					} )
+				);
+				return screen.findByRole( 'dialog' );
+			};
+
+			it( 'renders over the checked rows it is eligible for, headed by its label, wearing the skin roots', async () => {
+				const dialog = await open();
+				expect( dialog.className ).toContain(
+					'newspack-nodes-modal--medium'
+				);
+				expect(
+					screen.getByRole( 'heading', { name: 'Confirm the run' } )
+				).not.toBeNull();
+				expect(
+					screen.getByRole( 'button', { name: 'Confirm kea-4' } )
+				).not.toBeNull();
+				expect(
+					dialog.closest( '.newspack-nodes-skin-root' )
+				).not.toBeNull();
+			} );
+
+			it.each( [
+				[ 'small', 'small' ],
+				[ 'large', 'large' ],
+				[ 'fill', 'large' ],
+				[ 'medium', 'medium' ],
+				[ 'unheard-of', 'medium' ],
+			] )( 'draws modalSize %s at %s', async ( modalSize, size ) => {
+				const dialog = await open( { modalSize } );
+				expect( dialog.className ).toContain(
+					`newspack-nodes-modal--${ size }`
+				);
+			} );
+
+			it( 'heads the dialog by modalHeader, given as a function of the rows', async () => {
+				await open( {
+					modalHeader: ( rows ) => `Run ${ rows.length } row(s)`,
+				} );
+				expect(
+					screen.getByRole( 'heading', { name: 'Run 1 row(s)' } )
+				).not.toBeNull();
+			} );
+
+			it( 'names a dialog with hideModalHeader by its label and draws no header', async () => {
+				const dialog = await open( { hideModalHeader: true } );
+				expect( dialog.getAttribute( 'aria-label' ) ).toBe(
+					'Confirm the run'
+				);
+				expect( screen.queryByRole( 'heading' ) ).toBeNull();
+			} );
+
+			it( 'plays the exit when the body calls closeModal', async () => {
+				expect.hasAssertions();
+				await open();
+				jest.useFakeTimers();
+				try {
+					fireEvent.click(
+						screen.getByRole( 'button', { name: 'Confirm kea-4' } )
+					);
+					expectExitThenGone();
+				} finally {
+					jest.useRealTimers();
+				}
+			} );
+
+			it( 'focuses the first control of the action body on mount, not the header close', async () => {
+				const dialog = await open();
+				expect( dialog.contains( document.activeElement ) ).toBe(
+					true
+				);
+				expect( document.activeElement ).toBe(
+					screen.getByRole( 'button', { name: 'Confirm kea-4' } )
+				);
+			} );
+
+			it( 'passes over a hidden input to focus the first text input', async () => {
+				await open( {
+					RenderModal: () => (
+						<>
+							<input
+								type="hidden"
+								name="ibis-nonce"
+								value="ibis-31"
+							/>
+							<input type="text" aria-label="Ibis note" />
+						</>
+					),
+				} );
+				expect( document.activeElement ).toBe(
+					screen.getByRole( 'textbox', { name: 'Ibis note' } )
+				);
+			} );
+
+			it( 'takes firstElement for the default focus', async () => {
+				const dialog = await open( {
+					modalFocusOnMount: 'firstElement',
+				} );
+				expect( dialog.contains( document.activeElement ) ).toBe(
+					true
+				);
+			} );
+
+			it( 'moves no focus on mount when modalFocusOnMount is false', async () => {
+				const dialog = await open( { modalFocusOnMount: false } );
+				expect( dialog.contains( document.activeElement ) ).toBe(
+					false
+				);
+			} );
 		} );
 
 		it( 'marks select-all indeterminate while only some of the page is in the run', async () => {

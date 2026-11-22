@@ -16,6 +16,7 @@ import {
 } from '@testing-library/react';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { answerConfirm } from '@newspack-nodes/shared/test-utils/answerConfirm';
 import { registerCompositionEditor } from '@newspack-nodes/shared/composition/editorRegistry';
 import { editSearch } from '@newspack-nodes/shared/composition/page';
 import TabHost from '@newspack-nodes/shared/tabs/TabHost';
@@ -337,9 +338,7 @@ describe( 'a tab switch away from the layout editor', () => {
 		).toBeTruthy();
 		expect( screen.queryByText( 'kea 7920' ) ).toBeNull();
 
-		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Keep editing' } )
-		);
+		answerConfirm( screen.getByRole( 'button', { name: 'Keep editing' } ) );
 		expect(
 			screen.queryByText( 'Discard your changes to this layout?' )
 		).toBeNull();
@@ -353,7 +352,7 @@ describe( 'a tab switch away from the layout editor', () => {
 		station();
 		act( () => dirty( true ) );
 		fireEvent.click( screen.getByRole( 'tab', { name: 'Kea' } ) );
-		fireEvent.click(
+		answerConfirm(
 			screen.getByRole( 'button', { name: 'Discard changes' } )
 		);
 		expect( screen.getByText( 'kea 7920' ) ).toBeTruthy();
@@ -383,9 +382,7 @@ describe( 'a tab switch away from the layout editor', () => {
 			'?page=newspack-nodes-station&tab=jobs&edit=station-jobs'
 		);
 
-		fireEvent.click(
-			screen.getByRole( 'button', { name: 'Keep editing' } )
-		);
+		answerConfirm( screen.getByRole( 'button', { name: 'Keep editing' } ) );
 		expect( screen.getByText( 'editor 7920' ) ).toBeTruthy();
 	} );
 
@@ -393,7 +390,7 @@ describe( 'a tab switch away from the layout editor', () => {
 		station();
 		act( () => dirty( true ) );
 		backToKea();
-		fireEvent.click(
+		answerConfirm(
 			screen.getByRole( 'button', { name: 'Discard changes' } )
 		);
 		expect( screen.getByText( 'kea 7920' ) ).toBeTruthy();

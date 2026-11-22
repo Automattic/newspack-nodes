@@ -280,6 +280,14 @@ const jsxClassRecords = () => {
 	return records;
 };
 
+// The shared `Modal` puts the canonical modal role on the box it renders.
+const SHARED_MODAL_IMPORT =
+	/^import Modal\b[^;]*from '[^']*shared\/components\/Modal';$/m;
+const wearsByConstruction = ( record, canonicalClass ) =>
+	'Modal' === record.tag &&
+	'newspack-nodes-modal' === canonicalClass &&
+	SHARED_MODAL_IMPORT.test( fs.readFileSync( record.file, 'utf8' ) );
+
 const selectorHasClass = ( selector, className ) =>
 	new RegExp(
 		`\\.${ className.replace( /[.*+?^${}()|[\]\\]/g, '\\$&' ) }(?![\\w-])`
@@ -365,10 +373,14 @@ const darkSkins = () => {
 const PICK =
 	':where(html).newspack-nodes-asking :where(.newspack-nodes-ui) [data-ask][data-ask-picked]:not([data-ask-page])';
 
-// Each declaration of the LAST rule naming `selector`, with its `!important`.
+// Each declaration of the LAST top-level rule naming `selector`, with its
+// `!important`.
 const declarationsWithImportance = ( stylesheet, selector ) => {
 	let declarations;
 	stylesheet.walkRules( ( rule ) => {
+		if ( 'root' !== rule.parent.type ) {
+			return;
+		}
 		if ( rule.selectors.includes( selector ) ) {
 			declarations = Object.fromEntries(
 				rule.nodes
@@ -595,7 +607,10 @@ describe( 'canonical appearance ownership', () => {
 				continue;
 			}
 			for ( const record of matches ) {
-				if ( ! record.tokens.has( canonicalClass ) ) {
+				if (
+					! record.tokens.has( canonicalClass ) &&
+					! wearsByConstruction( record, canonicalClass )
+				) {
 					offenders.push(
 						`${ path.relative( NODES_SRC, record.file ) }:${
 							record.line
@@ -1280,16 +1295,17 @@ describe( 'canonical appearance ownership', () => {
 		for ( const selector of [
 			':is(.topology-app, .topology-modal) .button.is-compact',
 			'.topology-edit-row__input',
-			'.topology-modal > .newspack-nodes-modal__header',
 			'.topology-modal__input',
 		] ) {
 			expect( selectors ).toContain( selector );
 		}
 
+		// The compact header is the shared sheet's; the console restyles none.
 		for ( const legacySelector of [
 			'.topology-app .button.is-compact',
 			'.topology-app .topology-edit-row__input',
 			'.topology-app .topology-modal__input',
+			'.topology-modal > .newspack-nodes-modal__header',
 		] ) {
 			expect( selectors ).not.toContain( legacySelector );
 		}
@@ -2016,11 +2032,11 @@ describe( 'canonical appearance ownership', () => {
 				graphStylesheet,
 				'.topology-modal > .newspack-nodes-modal__header'
 			)
-		).toEqual( { padding: '8px 8px 8px 16px' } );
+		).toBeUndefined();
 
-		// @longform ModalShell's MODAL_HEADER_H is the console header's height:
-		// the taller of the shared title line and close, the console's own
-		// vertical padding and the shared header rule. Let the stylesheets move
+		// @longform ModalShell's MODAL_HEADER_H is the compact header's height:
+		// the taller of the compact title line and close, the compact header's
+		// vertical padding and the shared header rule. Let the stylesheet move
 		// and the anchor gate admits a panel the dialog cannot fit inside.
 		const sharedModal = compile(
 			path.join( NODES_SRC, 'shared/styles/_modal.scss' )
@@ -2041,12 +2057,14 @@ describe( 'canonical appearance ownership', () => {
 					'utf8'
 				)
 				.match( new RegExp( `${ name }:\\s*([^;]+);` ) )[ 1 ];
-		const lineHeight = inShared( 'title' )[ 'line-height' ];
-		expect( lineHeight ).toBe( 'var(--np-lh-m)' );
-		const [ padTop, , padBottom ] = declarationsForSelector(
-			graphStylesheet,
-			'.topology-modal > .newspack-nodes-modal__header'
-		).padding.split( ' ' );
+		const compactTitle = declarationsForSelector(
+			sharedModal,
+			':where(.newspack-nodes-ui) .newspack-nodes-modal .newspack-nodes-modal__header--compact .newspack-nodes-modal__title'
+		);
+		expect( compactTitle[ 'line-height' ] ).toBe( 'var(--np-lh-m)' );
+		const compactHeader = inShared( 'header--compact' );
+		expect( compactHeader[ 'min-height' ] ).toBe( '0' );
+		const [ padTop, , padBottom ] = compactHeader.padding.split( ' ' );
 		expect(
 			numericConstant(
 				path.join( NODES_SRC, 'topology-console/components/Modal.js' ),
@@ -2073,7 +2091,6 @@ describe( 'canonical appearance ownership', () => {
 		).toEqual(
 			expect.objectContaining( {
 				width: '90%',
-				'max-width': '640px',
 				'max-height': '90vh',
 				padding: 'var(--np-space-lg)',
 			} )
@@ -2084,8 +2101,7 @@ describe( 'canonical appearance ownership', () => {
 				'.newspack-nodes-modal__backdrop > .newspack-nodes-modal > .newspack-nodes-modal__header'
 			)
 		).toEqual( {
-			'margin-bottom': 'var(--np-space-md)',
-			'padding-bottom': 'var(--np-space-md)',
+			margin: 'calc(-1 * var(--np-space-lg)) calc(-1 * var(--np-space-lg)) var(--np-space-lg)',
 		} );
 		expect(
 			declarationsForSelector(

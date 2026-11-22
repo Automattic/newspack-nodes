@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The shared `Modal` takes every dialog.** `size` draws the box `small` (384px), `medium` (640px, the default), `large` (840px) or `fullscreen` (the viewport, unrounded), as the `newspack-nodes-modal--<size>` modifier. `role` makes it an `alertdialog`. `ModalHeader` takes `actions`, a row between the title and the close that keeps its width beside an ellipsised title. A `Modal` without `onClose` cannot be dismissed: ESC and an outside mousedown do nothing, and its header draws no close button whatever `onClose` the header is handed.
+- **A dialog closes through a handle.** `handleRef.current.close()` plays the exit and then the dialog's `onClose`, and `closeWith( run )` plays it and then runs `run` in its place, so a button that acts and closes plays the exit first. Only the first close counts while the exit plays, so ESC followed by a button runs the ESC's close alone. Once the close has run the dialog resets, so one its caller keeps open shows again and takes input; one unmounted during its exit runs the pending close at once. `useDialog( ref, onClose, { handleRef, returnFocus } )` and `ModalBox` are the wiring and the box both shells share, `Modal` and the console's `ModalShell`, which takes the same `handleRef`.
+- A test fails on any import of `Modal` from `@wordpress/components` under `src/`.
+
+### Changed
+
+- **Dialogs stack.** ESC and an outside mousedown reach only the topmost open dialog, and only the topmost traps Tab, so a dialog opened from another closes alone and a click inside it leaves the one beneath open. The console's and the debug overlay's dialogs join the same stack.
+- **Two header styles, both owned by `_modal.scss`.** The regular header is 64px tall, padded `0 18px`, with an 18px title. `ModalHeader compact` is the tight row, padded `8px 8px 8px 16px` in the title's own type, which the console and overlay dialogs, `Confirm` and `AlertModal` take. Both rule the header edge to edge: on the padded shared box it bleeds to the frame. The console's own header padding rule is gone.
+- **Every dialog animates alike.** On open the backdrop fades in over 80ms and the box fades in and scales up from 0.9 over 200ms; on close the box reverses over 200ms, the backdrop fades out over 80ms after an 80ms delay, and the close runs 240ms after it began. The box animates the `scale` property and the overlay centres its dialog with the `translate` property, which `scale` does not shrink, so the dialog stays centred while it moves. Under `prefers-reduced-motion: reduce` nothing animates and the close runs at once. Each console dialog's Cancel and its action close the same way, so `ConfirmModal`, `PromptModal`, `NewNodeModal`, `OpenTopologyModal`, the listener dialog and `Confirm` run their answer once the exit has played, while the command dialog and the composer act at once and then play it.
+- **`AlertModal` is a `Modal` with `role="alertdialog"`,** portalled to the body under the skin classes like every other dialog, with a compact header; its OK closes through the handle.
+- **`DataViewsList`'s action modals draw on the shared shell.** An action's `modalSize` draws `small` and `large` as named, `fill` as `large` and anything else as `medium`; `hideModalHeader` names the dialog by the action's label; `modalFocusOnMount: false` leaves focus where it was, and otherwise the body's first tabbable takes it; `closeModal` plays the exit.
+- `useFocusTrap` exports its `TABBABLE` selector, which `DataViewsList` reuses.
+
 ## [2.163.1] - 2026-11-18
 
 ### Fixed

@@ -160,7 +160,7 @@ function ViewBody( { view, node, onAction } ) {
  * @param {Object}      props
  * @param {string|null} props.view       Which view to open: `runtime`, `stats`, `timeline` or `triage`; null or an unknown key means closed.
  * @param {Object}      [props.node]     The selected node, whose dead-letter queue Triage reads.
- * @param {() => void}  props.onDismiss  Runs on ESC, backdrop click and the close button.
+ * @param {() => void}  props.onDismiss  Runs on ESC, backdrop click and the close button, once the exit has played.
  * @param {Function}    [props.onAction] Console action dispatcher for Triage's dead-letter commands.
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */

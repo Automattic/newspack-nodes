@@ -18,6 +18,7 @@ import {
 import { useEffect } from '@wordpress/element';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { answerConfirm } from '@newspack-nodes/shared/test-utils/answerConfirm';
 import {
 	ComposedLayout,
 	definePageState,
@@ -722,7 +723,7 @@ describe( 'ComposedLayout', () => {
 		expect( dialog.textContent ).toContain( 'Restore the default layout?' );
 		expect( sent( 'restore' ) ).toEqual( [] );
 
-		fireEvent.click(
+		answerConfirm(
 			within( dialog ).getByRole( 'button', { name: 'Restore default' } )
 		);
 		await waitFor(
@@ -752,7 +753,7 @@ describe( 'ComposedLayout', () => {
 		fireEvent.click(
 			screen.getByRole( 'button', { name: 'Restore default' } )
 		);
-		fireEvent.click( screen.getByRole( 'button', { name: 'Cancel' } ) );
+		answerConfirm( screen.getByRole( 'button', { name: 'Cancel' } ) );
 		// The hook's own read of the context settles before the test ends.
 		await waitFor( () => {
 			expect( sent( 'get' ) ).toHaveLength( 1 );
@@ -781,7 +782,7 @@ describe( 'ComposedLayout', () => {
 		fireEvent.click(
 			screen.getByRole( 'button', { name: 'Restore default' } )
 		);
-		fireEvent.click(
+		answerConfirm(
 			within( screen.getByRole( 'dialog' ) ).getByRole( 'button', {
 				name: 'Restore default',
 			} )

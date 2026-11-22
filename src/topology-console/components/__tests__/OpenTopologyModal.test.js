@@ -3,8 +3,20 @@
  * pick + cancel affordances.
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { act, render, fireEvent } from '@testing-library/react';
+import { MODAL_EXIT_MS } from '@newspack-nodes/shared/hooks/useModalExit';
 import OpenTopologyModal from '../OpenTopologyModal';
+
+// Every close plays the shell's exit; `exit()` lets it finish.
+beforeEach( () => {
+	jest.useFakeTimers();
+} );
+
+afterEach( () => {
+	jest.useRealTimers();
+} );
+
+const exit = () => act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
 
 const noop = () => {};
 
@@ -145,6 +157,11 @@ describe( 'OpenTopologyModal', () => {
 		);
 		const button = document.body.querySelector( '.topology-open-item' );
 		fireEvent.mouseDown( button );
+		expect(
+			document.body.querySelector( '.topology-modal-backdrop' ).className
+		).toBe( 'topology-modal-backdrop is-closing' );
+		expect( onPick ).not.toHaveBeenCalled();
+		exit();
 		expect( onPick ).toHaveBeenCalledWith( 'demo' );
 	} );
 
@@ -160,7 +177,9 @@ describe( 'OpenTopologyModal', () => {
 			/>
 		);
 		fireEvent.click( getByText( 'Cancel' ) );
-		expect( onCancel ).toHaveBeenCalled();
+		expect( onCancel ).not.toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'calls onCancel on ESC keydown', () => {
@@ -175,7 +194,8 @@ describe( 'OpenTopologyModal', () => {
 			/>
 		);
 		fireEvent.keyDown( document, { key: 'Escape' } );
-		expect( onCancel ).toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'calls onCancel on backdrop mousedown', () => {
@@ -192,7 +212,8 @@ describe( 'OpenTopologyModal', () => {
 		fireEvent.mouseDown(
 			document.body.querySelector( '.topology-modal-backdrop' )
 		);
-		expect( onCancel ).toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'buckets unknown source values into "stock"', () => {

@@ -11,10 +11,10 @@
  * dialog or a child focusing itself on mount would otherwise be read instead.
  */
 
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 
 /** Every element Tab can reach, by the browser's own rule. */
-const TABBABLE =
+export const TABBABLE =
 	'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
 /**
@@ -23,9 +23,10 @@ const TABBABLE =
  *
  * @param {{current: HTMLElement|null}} ref           The dialog element.
  * @param {{current: HTMLElement|null}} [returnFocus] The element closing hands focus to, such as the dialog's trigger.
+ * @param {() => boolean}               [isActive]    Whether this trap answers Tab now; a dialog beneath another answers false, leaving Tab to the browser.
  * @return {void}
  */
-export function useFocusTrap( ref, returnFocus = null ) {
+export function useFocusTrap( ref, returnFocus = null, isActive = () => true ) {
 	const [ opener ] = useState(
 		() =>
 			/** @type {HTMLElement|null} */ (
@@ -33,6 +34,9 @@ export function useFocusTrap( ref, returnFocus = null ) {
 				'undefined' === typeof document ? null : document.activeElement
 			)
 	);
+	// An inline-arrow caller would otherwise re-run the effect, and refocus.
+	const isActiveRef = useRef( isActive );
+	isActiveRef.current = isActive;
 	useEffect( () => {
 		const doc = ref.current?.ownerDocument;
 		if ( ! doc ) {
@@ -40,7 +44,7 @@ export function useFocusTrap( ref, returnFocus = null ) {
 		}
 		const onKey = ( e ) => {
 			const el = ref.current;
-			if ( 'Tab' !== e.key || ! el ) {
+			if ( 'Tab' !== e.key || ! el || ! isActiveRef.current() ) {
 				return;
 			}
 			const tabbable = /** @type {HTMLElement[]} */ (

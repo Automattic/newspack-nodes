@@ -9,6 +9,7 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
+import { answerConfirm } from '@newspack-nodes/shared/test-utils/answerConfirm';
 import { Editing } from '@newspack-nodes/shared/composition/page';
 import topologyRows from '../blocks/topology-rows';
 import { Core } from '../../runtime/core';
@@ -408,13 +409,15 @@ describe( 'Overview — remaining interactions', () => {
 		// answer lands on the node that asked, not on a row's promise.
 		const { onError } = useTopologyManager.mock.calls.at( -1 )[ 0 ];
 		act( () => onError( { name: 'alpha', message: 'boom' } ) );
-		expect( container.querySelector( '.nodes-tm__alert' ) ).not.toBeNull();
-		fireEvent.click(
-			container.querySelector(
+		// The alert portals to the body, outside the board's container.
+		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeNull();
+		expect( document.querySelector( '.nodes-tm__alert' ) ).not.toBeNull();
+		answerConfirm(
+			document.querySelector(
 				'.nodes-tm__alert .newspack-nodes-modal__actions .button'
 			)
 		);
-		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeNull();
+		expect( document.querySelector( '.nodes-tm__alert' ) ).toBeNull();
 	} );
 
 	it( 'shows an activation warning in the alert modal, titled as a success', () => {
@@ -423,7 +426,7 @@ describe( 'Overview — remaining interactions', () => {
 				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
 			} )
 		);
-		const { container } = render( <Overview /> );
+		render( <Overview /> );
 		const { onWarning } = useTopologyManager.mock.calls.at( -1 )[ 0 ];
 		act( () =>
 			onWarning( {
@@ -432,7 +435,7 @@ describe( 'Overview — remaining interactions', () => {
 					'these active topologies could not be checked for conflicts: broken-4410',
 			} )
 		);
-		const dialog = container.querySelector( '.nodes-tm__alert' );
+		const dialog = document.querySelector( '.nodes-tm__alert' );
 		expect(
 			document.getElementById( dialog.getAttribute( 'aria-labelledby' ) )
 				.textContent

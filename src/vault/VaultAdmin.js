@@ -38,14 +38,16 @@ import { useSubjectAnswers } from '@newspack-nodes/shared/hooks/useSubjectAnswer
  *
  * The confirm button takes focus on mount, so the dialog is operable from the
  * keyboard the moment it opens. ESC and the backdrop cancel through `Modal`.
+ * Remove runs the removal at once, then plays the exit like Cancel.
  *
  * @param {Object}     props
- * @param {() => void} props.onCancel  Dismisses without removing.
+ * @param {() => void} props.onClose   Runs once the exit has played.
  * @param {() => void} props.onConfirm Runs the removal.
  * @return {import('react').ReactElement} The modal.
  */
-function ConfirmRemoveModal( { onCancel, onConfirm } ) {
+function ConfirmRemoveModal( { onClose, onConfirm } ) {
 	const confirmRef = useRef( null );
+	const modal = useRef( null );
 
 	useEffect( () => {
 		confirmRef.current?.focus();
@@ -54,7 +56,8 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 	return (
 		<Modal
 			ariaLabel={ __( 'Remove server', 'newspack-nodes' ) }
-			onClose={ onCancel }
+			onClose={ onClose }
+			handleRef={ modal }
 		>
 			<p>
 				{ __(
@@ -63,14 +66,21 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 				) }
 			</p>
 			<div className="newspack-nodes-modal__actions">
-				<button type="button" className="button" onClick={ onCancel }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => modal.current.close() }
+				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>{ ' ' }
 				<button
 					type="button"
 					ref={ confirmRef }
 					className="button button-link-delete"
-					onClick={ onConfirm }
+					onClick={ () => {
+						onConfirm();
+						modal.current.close();
+					} }
 				>
 					{ __( 'Remove', 'newspack-nodes' ) }
 				</button>
@@ -161,11 +171,6 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 		busy
 	);
 
-	const confirmRemove = () => {
-		setIsConfirmOpen( false );
-		onRemove( id );
-	};
-
 	return (
 		<tr data-server-id={ id }>
 			<td>
@@ -210,8 +215,8 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 				</button>
 				{ isConfirmOpen && (
 					<ConfirmRemoveModal
-						onCancel={ () => setIsConfirmOpen( false ) }
-						onConfirm={ confirmRemove }
+						onClose={ () => setIsConfirmOpen( false ) }
+						onConfirm={ () => onRemove( id ) }
 					/>
 				) }
 			</td>
@@ -268,15 +273,16 @@ function validate( id, url, group ) {
  * on an edit — like every other command here, so the form reads it the way a row
  * does.
  *
- * @param {Object}                          props         Component props.
- * @param {Object}                          props.server  The row being edited, or BLANK_SERVER.
- * @param {Function}                        props.onSave  Save callback; called with the form's fields, the password untrimmed.
- * @param {?{verb: string, error: ?string}} props.answer  The answer for the submitted id, if any.
- * @param {boolean}                         props.busy    Whether the save is outstanding.
- * @param {() => void}                      props.onClose Dismisses the modal.
+ * @param {Object}                                                                    props           Component props.
+ * @param {Object}                                                                    props.server    The row being edited, or BLANK_SERVER.
+ * @param {Function}                                                                  props.onSave    Save callback; called with the form's fields, the password untrimmed.
+ * @param {?{verb: string, error: ?string}}                                           props.answer    The answer for the submitted id, if any.
+ * @param {boolean}                                                                   props.busy      Whether the save is outstanding.
+ * @param {() => void}                                                                props.onClose   Runs once the modal's exit has played.
+ * @param {{current: ?import('@newspack-nodes/shared/hooks/useDialog').DialogHandle}} props.handleRef Takes the modal's animated close.
  * @return {import('react').ReactElement} The modal.
  */
-function ServerModal( { server, onSave, answer, busy, onClose } ) {
+function ServerModal( { server, onSave, answer, busy, onClose, handleRef } ) {
 	const isNew = '' === server.id;
 	const title = isNew
 		? __( 'Add New Server', 'newspack-nodes' )
@@ -323,7 +329,11 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 	};
 
 	return (
-		<Modal onClose={ onClose } onSubmit={ handleSave }>
+		<Modal
+			onClose={ onClose }
+			onSubmit={ handleSave }
+			handleRef={ handleRef }
+		>
 			<ModalHeader title={ title } onClose={ onClose } />
 			<table className="form-table" style={ { maxWidth: '600px' } }>
 				<tbody>
@@ -517,7 +527,11 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 				>
 					{ status.text }
 				</span>
-				<button type="button" className="button" onClick={ onClose }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => handleRef.current.close() }
+				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
@@ -550,6 +564,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 	// The row open in the form; BLANK_SERVER means adding, null means closed.
 	const [ editing, setEditing ] = useState( null );
 	const [ submitted, setSubmitted ] = useState( null );
+	const serverModal = useRef( null );
 	const { file, answerFor } = useSubjectAnswers();
 	const {
 		servers,
@@ -564,8 +579,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 			file( subject, { verb, error: refusal } );
 			// A successful save closes the modal, on its own answer.
 			if ( ! refusal && ( 'add' === verb || 'update' === verb ) ) {
-				setEditing( null );
-				setSubmitted( null );
+				serverModal.current?.close();
 			}
 		},
 	} );
@@ -655,6 +669,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 					onSave={ saveServer }
 					answer={ answerFor( submitted ) }
 					busy={ verb === pendingVerb( submitted ) }
+					handleRef={ serverModal }
 					onClose={ () => {
 						setEditing( null );
 						setSubmitted( null );

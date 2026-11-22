@@ -9,30 +9,16 @@
  * unknown name, or an activate that would put two fleets on one log — is what
  * this exists to show.
  *
- * The shell is built here rather than reusing the shared `Modal`, which
- * hardcodes `role="dialog"`. A refusal is an `alertdialog`: the role for a
- * message the operator has to read before carrying on.
- *
- * Paint belongs to the canonical `.newspack-nodes-modal` role, and layout to
- * the shared shell's `.newspack-nodes-modal__backdrop`, which pads the box and
- * sets off the shared `ModalHeader` as it does every shared dialog, so this
- * one matches every other modal in the station and the `nodes-tm__alert*`
- * classes carry only its width and its body; its OK sits in the shared
- * actions row. It renders in place instead of portaling to `document.body`,
- * because that role is scoped under the station root's `.newspack-nodes-ui`
- * and draws its tokens from the `.newspack-nodes-theme` provider there; the
- * fixed backdrop covers the viewport from inside that tree. Repeating the
- * theme class here would declare a second provider.
+ * It is the shared `Modal` as an `alertdialog`, the role for a message the
+ * operator has to read before carrying on, headed by the compact
+ * `ModalHeader`. The `nodes-tm__alert*` classes carry only its width and its
+ * body; its OK sits in the shared actions row and closes through the shell's
+ * handle, so it plays the same exit as ESC and the close icon.
  */
 
-import { useEffect, useId, useRef } from '@wordpress/element';
+import { useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
-import { useFocusTrap } from '@newspack-nodes/shared/hooks/useFocusTrap';
-import {
-	ModalHeader,
-	ModalTitleId,
-} from '@newspack-nodes/shared/components/Modal';
+import Modal, { ModalHeader } from '@newspack-nodes/shared/components/Modal';
 
 /**
  * @param {Object}     props
@@ -40,45 +26,35 @@ import {
  *                                   Overview names the topology that
  *                                   refused.
  * @param {string}     props.message The refusal text the command returned.
- * @param {() => void} props.onClose Dismiss handler; runs on OK, the close icon,
- *                                   ESC, and backdrop click.
+ * @param {() => void} props.onClose Runs once OK, the close icon, ESC or a
+ *                                   backdrop click has played the exit.
  * @return {import('react').ReactElement} The modal.
  */
 export default function AlertModal( { title, message, onClose } ) {
 	const okRef = useRef( null );
-
-	const dialogRef = useRef( null );
-	const titleId = useId();
+	const handle = useRef( null );
 	// OK takes focus, so Enter dismisses without a tab stop.
 	useEffect( () => okRef.current?.focus(), [] );
-	// ESC + click-outside; the backdrop is the region outside the dialog.
-	useDismissable( dialogRef, onClose );
-	useFocusTrap( dialogRef );
 
 	return (
-		<div className="newspack-nodes-modal__backdrop" role="presentation">
-			<div
-				ref={ dialogRef }
-				className="nodes-tm__alert newspack-nodes-modal"
-				role="alertdialog"
-				aria-modal="true"
-				aria-labelledby={ titleId }
-			>
-				<ModalTitleId.Provider value={ titleId }>
-					<ModalHeader title={ title } onClose={ onClose } />
-				</ModalTitleId.Provider>
-				<div className="nodes-tm__alert-body">{ message }</div>
-				<div className="newspack-nodes-modal__actions">
-					<button
-						type="button"
-						ref={ okRef }
-						className="button"
-						onClick={ onClose }
-					>
-						{ __( 'OK', 'newspack-nodes' ) }
-					</button>
-				</div>
+		<Modal
+			role="alertdialog"
+			onClose={ onClose }
+			handleRef={ handle }
+			className="nodes-tm__alert"
+		>
+			<ModalHeader title={ title } onClose={ onClose } compact />
+			<div className="nodes-tm__alert-body">{ message }</div>
+			<div className="newspack-nodes-modal__actions">
+				<button
+					type="button"
+					ref={ okRef }
+					className="button"
+					onClick={ () => handle.current.close() }
+				>
+					{ __( 'OK', 'newspack-nodes' ) }
+				</button>
 			</div>
-		</div>
+		</Modal>
 	);
 }

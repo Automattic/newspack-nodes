@@ -5,6 +5,8 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
+import { createRef } from '@wordpress/element';
+import { MODAL_EXIT_MS } from '@newspack-nodes/shared/hooks/useModalExit';
 import {
 	ConfirmModal,
 	PromptModal,
@@ -12,6 +14,17 @@ import {
 	ModalField,
 	NewNodeModal,
 } from '../Modal';
+
+// Every close plays the shell's exit; `exit()` lets it finish.
+beforeEach( () => {
+	jest.useFakeTimers();
+} );
+
+afterEach( () => {
+	jest.useRealTimers();
+} );
+
+const exit = () => act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
 
 describe( 'ModalShell', () => {
 	// A failed assertion skips the rest of its test, so the stub panel a
@@ -130,7 +143,9 @@ describe( 'ModalShell', () => {
 		expect( close.querySelector( 'svg' ) ).not.toBeNull();
 		expect( close.getAttribute( 'aria-label' ) ).toBe( 'Close' );
 		fireEvent.click( close );
-		expect( onDismiss ).toHaveBeenCalled();
+		expect( onDismiss ).not.toHaveBeenCalled();
+		exit();
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'invokes onDismiss on ESC keydown', () => {
@@ -141,7 +156,8 @@ describe( 'ModalShell', () => {
 			</ModalShell>
 		);
 		fireEvent.keyDown( document, { key: 'Escape' } );
-		expect( onDismiss ).toHaveBeenCalled();
+		exit();
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'invokes onDismiss on backdrop click but not on inner dialog click', () => {
@@ -156,9 +172,11 @@ describe( 'ModalShell', () => {
 		);
 		const dialog = baseElement.querySelector( '.topology-modal' );
 		fireEvent.mouseDown( dialog );
+		exit();
 		expect( onDismiss ).not.toHaveBeenCalled();
 		fireEvent.mouseDown( backdrop );
-		expect( onDismiss ).toHaveBeenCalled();
+		exit();
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'portals the backdrop to <body> under the canonical non-graph provider', () => {
@@ -242,7 +260,10 @@ describe( 'ModalShell', () => {
 			maxW: '868px',
 			maxH: '588px',
 		} );
-		expect( dialog.style.transform ).toBe( 'translate(-50%, -50%)' );
+		// The `translate` property, which the shared `scale` animation leaves
+		// unscaled; a `transform` translate would shrink with the box.
+		expect( dialog.style.translate ).toBe( '-50% -50%' );
+		expect( dialog.style.transform ).toBe( '' );
 	} );
 
 	it( 'ignores an overlay panel the dialog does not render inside', () => {
@@ -389,6 +410,90 @@ describe( 'ModalShell', () => {
 			positioning( document.body.querySelector( '.topology-modal' ) )
 		).toEqual( VIEWPORT_CENTRED );
 	} );
+
+	it( "the console's header is compact", () => {
+		const { baseElement } = render(
+			<ModalShell title="Plover ledger 17" onDismiss={ () => {} } />
+		);
+
+		expect(
+			baseElement.querySelector(
+				'.topology-modal > .newspack-nodes-modal__header'
+			).className
+		).toBe(
+			'newspack-nodes-modal__header newspack-nodes-modal__header--compact'
+		);
+	} );
+
+	it( 'the console shell plays the exit before onDismiss', () => {
+		const onDismiss = jest.fn();
+		const { baseElement } = render(
+			<ModalShell title="Avocet 31" onDismiss={ onDismiss }>
+				<div />
+			</ModalShell>
+		);
+		const backdrop = baseElement.querySelector(
+			'.topology-modal-backdrop'
+		);
+		const panel = baseElement.querySelector( '.topology-modal' );
+		expect( backdrop.className ).toBe( 'topology-modal-backdrop' );
+		expect( panel.hasAttribute( 'inert' ) ).toBe( false );
+
+		fireEvent.keyDown( document, { key: 'Escape' } );
+
+		expect( backdrop.className ).toBe(
+			'topology-modal-backdrop is-closing'
+		);
+		expect( panel.getAttribute( 'inert' ) ).toBe( '' );
+		act( () => jest.advanceTimersByTime( MODAL_EXIT_MS - 1 ) );
+		expect( onDismiss ).not.toHaveBeenCalled();
+		act( () => jest.advanceTimersByTime( 1 ) );
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'a console dialog over another closes alone on Escape', () => {
+		const onOuter = jest.fn();
+		const onInner = jest.fn();
+		const { getByRole } = render(
+			<ModalShell title="Curlew outer" onDismiss={ onOuter }>
+				<ModalShell title="Dunlin inner" onDismiss={ onInner }>
+					<button type="button">dunlin-8</button>
+				</ModalShell>
+			</ModalShell>
+		);
+
+		fireEvent.mouseDown( getByRole( 'button', { name: 'dunlin-8' } ) );
+		exit();
+		expect( onOuter ).not.toHaveBeenCalled();
+		expect( onInner ).not.toHaveBeenCalled();
+
+		fireEvent.keyDown( document, { key: 'Escape' } );
+		exit();
+
+		expect( onInner ).toHaveBeenCalledTimes( 1 );
+		expect( onOuter ).not.toHaveBeenCalled();
+	} );
+
+	it( 'a caller closes the console shell through its handle', () => {
+		const onDismiss = jest.fn();
+		const handle = createRef();
+		const { baseElement } = render(
+			<ModalShell
+				title="Godwit 5"
+				onDismiss={ onDismiss }
+				handleRef={ handle }
+			/>
+		);
+
+		act( () => handle.current.close() );
+
+		expect(
+			baseElement.querySelector( '.topology-modal-backdrop' ).className
+		).toBe( 'topology-modal-backdrop is-closing' );
+		expect( onDismiss ).not.toHaveBeenCalled();
+		exit();
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+	} );
 } );
 
 describe( 'ConfirmModal', () => {
@@ -407,6 +512,49 @@ describe( 'ConfirmModal', () => {
 		expect( getByText( 'Cancel' ) ).not.toBeNull();
 	} );
 
+	it( 'answers its confirm once the exit has played, and not its cancel', () => {
+		const onConfirm = jest.fn();
+		const onCancel = jest.fn();
+		const { getByText, baseElement } = render(
+			<ConfirmModal
+				title="Sanderling?"
+				body=""
+				onConfirm={ onConfirm }
+				onCancel={ onCancel }
+			/>
+		);
+
+		fireEvent.click( getByText( 'Confirm' ) );
+
+		expect(
+			baseElement.querySelector( '.topology-modal-backdrop' ).className
+		).toBe( 'topology-modal-backdrop is-closing' );
+		expect( onConfirm ).not.toHaveBeenCalled();
+		exit();
+		expect( onConfirm ).toHaveBeenCalledTimes( 1 );
+		expect( onCancel ).not.toHaveBeenCalled();
+	} );
+
+	it( 'runs only the first close: Escape, then Confirm during the exit, cancels', () => {
+		const onConfirm = jest.fn();
+		const onCancel = jest.fn();
+		const { getByText } = render(
+			<ConfirmModal
+				title="Greenshank?"
+				body=""
+				onConfirm={ onConfirm }
+				onCancel={ onCancel }
+			/>
+		);
+
+		fireEvent.keyDown( document, { key: 'Escape' } );
+		fireEvent.click( getByText( 'Confirm' ) );
+		exit();
+
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
+		expect( onConfirm ).not.toHaveBeenCalled();
+	} );
+
 	it( 'invokes onConfirm when the primary button is clicked', () => {
 		const onConfirm = jest.fn();
 		const { getByText } = render(
@@ -418,7 +566,8 @@ describe( 'ConfirmModal', () => {
 			/>
 		);
 		fireEvent.click( getByText( 'Confirm' ) );
-		expect( onConfirm ).toHaveBeenCalled();
+		exit();
+		expect( onConfirm ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'invokes onCancel on ESC keydown', () => {
@@ -432,7 +581,8 @@ describe( 'ConfirmModal', () => {
 			/>
 		);
 		fireEvent.keyDown( document, { key: 'Escape' } );
-		expect( onCancel ).toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'invokes onCancel on backdrop click but not on inner dialog click', () => {
@@ -451,10 +601,12 @@ describe( 'ConfirmModal', () => {
 		const dialog = baseElement.querySelector( '.topology-modal' );
 		// Click on the inner dialog (target !== currentTarget) — no dismiss.
 		fireEvent.mouseDown( dialog );
+		exit();
 		expect( onCancel ).not.toHaveBeenCalled();
 		// Click on the backdrop itself.
 		fireEvent.mouseDown( backdrop );
-		expect( onCancel ).toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'tags the primary button as danger when prop set', () => {
@@ -503,6 +655,8 @@ describe( 'PromptModal', () => {
 			/>
 		);
 		fireEvent.submit( panelForm( baseElement ) );
+		expect( onConfirm ).not.toHaveBeenCalled();
+		exit();
 		expect( onConfirm ).toHaveBeenCalledWith( 'alpha' );
 	} );
 
@@ -559,6 +713,7 @@ describe( 'PromptModal', () => {
 		const input = baseElement.querySelector( 'input' );
 		fireEvent.change( input, { target: { value: 'beta' } } );
 		fireEvent.click( getByText( 'Save' ) );
+		exit();
 		expect( onConfirm ).toHaveBeenCalledWith( 'beta' );
 	} );
 
@@ -622,7 +777,8 @@ describe( 'PromptModal', () => {
 			/>
 		);
 		fireEvent.click( getByText( 'Cancel' ) );
-		expect( onCancel ).toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'removes ESC listener on unmount (no leak)', () => {
@@ -692,6 +848,7 @@ describe( 'NewNodeModal', () => {
 			{ target: { value: '8192' } }
 		);
 		fireEvent.click( getByText( 'Add' ) );
+		exit();
 		expect( onConfirm ).toHaveBeenCalledWith( {
 			name: 'mypart',
 			args: 'mytopic 8192',
@@ -712,6 +869,7 @@ describe( 'NewNodeModal', () => {
 		} );
 		// segment_size left blank → its 4096 default fills the slot.
 		fireEvent.click( getByText( 'Add' ) );
+		exit();
 		expect( onConfirm ).toHaveBeenCalledWith( {
 			name: 'p',
 			args: 'mytopic 4096',
@@ -731,6 +889,7 @@ describe( 'NewNodeModal', () => {
 			target: { value: 'egret' },
 		} );
 		fireEvent.submit( panelForm( baseElement ) );
+		exit();
 		expect( onConfirm ).toHaveBeenCalledWith( {
 			name: 'heron',
 			args: 'egret 4096',
@@ -770,6 +929,7 @@ describe( 'NewNodeModal', () => {
 		fireEvent.change( route, { target: { value: 'heron/p4' } } );
 		expect( fireEvent.keyDown( route, { key: 'Enter' } ) ).toBe( true );
 		fireEvent.submit( panelForm( baseElement ) );
+		exit();
 		expect( onConfirm ).toHaveBeenCalledWith( {
 			name: 'partition1',
 			args: 'heron/p4',
@@ -809,10 +969,12 @@ describe( 'NewNodeModal', () => {
 		fireEvent.change( route, { target: { value: 'heron p3' } } );
 		expect( getByText( 'Add' ).disabled ).toBe( true );
 		fireEvent.click( getByText( 'Add' ) );
+		exit();
 		expect( onConfirm ).not.toHaveBeenCalled();
 		fireEvent.change( route, { target: { value: 'heron/p4' } } );
 		expect( getByText( 'Add' ).disabled ).toBe( false );
 		fireEvent.click( getByText( 'Add' ) );
+		exit();
 		expect( onConfirm ).toHaveBeenCalledWith( {
 			name: 'partition1',
 			args: 'heron/p4 4096',
@@ -830,13 +992,30 @@ describe( 'NewNodeModal', () => {
 		expect( getByText( 'Add' ).disabled ).toBe( true );
 	} );
 
+	it( 'plays the exit on Cancel before it cancels', () => {
+		const onCancel = jest.fn();
+		const { getByText, baseElement } = render(
+			<NewNodeModal { ...baseProps } onCancel={ onCancel } />
+		);
+
+		fireEvent.click( getByText( 'Cancel' ) );
+
+		expect(
+			baseElement.querySelector( '.topology-modal-backdrop' ).className
+		).toBe( 'topology-modal-backdrop is-closing' );
+		expect( onCancel ).not.toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
+	} );
+
 	it( 'cancels on Cancel button click', () => {
 		const onCancel = jest.fn();
 		const { getByText } = render(
 			<NewNodeModal { ...baseProps } onCancel={ onCancel } />
 		);
 		fireEvent.click( getByText( 'Cancel' ) );
-		expect( onCancel ).toHaveBeenCalled();
+		exit();
+		expect( onCancel ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'focuses the name input on mount (user can rename immediately)', () => {

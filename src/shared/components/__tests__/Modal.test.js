@@ -3,9 +3,20 @@
  * in place of per-dashboard selectors.
  */
 
-import { render, screen, fireEvent } from '@testing-library/react';
-import { useEffect, useRef } from '@wordpress/element';
-import Modal, { Confirm, ModalHeader, BodyPortal } from '../Modal';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import { useEffect, useRef, useState } from '@wordpress/element';
+import Modal, {
+	Confirm,
+	ModalHeader,
+	ModalTitleId,
+	BodyPortal,
+} from '../Modal';
+import { MODAL_EXIT_MS } from '../../hooks/useModalExit';
+
+const backdropOf = ( dialog ) =>
+	dialog.closest( '.newspack-nodes-modal__backdrop' );
+
+afterEach( () => jest.useRealTimers() );
 
 test( 'it renders a labelled dialog carrying the canonical modal role', () => {
 	render(
@@ -22,9 +33,10 @@ test( 'it renders a labelled dialog carrying the canonical modal role', () => {
 } );
 
 test( 'its header holds the title and a labelled icon close as siblings', () => {
+	jest.useFakeTimers();
 	const onClose = jest.fn();
 	render(
-		<Modal ariaLabel="Quarry notes 62" onClose={ () => {} }>
+		<Modal ariaLabel="Quarry notes 62" onClose={ onClose }>
 			<ModalHeader title="Quarry notes 62" onClose={ onClose } />
 		</Modal>
 	);
@@ -44,6 +56,7 @@ test( 'its header holds the title and a labelled icon close as siblings', () => 
 	);
 
 	fireEvent.click( close );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
 	expect( onClose ).toHaveBeenCalledTimes( 1 );
 } );
 
@@ -114,6 +127,7 @@ test( 'its header hands the close button to the ref it is given', () => {
 } );
 
 test( 'escape closes it', () => {
+	jest.useFakeTimers();
 	const onClose = jest.fn();
 	render(
 		<Modal ariaLabel="x" onClose={ onClose }>
@@ -122,10 +136,12 @@ test( 'escape closes it', () => {
 	);
 
 	fireEvent.keyDown( document, { key: 'Escape' } );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
 	expect( onClose ).toHaveBeenCalledTimes( 1 );
 } );
 
 test( 'a backdrop mousedown closes it but a click inside does not', () => {
+	jest.useFakeTimers();
 	const onClose = jest.fn();
 	render(
 		<Modal ariaLabel="x" onClose={ onClose }>
@@ -134,11 +150,13 @@ test( 'a backdrop mousedown closes it but a click inside does not', () => {
 	);
 
 	fireEvent.mouseDown( screen.getByText( 'body' ) );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
 	expect( onClose ).not.toHaveBeenCalled();
 
 	fireEvent.mouseDown(
 		document.body.querySelector( '.newspack-nodes-modal__backdrop' )
 	);
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
 	expect( onClose ).toHaveBeenCalledTimes( 1 );
 } );
 
@@ -342,7 +360,9 @@ test( 'with onSubmit the dialog box is a noValidate form whose submit acts', () 
 	const dialog = screen.getByRole( 'dialog' );
 	expect( dialog.tagName ).toBe( 'FORM' );
 	expect( dialog.noValidate ).toBe( true );
-	expect( dialog.className ).toBe( 'newspack-nodes-modal' );
+	expect( dialog.className ).toBe(
+		'newspack-nodes-modal newspack-nodes-modal--medium'
+	);
 	// The return is false when the handler prevented the default.
 	expect( fireEvent.submit( dialog ) ).toBe( false );
 	expect( onSubmit ).toHaveBeenCalledTimes( 1 );
@@ -389,9 +409,7 @@ test( 'a header title takes focus when a dialog hands it focus, outside the tab 
 	expect( title.ownerDocument.activeElement ).toBe( title );
 } );
 
-test( 'Confirm asks its question with the safe answer focused, and answers each way', () => {
-	const onYes = jest.fn();
-	const onNo = jest.fn();
+const renderConfirm = ( onYes, onNo ) =>
 	render(
 		<Confirm
 			title="Discard the Pier 9 board?"
@@ -403,6 +421,9 @@ test( 'Confirm asks its question with the safe answer focused, and answers each 
 		/>
 	);
 
+test( 'Confirm asks its question with the safe answer focused', () => {
+	renderConfirm( jest.fn(), jest.fn() );
+
 	const dialog = screen.getByRole( 'dialog', {
 		name: 'Discard the Pier 9 board?',
 	} );
@@ -411,9 +432,323 @@ test( 'Confirm asks its question with the safe answer focused, and answers each 
 	expect( keep.ownerDocument.activeElement ).toBe( keep );
 	const discard = screen.getByRole( 'button', { name: 'Discard board' } );
 	expect( discard.className ).toContain( 'is-danger' );
+} );
 
-	fireEvent.click( keep );
+test.each( [
+	[ 'Discard board', 'yes' ],
+	[ 'Keep the board', 'no' ],
+] )( 'Confirm plays the exit on %s, then answers %s alone', ( name, which ) => {
+	jest.useFakeTimers();
+	const answers = { yes: jest.fn(), no: jest.fn() };
+	renderConfirm( answers.yes, answers.no );
+	const dialog = screen.getByRole( 'dialog' );
+
+	fireEvent.click( screen.getByRole( 'button', { name } ) );
+	expect( backdropOf( dialog ).className ).toContain( 'is-closing' );
+	expect( answers[ which ] ).not.toHaveBeenCalled();
+
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+	expect( answers[ which ] ).toHaveBeenCalledTimes( 1 );
+	expect( answers[ 'yes' === which ? 'no' : 'yes' ] ).not.toHaveBeenCalled();
+} );
+
+test( 'Confirm keeps its first answer when a second button is pressed during the exit', () => {
+	jest.useFakeTimers();
+	const onYes = jest.fn();
+	const onNo = jest.fn();
+	renderConfirm( onYes, onNo );
+
+	fireEvent.click( screen.getByRole( 'button', { name: 'Keep the board' } ) );
+	fireEvent.click( screen.getByRole( 'button', { name: 'Discard board' } ) );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
 	expect( onNo ).toHaveBeenCalledTimes( 1 );
-	fireEvent.click( discard );
-	expect( onYes ).toHaveBeenCalledTimes( 1 );
+	expect( onYes ).not.toHaveBeenCalled();
+} );
+
+test( 'Confirm runs only the first close: Escape, then a yes during the exit, answers no', () => {
+	jest.useFakeTimers();
+	const onYes = jest.fn();
+	const onNo = jest.fn();
+	renderConfirm( onYes, onNo );
+
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	fireEvent.click( screen.getByRole( 'button', { name: 'Discard board' } ) );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( onNo ).toHaveBeenCalledTimes( 1 );
+	expect( onYes ).not.toHaveBeenCalled();
+} );
+
+test( 'Confirm answers no on Escape, after the exit', () => {
+	jest.useFakeTimers();
+	const onYes = jest.fn();
+	const onNo = jest.fn();
+	renderConfirm( onYes, onNo );
+
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	expect( onNo ).not.toHaveBeenCalled();
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( onNo ).toHaveBeenCalledTimes( 1 );
+	expect( onYes ).not.toHaveBeenCalled();
+} );
+
+test( 'size puts its modifier on the box, medium by default', () => {
+	render(
+		<>
+			<Modal ariaLabel="plain-204" onClose={ () => {} }>
+				b
+			</Modal>
+			<Modal ariaLabel="wide-204" onClose={ () => {} } size="large">
+				b
+			</Modal>
+		</>
+	);
+
+	expect(
+		screen.getByRole( 'dialog', { name: 'plain-204' } ).className
+	).toBe( 'newspack-nodes-modal newspack-nodes-modal--medium' );
+	expect( screen.getByRole( 'dialog', { name: 'wide-204' } ).className ).toBe(
+		'newspack-nodes-modal newspack-nodes-modal--large'
+	);
+} );
+
+test( 'role alertdialog reaches the box', () => {
+	render(
+		<Modal ariaLabel="refusal-318" onClose={ () => {} } role="alertdialog">
+			b
+		</Modal>
+	);
+
+	const box = screen.getByRole( 'alertdialog', { name: 'refusal-318' } );
+	expect( box.className ).toContain( 'newspack-nodes-modal' );
+	expect( box.getAttribute( 'aria-modal' ) ).toBe( 'true' );
+	expect( screen.queryByRole( 'dialog' ) ).toBeNull();
+} );
+
+test( 'without onClose, Escape and an outside mousedown do nothing and the header draws no close', () => {
+	jest.useFakeTimers();
+	const errors = [];
+	const onError = ( e ) => errors.push( e.error ?? e.message );
+	window.addEventListener( 'error', onError );
+	try {
+		render(
+			<Modal>
+				<ModalHeader title="Crop the heron 427" />
+				<p>body</p>
+			</Modal>
+		);
+		const dialog = screen.getByRole( 'dialog', {
+			name: 'Crop the heron 427',
+		} );
+
+		fireEvent.keyDown( document, { key: 'Escape' } );
+		fireEvent.mouseDown( backdropOf( dialog ) );
+		act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+		expect( errors ).toEqual( [] );
+		expect( backdropOf( dialog ).className ).not.toContain( 'is-closing' );
+		expect( screen.queryByRole( 'button' ) ).toBeNull();
+	} finally {
+		window.removeEventListener( 'error', onError );
+	}
+} );
+
+test( 'the header close plays the exit before onClose', () => {
+	jest.useFakeTimers();
+	const onClose = jest.fn();
+	render(
+		<Modal onClose={ onClose }>
+			<ModalHeader title="Egret spoke 509" onClose={ onClose } />
+		</Modal>
+	);
+	const dialog = screen.getByRole( 'dialog', { name: 'Egret spoke 509' } );
+
+	fireEvent.click( screen.getByRole( 'button', { name: 'Close' } ) );
+	expect( backdropOf( dialog ).className ).toContain( 'is-closing' );
+	expect( onClose ).not.toHaveBeenCalled();
+
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS - 1 ) );
+	expect( onClose ).not.toHaveBeenCalled();
+	act( () => jest.advanceTimersByTime( 1 ) );
+	expect( onClose ).toHaveBeenCalledTimes( 1 );
+} );
+
+test( 'an exiting box is inert, and an open one is not', () => {
+	jest.useFakeTimers();
+	render(
+		<Modal ariaLabel="inert-918" onClose={ () => {} }>
+			<button type="button">inside 918</button>
+		</Modal>
+	);
+	const box = screen.getByRole( 'dialog', { name: 'inert-918' } );
+	expect( box.hasAttribute( 'inert' ) ).toBe( false );
+
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	expect( box.getAttribute( 'inert' ) ).toBe( '' );
+} );
+
+test( 'handleRef close plays the same exit', () => {
+	jest.useFakeTimers();
+	const onClose = jest.fn();
+	const handle = { current: null };
+	render(
+		<Modal ariaLabel="handle-612" onClose={ onClose } handleRef={ handle }>
+			b
+		</Modal>
+	);
+	const dialog = screen.getByRole( 'dialog', { name: 'handle-612' } );
+
+	act( () => handle.current.close() );
+	expect( backdropOf( dialog ).className ).toContain( 'is-closing' );
+	expect( onClose ).not.toHaveBeenCalled();
+
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+	expect( onClose ).toHaveBeenCalledTimes( 1 );
+} );
+
+/**
+ * An outer dialog holding an inner one as a React child, as ObjectForm holds
+ * its Select Object picker; the inner's close clears the flag that opens it.
+ *
+ * @param {Object}     props
+ * @param {boolean}    props.initiallyOpen Whether the inner opens with the outer.
+ * @param {() => void} props.onOuterClose  The outer's onClose.
+ */
+function Nested( { initiallyOpen, onOuterClose } ) {
+	const [ open, setOpen ] = useState( initiallyOpen );
+	return (
+		<Modal ariaLabel="outer-733" onClose={ onOuterClose }>
+			<button type="button" onClick={ () => setOpen( true ) }>
+				open inner 733
+			</button>
+			{ open && (
+				<Modal ariaLabel="inner-733" onClose={ () => setOpen( false ) }>
+					<p>inner body</p>
+				</Modal>
+			) }
+		</Modal>
+	);
+}
+
+test( 'a nested dialog: Escape closes only the inner, and a mousedown inside the inner leaves the outer open', () => {
+	jest.useFakeTimers();
+	const outer = jest.fn();
+	render( <Nested initiallyOpen={ false } onOuterClose={ outer } /> );
+	fireEvent.click( screen.getByText( 'open inner 733' ) );
+
+	fireEvent.mouseDown( screen.getByText( 'inner body' ) );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+	expect( screen.getByRole( 'dialog', { name: 'inner-733' } ) ).toBeTruthy();
+	expect( outer ).not.toHaveBeenCalled();
+
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+	expect( screen.queryByRole( 'dialog', { name: 'inner-733' } ) ).toBeNull();
+	expect( outer ).not.toHaveBeenCalled();
+
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+	expect( outer ).toHaveBeenCalledTimes( 1 );
+} );
+
+test( 'a dialog mounted open inside another in one render is the top: Escape closes only it', () => {
+	jest.useFakeTimers();
+	const outer = jest.fn();
+	render( <Nested initiallyOpen onOuterClose={ outer } /> );
+
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+	expect( screen.queryByRole( 'dialog', { name: 'inner-733' } ) ).toBeNull();
+	expect( outer ).not.toHaveBeenCalled();
+} );
+
+test( 'actions render between the title and the close', () => {
+	render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader
+				title="Window 845"
+				onClose={ () => {} }
+				actions={ <button type="button">Back 845</button> }
+			/>
+		</Modal>
+	);
+
+	const header = document.querySelector( '.newspack-nodes-modal__header' );
+	const [ title, actions, close ] = Array.from( header.children );
+	expect( title.textContent ).toBe( 'Window 845' );
+	expect( actions.tagName ).toBe( 'DIV' );
+	expect( actions.className ).toBe( 'newspack-nodes-modal__header-actions' );
+	expect( actions.textContent ).toBe( 'Back 845' );
+	expect( close.className ).toBe( 'newspack-nodes-modal__close' );
+} );
+
+test( 'compact puts its modifier on the header', () => {
+	render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader title="Picker 958" onClose={ () => {} } compact />
+		</Modal>
+	);
+
+	expect(
+		document.querySelector( '.newspack-nodes-modal__header' ).className
+	).toBe(
+		'newspack-nodes-modal__header newspack-nodes-modal__header--compact'
+	);
+} );
+
+test( "Confirm's header is compact", () => {
+	render(
+		<Confirm
+			title="Drop the egret spoke?"
+			yes="Drop"
+			no="Keep"
+			onYes={ () => {} }
+			onNo={ () => {} }
+		/>
+	);
+
+	expect(
+		document
+			.querySelector( '.newspack-nodes-modal__header' )
+			.classList.contains( 'newspack-nodes-modal__header--compact' )
+	).toBe( true );
+} );
+
+test( 'a header in a shell without ModalClose runs its own onClose at once', () => {
+	const onClose = jest.fn();
+	render(
+		<ModalTitleId.Provider value="shell-title-1061">
+			<ModalHeader title="Console 1061" onClose={ onClose } />
+		</ModalTitleId.Provider>
+	);
+
+	fireEvent.click( screen.getByRole( 'button', { name: 'Close' } ) );
+	expect( onClose ).toHaveBeenCalledTimes( 1 );
+} );
+
+test( 'a Modal without onClose draws no close button, whatever its header is handed', () => {
+	render(
+		<Modal ariaLabel="Lapwing ledger">
+			<ModalHeader title="Lapwing ledger" onClose={ () => {} } />
+		</Modal>
+	);
+
+	expect( screen.queryByRole( 'button', { name: 'Close' } ) ).toBeNull();
+} );
+
+test( 'a dismissible Modal draws its header close without a header onClose', () => {
+	jest.useFakeTimers();
+	const onClose = jest.fn();
+	render(
+		<Modal onClose={ onClose }>
+			<ModalHeader title="Avocet ledger" />
+		</Modal>
+	);
+
+	fireEvent.click( screen.getByRole( 'button', { name: 'Close' } ) );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( onClose ).toHaveBeenCalledTimes( 1 );
 } );

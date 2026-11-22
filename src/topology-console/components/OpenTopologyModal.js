@@ -2,7 +2,8 @@
  * OpenTopologyModal — pick a saved topology to load into the edit-mode draft.
  * Entries group by source in a fixed order — user, both, stock — with an
  * `active` badge. Picking reports the name and nothing else: the console owns
- * the switch to edit mode and the confirm a dirty draft needs.
+ * the switch to edit mode and the confirm a dirty draft needs. A pick or a
+ * cancel runs once the exit has played, the first one given alone.
  */
 
 import { useEffect, useRef } from '@wordpress/element';
@@ -28,9 +29,11 @@ import { ModalShell } from './Modal';
  *                                                  above whatever the last good tick
  *                                                  listed rather than replacing it.
  * @param {(name: string) => void} props.onPick     Receives the chosen topology name,
- *                                                  on the item's mousedown rather than
- *                                                  its click.
- * @param {() => void}             props.onCancel   Dismiss without choosing.
+ *                                                  picked on the item's mousedown rather
+ *                                                  than its click, once the exit has
+ *                                                  played.
+ * @param {() => void}             props.onCancel   Dismiss without choosing, once the exit
+ *                                                  has played.
  * @return {import('react').ReactElement} The modal.
  */
 export default function OpenTopologyModal( {
@@ -41,6 +44,7 @@ export default function OpenTopologyModal( {
 	onCancel,
 } ) {
 	const cancelRef = useRef( null );
+	const handleRef = useRef( null );
 	useEffect( () => {
 		cancelRef.current?.focus();
 	}, [] );
@@ -54,6 +58,7 @@ export default function OpenTopologyModal( {
 		<ModalShell
 			title={ __( 'Open topology', 'newspack-nodes' ) }
 			onDismiss={ onCancel }
+			handleRef={ handleRef }
 			className="topology-modal--wide"
 		>
 			<div className="topology-modal__body">
@@ -86,7 +91,9 @@ export default function OpenTopologyModal( {
 											type="button"
 											className="button topology-open-item"
 											onMouseDown={ () =>
-												onPick( t.name )
+												handleRef.current.closeWith(
+													() => onPick( t.name )
+												)
 											}
 										>
 											<span className="topology-open-item__name">
@@ -113,7 +120,7 @@ export default function OpenTopologyModal( {
 					ref={ cancelRef }
 					type="button"
 					className="button"
-					onClick={ onCancel }
+					onClick={ () => handleRef.current.close() }
 				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>

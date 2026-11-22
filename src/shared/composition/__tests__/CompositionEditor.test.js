@@ -33,6 +33,7 @@ import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { installViewport } from '@newspack-nodes/shared/test-utils/viewportWidth';
 import { fakeWordPress } from '@newspack-nodes/shared/test-utils/fakeWordPress';
+import { answerConfirm } from '@newspack-nodes/shared/test-utils/answerConfirm';
 import CompositionEditor, {
 	EDITOR_MIN_PX,
 	serializeLayout,
@@ -508,12 +509,12 @@ describe( 'CompositionEditor', () => {
 		expect( dialog.textContent ).toContain(
 			'Discard your changes to this layout?'
 		);
-		fireEvent.click( button( 'Keep editing' ) );
+		answerConfirm( button( 'Keep editing' ) );
 		expect( screen.queryByRole( 'dialog' ) ).toBeNull();
 		expect( onDone ).not.toHaveBeenCalled();
 
 		fireEvent.click( button( 'Cancel' ) );
-		fireEvent.click( button( 'Discard changes' ) );
+		answerConfirm( button( 'Discard changes' ) );
 		expect( onDone ).toHaveBeenCalledWith( SAVED, null );
 		expect( sent( 'save' ) ).toEqual( [] );
 		expect( sent( 'restore' ) ).toEqual( [] );
@@ -574,7 +575,7 @@ describe( 'CompositionEditor', () => {
 		);
 		expect( sent( 'restore' ) ).toEqual( [] );
 
-		fireEvent.click(
+		answerConfirm(
 			within( dialog ).getByRole( 'button', { name: 'Restore default' } )
 		);
 		await waitFor(
@@ -672,7 +673,7 @@ describe( 'CompositionEditor', () => {
 		expect( mockProvider.props ).toBeNull();
 		expect( button( 'Save layout' ).disabled ).toBe( true );
 		fireEvent.click( button( 'Restore default' ) );
-		fireEvent.click(
+		answerConfirm(
 			within( screen.getByRole( 'dialog' ) ).getByRole( 'button', {
 				name: 'Restore default',
 			} )
@@ -732,7 +733,7 @@ describe( 'CompositionEditor', () => {
 			'Discard your changes to this layout?'
 		);
 		expect( onDone ).not.toHaveBeenCalled();
-		fireEvent.click( button( 'Discard changes' ) );
+		answerConfirm( button( 'Discard changes' ) );
 		expect( onDone ).toHaveBeenCalledWith( SAVED, null );
 	} );
 
@@ -804,12 +805,12 @@ describe( 'CompositionEditor', () => {
 			expect( screen.getByRole( 'dialog' ).textContent ).toContain(
 				'Discard your changes to this layout?'
 			);
-			fireEvent.click( button( 'Keep editing' ) );
+			answerConfirm( button( 'Keep editing' ) );
 			expect( screen.queryByRole( 'dialog' ) ).toBeNull();
 			expect( mockProvider.props.value ).toBe( edited );
 
 			choose( 'tui-7720' );
-			fireEvent.click( button( 'Discard changes' ) );
+			answerConfirm( button( 'Discard changes' ) );
 			expect( mockProvider.props.value.map( shape ) ).toEqual( [
 				{
 					name: 'acme-desk/tally',

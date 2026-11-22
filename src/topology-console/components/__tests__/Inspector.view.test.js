@@ -2,7 +2,12 @@
  * Inspector view-mode rendering (edit-mode paths live in a separate file).
  */
 
-import { fireEvent, renderHook } from '@testing-library/react';
+import { act, fireEvent, renderHook } from '@testing-library/react';
+import {
+	answerConfirm,
+	throughExit,
+} from '@newspack-nodes/shared/test-utils/answerConfirm';
+import { MODAL_EXIT_MS } from '@newspack-nodes/shared/hooks/useModalExit';
 import Inspector from '../Inspector';
 import { formatActivityWindow } from '../ProcessStats';
 import { Core } from '../../../runtime/core';
@@ -594,7 +599,7 @@ describe( 'Inspector (view mode)', () => {
 			}
 		);
 		fireEvent.click( getByText( 'Runtime' ) );
-		fireEvent.click(
+		answerConfirm(
 			document.body.querySelector( '.newspack-nodes-modal__close' )
 		);
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
@@ -709,7 +714,7 @@ describe( 'Inspector (view mode)', () => {
 		openCompose( { onCompose, onAction } );
 		chooseType( TM_INFO );
 		typeIn( 'value', 'heads up' );
-		fireEvent.click( sendButton() );
+		answerConfirm( sendButton() );
 		expect( onCompose ).toHaveBeenCalledWith(
 			sentForm( { type: TM_INFO, value: 'heads up' } )
 		);
@@ -717,6 +722,30 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			document.body.querySelector( '.topology-modal__body' )
 		).toBeNull();
+	} );
+
+	it( 'no-node Compose sends at once, then plays the exit before it closes', () => {
+		const onCompose = jest.fn( () => null );
+		openCompose( { onCompose } );
+		chooseType( TM_INFO );
+		typeIn( 'value', 'sandpiper 12' );
+		jest.useFakeTimers();
+		try {
+			fireEvent.click( sendButton() );
+			expect( onCompose ).toHaveBeenCalledWith(
+				sentForm( { type: TM_INFO, value: 'sandpiper 12' } )
+			);
+			expect(
+				document.body.querySelector( '.topology-modal-backdrop' )
+					.className
+			).toBe( 'topology-modal-backdrop is-closing' );
+			act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+			expect(
+				document.body.querySelector( '.topology-modal__body' )
+			).toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 'no-node Compose sends when its form submits; its Value keeps Enter', () => {
@@ -745,7 +774,7 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			document.body.querySelector( '.topology-modal__body' )
 		).not.toBeNull();
-		fireEvent.click(
+		answerConfirm(
 			document.body.querySelector(
 				'.topology-modal__actions .button:not(.button-primary)'
 			)
@@ -873,7 +902,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( alert.textContent ).toMatch( /Value is not JSON/ );
 		// A fixed Value sends and closes.
 		typeIn( 'value', '{"depth":3}' );
-		fireEvent.click( sendButton() );
+		answerConfirm( sendButton() );
 		expect( sent ).toHaveLength( 1 );
 		expect( sent[ 0 ][ VALUE ] ).toEqual( { depth: 3 } );
 		expect(
@@ -963,7 +992,7 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
 		fireEvent.click( getByLabelText( 'TM_NOREPLY' ) );
 		typeIn( 'name', 'ls' );
-		fireEvent.click( sendButton() );
+		answerConfirm( sendButton() );
 		// Re-open: a fresh ComposeModal mount resets every checkbox.
 		fireEvent.click( getByText( 'Compose' ) );
 		typeIn( 'name', 'again' );
@@ -1028,7 +1057,7 @@ describe( 'Inspector (view mode)', () => {
 		const input = document.body.querySelector( '.topology-modal__input' );
 		expect( input ).not.toBeNull();
 		fireEvent.change( input, { target: { value: 'ping' } } );
-		fireEvent.click(
+		answerConfirm(
 			getByDisplayValue( 'ping' )
 				.closest( '.topology-modal' )
 				.querySelector( '.button-primary' )
@@ -1660,7 +1689,7 @@ describe( 'Inspector (view mode)', () => {
 		const input = document.body.querySelector( '.topology-modal__input' );
 		expect( input ).not.toBeNull();
 		fireEvent.change( input, { target: { value: 'get foo' } } );
-		fireEvent.click(
+		answerConfirm(
 			getByDisplayValue( 'get foo' )
 				.closest( '.topology-modal' )
 				.querySelector( '.button-primary' )
@@ -1678,7 +1707,7 @@ describe( 'Inspector (view mode)', () => {
 		const input = document.body.querySelector( '.topology-modal__input' );
 		expect( input ).not.toBeNull();
 		fireEvent.change( input, { target: { value: 'hello' } } );
-		fireEvent.click(
+		answerConfirm(
 			getByDisplayValue( 'hello' )
 				.closest( '.topology-modal' )
 				.querySelector( '.button-primary' )
@@ -1695,7 +1724,7 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			document.body.querySelector( '.topology-modal' )
 		).not.toBeNull();
-		fireEvent.click( getByText( 'Cancel' ) );
+		answerConfirm( getByText( 'Cancel' ) );
 		expect( onAction ).not.toHaveBeenCalled();
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 	} );
@@ -1707,7 +1736,7 @@ describe( 'Inspector (view mode)', () => {
 		const input = document.body.querySelector( '.topology-modal__input' );
 		expect( input ).not.toBeNull();
 		fireEvent.change( input, { target: { value: 'heads up' } } );
-		fireEvent.click(
+		answerConfirm(
 			getByDisplayValue( 'heads up' )
 				.closest( '.topology-modal' )
 				.querySelector( '.button-primary' )
@@ -1722,7 +1751,7 @@ describe( 'Inspector (view mode)', () => {
 		const input = document.body.querySelector( '.topology-modal__input' );
 		expect( input ).not.toBeNull();
 		fireEvent.change( input, { target: { value: '{"k":1}' } } );
-		fireEvent.click(
+		answerConfirm(
 			getByDisplayValue( '{"k":1}' )
 				.closest( '.topology-modal' )
 				.querySelector( '.button-primary' )
@@ -1746,7 +1775,7 @@ describe( 'Inspector (view mode)', () => {
 			'.topology-modal__body select'
 		);
 		expect( selects ).toHaveLength( 2 );
-		fireEvent.click(
+		answerConfirm(
 			document.body.querySelector(
 				'.topology-modal__actions .button-primary'
 			)
@@ -1756,6 +1785,39 @@ describe( 'Inspector (view mode)', () => {
 			'echo',
 			'tee_a FIRE'
 		);
+	} );
+
+	it( 'Register plays the exit before it registers', () => {
+		const onAction = jest.fn();
+		const { getByText } = renderNode( {
+			onAction,
+			catalog: [ { shell_name: 'Echo', registrations: [ 'FIRE' ] } ],
+		} );
+		fireEvent.click( getByText( 'Register' ) );
+		jest.useFakeTimers();
+		try {
+			fireEvent.click(
+				document.body.querySelector(
+					'.topology-modal__actions .button-primary'
+				)
+			);
+			expect(
+				document.body.querySelector( '.topology-modal-backdrop' )
+					.className
+			).toBe( 'topology-modal-backdrop is-closing' );
+			expect( onAction ).not.toHaveBeenCalled();
+			act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+			expect( onAction ).toHaveBeenCalledWith(
+				'register',
+				'echo',
+				'tee_a FIRE'
+			);
+			expect(
+				document.body.querySelector( '.topology-modal__body' )
+			).toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 'Register modal Cancel button closes it without dispatching', () => {
@@ -1768,7 +1830,7 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			document.body.querySelector( '.topology-modal__body' )
 		).not.toBeNull();
-		fireEvent.click(
+		answerConfirm(
 			document.body.querySelector(
 				'.topology-modal__actions .button:not(.button-primary)'
 			)
@@ -2074,7 +2136,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Run' ).disabled ).toBe( true );
 		fireEvent.change( input, { target: { value: 'egret/p7' } } );
 		expect( fireEvent.keyDown( input, { key: 'Enter' } ) ).toBe( true );
-		fireEvent.submit( form );
+		throughExit( () => fireEvent.submit( form ) );
 		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
 			verb: 'set_target',
 			kind: 'command',
@@ -2148,7 +2210,7 @@ describe( 'Inspector (view mode)', () => {
 		// Cancel path: open, then dismiss without firing.
 		fireEvent.click( getByText( 'with_index' ) );
 		expect( queryByText( 'Run' ) ).not.toBeNull();
-		fireEvent.click( getByText( 'Cancel' ) );
+		answerConfirm( getByText( 'Cancel' ) );
 		expect( onAction ).not.toHaveBeenCalled();
 		expect( queryByText( 'Run' ) ).toBeNull();
 
@@ -2162,6 +2224,43 @@ describe( 'Inspector (view mode)', () => {
 			kind: 'command',
 			args: [ '--formatter=json' ],
 		} );
+	} );
+
+	it( 'the command modal runs at once, then plays the exit before it closes', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'with_turnstone',
+						args: [ { name: 'flock', type: 'string' } ],
+					},
+				],
+			},
+		];
+		const { getByText, queryByText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'with_turnstone' ) );
+		jest.useFakeTimers();
+		try {
+			fireEvent.click( getByText( 'Run' ) );
+			expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+				verb: 'with_turnstone',
+				kind: 'command',
+				args: [],
+			} );
+			expect(
+				document.body.querySelector( '.topology-modal-backdrop' )
+					.className
+			).toBe( 'topology-modal-backdrop is-closing' );
+			act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+			expect( queryByText( 'Run' ) ).toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 'runs a command with optional blank args as an empty invocation payload', () => {
@@ -2883,7 +2982,7 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			document.body.querySelector( '[data-testid="triage-view"]' )
 		).toBeTruthy();
-		fireEvent.keyDown( document, { key: 'Escape' } );
+		throughExit( () => fireEvent.keyDown( document, { key: 'Escape' } ) );
 		expect(
 			document.body.querySelector( '[data-testid="triage-view"]' )
 		).toBeNull();

@@ -5,33 +5,36 @@
  * stock dialogs built on them — a confirmation, a single-line prompt, and the
  * new-node form a palette drop opens.
  *
- * Every dialog closes three ways: its close button, ESC, and a mousedown outside
- * the panel. Each focuses on mount where the answer begins — the confirm
- * button for a yes/no, the text input with its initial value selected for the
- * two that take typing — so a dialog can be answered without the mouse. The
- * two that take typing are forms, so Enter in a field submits them.
+ * Every dialog closes four ways: its close button, ESC, a mousedown outside
+ * the panel, and its own buttons through the shell's handle. Each plays the
+ * shared exit before the dialog's close runs, the first close alone, and only
+ * the topmost open dialog answers ESC and the mousedown. Each focuses on mount
+ * where the answer begins — the confirm button for a yes/no, the text input
+ * with its initial value selected for the two that take typing — so a dialog
+ * can be answered without the mouse. The two that take typing are forms, so
+ * Enter in a field submits them.
  */
 
 import {
 	cloneElement,
 	useEffect,
-	useId,
 	useLayoutEffect,
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
-import { useFocusTrap } from '@newspack-nodes/shared/hooks/useFocusTrap';
+import { useDialog } from '@newspack-nodes/shared/hooks/useDialog';
 import {
+	ModalBox,
 	ModalHeader,
 	BodyPortal,
-	ModalTitleId,
+	classes,
 } from '@newspack-nodes/shared/components/Modal';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField, useFieldRefusals } from './CtorField';
 import { serializeCtorArgs } from '../utils/tslArgs';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
-import { submitProps } from '@newspack-nodes/shared/utils/submitProps';
+
+/** @typedef {import('@newspack-nodes/shared/hooks/useDialog').DialogHandle} DialogHandle */
 
 // Breathing room between a panel-anchored dialog's edge and the panel's own.
 const PANEL_GUTTER = 16;
@@ -44,9 +47,9 @@ const PANEL_GUTTER = 16;
  */
 export const MODAL_MIN_W = 360;
 
-// @longform The header: the shared sheet's 32px title line and close,
-// graph-view.scss's 8px padding each side and a 1px rule. styleOwnership.test
-// derives it from those stylesheets and fails when either moves.
+// @longform The compact header: its 32px title line and close, its 8px
+// padding each side and a 1px rule. styleOwnership.test derives it from the
+// shared sheet and fails when that moves.
 const MODAL_HEADER_H = 49;
 
 // The actions row: a 30px button, 10px padding each side and a 1px border.
@@ -87,7 +90,16 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  *
  * The dialog panel carries two class families: `topology-modal*` for the
  * console's geometry, `newspack-nodes-modal*` for the canonical shared paint.
- * Its header is the shared `ModalHeader`, laid out by the shared sheet.
+ * Its header is the shared `ModalHeader` in its compact style.
+ *
+ * It joins the shared dialog stack through `useDialog`, so only the topmost
+ * open dialog answers ESC, an outside mousedown and Tab, and a dialog opened
+ * from another closes alone, and draws the shared `ModalBox`. Every close
+ * plays the shared exit: the backdrop wears `is-closing`, the panel is
+ * `inert`, and `onDismiss` runs once the animation has had its time. A caller
+ * closes the same way through `handleRef.current.close()`, or through
+ * `closeWith( run )` to run `run` in place of `onDismiss`; only the first
+ * close counts.
  *
  * Given `onSubmit`, the panel itself is the dialog's `<form>` (see
  * `submitProps`); a wrapper inside it would break the panel's flex column and
@@ -96,8 +108,9 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  *
  * @param {Object}                    props
  * @param {string}                    props.title       Dialog title, also its accessible name.
- * @param {() => void}                props.onDismiss   Runs on ESC, a mousedown outside the panel, and the close button.
+ * @param {() => void}                props.onDismiss   Runs once a close (ESC, a mousedown outside the panel, the close button, the handle) has played the exit.
  * @param {() => void}                [props.onSubmit]  The default action; makes the panel a form.
+ * @param {{current: ?DialogHandle}}  [props.handleRef] Takes `{ close, closeWith }`, the animated close.
  * @param {boolean}                   [props.wide]      Add the large-panel modifier class.
  * @param {string}                    [props.className] Extra classes on the panel.
  * @param {import('react').ReactNode} props.children    Body and action rows.
@@ -107,18 +120,17 @@ export function ModalShell( {
 	title,
 	onDismiss,
 	onSubmit,
+	handleRef,
 	wide = false,
 	className = '',
 	children,
 } ) {
 	const ref = useRef( null );
-	const titleId = useId();
 	// Sentinel at the render site: a dialog's panel is the one it is nested in.
 	const anchorRef = useRef( null );
 	const [ panelRect, setPanelRect ] = useState( null );
 	// The backdrop needs no handler: a mousedown on it is outside the panel.
-	useDismissable( ref, onDismiss );
-	useFocusTrap( ref );
+	const { closing, close } = useDialog( ref, onDismiss, { handleRef } );
 
 	useLayoutEffect( () => {
 		const panel = anchorRef.current?.closest( '.nodes-debug__panel' );
@@ -176,7 +188,7 @@ export function ModalShell( {
 				position: 'absolute',
 				left: panelRect.left + panelRect.width / 2,
 				top: panelRect.top + panelRect.height / 2,
-				transform: 'translate(-50%, -50%)',
+				translate: '-50% -50%',
 				'--nodes-modal-max-w': `${ Math.max(
 					0,
 					panelRect.width - 2 * PANEL_GUTTER
@@ -187,26 +199,35 @@ export function ModalShell( {
 				) }px`,
 		  } )
 		: undefined;
-	const Panel = onSubmit ? 'form' : 'div';
 	const portal = (
 		<BodyPortal>
-			<div className="topology-modal-backdrop" role="presentation">
-				<Panel
-					className={ `topology-modal newspack-nodes-modal${
-						wide ? ' topology-modal--large' : ''
-					}${ className ? ` ${ className }` : '' }` }
-					ref={ ref }
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby={ titleId }
+			<div
+				className={ classes(
+					'topology-modal-backdrop',
+					closing && 'is-closing'
+				) }
+				role="presentation"
+			>
+				<ModalBox
+					boxRef={ ref }
+					closing={ closing }
+					close={ onDismiss ? close : null }
+					className={ classes(
+						'topology-modal',
+						'newspack-nodes-modal',
+						wide && 'topology-modal--large',
+						className
+					) }
 					style={ modalStyle }
-					{ ...( onSubmit && submitProps( onSubmit ) ) }
+					onSubmit={ onSubmit }
 				>
-					<ModalTitleId.Provider value={ titleId }>
-						<ModalHeader title={ title } onClose={ onDismiss } />
-						{ children }
-					</ModalTitleId.Provider>
-				</Panel>
+					<ModalHeader
+						title={ title }
+						onClose={ onDismiss }
+						compact
+					/>
+					{ children }
+				</ModalBox>
 			</div>
 		</BodyPortal>
 	);
@@ -234,9 +255,10 @@ export function ModalShell( {
 export function ModalField( { id, label, wide = false, children } ) {
 	return (
 		<label
-			className={ `topology-modal__label${
-				wide ? ' topology-modal__label--wide' : ''
-			}` }
+			className={ classes(
+				'topology-modal__label',
+				wide && 'topology-modal__label--wide'
+			) }
 			htmlFor={ id }
 		>
 			{ label }
@@ -247,7 +269,8 @@ export function ModalField( { id, label, wide = false, children } ) {
 
 /**
  * ConfirmModal — a yes/no dialog. The confirm button takes focus on mount, so
- * Enter accepts and ESC cancels without reaching for the mouse.
+ * Enter accepts and ESC cancels without reaching for the mouse. Each answer
+ * runs once the exit has played, the first one given alone.
  *
  * @param {Object}                    props
  * @param {string}                    props.title          Dialog title.
@@ -255,8 +278,8 @@ export function ModalField( { id, label, wide = false, children } ) {
  * @param {string}                    [props.confirmLabel] Label on the primary button.
  * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
  * @param {boolean}                   [props.danger]       Style the primary button as destructive.
- * @param {() => void}                props.onConfirm      Runs when the primary button is pressed.
- * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel.
+ * @param {() => void}                props.onConfirm      Runs when the primary button is pressed, once the exit has played.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel, once the exit has played.
  * @return {import('react').ReactNode} The dialog.
  */
 export function ConfirmModal( {
@@ -269,24 +292,35 @@ export function ConfirmModal( {
 	onCancel,
 } ) {
 	const primaryRef = useRef( null );
+	const handleRef = useRef( null );
 	useEffect( () => {
 		primaryRef.current?.focus();
 	}, [] );
 
 	return (
-		<ModalShell title={ title } onDismiss={ onCancel }>
+		<ModalShell
+			title={ title }
+			onDismiss={ onCancel }
+			handleRef={ handleRef }
+		>
 			<div className="topology-modal__body">{ body }</div>
 			<div className="topology-modal__actions">
-				<button type="button" className="button" onClick={ onCancel }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => handleRef.current.close() }
+				>
 					{ cancelLabel }
 				</button>
 				<button
 					type="button"
 					ref={ primaryRef }
-					className={ `button button-primary${
-						danger ? ' is-danger' : ''
-					}` }
-					onClick={ onConfirm }
+					className={ classes(
+						'button',
+						'button-primary',
+						danger && 'is-danger'
+					) }
+					onClick={ () => handleRef.current.closeWith( onConfirm ) }
 				>
 					{ confirmLabel }
 				</button>
@@ -298,7 +332,8 @@ export function ConfirmModal( {
 /**
  * PromptModal — a single-line text prompt. The input takes focus and selects
  * its initial value on mount, Enter submits, and confirm stays disabled — so
- * Enter does nothing — while the value is empty or fails `pattern`.
+ * Enter does nothing — while the value is empty or fails `pattern`. Each
+ * answer runs once the exit has played, the first one given alone.
  *
  * @param {Object}                    props
  * @param {string}                    props.title          Dialog title.
@@ -308,8 +343,8 @@ export function ConfirmModal( {
  * @param {RegExp}                    [props.pattern]      Value must match this to submit; a miss names it in a hint.
  * @param {string}                    [props.confirmLabel] Label on the primary button.
  * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
- * @param {(value: string) => void}   props.onConfirm      Runs with the entered value.
- * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel.
+ * @param {(value: string) => void}   props.onConfirm      Runs with the entered value, once the exit has played.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel, once the exit has played.
  * @return {import('react').ReactNode} The dialog.
  */
 export function PromptModal( {
@@ -325,6 +360,7 @@ export function PromptModal( {
 } ) {
 	const [ value, setValue ] = useState( initialValue );
 	const inputRef = useRef( null );
+	const handleRef = useRef( null );
 	const ready = '' !== value && ( ! pattern || pattern.test( value ) );
 
 	useEffect( () => {
@@ -336,7 +372,10 @@ export function PromptModal( {
 		<ModalShell
 			title={ title }
 			onDismiss={ onCancel }
-			onSubmit={ () => onConfirm( value ) }
+			handleRef={ handleRef }
+			onSubmit={ () =>
+				handleRef.current.closeWith( () => onConfirm( value ) )
+			}
 		>
 			<div className="topology-modal__body">
 				{ body }
@@ -359,7 +398,11 @@ export function PromptModal( {
 				) }
 			</div>
 			<div className="topology-modal__actions">
-				<button type="button" className="button" onClick={ onCancel }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => handleRef.current.close() }
+				>
 					{ cancelLabel }
 				</button>
 				<button
@@ -388,7 +431,8 @@ export function PromptModal( {
  * which is what the editor writes for the same node, and `onConfirm` receives
  * `{ name, args }` for the caller to format into its `make_node` line. Enter
  * in a text field adds, a json textarea keeps Enter for its newline, and Add
- * stays disabled, so Enter does nothing, while a field shows a refusal.
+ * stays disabled, so Enter does nothing, while a field shows a refusal. Each
+ * answer runs once the exit has played, the first one given alone.
  *
  * @param {Object}                                         props
  * @param {string}                                         props.shellName    Class shell name, such as "Partition".
@@ -397,8 +441,8 @@ export function PromptModal( {
  * @param {string[]}                                       [props.nodeNames]  Node ids the `node_name` inputs suggest.
  * @param {string[]}                                       [props.formatters] Registered formatter names, for `formatter_name` arguments.
  * @param {import('./CtorField').VaultEntry[]}             [props.vaults]     Vault entries, for `vault_id` arguments.
- * @param {(node: { name: string, args: string }) => void} props.onConfirm    Runs with the node id and its serialized args string.
- * @param {() => void}                                     props.onCancel     Runs on cancel, ESC, and a mousedown outside the panel.
+ * @param {(node: { name: string, args: string }) => void} props.onConfirm    Runs with the node id and its serialized args string, once the exit has played.
+ * @param {() => void}                                     props.onCancel     Runs on cancel, ESC, and a mousedown outside the panel, once the exit has played.
  * @return {import('react').ReactNode} The dialog.
  */
 export function NewNodeModal( {
@@ -415,6 +459,7 @@ export function NewNodeModal( {
 	const [ values, setValues ] = useState( () => argSchema.map( () => '' ) );
 	const [ refused, reportRefusal ] = useFieldRefusals();
 	const nameRef = useRef( null );
+	const handleRef = useRef( null );
 
 	useEffect( () => {
 		nameRef.current?.focus();
@@ -422,11 +467,13 @@ export function NewNodeModal( {
 	}, [] );
 
 	const valid = '' !== name.trim() && ! refused;
-	const submit = () =>
-		onConfirm( {
+	const submit = () => {
+		const node = {
 			name: name.trim(),
 			args: serializeCtorArgs( values, argSchema ),
-		} );
+		};
+		handleRef.current.closeWith( () => onConfirm( node ) );
+	};
 
 	const title = sprintf(
 		// translators: %s: class shell name (e.g. "Partition").
@@ -435,7 +482,12 @@ export function NewNodeModal( {
 	);
 
 	return (
-		<ModalShell title={ title } onDismiss={ onCancel } onSubmit={ submit }>
+		<ModalShell
+			title={ title }
+			onDismiss={ onCancel }
+			handleRef={ handleRef }
+			onSubmit={ submit }
+		>
 			<div className="topology-modal__body">
 				<ModalField
 					id="newspack-nodes-newnode-name"
@@ -471,7 +523,11 @@ export function NewNodeModal( {
 				) }
 			</div>
 			<div className="topology-modal__actions">
-				<button type="button" className="button" onClick={ onCancel }>
+				<button
+					type="button"
+					className="button"
+					onClick={ () => handleRef.current.close() }
+				>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
