@@ -7,94 +7,113 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
-
-const SRC = path.resolve( __dirname, '..' );
-
-/** An import statement from `@wordpress/components`, in one line or many. */
-const COMPONENTS_IMPORT =
-	/import\s*(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]@wordpress\/components['"]/g;
-
-/** A block comment, or a line comment from its `//` to the line's end. */
-const COMMENTS = /\/\*[\s\S]*?\*\/|(?<![:'"`])\/\/.*$/gm;
-
-/**
- * The source files under a directory, tests and test utilities left out.
- *
- * @param {string} dir The directory.
- * @return {string[]} Absolute paths.
- */
-function sources( dir ) {
-	return fs
-		.readdirSync( dir, { withFileTypes: true } )
-		.flatMap( ( entry ) => {
-			const full = path.join( dir, entry.name );
-			if ( entry.isDirectory() ) {
-				return [ '__tests__', 'test-utils', 'node_modules' ].includes(
-					entry.name
-				)
-					? []
-					: sources( full );
-			}
-			return entry.name.endsWith( '.js' ) ? [ full ] : [];
-		} );
-}
-
-/**
- * Whether a source imports `Modal` from `@wordpress/components`.
- *
- * @param {string} source The file's text.
- * @return {boolean} True when it does.
- */
-function importsWordPressModal( source ) {
-	const code = source.replace( COMMENTS, '' );
-	return [ ...code.matchAll( COMPONENTS_IMPORT ) ].some( ( match ) =>
-		match[ 1 ]
-			.split( ',' )
-			.some(
-				( name ) => 'Modal' === name.trim().split( /\s+as\s+/ )[ 0 ]
-			)
-	);
-}
+import {
+	importsWordPressModal,
+	wordPressModalImports,
+} from '@newspack-nodes/shared/test-utils/noWordPressModal';
 
 describe( 'the one modal', () => {
-	it( 'catches a single-line and a multi-line import of the WordPress Modal', () => {
-		expect(
-			importsWordPressModal(
-				"import { Button, Modal } from '@wordpress/components';"
-			)
-		).toBe( true );
-		expect(
-			importsWordPressModal(
-				"import {\n\tButton,\n\tModal as WpModal,\n} from '@wordpress/components';"
-			)
-		).toBe( true );
-		expect(
-			importsWordPressModal(
-				"import { Button, ModalHeader } from '@wordpress/components';"
-			)
-		).toBe( false );
+	it.each( [
+		[
+			'a named import',
+			"import { Button, Modal } from '@wordpress/components';",
+		],
+		[
+			'an aliased import across lines',
+			"import {\n\tButton,\n\tModal as WpModal,\n} from '@wordpress/components';",
+		],
+		[
+			'a namespace read in JSX',
+			'import * as Wp from \'@wordpress/components\';\nconst x = <Wp.Modal title="heron" />;',
+		],
+		[
+			'a namespace member read',
+			"import * as Wp from '@wordpress/components';\nconst Frame = Wp.Modal;",
+		],
+		[
+			'a namespace read by bracket',
+			"import * as Wp from '@wordpress/components';\nconst Frame = Wp[ 'Modal' ];",
+		],
+		[
+			'a destructured require',
+			"const { Button, Modal } = require( '@wordpress/components' );",
+		],
+		[
+			'a renamed destructured require',
+			"const {\n\tModal: Frame,\n} = require( '@wordpress/components' );",
+		],
+		[
+			'a member read off a require',
+			"const Frame = require( '@wordpress/components' ).Modal;",
+		],
+		[
+			'a member read off a required binding',
+			"const Wp = require( '@wordpress/components' );\nconst x = <Wp.Modal />;",
+		],
+	] )( 'catches %s of the WordPress Modal', ( name, source ) => {
+		expect( importsWordPressModal( source ) ).toBe( true );
 	} );
 
-	it( 'ignores an import commented out with // or /* */', () => {
-		expect(
-			importsWordPressModal(
-				"// import { Modal } from '@wordpress/components';"
-			)
-		).toBe( false );
-		expect(
-			importsWordPressModal(
-				"/* import {\n\tModal,\n} from '@wordpress/components'; */"
-			)
-		).toBe( false );
+	it.each( [
+		[
+			'a named import of another component',
+			"import { Button, ModalHeader } from '@wordpress/components';",
+		],
+		[
+			'a namespace read of another component',
+			"import * as Wp from '@wordpress/components';\nconst x = <Wp.ModalHeader />;",
+		],
+		[
+			'a require of another component',
+			"const { Button } = require( '@wordpress/components' );\nconst x = Button.Modal;",
+		],
+		[
+			'a Modal read off another namespace',
+			"import * as Wp from '@wordpress/components';\nimport * as Kit from './kit';\nconst x = <Kit.Modal />;",
+		],
+		[
+			'an import commented out with //',
+			"// import { Modal } from '@wordpress/components';",
+		],
+		[
+			'an import commented out with /* */',
+			"/* import {\n\tModal,\n} from '@wordpress/components'; */",
+		],
+	] )( 'passes %s', ( name, source ) => {
+		expect( importsWordPressModal( source ) ).toBe( false );
+	} );
+
+	it( 'names each source importing it, by path, past tests and test utilities', () => {
+		const root = fs.mkdtempSync( path.join( os.tmpdir(), 'no-wp-modal-' ) );
+		const write = ( file, text ) => {
+			fs.mkdirSync( path.dirname( path.join( root, file ) ), {
+				recursive: true,
+			} );
+			fs.writeFileSync( path.join( root, file ), text );
+		};
+		const offending = "import { Modal } from '@wordpress/components';";
+		try {
+			write( 'plover/Ledger.js', offending );
+			write(
+				'plover/Quiet.js',
+				"import { Button } from '@wordpress/components';"
+			);
+			write( 'plover/__tests__/Ledger.test.js', offending );
+			write( 'shared/test-utils/frame.js', offending );
+			write( 'plover/notes.md', offending );
+			expect( wordPressModalImports( root ) ).toEqual( [
+				path.join( 'plover', 'Ledger.js' ),
+			] );
+		} finally {
+			fs.rmSync( root, { recursive: true, force: true } );
+		}
 	} );
 
 	it( 'imports no Modal from @wordpress/components anywhere in src', () => {
-		const offenders = sources( SRC )
-			.filter( ( file ) =>
-				importsWordPressModal( fs.readFileSync( file, 'utf8' ) )
-			)
-			.map( ( file ) => path.relative( SRC, file ) );
-		expect( offenders ).toEqual( [] );
+		expect(
+			wordPressModalImports( path.resolve( __dirname, '..' ) )
+		).toEqual( [] );
 	} );
 } );
