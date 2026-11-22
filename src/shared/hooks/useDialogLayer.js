@@ -6,7 +6,16 @@
  * Rank is taken at render, not in the effect: effects run child-first, so a
  * dialog mounted open inside another in one commit would otherwise register
  * beneath its parent. Render runs parent-first.
+ *
+ * While any dialog is open, `<body>` wears `newspack-nodes-modal-open`, which
+ * locks the page's scroll; the last dialog to unmount takes it off, an exit
+ * cut short included. It is the shell's own class: WordPress admin's
+ * `modal-open` is toggled by the media modal and other admin scripts, which
+ * would unlock under an open dialog, and is styled only where admin CSS loads.
  */
+
+/** The class on `<body>` while a dialog is open. */
+const LOCK = 'newspack-nodes-modal-open';
 
 import { useCallback, useEffect, useState } from '@wordpress/element';
 
@@ -26,8 +35,12 @@ export function useDialogLayer() {
 
 	useEffect( () => {
 		layers.add( order );
+		document.body.classList.add( LOCK );
 		return () => {
 			layers.delete( order );
+			if ( 0 === layers.size ) {
+				document.body.classList.remove( LOCK );
+			}
 		};
 	}, [ order ] );
 

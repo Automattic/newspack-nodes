@@ -66,6 +66,11 @@
 	border-radius: 0;
 }
 
+// The page under an open dialog holds still; `useDialogLayer` sets the class.
+body.newspack-nodes-modal-open {
+	overflow: hidden;
+}
+
 @media not (prefers-reduced-motion) {
 	// `scale`, which composes with a box's own `translate` and `transform`.
 	@keyframes newspack-nodes-modal-appear {

@@ -194,6 +194,19 @@ describe( 'the padded shared box', () => {
 	} );
 } );
 
+describe( 'the page under an open dialog', () => {
+	it( "locks its scroll by a class the shell owns, not WordPress admin's modal-open", () => {
+		expect(
+			value( modal, 'body.newspack-nodes-modal-open', 'overflow' )
+		).toBe( 'hidden' );
+		let reused = false;
+		modal.walkRules( ( rule ) => {
+			reused = reused || /\.modal-open\b/.test( rule.selector );
+		} );
+		expect( reused ).toBe( false );
+	} );
+} );
+
 describe( 'the motion', () => {
 	it( 'keeps every keyframe and animation inside the reduced-motion guard', () => {
 		const outside = [];

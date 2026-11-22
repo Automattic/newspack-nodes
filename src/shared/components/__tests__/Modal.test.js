@@ -899,3 +899,51 @@ test.each( [
 		);
 	}
 );
+
+const LOCK = 'newspack-nodes-modal-open';
+const locked = () => document.body.classList.contains( LOCK );
+
+test( 'an open dialog locks the page scroll, and unlocks it on close', () => {
+	const { unmount } = render(
+		<Modal ariaLabel="Turnstone lock" onClose={ () => {} }>
+			<p>locked page</p>
+		</Modal>
+	);
+	expect( locked() ).toBe( true );
+
+	unmount();
+
+	expect( locked() ).toBe( false );
+} );
+
+test( 'a nested pair keeps the page locked until both have closed', () => {
+	jest.useFakeTimers();
+	const { unmount } = render(
+		<Nested initiallyOpen onOuterClose={ () => {} } />
+	);
+	expect( locked() ).toBe( true );
+
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+	expect( screen.queryByRole( 'dialog', { name: 'inner-733' } ) ).toBeNull();
+	expect( locked() ).toBe( true );
+
+	unmount();
+	expect( locked() ).toBe( false );
+} );
+
+test( 'a dialog unmounted during its exit unlocks the page', () => {
+	jest.useFakeTimers();
+	const { unmount } = render(
+		<Modal ariaLabel="Sanderling lock" onClose={ () => {} }>
+			<p>exiting page</p>
+		</Modal>
+	);
+	fireEvent.keyDown( document, { key: 'Escape' } );
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS / 2 ) );
+	expect( locked() ).toBe( true );
+
+	unmount();
+
+	expect( locked() ).toBe( false );
+} );

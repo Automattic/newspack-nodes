@@ -445,6 +445,21 @@ describe( 'ModalShell', () => {
 		);
 	} );
 
+	it( 'locks the page scroll while open, as every shared dialog does', () => {
+		const { unmount } = render(
+			<ModalShell title="Pipit lock" onDismiss={ () => {} } />
+		);
+		expect(
+			document.body.classList.contains( 'newspack-nodes-modal-open' )
+		).toBe( true );
+
+		unmount();
+
+		expect(
+			document.body.classList.contains( 'newspack-nodes-modal-open' )
+		).toBe( false );
+	} );
+
 	it( "the console's header is compact", () => {
 		const { baseElement } = render(
 			<ModalShell title="Plover ledger 17" onDismiss={ () => {} } />
