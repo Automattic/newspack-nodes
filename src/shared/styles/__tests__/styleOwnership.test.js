@@ -2101,6 +2101,9 @@ describe( 'canonical appearance ownership', () => {
 				'.newspack-nodes-modal__backdrop > .newspack-nodes-modal > .newspack-nodes-modal__header'
 			)
 		).toEqual( {
+			position: 'sticky',
+			top: 'calc(-1 * var(--np-space-lg))',
+			'z-index': '1',
 			margin: 'calc(-1 * var(--np-space-lg)) calc(-1 * var(--np-space-lg)) var(--np-space-lg)',
 		} );
 		expect(

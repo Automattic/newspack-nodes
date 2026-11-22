@@ -28,8 +28,14 @@
 	overflow-y: auto;
 	padding: var(--np-space-lg);
 
-	// The header runs edge to edge across the box's padding.
+	// @longform The header runs edge to edge across the box's padding, and
+	// holds still at its top edge while the box scrolls. The sticky edge sits
+	// at the content edge, so the offset lifts it by the padding; it paints
+	// the raised surface (`_modal.scss`) over the body that scrolls under it.
 	> .newspack-nodes-modal__header {
+		position: sticky;
+		top: calc(-1 * var(--np-space-lg));
+		z-index: 1;
 		margin: calc(-1 * var(--np-space-lg)) calc(-1 * var(--np-space-lg))
 			var(--np-space-lg);
 	}

@@ -134,6 +134,38 @@ describe( 'the padded shared box', () => {
 		);
 	} );
 
+	// The sticky edge sits at the box's content edge, inside its padding, so
+	// the offset lifts the header by that padding to the box's top edge, where
+	// the bleed already draws it.
+	it( 'holds the header flush at the top of a scrolling box', () => {
+		expect( value( modal, BLEED, 'position' ) ).toBe( 'sticky' );
+		expect( value( modal, BLEED, 'top' ) ).toBe(
+			'calc(-1 * var(--np-space-lg))'
+		);
+		expect( value( modal, BLEED, 'z-index' ) ).toBe( '1' );
+	} );
+
+	it( 'paints the sticky header its own opaque surface, over the body', () => {
+		expect( value( ui, HEADER, 'background' ) ).toBe(
+			'var(--paper-2, var(--np-surface-subtle))'
+		);
+	} );
+
+	it( "leaves the console's unpadded box, which scrolls its body, unstuck", () => {
+		const stuck = [];
+		modal.walkRules( ( rule ) => {
+			if (
+				rule.selector.includes( 'topology-modal' ) &&
+				rule.nodes.some(
+					( d ) => 'decl' === d.type && 'position' === d.prop
+				)
+			) {
+				stuck.push( rule.selector );
+			}
+		} );
+		expect( stuck ).toEqual( [] );
+	} );
+
 	it.each( [
 		[ 'small', '384px' ],
 		[ 'medium', '640px' ],
