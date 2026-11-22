@@ -1,7 +1,7 @@
 @use "sass:list";
 
-// Ordinal Cobalt scale, lightest first; ink holds 4.5:1 and steps sit 8 ΔE apart.
-$scale-chip-shares: 5%, 16%, 27%, 38%, 49%, 60%;
+// Ordinal Cobalt scale, lightest first; ink holds 7:1 and steps sit 6 ΔE apart.
+$scale-chip-shares: 2%, 9%, 16%, 23%, 30%, 37%;
 
 @for $step from 1 through list.length($scale-chip-shares) {
 	$share: list.nth($scale-chip-shares, $step);

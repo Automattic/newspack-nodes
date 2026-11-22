@@ -1601,7 +1601,7 @@ describe( 'theme skin ramps', () => {
 		);
 	} );
 
-	it( 'draws the Cobalt scale chip, as many steps as Admin::SCALE_CHIP_STEPS, with ink at 4.5:1 or more, ΔE of 8 or more between steps, and falling lightness', () => {
+	it( 'draws the Cobalt scale chip, as many steps as Admin::SCALE_CHIP_STEPS, with ink at 7:1 or more, ΔE of 6 or more between steps, and falling lightness', () => {
 		const chipRules = stylesheet.nodes.filter(
 			( node ) =>
 				'rule' === node.type &&
@@ -1654,13 +1654,13 @@ describe( 'theme skin ramps', () => {
 			.slice( 1 )
 			.map( ( next, index ) => [ labs[ index ], next ] );
 		steps.forEach( ( step ) =>
-			expect( contrast( ink, step ) ).toBeGreaterThanOrEqual( 4.5 )
+			expect( contrast( ink, step ) ).toBeGreaterThanOrEqual( 7 )
 		);
 		pairs.forEach( ( [ lighter, darker ] ) => {
 			expect( darker[ 0 ] ).toBeLessThan( lighter[ 0 ] );
 			expect(
 				Math.hypot( ...darker.map( ( v, i ) => v - lighter[ i ] ) )
-			).toBeGreaterThanOrEqual( 8 );
+			).toBeGreaterThanOrEqual( 6 );
 		} );
 	} );
 

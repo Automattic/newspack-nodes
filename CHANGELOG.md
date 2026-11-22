@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Cobalt scale chips hold their ink at 7:1.** The `np-scale-chip--1…6` steps mix 2% to 37% Cobalt into the surface, in place of 5% to 60%, so the darkest step, such as the cron page's five-minute schedule, no longer sets dark ink on a mid blue at 4.6:1. The six steps sit 6 ΔE apart, down from 8, because a single hue leaves no more room above 7:1.
 - **A console dialog the station opens sits under the debug overlay.** The console's `ModalShell` backdrop ranks with the page's other dialogs, at the shared modal layer (100000), and rises over the overlay's panel only when the dialog opens inside that panel, which marks its backdrop `is-in-panel`. Runtime, Profiler or any other console dialog opened from the station's Console tab no longer covers an open overlay. Every console dialog also blurs the page behind it, as the shared dialog with the regular header does, through the one `$modal-backdrop-blur` token both read. Every consumer bundling the debug overlay inlines `ModalShell`, so each rebuilds against this release.
 
 ## [2.164.0] - 2026-11-22
