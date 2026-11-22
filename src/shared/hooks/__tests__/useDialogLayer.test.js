@@ -39,9 +39,10 @@ function Trapped( { label, isActive } ) {
 
 test( 'a trap whose isActive answers false leaves Tab to the browser', () => {
 	render( <Trapped label="inert-741" isActive={ () => false } /> );
-	screen.getByText( 'inert-741-last' ).focus();
+	const last = screen.getByText( 'inert-741-last' );
+	last.focus();
 
-	expect( fireEvent.keyDown( document, { key: 'Tab' } ) ).toBe( true );
+	expect( fireEvent.keyDown( last, { key: 'Tab' } ) ).toBe( true );
 	expect( document.activeElement ).toBe(
 		screen.getByText( 'inert-741-last' )
 	);
@@ -49,9 +50,10 @@ test( 'a trap whose isActive answers false leaves Tab to the browser', () => {
 
 test( 'a trap whose isActive answers true wraps Tab at the edge', () => {
 	render( <Trapped label="live-742" isActive={ () => true } /> );
-	screen.getByText( 'live-742-last' ).focus();
+	const last = screen.getByText( 'live-742-last' );
+	last.focus();
 
-	expect( fireEvent.keyDown( document, { key: 'Tab' } ) ).toBe( false );
+	expect( fireEvent.keyDown( last, { key: 'Tab' } ) ).toBe( false );
 	expect( document.activeElement ).toBe(
 		screen.getByText( 'live-742-first' )
 	);

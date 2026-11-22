@@ -947,3 +947,27 @@ test( 'a dialog unmounted during its exit unlocks the page', () => {
 
 	expect( locked() ).toBe( false );
 } );
+
+test( 'Tab in a popover portalled outside the box is left to the popover', () => {
+	const slot = document.createElement( 'div' );
+	document.body.appendChild( slot );
+	try {
+		render(
+			<Modal onClose={ () => {} }>
+				<ModalHeader title="Knot link" onClose={ () => {} } />
+				<button type="button">Knot first</button>
+			</Modal>
+		);
+		render( <input aria-label="Knot link URL" />, { container: slot } );
+		const url = screen.getByRole( 'textbox', { name: 'Knot link URL' } );
+		url.focus();
+
+		expect( fireEvent.keyDown( url, { key: 'Tab' } ) ).toBe( true );
+		expect( fireEvent.keyDown( url, { key: 'Tab', shiftKey: true } ) ).toBe(
+			true
+		);
+		expect( document.activeElement ).toBe( url );
+	} finally {
+		slot.remove();
+	}
+} );

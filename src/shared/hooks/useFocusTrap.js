@@ -5,7 +5,13 @@
  * dialog opened.
  *
  * Only the two edges are handled. Tab between inner fields is left to the
- * browser, so the trap adds nothing to the dialog's own tab order.
+ * browser, so the trap adds nothing to the dialog's own tab order. Focus on
+ * the dialog itself, its title or plain text inside it sits before the first
+ * control, so Tab goes to the first and Shift+Tab to the last.
+ *
+ * Only a Tab from inside the dialog is trapped, as WordPress's `Modal` trapped
+ * its own frame. A popover the dialog opened renders into a slot outside it,
+ * and keeps its own Tab order; so does anything else outside.
  *
  * The opener is read during the first render: effects run child-first, so a
  * dialog or a child focusing itself on mount would otherwise be read instead.
@@ -44,7 +50,12 @@ export function useFocusTrap( ref, returnFocus = null, isActive = () => true ) {
 		}
 		const onKey = ( e ) => {
 			const el = ref.current;
-			if ( 'Tab' !== e.key || ! el || ! isActiveRef.current() ) {
+			if (
+				'Tab' !== e.key ||
+				! el ||
+				! el.contains( /** @type {Node} */ ( e.target ) ) ||
+				! isActiveRef.current()
+			) {
 				return;
 			}
 			const tabbable = /** @type {HTMLElement[]} */ (

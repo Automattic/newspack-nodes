@@ -20,10 +20,12 @@ function Dialog( { children, returnFocus } ) {
 test( 'Tab in a dialog with nothing tabbable goes nowhere', () => {
 	render( <Dialog>text-731</Dialog> );
 
-	expect( fireEvent.keyDown( document, { key: 'Tab' } ) ).toBe( false );
+	expect(
+		fireEvent.keyDown( screen.getByText( 'text-731' ), { key: 'Tab' } )
+	).toBe( false );
 } );
 
-test( 'Tab with focus outside the dialog moves it to the first control', () => {
+test( 'Tab with focus outside the dialog is left to the browser', () => {
 	render( <button type="button">outside-732</button> );
 	render(
 		<Dialog>
@@ -31,10 +33,11 @@ test( 'Tab with focus outside the dialog moves it to the first control', () => {
 			<button type="button">last-732</button>
 		</Dialog>
 	);
-	screen.getByText( 'outside-732' ).focus();
+	const outside = screen.getByText( 'outside-732' );
+	outside.focus();
 
-	fireEvent.keyDown( document, { key: 'Tab' } );
-	expect( document.activeElement ).toBe( screen.getByText( 'first-732' ) );
+	expect( fireEvent.keyDown( outside, { key: 'Tab' } ) ).toBe( true );
+	expect( document.activeElement ).toBe( outside );
 } );
 
 test( 'a ref that never attaches traps nothing', () => {
