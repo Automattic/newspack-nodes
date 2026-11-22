@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.164.0] - 2026-11-22
+
 ### Added
 
 - **The shared `Modal` takes every dialog.** `size` draws the box `medium` (640px, the default) or `large` (840px), as the `newspack-nodes-modal--<size>` modifier. `role` makes it an `alertdialog`, and `ariaDescribedby` names the element that describes it. `ModalHeader` takes `actions`, a row between the title and the close that keeps its width beside an ellipsised title. A `Modal` without `onClose` cannot be dismissed: ESC and an outside mousedown do nothing, and its header draws no close button.
