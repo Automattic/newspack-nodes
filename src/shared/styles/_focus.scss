@@ -42,6 +42,11 @@
 		}
 	}
 
+	// A dialog's title takes first focus to place a reader, not as a control.
+	[tabindex].newspack-nodes-modal__title#{scope.$outside-block-canvas}:focus {
+		@include focus.no-ring;
+	}
+
 	.components-input-control__container:has(
 			.components-input-control__input:focus
 		)#{scope.$outside-block-canvas},

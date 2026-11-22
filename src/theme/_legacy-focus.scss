@@ -20,4 +20,10 @@
 			box-shadow: none;
 		}
 	}
+
+	// A dialog's title takes first focus to place a reader, not as a control.
+	[tabindex].newspack-nodes-modal__title#{scope.$outside-block-canvas}:focus {
+		outline: none;
+		box-shadow: none;
+	}
 }
