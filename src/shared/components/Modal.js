@@ -2,7 +2,6 @@ import {
 	createContext,
 	createPortal,
 	useContext,
-	useEffect,
 	useId,
 	useRef,
 } from '@wordpress/element';
@@ -171,10 +170,12 @@ export function ModalHeader( {
  * It renders through `BodyPortal`, which is what lets a dialog cover the
  * `@wordpress/components` modal it was summoned from.
  *
- * First focus goes to the title, or to the box without one, unless a field
- * inside the dialog focused itself on mount, which wins: each dialog can
- * focus the element that fits it. A close the caller declines puts focus
- * back the same way, unless another dialog stands above it. `useFocusTrap` keeps Tab inside the box, from the
+ * First focus goes to what `initialFocus` names, a ref or `'field'`, the
+ * first enabled input, select or textarea that is not a button-type input;
+ * when that names nothing or the target does not take focus, to the title,
+ * or to the box without one. A child inside the dialog that focused itself on mount wins.
+ * A close the caller declines puts focus back the same way, unless another
+ * dialog stands above it. `useFocusTrap` keeps Tab inside the box, from the
  * title or the box as from any control, and hands focus back on close to the
  * element `returnFocus` holds, else to the opener. Only the topmost dialog
  * traps Tab.
@@ -204,6 +205,9 @@ export function ModalHeader( {
  * @param {{current: ?HTMLElement}}                               [props.returnFocus]       The element closing hands focus to, such as
  *                                                                                          the dialog's trigger, over what held focus
  *                                                                                          as it opened.
+ * @param {import('../hooks/useDialog').InitialFocus}             [props.initialFocus]      What takes first focus, over the title: a ref,
+ *                                                                                          or `'field'`, the first enabled input, select
+ *                                                                                          or textarea, a button-type input excepted.
  * @param {import('react').ReactNode}                             props.children            Dialog body.
  * @return {import('react').ReactElement} The modal.
  */
@@ -218,6 +222,7 @@ export default function Modal( {
 	backdropClassName = '',
 	onSubmit,
 	returnFocus,
+	initialFocus,
 	children,
 } ) {
 	const dialogRef = useRef( null );
@@ -226,6 +231,7 @@ export default function Modal( {
 		handleRef,
 		returnFocus,
 		backdropRef,
+		initialFocus,
 	} );
 
 	return (
@@ -337,9 +343,8 @@ export function ModalBox( {
 export function Confirm( { title, body, yes, no, onYes, onNo } ) {
 	const noRef = useRef( null );
 	const handle = useRef( null );
-	useEffect( () => noRef.current?.focus(), [] );
 	return (
-		<Modal onClose={ onNo } handleRef={ handle }>
+		<Modal onClose={ onNo } handleRef={ handle } initialFocus={ noRef }>
 			<ModalHeader title={ title } compact />
 			{ body && <p>{ body }</p> }
 			<div className="newspack-nodes-modal__actions">

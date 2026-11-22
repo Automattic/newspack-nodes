@@ -8,11 +8,11 @@
  * Every dialog closes four ways: its close button, ESC, a mousedown on the
  * backdrop, and its own buttons through the shell's handle. Each plays the
  * shared exit before the dialog's close runs, the first close alone, and only
- * the topmost open dialog answers ESC and the mousedown. Each focuses on mount
- * where the answer begins — the confirm button for a yes/no, the text input
- * with its initial value selected for the two that take typing — so a dialog
- * can be answered without the mouse. The two that take typing are forms, so
- * Enter in a field submits them.
+ * the topmost open dialog answers ESC and the mousedown. Each hands the shell,
+ * as its first focus, where the answer begins — the confirm button for a
+ * yes/no, the text input for the two that take typing, its value selected
+ * as the dialog opens — so a dialog can be answered without the mouse. The
+ * two that take typing are forms, so Enter in a field submits them.
  */
 
 import {
@@ -35,6 +35,7 @@ import { serializeCtorArgs } from '../utils/tslArgs';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
 /** @typedef {import('@newspack-nodes/shared/hooks/useDialog').DialogHandle} DialogHandle */
+/** @typedef {import('@newspack-nodes/shared/hooks/useDialog').InitialFocus} InitialFocus */
 
 // Breathing room between a panel-anchored dialog's edge and the panel's own.
 const PANEL_GUTTER = 16;
@@ -95,10 +96,10 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  * It joins the shared dialog stack through `useDialog`, so only the topmost
  * open dialog answers ESC, a mousedown on the backdrop and Tab, and a dialog
  * opened from another closes alone, and draws the shared `ModalBox`. On open
- * it moves focus to its title unless the caller has already focused a field
- * of its own. Every close plays the shared exit: the backdrop wears
- * `is-closing`, the panel is `inert`, and `onDismiss` runs once the animation
- * has had its time. A caller closes the same way through
+ * it moves focus to what `initialFocus` names, else to its title, unless a
+ * child has already focused itself. Every close plays the shared exit: the
+ * backdrop wears `is-closing`, the panel is `inert`, and `onDismiss` runs
+ * once the animation has had its time. A caller closes the same way through
  * `handleRef.current.close()`, or through `closeWith( run )` to run `run` in
  * place of `onDismiss`; only the first close counts.
  *
@@ -108,13 +109,14 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  * `type="submit"` and every other button `type="button"`.
  *
  * @param {Object}                    props
- * @param {string}                    props.title       Dialog title, also its accessible name.
- * @param {() => void}                props.onDismiss   Runs once a close (ESC, a mousedown on the backdrop, the close button, the handle) has played the exit.
- * @param {() => void}                [props.onSubmit]  The default action; makes the panel a form.
- * @param {{current: ?DialogHandle}}  [props.handleRef] Takes `{ close, closeWith }`, the animated close.
- * @param {boolean}                   [props.wide]      Add the large-panel modifier class.
- * @param {string}                    [props.className] Extra classes on the panel.
- * @param {import('react').ReactNode} props.children    Body and action rows.
+ * @param {string}                    props.title          Dialog title, also its accessible name.
+ * @param {() => void}                props.onDismiss      Runs once a close (ESC, a mousedown on the backdrop, the close button, the handle) has played the exit.
+ * @param {() => void}                [props.onSubmit]     The default action; makes the panel a form.
+ * @param {{current: ?DialogHandle}}  [props.handleRef]    Takes `{ close, closeWith }`, the animated close.
+ * @param {InitialFocus}              [props.initialFocus] What takes first focus, over the title: a ref, or `'field'`, the first enabled input, select or textarea, a button-type input excepted.
+ * @param {boolean}                   [props.wide]         Add the large-panel modifier class.
+ * @param {string}                    [props.className]    Extra classes on the panel.
+ * @param {import('react').ReactNode} props.children       Body and action rows.
  * @return {import('react').ReactNode} The portal, or null where there is no document.
  */
 export function ModalShell( {
@@ -122,6 +124,7 @@ export function ModalShell( {
 	onDismiss,
 	onSubmit,
 	handleRef,
+	initialFocus,
 	wide = false,
 	className = '',
 	children,
@@ -134,6 +137,7 @@ export function ModalShell( {
 	const { closing, close } = useDialog( ref, onDismiss, {
 		handleRef,
 		backdropRef,
+		initialFocus,
 	} );
 
 	useLayoutEffect( () => {
@@ -269,7 +273,7 @@ export function ModalField( { id, label, wide = false, children } ) {
 }
 
 /**
- * ConfirmModal — a yes/no dialog. The confirm button takes focus on mount, so
+ * ConfirmModal — a yes/no dialog. The confirm button takes first focus, so
  * Enter accepts and ESC cancels without reaching for the mouse. Each answer
  * runs once the exit has played, the first one given alone.
  *
@@ -294,15 +298,13 @@ export function ConfirmModal( {
 } ) {
 	const primaryRef = useRef( null );
 	const handleRef = useRef( null );
-	useEffect( () => {
-		primaryRef.current?.focus();
-	}, [] );
 
 	return (
 		<ModalShell
 			title={ title }
 			onDismiss={ onCancel }
 			handleRef={ handleRef }
+			initialFocus={ primaryRef }
 		>
 			<div className="topology-modal__body">{ body }</div>
 			<div className="topology-modal__actions">
@@ -331,8 +333,8 @@ export function ConfirmModal( {
 }
 
 /**
- * PromptModal — a single-line text prompt. The input takes focus and selects
- * its initial value on mount, Enter submits, and confirm stays disabled — so
+ * PromptModal — a single-line text prompt. The input takes first focus and
+ * selects its initial value, Enter submits, and confirm stays disabled — so
  * Enter does nothing — while the value is empty or fails `pattern`. Each
  * answer runs once the exit has played, the first one given alone.
  *
@@ -363,17 +365,14 @@ export function PromptModal( {
 	const inputRef = useRef( null );
 	const handleRef = useRef( null );
 	const ready = '' !== value && ( ! pattern || pattern.test( value ) );
-
-	useEffect( () => {
-		inputRef.current?.focus();
-		inputRef.current?.select();
-	}, [] );
+	useEffect( () => inputRef.current?.select(), [] );
 
 	return (
 		<ModalShell
 			title={ title }
 			onDismiss={ onCancel }
 			handleRef={ handleRef }
+			initialFocus={ inputRef }
 			onSubmit={ () =>
 				handleRef.current.closeWith( () => onConfirm( value ) )
 			}
@@ -461,11 +460,7 @@ export function NewNodeModal( {
 	const [ refused, reportRefusal ] = useFieldRefusals();
 	const nameRef = useRef( null );
 	const handleRef = useRef( null );
-
-	useEffect( () => {
-		nameRef.current?.focus();
-		nameRef.current?.select();
-	}, [] );
+	useEffect( () => nameRef.current?.select(), [] );
 
 	const valid = '' !== name.trim() && ! refused;
 	const submit = () => {
@@ -487,6 +482,7 @@ export function NewNodeModal( {
 			title={ title }
 			onDismiss={ onCancel }
 			handleRef={ handleRef }
+			initialFocus={ nameRef }
 			onSubmit={ submit }
 		>
 			<div className="topology-modal__body">

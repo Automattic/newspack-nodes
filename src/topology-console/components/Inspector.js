@@ -1373,11 +1373,7 @@ function CommandArgModal( {
 		args.map( ( arg ) => arg.default ?? '' )
 	);
 	const [ refused, reportRefusal ] = useFieldRefusals();
-	const bodyRef = useRef( null );
 	const handleRef = useRef( null );
-	useEffect( () => {
-		bodyRef.current?.querySelector( 'input, select, textarea' )?.focus();
-	}, [] );
 
 	const struct = 'struct' === value ? parseStruct( values[ 0 ] ) : undefined;
 	const unready =
@@ -1414,9 +1410,10 @@ function CommandArgModal( {
 			title={ verb }
 			onDismiss={ onDismiss }
 			handleRef={ handleRef }
+			initialFocus="field"
 			onSubmit={ run }
 		>
-			<div className="topology-modal__body" ref={ bodyRef }>
+			<div className="topology-modal__body">
 				{ args.map( ( arg, i ) => (
 					<CtorField
 						key={ arg.name }

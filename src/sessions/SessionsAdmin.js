@@ -15,7 +15,7 @@
  * reason for staying well under it.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useSessionsGraph } from './hooks/useSessionsGraph';
@@ -324,16 +324,11 @@ function CreateSessionModal( {
 	const [ ttl, setTtl ] = useState( String( DEFAULT_TTL_S ) );
 	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
-	const labelRef = useRef( null );
 	const modal = useRef( null );
 
 	const status = invalid
 		? invalid
 		: answerStatus( answer, CREATE_TEXTS, busy ).text;
-
-	useEffect( () => {
-		labelRef.current?.focus();
-	}, [] );
 
 	const handleCreate = () => {
 		const trimmed = label.trim();
@@ -355,6 +350,7 @@ function CreateSessionModal( {
 			onClose={ onCancel }
 			onSubmit={ handleCreate }
 			handleRef={ modal }
+			initialFocus="field"
 		>
 			<ModalHeader title={ __( 'Issue a Session', 'newspack-nodes' ) } />
 			<table className="form-table" style={ { maxWidth: '600px' } }>
@@ -367,7 +363,6 @@ function CreateSessionModal( {
 						</th>
 						<td>
 							<input
-								ref={ labelRef }
 								type="text"
 								id="new-session-label"
 								className="regular-text"

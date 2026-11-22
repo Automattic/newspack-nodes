@@ -445,6 +445,26 @@ describe( 'ModalShell', () => {
 		);
 	} );
 
+	it( 'hands first focus to the element initialFocus names', () => {
+		const pick = createRef();
+		const { getByRole } = render(
+			<ModalShell
+				title="Pipit picker 643"
+				onDismiss={ () => {} }
+				initialFocus={ pick }
+			>
+				<button type="button">pipit other</button>
+				<button type="button" ref={ pick }>
+					pipit pick
+				</button>
+			</ModalShell>
+		);
+
+		expect( document.activeElement ).toBe(
+			getByRole( 'button', { name: 'pipit pick' } )
+		);
+	} );
+
 	it( 'locks the page scroll while open, as every shared dialog does', () => {
 		const { unmount } = render(
 			<ModalShell title="Pipit lock" onDismiss={ () => {} } />
@@ -546,6 +566,21 @@ describe( 'ModalShell', () => {
 } );
 
 describe( 'ConfirmModal', () => {
+	it( 'focuses its confirm button on open', () => {
+		const { getByRole } = render(
+			<ConfirmModal
+				title="Plover 644?"
+				body=""
+				confirmLabel="Plover yes"
+				onConfirm={ () => {} }
+				onCancel={ () => {} }
+			/>
+		);
+		expect( document.activeElement ).toBe(
+			getByRole( 'button', { name: 'Plover yes' } )
+		);
+	} );
+
 	it( 'renders title + body + both action buttons', () => {
 		const { getByText } = render(
 			<ConfirmModal
@@ -692,6 +727,45 @@ const panelForm = ( baseElement ) =>
 	baseElement.querySelector( 'form.topology-modal' );
 
 describe( 'PromptModal', () => {
+	it( 'keeps the caret where it was when focus leaves the input and comes back', () => {
+		const { getByRole } = render(
+			<PromptModal
+				title="Rename 646"
+				body=""
+				initialValue="knot-646"
+				onConfirm={ () => {} }
+				onCancel={ () => {} }
+			/>
+		);
+		const input = getByRole( 'textbox' );
+		input.setSelectionRange( 3, 3 );
+
+		getByRole( 'button', { name: 'Cancel' } ).focus();
+		input.focus();
+
+		expect( [ input.selectionStart, input.selectionEnd ] ).toEqual( [
+			3, 3,
+		] );
+	} );
+
+	it( 'focuses its input on open with the initial value selected', () => {
+		const { getByRole } = render(
+			<PromptModal
+				title="Rename 645"
+				body=""
+				initialValue="godwit-645"
+				onConfirm={ () => {} }
+				onCancel={ () => {} }
+			/>
+		);
+		const input = getByRole( 'textbox' );
+		expect( document.activeElement ).toBe( input );
+		expect( [ input.selectionStart, input.selectionEnd ] ).toEqual( [
+			0,
+			'godwit-645'.length,
+		] );
+	} );
+
 	it( 'confirms the input value when its form submits', () => {
 		const onConfirm = jest.fn();
 		const { baseElement } = render(
@@ -1072,6 +1146,35 @@ describe( 'NewNodeModal', () => {
 		expect( document.activeElement ).toBe(
 			baseElement.querySelector( '#newspack-nodes-newnode-name' )
 		);
+	} );
+
+	it( 'keeps the caret in the name when focus leaves it and comes back', () => {
+		const { baseElement, getByRole } = render(
+			<NewNodeModal { ...baseProps } />
+		);
+		const name = baseElement.querySelector(
+			'#newspack-nodes-newnode-name'
+		);
+		name.setSelectionRange( 1, 1 );
+
+		getByRole( 'button', { name: 'Cancel' } ).focus();
+		name.focus();
+
+		expect( [ name.selectionStart, name.selectionEnd ] ).toEqual( [
+			1, 1,
+		] );
+	} );
+
+	it( 'selects the generated name as it focuses it', () => {
+		const { baseElement } = render( <NewNodeModal { ...baseProps } /> );
+		const name = baseElement.querySelector(
+			'#newspack-nodes-newnode-name'
+		);
+		expect( [ name.selectionStart, name.selectionEnd ] ).toEqual( [
+			0,
+			name.value.length,
+		] );
+		expect( name.value.length ).toBeGreaterThan( 0 );
 	} );
 } );
 

@@ -6,7 +6,7 @@
  * cancel runs once the exit has played, the first one given alone.
  */
 
-import { useEffect, useRef } from '@wordpress/element';
+import { useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import Skeleton from '@newspack-nodes/shared/components/Skeleton';
 import { ModalShell } from './Modal';
@@ -14,7 +14,7 @@ import { ModalShell } from './Modal';
 /**
  * Saved-topology picker.
  *
- * Cancel takes focus on mount, so Enter dismisses instead of loading whichever
+ * Cancel takes first focus, so Enter dismisses instead of loading whichever
  * topology happens to sort first.
  *
  * @param {Object}                 props
@@ -45,9 +45,6 @@ export default function OpenTopologyModal( {
 } ) {
 	const cancelRef = useRef( null );
 	const handleRef = useRef( null );
-	useEffect( () => {
-		cancelRef.current?.focus();
-	}, [] );
 
 	const grouped = { user: [], stock: [] };
 	for ( const t of topologies ) {
@@ -59,6 +56,7 @@ export default function OpenTopologyModal( {
 			title={ __( 'Open topology', 'newspack-nodes' ) }
 			onDismiss={ onCancel }
 			handleRef={ handleRef }
+			initialFocus={ cancelRef }
 			className="topology-modal--wide"
 		>
 			<div className="topology-modal__body">

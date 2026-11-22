@@ -22,7 +22,7 @@
  * WordPress's structural `form-table` layout.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useVaultGraph } from './hooks/useVaultGraph';
@@ -36,7 +36,7 @@ import { useSubjectAnswers } from '@newspack-nodes/shared/hooks/useSubjectAnswer
 /**
  * Minimal confirm dialog for a removal.
  *
- * The confirm button takes focus on mount, so the dialog is operable from the
+ * The confirm button takes first focus, so the dialog is operable from the
  * keyboard the moment it opens. ESC and the backdrop cancel through `Modal`.
  * Remove runs the removal at once, then plays the exit like Cancel.
  *
@@ -49,15 +49,12 @@ function ConfirmRemoveModal( { onClose, onConfirm } ) {
 	const confirmRef = useRef( null );
 	const modal = useRef( null );
 
-	useEffect( () => {
-		confirmRef.current?.focus();
-	}, [] );
-
 	return (
 		<Modal
 			ariaLabel={ __( 'Remove server', 'newspack-nodes' ) }
 			onClose={ onClose }
 			handleRef={ modal }
+			initialFocus={ confirmRef }
 		>
 			<p>
 				{ __(
@@ -297,16 +294,10 @@ function ServerModal( { server, onSave, answer, busy, onClose, handleRef } ) {
 	const [ scheme, setScheme ] = useState( server.auth_scheme ?? '' );
 	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
-	const idRef = useRef( null );
 
 	const status = invalid
 		? { text: invalid, tone: 'is-error' }
 		: answerStatus( answer, VERB_TEXTS[ isNew ? 'add' : 'update' ], busy );
-
-	// Focus the first field when the modal opens.
-	useEffect( () => {
-		idRef.current?.focus();
-	}, [] );
 
 	const handleSave = () => {
 		const trimmedId = id.trim();
@@ -333,6 +324,7 @@ function ServerModal( { server, onSave, answer, busy, onClose, handleRef } ) {
 			onClose={ onClose }
 			onSubmit={ handleSave }
 			handleRef={ handleRef }
+			initialFocus="field"
 		>
 			<ModalHeader title={ title } />
 			<table className="form-table" style={ { maxWidth: '600px' } }>
@@ -345,7 +337,6 @@ function ServerModal( { server, onSave, answer, busy, onClose, handleRef } ) {
 						</th>
 						<td>
 							<input
-								ref={ idRef }
 								type="text"
 								id="vault-server-id"
 								className="regular-text"

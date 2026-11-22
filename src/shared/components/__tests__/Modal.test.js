@@ -1102,3 +1102,37 @@ test( 'Tab in a popover portalled outside the box is left to the popover', () =>
 		slot.remove();
 	}
 } );
+
+test( 'initialFocus names the element that takes first focus over the title', () => {
+	function Picker() {
+		const pick = useRef( null );
+		return (
+			<Modal onClose={ () => {} } initialFocus={ pick }>
+				<ModalHeader title="Turnstone picker 641" />
+				<button type="button">turnstone other</button>
+				<button type="button" ref={ pick }>
+					turnstone pick
+				</button>
+			</Modal>
+		);
+	}
+	render( <Picker /> );
+
+	expect( document.activeElement ).toBe(
+		screen.getByRole( 'button', { name: 'turnstone pick' } )
+	);
+} );
+
+test( "Modal's initialFocus 'field' focuses its first field", () => {
+	render(
+		<Modal onClose={ () => {} } initialFocus="field">
+			<ModalHeader title="Redshank form 642" />
+			<button type="button">redshank button</button>
+			<textarea aria-label="redshank notes" />
+		</Modal>
+	);
+
+	expect( document.activeElement ).toBe(
+		screen.getByRole( 'textbox', { name: 'redshank notes' } )
+	);
+} );

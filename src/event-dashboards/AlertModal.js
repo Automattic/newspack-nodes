@@ -17,7 +17,7 @@
  * the close icon.
  */
 
-import { useEffect, useId, useRef } from '@wordpress/element';
+import { useId, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import Modal, { ModalHeader } from '@newspack-nodes/shared/components/Modal';
 
@@ -35,14 +35,14 @@ export default function AlertModal( { title, message, onClose } ) {
 	const okRef = useRef( null );
 	const handle = useRef( null );
 	const messageId = useId();
-	// OK takes focus, so Enter dismisses without a tab stop.
-	useEffect( () => okRef.current?.focus(), [] );
 
 	return (
 		<Modal
 			role="alertdialog"
 			onClose={ onClose }
 			handleRef={ handle }
+			// OK takes focus, so Enter dismisses without a tab stop.
+			initialFocus={ okRef }
 			ariaDescribedby={ messageId }
 			className="nodes-tm__alert"
 		>
