@@ -37,7 +37,7 @@ test( 'its header holds the title and a labelled icon close as siblings', () => 
 	const onClose = jest.fn();
 	render(
 		<Modal ariaLabel="Quarry notes 62" onClose={ onClose }>
-			<ModalHeader title="Quarry notes 62" onClose={ onClose } />
+			<ModalHeader title="Quarry notes 62" />
 		</Modal>
 	);
 
@@ -65,7 +65,7 @@ test( 'its header carries a long title whole in the title attribute', () => {
 		'Rebalance every partition of the heron-ledger-archive fleet onto the egret spokes';
 	render(
 		<Modal ariaLabel={ long } onClose={ () => {} }>
-			<ModalHeader title={ long } onClose={ () => {} } />
+			<ModalHeader title={ long } />
 		</Modal>
 	);
 
@@ -77,7 +77,7 @@ test( 'its header carries a long title whole in the title attribute', () => {
 test( 'a dialog headed by ModalHeader is named by its title alone', () => {
 	render(
 		<Modal onClose={ () => {} }>
-			<ModalHeader title="Quarry ledger 81" onClose={ () => {} } />
+			<ModalHeader title="Quarry ledger 81" />
 		</Modal>
 	);
 
@@ -91,11 +91,7 @@ test( 'a dialog headed by ModalHeader is named by its title alone', () => {
 test( 'its header labels the close in the words the caller hands it', () => {
 	render(
 		<Modal onClose={ () => {} }>
-			<ModalHeader
-				title="t"
-				onClose={ () => {} }
-				closeLabel="Cerrar 81"
-			/>
+			<ModalHeader title="t" closeLabel="Cerrar 81" />
 		</Modal>
 	);
 
@@ -105,9 +101,9 @@ test( 'its header labels the close in the words the caller hands it', () => {
 test( 'its header refuses to render outside a dialog that it can name', () => {
 	const quiet = jest.spyOn( console, 'error' ).mockImplementation( () => {} );
 	try {
-		expect( () =>
-			render( <ModalHeader title="t" onClose={ () => {} } /> )
-		).toThrow( 'ModalHeader' );
+		expect( () => render( <ModalHeader title="t" /> ) ).toThrow(
+			'ModalHeader'
+		);
 	} finally {
 		quiet.mockRestore();
 	}
@@ -117,7 +113,7 @@ test( 'its header hands the close button to the ref it is given', () => {
 	const ref = { current: null };
 	render(
 		<Modal ariaLabel="x" onClose={ () => {} }>
-			<ModalHeader title="t" onClose={ () => {} } closeRef={ ref } />
+			<ModalHeader title="t" closeRef={ ref } />
 		</Modal>
 	);
 
@@ -399,7 +395,7 @@ test( 'a submit stops at its own dialog', () => {
 test( 'a header title takes focus when a dialog hands it focus, outside the tab order', () => {
 	render(
 		<Modal onClose={ () => {} }>
-			<ModalHeader title="Ledger of Pier 9" onClose={ () => {} } />
+			<ModalHeader title="Ledger of Pier 9" />
 		</Modal>
 	);
 
@@ -560,7 +556,7 @@ test( 'the header close plays the exit before onClose', () => {
 	const onClose = jest.fn();
 	render(
 		<Modal onClose={ onClose }>
-			<ModalHeader title="Egret spoke 509" onClose={ onClose } />
+			<ModalHeader title="Egret spoke 509" />
 		</Modal>
 	);
 	const dialog = screen.getByRole( 'dialog', { name: 'Egret spoke 509' } );
@@ -669,7 +665,6 @@ test( 'actions render between the title and the close', () => {
 		<Modal onClose={ () => {} }>
 			<ModalHeader
 				title="Window 845"
-				onClose={ () => {} }
 				actions={ <button type="button">Back 845</button> }
 			/>
 		</Modal>
@@ -687,7 +682,7 @@ test( 'actions render between the title and the close', () => {
 test( 'compact puts its modifier on the header', () => {
 	render(
 		<Modal onClose={ () => {} }>
-			<ModalHeader title="Picker 958" onClose={ () => {} } compact />
+			<ModalHeader title="Picker 958" compact />
 		</Modal>
 	);
 
@@ -716,41 +711,24 @@ test( "Confirm's header is compact", () => {
 	).toBe( true );
 } );
 
-test( 'a header in a shell without ModalClose runs its own onClose at once', () => {
-	const onClose = jest.fn();
+test( 'a header outside a ModalClose draws no close button', () => {
 	render(
 		<ModalTitleId.Provider value="shell-title-1061">
-			<ModalHeader title="Console 1061" onClose={ onClose } />
+			<ModalHeader title="Console 1061" />
 		</ModalTitleId.Provider>
-	);
-
-	fireEvent.click( screen.getByRole( 'button', { name: 'Close' } ) );
-	expect( onClose ).toHaveBeenCalledTimes( 1 );
-} );
-
-test( 'a Modal without onClose draws no close button, whatever its header is handed', () => {
-	render(
-		<Modal ariaLabel="Lapwing ledger">
-			<ModalHeader title="Lapwing ledger" onClose={ () => {} } />
-		</Modal>
 	);
 
 	expect( screen.queryByRole( 'button', { name: 'Close' } ) ).toBeNull();
 } );
 
-test( 'a dismissible Modal draws its header close without a header onClose', () => {
-	jest.useFakeTimers();
-	const onClose = jest.fn();
+test( 'a Modal without onClose draws no close button', () => {
 	render(
-		<Modal onClose={ onClose }>
-			<ModalHeader title="Avocet ledger" />
+		<Modal ariaLabel="Lapwing ledger">
+			<ModalHeader title="Lapwing ledger" />
 		</Modal>
 	);
 
-	fireEvent.click( screen.getByRole( 'button', { name: 'Close' } ) );
-	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
-
-	expect( onClose ).toHaveBeenCalledTimes( 1 );
+	expect( screen.queryByRole( 'button', { name: 'Close' } ) ).toBeNull();
 } );
 
 test( "an ESC a child's capture handler prevented leaves the dialog open", () => {
@@ -818,7 +796,7 @@ test( 'a mousedown in a popover portalled outside the box leaves the dialog open
 test( 'a dialog with a header moves focus to its title on open', () => {
 	render(
 		<Modal onClose={ () => {} }>
-			<ModalHeader title="Whimbrel ledger" onClose={ () => {} } />
+			<ModalHeader title="Whimbrel ledger" />
 			<button type="button">Whimbrel action</button>
 		</Modal>
 	);
@@ -836,7 +814,7 @@ test( 'a field the caller focuses on open keeps focus', () => {
 	}
 	render(
 		<Modal onClose={ () => {} }>
-			<ModalHeader title="Knot form" onClose={ () => {} } />
+			<ModalHeader title="Knot form" />
 			<Form />
 		</Modal>
 	);
@@ -864,7 +842,7 @@ test( 'focus returns to the opener once a dialog that moved it closes', () => {
 	opener.focus();
 	const { unmount } = render(
 		<Modal onClose={ () => {} }>
-			<ModalHeader title="Ruff ledger" onClose={ () => {} } />
+			<ModalHeader title="Ruff ledger" />
 		</Modal>
 	);
 	expect( document.activeElement ).not.toBe( opener );
@@ -882,7 +860,7 @@ test.each( [
 	( key, where, shiftKey, target ) => {
 		render(
 			<Modal onClose={ () => {} }>
-				<ModalHeader title="Godwit ledger" onClose={ () => {} } />
+				<ModalHeader title="Godwit ledger" />
 				<button type="button">Godwit first</button>
 				<button type="button">Godwit last</button>
 			</Modal>
@@ -954,7 +932,7 @@ test( 'Tab in a popover portalled outside the box is left to the popover', () =>
 	try {
 		render(
 			<Modal onClose={ () => {} }>
-				<ModalHeader title="Knot link" onClose={ () => {} } />
+				<ModalHeader title="Knot link" />
 				<button type="button">Knot first</button>
 			</Modal>
 		);

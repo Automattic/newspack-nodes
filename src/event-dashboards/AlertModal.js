@@ -43,7 +43,7 @@ export default function AlertModal( { title, message, onClose } ) {
 			handleRef={ handle }
 			className="nodes-tm__alert"
 		>
-			<ModalHeader title={ title } onClose={ onClose } compact />
+			<ModalHeader title={ title } compact />
 			<div className="nodes-tm__alert-body">{ message }</div>
 			<div className="newspack-nodes-modal__actions">
 				<button

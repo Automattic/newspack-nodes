@@ -356,10 +356,7 @@ function CreateSessionModal( {
 			onSubmit={ handleCreate }
 			handleRef={ modal }
 		>
-			<ModalHeader
-				title={ __( 'Issue a Session', 'newspack-nodes' ) }
-				onClose={ onCancel }
-			/>
+			<ModalHeader title={ __( 'Issue a Session', 'newspack-nodes' ) } />
 			<table className="form-table" style={ { maxWidth: '600px' } }>
 				<tbody>
 					<tr>
@@ -473,10 +470,7 @@ function IssuedKeyModal( { session, onClose } ) {
 	const modal = useRef( null );
 	return (
 		<Modal onClose={ onClose } handleRef={ modal }>
-			<ModalHeader
-				title={ __( 'Session key', 'newspack-nodes' ) }
-				onClose={ onClose }
-			/>
+			<ModalHeader title={ __( 'Session key', 'newspack-nodes' ) } />
 			<p>
 				{ __(
 					'Copy this now. It is shown once and cannot be recovered from the listing.',

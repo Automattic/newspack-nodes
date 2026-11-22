@@ -63,14 +63,14 @@ export function BodyPortal( { children } ) {
 export const ModalTitleId = createContext( null );
 
 /**
- * The close a dialog shell plays its exit through: `ModalHeader`'s close
- * button runs it in place of its own `onClose`. `ModalBox` provides it from
- * the shell's `useDialog`, or null for a shell without `onClose`, which stays
- * open until its caller unmounts it; outside every shell it is undefined.
+ * The close a dialog shell plays its exit through, which `ModalHeader`'s close
+ * button runs. `ModalBox` provides it from the shell's `useDialog`, or null
+ * for a shell without `onClose`, which stays open until its caller unmounts
+ * it.
  *
- * @type {import('react').Context<(() => void)|null|undefined>}
+ * @type {import('react').Context<(() => void)|null>}
  */
-export const ModalClose = createContext( undefined );
+export const ModalClose = createContext( null );
 
 /**
  * The one dialog header: the title, then any `actions`, then an icon close
@@ -80,12 +80,10 @@ export const ModalClose = createContext( undefined );
  * holds one line, ellipsised, with its whole text in its `title` attribute.
  * A dialog that focuses its close button first hands `closeRef` in.
  *
- * Inside a shell, the close button draws when the shell can be dismissed, and
- * plays the shell's close: the exit and then the shell's own `onClose`. A
- * shell without `onClose` provides a null `ModalClose`, so its header draws
- * no close whatever `onClose` it is handed. Outside every shell the button
- * draws given `onClose`, and runs it at once. `compact` is the second header
- * style, for consoles, confirms and pickers.
+ * The close button draws when the shell can be dismissed, and plays the
+ * shell's close: the exit and then the shell's own `onClose`. A shell without
+ * `onClose` provides a null `ModalClose`, so its header draws no close.
+ * `compact` is the second header style, for consoles, confirms and pickers.
  *
  * `closeLabel` defaults to the substrate's "Close", which only a substrate
  * bundle translates; a consumer hands in its own, translated in its own text
@@ -93,7 +91,6 @@ export const ModalClose = createContext( undefined );
  *
  * @param {Object}                                 props
  * @param {string}                                 props.title        The dialog's title, and its name.
- * @param {() => void}                             [props.onClose]    Outside every shell, draws the close button and runs on its click.
  * @param {import('react').Ref<HTMLButtonElement>} [props.closeRef]   Takes the close button.
  * @param {string}                                 [props.closeLabel] The close button's name.
  * @param {import('react').ReactNode}              [props.actions]    Rendered between the title and the close.
@@ -103,15 +100,13 @@ export const ModalClose = createContext( undefined );
  */
 export function ModalHeader( {
 	title,
-	onClose,
 	closeRef,
 	closeLabel = __( 'Close', 'newspack-nodes' ),
 	actions,
 	compact = false,
 } ) {
 	const titleId = useContext( ModalTitleId );
-	const shellClose = useContext( ModalClose );
-	const close = undefined === shellClose ? onClose : shellClose;
+	const close = useContext( ModalClose );
 	if ( null === titleId ) {
 		throw new Error(
 			'ModalHeader renders inside a dialog that provides ModalTitleId'
@@ -337,7 +332,7 @@ export function Confirm( { title, body, yes, no, onYes, onNo } ) {
 	useEffect( () => noRef.current?.focus(), [] );
 	return (
 		<Modal onClose={ onNo } handleRef={ handle }>
-			<ModalHeader title={ title } onClose={ onNo } compact />
+			<ModalHeader title={ title } compact />
 			{ body && <p>{ body }</p> }
 			<div className="newspack-nodes-modal__actions">
 				<button

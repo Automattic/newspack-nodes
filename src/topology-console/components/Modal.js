@@ -226,11 +226,7 @@ export function ModalShell( {
 					style={ modalStyle }
 					onSubmit={ onSubmit }
 				>
-					<ModalHeader
-						title={ title }
-						onClose={ onDismiss }
-						compact
-					/>
+					<ModalHeader title={ title } compact />
 					{ children }
 				</ModalBox>
 			</div>

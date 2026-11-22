@@ -385,7 +385,7 @@ function RunModal( { action, rows, close } ) {
 			ariaLabel={ action.hideModalHeader ? label : undefined }
 		>
 			{ ! action.hideModalHeader && (
-				<ModalHeader title={ header || label } onClose={ close } />
+				<ModalHeader title={ header || label } />
 			) }
 			<div ref={ body }>
 				<action.RenderModal

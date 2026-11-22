@@ -334,7 +334,7 @@ function ServerModal( { server, onSave, answer, busy, onClose, handleRef } ) {
 			onSubmit={ handleSave }
 			handleRef={ handleRef }
 		>
-			<ModalHeader title={ title } onClose={ onClose } />
+			<ModalHeader title={ title } />
 			<table className="form-table" style={ { maxWidth: '600px' } }>
 				<tbody>
 					<tr>
