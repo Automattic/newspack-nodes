@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`AlertModal` is a `Modal` with `role="alertdialog"`,** portalled to the body under the skin classes like every other dialog, with a compact header; its OK closes through the handle.
 - **`DataViewsList`'s action modals draw on the shared shell.** An action's `modalSize` draws `small` and `large` as named, `fill` as `large` and anything else as `medium`; `hideModalHeader` names the dialog by the action's label; `modalFocusOnMount: false` leaves the body unfocused and the dialog's title takes focus, and otherwise the body's first tabbable takes it; `closeModal` plays the exit.
 - `useFocusTrap` exports its `TABBABLE` selector, which `DataViewsList` reuses.
+- The `installViewport( narrow, { reducedMotion } )` test utility answers each media query on its own terms: a width query from the viewport, `(prefers-reduced-motion: reduce)` from `reducedMotion`, false unless a test passes `true`, and any other query false. A narrow viewport therefore no longer reports reduced motion, so a narrow test sees a dialog's exit play.
 
 ## [2.163.1] - 2026-11-18
 
