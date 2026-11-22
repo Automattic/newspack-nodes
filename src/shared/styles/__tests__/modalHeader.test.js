@@ -197,6 +197,18 @@ describe( 'the page under an open dialog', () => {
 		} );
 		expect( reused ).toBe( false );
 	} );
+
+	it( 'blurs behind a dialog wearing the regular header, and only there', () => {
+		const regular = `${ BOX }__backdrop:has(> ${ BOX } ${ BOX }__header:not(${ BOX }__header--compact))`;
+		expect( value( modal, regular, 'backdrop-filter' ) ).toBe(
+			'blur(4px)'
+		);
+		const blurred = [];
+		modal.walkDecls( 'backdrop-filter', ( d ) =>
+			blurred.push( d.parent.selector )
+		);
+		expect( blurred ).toEqual( [ regular ] );
+	} );
 } );
 
 describe( 'the motion', () => {

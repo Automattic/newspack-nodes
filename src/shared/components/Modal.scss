@@ -21,6 +21,16 @@
 	background: var(--scrim);
 }
 
+// A dialog wearing the regular header blurs the page behind it.
+.newspack-nodes-modal__backdrop:has(
+		> .newspack-nodes-modal
+			.newspack-nodes-modal__header:not(
+				.newspack-nodes-modal__header--compact
+			)
+	) {
+	backdrop-filter: blur(4px);
+}
+
 .newspack-nodes-modal__backdrop > .newspack-nodes-modal {
 	box-sizing: border-box;
 	width: 90%;
