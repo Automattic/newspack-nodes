@@ -231,21 +231,23 @@ export default function ReplFooter( {
 		}
 	}, [ transcript, expanded ] );
 
-	// Esc minimizes the open transcript (document-level).
+	// @longform Esc minimizes the open transcript. It hears the key last, on
+	// the window, so a dialog open over the console takes its Esc first and
+	// the transcript stays open until the next one.
 	useEffect( () => {
 		if ( ! expanded ) {
 			return undefined;
 		}
 		const handler = ( ev ) => {
-			if ( ev.key === 'Escape' ) {
+			if ( ev.key === 'Escape' && ! ev.defaultPrevented ) {
 				ev.preventDefault();
 				setExpanded( false );
 				// Blur the input so the `/` shortcut fires next keystroke.
 				inputRef.current?.blur();
 			}
 		};
-		document.addEventListener( 'keydown', handler );
-		return () => document.removeEventListener( 'keydown', handler );
+		window.addEventListener( 'keydown', handler );
+		return () => window.removeEventListener( 'keydown', handler );
 	}, [ expanded, setExpanded, inputRef ] );
 
 	// `/` focuses the REPL input, claimed on window before any page listener.

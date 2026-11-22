@@ -752,3 +752,150 @@ test( 'a dismissible Modal draws its header close without a header onClose', () 
 
 	expect( onClose ).toHaveBeenCalledTimes( 1 );
 } );
+
+test( "an ESC a child's capture handler prevented leaves the dialog open", () => {
+	jest.useFakeTimers();
+	const onClose = jest.fn();
+	function Picker() {
+		const ref = useRef( null );
+		useEffect( () => {
+			const el = ref.current;
+			const take = ( e ) => 'Escape' === e.key && e.preventDefault();
+			el.addEventListener( 'keydown', take, true );
+			return () => el.removeEventListener( 'keydown', take, true );
+		}, [] );
+		return <input ref={ ref } aria-label="Sanderling search" />;
+	}
+	render(
+		<Modal ariaLabel="Sanderling ask" onClose={ onClose }>
+			<Picker />
+		</Modal>
+	);
+
+	fireEvent.keyDown(
+		screen.getByRole( 'textbox', { name: 'Sanderling search' } ),
+		{ key: 'Escape' }
+	);
+	act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+
+	expect( onClose ).not.toHaveBeenCalled();
+	expect(
+		backdropOf( screen.getByRole( 'dialog' ) ).className
+	).not.toContain( 'is-closing' );
+} );
+
+test( 'a mousedown in a popover portalled outside the box leaves the dialog open; the backdrop closes it', () => {
+	jest.useFakeTimers();
+	const onClose = jest.fn();
+	const slot = document.createElement( 'div' );
+	slot.className = 'popover-slot-stub';
+	document.body.appendChild( slot );
+	try {
+		render(
+			<Modal ariaLabel="Redshank menu" onClose={ onClose }>
+				<p>menu owner</p>
+			</Modal>
+		);
+		render( <button type="button">Redshank item</button>, {
+			container: slot,
+		} );
+
+		fireEvent.mouseDown(
+			screen.getByRole( 'button', { name: 'Redshank item' } )
+		);
+		fireEvent.mouseDown( document.body );
+		act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+		expect( onClose ).not.toHaveBeenCalled();
+
+		fireEvent.mouseDown( backdropOf( screen.getByRole( 'dialog' ) ) );
+		act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+		expect( onClose ).toHaveBeenCalledTimes( 1 );
+	} finally {
+		slot.remove();
+	}
+} );
+
+test( 'a dialog with a header moves focus to its title on open', () => {
+	render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader title="Whimbrel ledger" onClose={ () => {} } />
+			<button type="button">Whimbrel action</button>
+		</Modal>
+	);
+
+	expect( document.activeElement ).toBe(
+		screen.getByRole( 'heading', { name: 'Whimbrel ledger' } )
+	);
+} );
+
+test( 'a field the caller focuses on open keeps focus', () => {
+	function Form() {
+		const ref = useRef( null );
+		useEffect( () => ref.current.focus(), [] );
+		return <input ref={ ref } aria-label="Knot name" />;
+	}
+	render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader title="Knot form" onClose={ () => {} } />
+			<Form />
+		</Modal>
+	);
+
+	expect( document.activeElement ).toBe(
+		screen.getByRole( 'textbox', { name: 'Knot name' } )
+	);
+} );
+
+test( 'a header-less dialog moves focus to its box, out of the tab order', () => {
+	render(
+		<Modal ariaLabel="Stint remove" onClose={ () => {} }>
+			<p>Remove the stint?</p>
+		</Modal>
+	);
+
+	const dialog = screen.getByRole( 'dialog', { name: 'Stint remove' } );
+	expect( document.activeElement ).toBe( dialog );
+	expect( dialog.getAttribute( 'tabindex' ) ).toBe( '-1' );
+} );
+
+test( 'focus returns to the opener once a dialog that moved it closes', () => {
+	render( <button type="button">Ruff opener</button> );
+	const opener = screen.getByRole( 'button', { name: 'Ruff opener' } );
+	opener.focus();
+	const { unmount } = render(
+		<Modal onClose={ () => {} }>
+			<ModalHeader title="Ruff ledger" onClose={ () => {} } />
+		</Modal>
+	);
+	expect( document.activeElement ).not.toBe( opener );
+
+	unmount();
+
+	expect( document.activeElement ).toBe( opener );
+} );
+
+test.each( [
+	[ 'Shift+Tab', 'the last control', true, 'Godwit last' ],
+	[ 'Tab', 'the first control, its close', false, 'Close' ],
+] )(
+	'%s from the focused title stays in the dialog, at %s',
+	( key, where, shiftKey, target ) => {
+		render(
+			<Modal onClose={ () => {} }>
+				<ModalHeader title="Godwit ledger" onClose={ () => {} } />
+				<button type="button">Godwit first</button>
+				<button type="button">Godwit last</button>
+			</Modal>
+		);
+		const title = screen.getByRole( 'heading', { name: 'Godwit ledger' } );
+		expect( document.activeElement ).toBe( title );
+
+		expect( fireEvent.keyDown( title, { key: 'Tab', shiftKey } ) ).toBe(
+			false
+		);
+
+		expect( document.activeElement ).toBe(
+			screen.getByRole( 'button', { name: target } )
+		);
+	}
+);

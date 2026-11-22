@@ -1,7 +1,7 @@
 /**
  * useDialogLayer — the open dialogs, each ranked by when it first rendered.
- * Only the topmost answers Escape, an outside mousedown and Tab, so a dialog
- * opened from another leaves the first one open beneath it.
+ * Only the topmost answers Escape, a mousedown on its backdrop and Tab, so a
+ * dialog opened from another leaves the first one open beneath it.
  *
  * Rank is taken at render, not in the effect: effects run child-first, so a
  * dialog mounted open inside another in one commit would otherwise register

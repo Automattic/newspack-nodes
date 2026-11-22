@@ -411,6 +411,40 @@ describe( 'ModalShell', () => {
 		).toEqual( VIEWPORT_CENTRED );
 	} );
 
+	it( 'a mousedown outside the panel but off its backdrop leaves it open', () => {
+		const onDismiss = jest.fn();
+		const slot = document.createElement( 'div' );
+		document.body.appendChild( slot );
+		try {
+			const { baseElement } = render(
+				<ModalShell title="Pipit menu" onDismiss={ onDismiss } />
+			);
+			fireEvent.mouseDown( slot );
+			exit();
+			expect( onDismiss ).not.toHaveBeenCalled();
+
+			fireEvent.mouseDown(
+				baseElement.querySelector( '.topology-modal-backdrop' )
+			);
+			exit();
+			expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+		} finally {
+			slot.remove();
+		}
+	} );
+
+	it( 'moves focus to its title on open', () => {
+		const { getByRole } = render(
+			<ModalShell title="Pipit ledger" onDismiss={ () => {} }>
+				<button type="button">pipit action</button>
+			</ModalShell>
+		);
+
+		expect( document.activeElement ).toBe(
+			getByRole( 'heading', { name: 'Pipit ledger' } )
+		);
+	} );
+
 	it( "the console's header is compact", () => {
 		const { baseElement } = render(
 			<ModalShell title="Plover ledger 17" onDismiss={ () => {} } />

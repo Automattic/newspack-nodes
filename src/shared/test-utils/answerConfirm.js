@@ -2,7 +2,8 @@
 /**
  * answerConfirm — press one of a `Confirm`'s buttons and let its exit play, so
  * the answer has run by the time this returns. `throughExit` does the same for
- * any press that closes a dialog: an ESC, a submit, a mousedown outside.
+ * any press that closes a dialog: an ESC, a submit, a mousedown on the
+ * backdrop.
  *
  * Fake timers cover the press alone and real ones come back after it, so a
  * suite that waits on the real clock around the question keeps it. Only the

@@ -57,10 +57,9 @@ export function useFocusTrap( ref, returnFocus = null, isActive = () => true ) {
 			const first = tabbable[ 0 ];
 			const last = tabbable[ tabbable.length - 1 ];
 			const edge = e.shiftKey ? first : last;
-			if (
-				doc.activeElement === edge ||
-				! el.contains( doc.activeElement )
-			) {
+			const held = /** @type {HTMLElement} */ ( doc.activeElement );
+			// Focus on the title or the box, off the list, sits before first.
+			if ( held === edge || ! tabbable.includes( held ) ) {
 				e.preventDefault();
 				( e.shiftKey ? last : first ).focus();
 			}

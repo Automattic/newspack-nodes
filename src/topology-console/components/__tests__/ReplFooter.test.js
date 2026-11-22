@@ -5,6 +5,8 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import { useState } from '@wordpress/element';
 import ReplFooter from '../ReplFooter';
+import { ModalShell } from '../Modal';
+import { MODAL_EXIT_MS } from '@newspack-nodes/shared/hooks/useModalExit';
 
 const baseProps = {
 	prompt: '/_http/demo.p0',
@@ -276,6 +278,55 @@ describe( 'ReplFooter', () => {
 		);
 		fireEvent.keyDown( document, { key: 'Escape' } );
 		expect( onExpandedChange ).toHaveBeenCalledWith( false );
+	} );
+
+	it( 'leaves an Escape to a dialog opened over the expanded transcript, and collapses on the next', () => {
+		/**
+		 * An expanded footer with a console dialog open over it, the dialog
+		 * mounted after the footer as a console opens one.
+		 *
+		 * @return {import('react').ReactElement} The footer and the dialog.
+		 */
+		function Console() {
+			const [ expanded, setExpanded ] = useState( true );
+			const [ open, setOpen ] = useState( false );
+			return (
+				<>
+					<ReplFooter
+						{ ...baseProps }
+						expanded={ expanded }
+						onExpandedChange={ setExpanded }
+					/>
+					<button type="button" onClick={ () => setOpen( true ) }>
+						open dunlin
+					</button>
+					{ open && (
+						<ModalShell
+							title="Dunlin prompt"
+							onDismiss={ () => setOpen( false ) }
+						/>
+					) }
+				</>
+			);
+		}
+		jest.useFakeTimers();
+		try {
+			const { container, getByText, queryByRole } = render( <Console /> );
+			const transcriptOpen = () =>
+				null !== container.querySelector( '.is-expanded' );
+			fireEvent.click( getByText( 'open dunlin' ) );
+			expect( transcriptOpen() ).toBe( true );
+
+			fireEvent.keyDown( document, { key: 'Escape' } );
+			act( () => jest.advanceTimersByTime( MODAL_EXIT_MS ) );
+			expect( queryByRole( 'dialog' ) ).toBeNull();
+			expect( transcriptOpen() ).toBe( true );
+
+			fireEvent.keyDown( document, { key: 'Escape' } );
+			expect( transcriptOpen() ).toBe( false );
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( '`/` from non-editable target focuses input + expands', () => {

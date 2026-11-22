@@ -711,10 +711,10 @@ describe( 'DataViewsList', () => {
 				);
 			} );
 
-			it( 'moves no focus on mount when modalFocusOnMount is false', async () => {
-				const dialog = await open( { modalFocusOnMount: false } );
-				expect( dialog.contains( document.activeElement ) ).toBe(
-					false
+			it( 'leaves the action body unfocused when modalFocusOnMount is false, the dialog taking focus at its title', async () => {
+				await open( { modalFocusOnMount: false } );
+				expect( document.activeElement ).toBe(
+					screen.getByRole( 'heading', { name: 'Confirm the run' } )
 				);
 			} );
 		} );

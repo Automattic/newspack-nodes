@@ -5,8 +5,8 @@
  * stock dialogs built on them — a confirmation, a single-line prompt, and the
  * new-node form a palette drop opens.
  *
- * Every dialog closes four ways: its close button, ESC, a mousedown outside
- * the panel, and its own buttons through the shell's handle. Each plays the
+ * Every dialog closes four ways: its close button, ESC, a mousedown on the
+ * backdrop, and its own buttons through the shell's handle. Each plays the
  * shared exit before the dialog's close runs, the first close alone, and only
  * the topmost open dialog answers ESC and the mousedown. Each focuses on mount
  * where the answer begins — the confirm button for a yes/no, the text input
@@ -93,13 +93,14 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  * Its header is the shared `ModalHeader` in its compact style.
  *
  * It joins the shared dialog stack through `useDialog`, so only the topmost
- * open dialog answers ESC, an outside mousedown and Tab, and a dialog opened
- * from another closes alone, and draws the shared `ModalBox`. Every close
- * plays the shared exit: the backdrop wears `is-closing`, the panel is
- * `inert`, and `onDismiss` runs once the animation has had its time. A caller
- * closes the same way through `handleRef.current.close()`, or through
- * `closeWith( run )` to run `run` in place of `onDismiss`; only the first
- * close counts.
+ * open dialog answers ESC, a mousedown on the backdrop and Tab, and a dialog
+ * opened from another closes alone, and draws the shared `ModalBox`. On open
+ * it moves focus to its title unless the caller has already focused a field
+ * of its own. Every close plays the shared exit: the backdrop wears
+ * `is-closing`, the panel is `inert`, and `onDismiss` runs once the animation
+ * has had its time. A caller closes the same way through
+ * `handleRef.current.close()`, or through `closeWith( run )` to run `run` in
+ * place of `onDismiss`; only the first close counts.
  *
  * Given `onSubmit`, the panel itself is the dialog's `<form>` (see
  * `submitProps`); a wrapper inside it would break the panel's flex column and
@@ -108,7 +109,7 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  *
  * @param {Object}                    props
  * @param {string}                    props.title       Dialog title, also its accessible name.
- * @param {() => void}                props.onDismiss   Runs once a close (ESC, a mousedown outside the panel, the close button, the handle) has played the exit.
+ * @param {() => void}                props.onDismiss   Runs once a close (ESC, a mousedown on the backdrop, the close button, the handle) has played the exit.
  * @param {() => void}                [props.onSubmit]  The default action; makes the panel a form.
  * @param {{current: ?DialogHandle}}  [props.handleRef] Takes `{ close, closeWith }`, the animated close.
  * @param {boolean}                   [props.wide]      Add the large-panel modifier class.
@@ -126,11 +127,14 @@ export function ModalShell( {
 	children,
 } ) {
 	const ref = useRef( null );
+	const backdropRef = useRef( null );
 	// Sentinel at the render site: a dialog's panel is the one it is nested in.
 	const anchorRef = useRef( null );
 	const [ panelRect, setPanelRect ] = useState( null );
-	// The backdrop needs no handler: a mousedown on it is outside the panel.
-	const { closing, close } = useDialog( ref, onDismiss, { handleRef } );
+	const { closing, close } = useDialog( ref, onDismiss, {
+		handleRef,
+		backdropRef,
+	} );
 
 	useLayoutEffect( () => {
 		const panel = anchorRef.current?.closest( '.nodes-debug__panel' );
@@ -206,6 +210,7 @@ export function ModalShell( {
 					'topology-modal-backdrop',
 					closing && 'is-closing'
 				) }
+				ref={ backdropRef }
 				role="presentation"
 			>
 				<ModalBox
@@ -279,7 +284,7 @@ export function ModalField( { id, label, wide = false, children } ) {
  * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
  * @param {boolean}                   [props.danger]       Style the primary button as destructive.
  * @param {() => void}                props.onConfirm      Runs when the primary button is pressed, once the exit has played.
- * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel, once the exit has played.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown on the backdrop, once the exit has played.
  * @return {import('react').ReactNode} The dialog.
  */
 export function ConfirmModal( {
@@ -344,7 +349,7 @@ export function ConfirmModal( {
  * @param {string}                    [props.confirmLabel] Label on the primary button.
  * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
  * @param {(value: string) => void}   props.onConfirm      Runs with the entered value, once the exit has played.
- * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel, once the exit has played.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown on the backdrop, once the exit has played.
  * @return {import('react').ReactNode} The dialog.
  */
 export function PromptModal( {
@@ -442,7 +447,7 @@ export function PromptModal( {
  * @param {string[]}                                       [props.formatters] Registered formatter names, for `formatter_name` arguments.
  * @param {import('./CtorField').VaultEntry[]}             [props.vaults]     Vault entries, for `vault_id` arguments.
  * @param {(node: { name: string, args: string }) => void} props.onConfirm    Runs with the node id and its serialized args string, once the exit has played.
- * @param {() => void}                                     props.onCancel     Runs on cancel, ESC, and a mousedown outside the panel, once the exit has played.
+ * @param {() => void}                                     props.onCancel     Runs on cancel, ESC, and a mousedown on the backdrop, once the exit has played.
  * @return {import('react').ReactNode} The dialog.
  */
 export function NewNodeModal( {

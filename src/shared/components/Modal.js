@@ -158,26 +158,30 @@ export function ModalHeader( {
  * role and its `--<size>` modifier, so every dashboard's dialog looks identical
  * without declaring its own selectors.
  *
- * ESC and a mousedown outside the box close it, through the shared
+ * ESC and a mousedown on the backdrop close it, through the shared
  * `useDialog`, and only while it is the topmost open dialog, so a dialog
- * opened from another closes alone. Every close plays the exit: the backdrop
+ * opened from another closes alone. An ESC something inside already took, and
+ * a press in a popover the dialog opened, leave it open. On open, focus moves
+ * to the title, or to the box without one, unless the caller has already
+ * focused a field of its own. Every close plays the exit: the backdrop
  * wears `is-closing`, and `onClose` runs once the animation has had its time,
  * the box `inert` meanwhile, so an exiting dialog takes no click and no focus.
  * A caller closes the same way through `handleRef.current.close()`, or through
  * `closeWith( run )` to run `run` in place of `onClose`; only the first close
  * counts. Without `onClose` nothing dismisses it. The backdrop covers the
- * viewport and carries no handler of its own, which is what keeps it
- * `role="presentation"`: a click handler there would make it interactive, and
- * an interactive element owes the keyboard the equivalent ESC already
- * provides.
+ * viewport and stays `role="presentation"`: its mousedown is a pointer
+ * shortcut for the ESC the keyboard already has, which `useDialog` listens
+ * for rather than a handler on the element.
  *
  * It renders through `BodyPortal`, which is what lets a dialog cover the
  * `@wordpress/components` modal it was summoned from.
  *
- * Callers own their own initial focus, so each dialog can focus the element
- * that fits it; `useFocusTrap` keeps Tab inside the box and hands focus back
- * on close to the element `returnFocus` holds, else to the opener. Only the
- * topmost dialog traps Tab.
+ * First focus goes to the title, or to the box without one, unless the
+ * caller focuses a field of its own, which wins: each dialog can focus the
+ * element that fits it. `useFocusTrap` keeps Tab inside the box, from the
+ * title or the box as from any control, and hands focus back on close to the
+ * element `returnFocus` holds, else to the opener. Only the topmost dialog
+ * traps Tab.
  *
  * Given `onSubmit`, the box itself is the dialog's `<form>` (see
  * `submitProps`), so Enter in a field runs the default action; the caller's
@@ -218,9 +222,11 @@ export default function Modal( {
 	children,
 } ) {
 	const dialogRef = useRef( null );
+	const backdropRef = useRef( null );
 	const { closing, close } = useDialog( dialogRef, onClose, {
 		handleRef,
 		returnFocus,
+		backdropRef,
 	} );
 
 	return (
@@ -231,6 +237,7 @@ export default function Modal( {
 					closing && 'is-closing',
 					backdropClassName
 				) }
+				ref={ backdropRef }
 				role="presentation"
 			>
 				<ModalBox
@@ -289,6 +296,7 @@ export function ModalBox( {
 			ref={ boxRef }
 			className={ className }
 			role={ role }
+			tabIndex={ -1 }
 			// React 18 writes an unknown attribute as its string.
 			inert={ closing ? '' : undefined }
 			aria-modal="true"
