@@ -2500,9 +2500,13 @@
 	justify-content: center;
 	// 97px of header (32px admin bar + 65px station header) + the bottom's 24px gap.
 	padding: 121px 16px 24px;
-	// Above the overlay panel (z-index:999998): ModalShell portals to <body>, so the
-	// fixed full-viewport backdrop dims the whole page and sits over the panel.
-	z-index: 1000000;
+	backdrop-filter: tokens.$modal-backdrop-blur;
+	z-index: tokens.$layer-modal;
+
+	// A dialog the debug overlay's panel opens sits over that panel's 999998.
+	&.is-in-panel {
+		z-index: 1000000;
+	}
 }
 
 // ModalShell sets the two --nodes-modal-max-* custom properties from the debug

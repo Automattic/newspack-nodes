@@ -78,6 +78,9 @@ $layer-modal: 100000;
 $layer-modal-tooltip: 100001;
 $layer-modal-over: 100002;
 
+// What a dialog's backdrop does to the page behind it.
+$modal-backdrop-blur: blur(4px);
+
 // A chart's tooltip, portaled to the body: above every dialog, the debug
 // overlay (999998) and the console's modal backdrop (1000000).
 $layer-chart-tooltip: 1000001;

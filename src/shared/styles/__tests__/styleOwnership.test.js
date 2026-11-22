@@ -3048,6 +3048,33 @@ describe( 'audited appearance', () => {
 		).toEqual( [] );
 	} );
 
+	// @longform A page's dialog ranks with the page's other dialogs, under the
+	// floating debug overlay; only a dialog the overlay's own panel opens
+	// rises over that panel.
+	it( 'raises a console dialog over the debug overlay only from its panel', () => {
+		const panel = Number(
+			declarationsForSelector(
+				compile(
+					path.join( NODES_SRC, 'debug-overlay/debug-overlay.scss' )
+				),
+				'.nodes-debug__panel'
+			)[ 'z-index' ]
+		);
+		const layer = ( selector ) =>
+			Number(
+				declarationsForSelector( graphStylesheet, selector )[
+					'z-index'
+				]
+			);
+
+		expect( layer( '.topology-modal-backdrop' ) ).toBe(
+			layerToken( 'layer-modal' )
+		);
+		expect(
+			layer( '.topology-modal-backdrop.is-in-panel' )
+		).toBeGreaterThan( panel );
+	} );
+
 	it( 'dims the page behind every dialog with one skin scrim', () => {
 		expect(
 			declarationsForSelector(

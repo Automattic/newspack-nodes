@@ -276,6 +276,23 @@ describe( 'ModalShell', () => {
 		).toEqual( VIEWPORT_CENTRED );
 	} );
 
+	it( 'rises over the overlay only when it opens inside the panel', () => {
+		// A small panel still holds the dialog, though it cannot anchor it.
+		const backdrop = () =>
+			document.body.querySelector( '.topology-modal-backdrop' );
+		const { unmount } = renderShell(
+			overlayPanel( { width: 240, height: 118 } )
+		);
+		expect( backdrop().className ).toBe(
+			'topology-modal-backdrop is-in-panel'
+		);
+		unmount();
+
+		overlayPanel( { width: 900, height: 620 } );
+		renderShell();
+		expect( backdrop().className ).toBe( 'topology-modal-backdrop' );
+	} );
+
 	it( 'ignores a containing panel too small to hold a dialog', () => {
 		// Below the dialog's own floors the caps cannot contain it, so
 		// anchoring would paint it outside the panel it belongs to.

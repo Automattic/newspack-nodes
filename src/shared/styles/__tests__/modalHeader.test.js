@@ -22,6 +22,9 @@ const compile = ( file ) =>
 	);
 const ui = compile( UI );
 const modal = compile( MODAL );
+const consoleSheet = compile(
+	path.join( SRC, 'topology-console/styles/graph-view.scss' )
+);
 
 const BOX = '.newspack-nodes-modal';
 const SHARED = `:where(.newspack-nodes-ui) ${ BOX }`;
@@ -208,6 +211,13 @@ describe( 'the page under an open dialog', () => {
 			blurred.push( d.parent.selector )
 		);
 		expect( blurred ).toEqual( [ regular ] );
+	} );
+
+	it( "blurs behind every console dialog as the shared dialog's does", () => {
+		const regular = `${ BOX }__backdrop:has(> ${ BOX } ${ BOX }__header:not(${ BOX }__header--compact))`;
+		expect(
+			value( consoleSheet, '.topology-modal-backdrop', 'backdrop-filter' )
+		).toBe( value( modal, regular, 'backdrop-filter' ) );
 	} );
 } );
 

@@ -28,7 +28,7 @@
 				.newspack-nodes-modal__header--compact
 			)
 	) {
-	backdrop-filter: blur(4px);
+	backdrop-filter: $modal-backdrop-blur;
 }
 
 .newspack-nodes-modal__backdrop > .newspack-nodes-modal {

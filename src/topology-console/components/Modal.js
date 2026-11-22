@@ -134,6 +134,7 @@ export function ModalShell( {
 	// Sentinel at the render site: a dialog's panel is the one it is nested in.
 	const anchorRef = useRef( null );
 	const [ panelRect, setPanelRect ] = useState( null );
+	const [ inPanel, setInPanel ] = useState( false );
 	const { closing, close } = useDialog( ref, onDismiss, {
 		handleRef,
 		backdropRef,
@@ -142,6 +143,7 @@ export function ModalShell( {
 
 	useLayoutEffect( () => {
 		const panel = anchorRef.current?.closest( '.nodes-debug__panel' );
+		setInPanel( Boolean( panel ) );
 		const measure = () => {
 			const rect = panel?.getBoundingClientRect();
 			setPanelRect(
@@ -212,6 +214,7 @@ export function ModalShell( {
 			<div
 				className={ classes(
 					'topology-modal-backdrop',
+					inPanel && 'is-in-panel',
 					closing && 'is-closing'
 				) }
 				ref={ backdropRef }
