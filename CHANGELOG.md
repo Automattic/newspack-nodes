@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.164.1] - 2026-11-22
+
 ### Fixed
 
 - **A console dialog the station opens sits under the debug overlay.** The console's `ModalShell` backdrop ranks with the page's other dialogs, at the shared modal layer (100000), and rises over the overlay's panel only when the dialog opens inside that panel, which marks its backdrop `is-in-panel`. Runtime, Profiler or any other console dialog opened from the station's Console tab no longer covers an open overlay. Every console dialog also blurs the page behind it, as the shared dialog with the regular header does, through the one `$modal-backdrop-blur` token both read. Every consumer bundling the debug overlay inlines `ModalShell`, so each rebuilds against this release.
