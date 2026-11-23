@@ -545,6 +545,21 @@ fi
 git -C "$substrate" rm -q --cached includes/class-floor-copy.php
 rm "$substrate/includes/class-floor-copy.php"
 
+# A floor held in a class constant, which the plugin file never spells out.
+# constant_floor FLOOR — the plugin file calls by NODES_FLOOR, held in includes/.
+constant_floor() {
+	printf '<?php\n\\Newspack_Nodes\\Floor_Bootstrap::version_at_least( \\Floor_Plugin::NODES_FLOOR );\n' > "$consumer/consumer.php"
+	printf "<?php\nclass Floor_Plugin {\n\tpublic const NODES_FLOOR = '%s';\n}\n" "$1" > "$consumer/includes/class-plugin.php"
+}
+consumer 1.0.0 "$NEW_READS"
+constant_floor 1.2.0
+run "reads past a floor held in a class constant" 1
+says "the constant's floor is the one declared" "declared 1.2.0"
+constant_floor 1.3.0
+run "reads a class constant's floor covers" 0
+says "the constant's floor is named in the pass" "1.3.0 covers every substrate API"
+rm "$consumer/includes/class-plugin.php"
+
 # The index answering for fewer APIs than were asked fails the check.
 cp "$consumer/scripts/substrate-floor-index.php" "$tmp/index.php"
 printf '<?php\necho "ok Newspack_Nodes\\\\Floor_Bootstrap::version_at_least()\\n";\n' > "$consumer/scripts/substrate-floor-index.php"

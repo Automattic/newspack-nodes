@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The substrate-floor gate reads a floor held in a class constant.** `check-substrate-floor.sh` takes the version a class under `includes/` declares as `NODES_FLOOR` when the plugin file does not spell one out, so newspack-foundation's floor is checked.
+
 ## [2.164.1] - 2026-11-22
 
 ### Fixed
