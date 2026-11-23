@@ -30,13 +30,9 @@ if [ ! -x vendor/bin/phpstan ]; then
 	exit 0
 fi
 
-# The plugin file spells the floor out, or a class holds it as NODES_FLOOR.
-declared=$( {
-	grep -hoE "version_at_least\( *'[0-9]+\.[0-9]+\.[0-9]+'" ./*.php
-	if [ -d includes ]; then
-		grep -rhoE --include='*.php' "const NODES_FLOOR += +'[0-9]+\.[0-9]+\.[0-9]+'" includes
-	fi
-} | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1 || true )
+# shellcheck source=/dev/null
+. scripts/lib/substrate-floor.sh
+declared=$( declared_floor )
 if [ -z "$declared" ]; then
 	echo "✓ floor check: this plugin declares no substrate floor"
 	exit 0

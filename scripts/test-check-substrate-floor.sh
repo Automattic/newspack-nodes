@@ -153,6 +153,12 @@ render_base() {
 	}
 	public function inst_nullable(): int {
 		return 11;
+	}
+	public static function first_class_static(): int {
+		return 11;
+	}
+	public function first_class_inst(): int {
+		return 11;
 	}'
 				;;
 			shouty) body+='
@@ -264,9 +270,10 @@ commit_tag v1.2.0
 render_base v1.1 quiet v1.3
 commit_tag v1.3.0
 
-mkdir -p "$consumer/scripts" "$consumer/includes" "$consumer/vendor/bin" "$consumer/vendor/phpstan/phpstan"
+mkdir -p "$consumer/scripts/lib" "$consumer/includes" "$consumer/vendor/bin" "$consumer/vendor/phpstan/phpstan"
 cp "$HERE/check-substrate-floor.sh" "$HERE/phpstan-substrate-floor.php" \
 	"$HERE/phpstan-floor.neon" "$HERE/substrate-floor-index.php" "$consumer/scripts/"
+cp "$HERE/lib/substrate-floor.sh" "$consumer/scripts/lib/"
 # A wrapper, not a symlink: the composer proxy would load OUR autoloader.
 printf '#!/bin/sh\nexec php "%s" "$@"\n' \
 	"$( cd .. && pwd )/vendor/phpstan/phpstan/phpstan.phar" > "$consumer/vendor/bin/phpstan"
@@ -392,6 +399,9 @@ function floor_consumer( object $o ): void {
 	$l = [ \Newspack_Nodes\Floor_Base::class, "callable_target" ];
 	$m = \Newspack_Nodes\Floor_Mode::tryFrom( "f" ) ?? \Newspack_Nodes\Floor_Mode::cases()[0];
 	$n = new \Newspack_Nodes\Floor_V2();
+	$s = \Newspack_Nodes\Floor_Base::first_class_static(...);
+	$t = ( new \Newspack_Nodes\Floor_Base() )->first_class_inst(...);
+	echo $s(), $t();
 	$p = \Newspack_Nodes\Floor_Reader::mixin_public() + \Newspack_Nodes\Floor_Picker::picked();
 	$r = \Newspack_Nodes\Floor_Runner::go() + ( new \Newspack_Nodes\Floor_Runner() )->hushed();
 	echo $r;
@@ -421,6 +431,8 @@ says "a method is found whatever case an older tag spelt it in" '1.1.0  Newspack
 never_says "a method is named as declared, not as called" 'SHOUTY_NAME'
 says "a nullsafe call is collected" '1.1.0  Newspack_Nodes\Floor_Base->inst_nullsafe()'
 never_says "a property and a first-class callable analyse cleanly" "Internal error"
+says "a static first-class callable is held to the tag adding its method" '1.1.0  Newspack_Nodes\Floor_Base::first_class_static()'
+says "an instance first-class callable is held to the tag adding its method" '1.1.0  Newspack_Nodes\Floor_Base->first_class_inst()'
 says "a call on a nullable type is collected" '1.1.0  Newspack_Nodes\Floor_Base->inst_nullable()'
 says "a method private at the floor is held to the tag making it public" '1.1.0  Newspack_Nodes\Floor_Base::secret()'
 says "a static call is held to the tag making the method static" '1.1.0  Newspack_Nodes\Floor_Base::was_instance()'

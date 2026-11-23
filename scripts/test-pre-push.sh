@@ -227,6 +227,23 @@ out="$( push_php_from "$tmp/worktree" )"; rc=$?
 grep -q 'not available' <<<"$out" && pass "and skips the container gates" || bad "never reached the skip: $out"
 grep -q "$refusal" <<<"$out" && bad "refused with no container gate to run" || pass "without the worktree refusal"
 
+# (D2) git names the repository to a hook run from a linked worktree; a gate
+# that runs git in another repository must not inherit it.
+# shellcheck disable=SC2016 # expanded by the hook, not here
+write_local 'push_gates() { local v; for v in $(git rev-parse --local-env-vars); do [[ -z "${!v+x}" ]] || echo "inherited $v"; done; echo "gates ran"; }'
+commit_in "$tmp/worktree" notes.md
+cp "$repo/scripts/pre-push.local" "$tmp/worktree/scripts/pre-push.local"
+gitdir="$repo/.git/worktrees/worktree"
+out="$( GIT_DIR="$gitdir" GIT_WORK_TREE="$tmp/worktree" GIT_COMMON_DIR="$repo/.git" GIT_INDEX_FILE="$gitdir/index" push_head_from "$tmp/worktree" )"; rc=$?
+[[ "$rc" -eq 0 ]] && grep -q 'gates ran' <<<"$out" && ! grep -q 'inherited GIT' <<<"$out" \
+	&& pass "a gate inherits no repository from git" || bad "a gate inherited git's repository ($rc): $out"
+commit_in "$tmp/worktree" class-y.php
+out="$( GIT_DIR="$gitdir" push_head_from "$tmp/worktree" no-such-container-4417 )"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q "$refusal" <<<"$out" \
+	&& pass "and the hook still knows a worktree git named" || bad "a worktree named in GIT_DIR was not refused ($rc): $out"
+write_local
+cp "$repo/scripts/pre-push.local" "$tmp/worktree/scripts/pre-push.local"
+
 # (E) a long `docker ps` listing still reads the container as up.
 out="$( push_php_from "$tmp/worktree" no-such-container-4417 200000 )"; rc=$?
 [[ "$rc" -ne 0 ]] && grep -q "$refusal" <<<"$out" \

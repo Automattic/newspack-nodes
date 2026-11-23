@@ -13,9 +13,11 @@
  * is reported in its own spelling, which check-substrate-floor.sh hands to
  * substrate-floor-index.php to look up at each tag:
  *
- * - `Class->method()` — an instance call; PHPStan hands a nullsafe call over
- *                       as one
- * - `Class::method()` — a static call, or a callable array
+ * - `Class->method()` — an instance call, or a first-class callable
+ *                       `$object->method( ... )`; PHPStan hands a nullsafe
+ *                       call over as a call
+ * - `Class::method()` — a static call, a first-class callable
+ *                       `Class::method( ... )`, or a callable array
  *                       `[ Class::class, 'method' ]`
  * - `Class::NAME`     — a class constant fetch or an enum case
  * - `Class::$name`    — a static property fetch
@@ -45,6 +47,8 @@ use PhpParser\Node\Expr;
 use PHPStan\Analyser\Scope;
 use PHPStan\Collectors\Collector;
 use PHPStan\Node\CollectedDataNode;
+use PHPStan\Node\MethodCallableNode;
+use PHPStan\Node\StaticMethodCallableNode;
 use PHPStan\Reflection\ClassReflection;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
@@ -350,7 +354,9 @@ function names_of( ParserNode $node ): array {
 }
 
 /**
- * The member a call, a fetch or a callable array reaches, or null.
+ * The member a call, a fetch, a first-class callable or a callable array
+ * reaches, or null. PHPStan hands a first-class callable over as a node of its
+ * own, wrapping the call it was written as.
  *
  * @param ParserNode $node  The node.
  * @param Scope      $scope Analysis scope.
@@ -359,6 +365,9 @@ function names_of( ParserNode $node ): array {
 function api_of( ParserNode $node, Scope $scope ): ?string {
 	if ( $node instanceof Expr\Array_ ) {
 		return callable_api( $node, $scope );
+	}
+	if ( $node instanceof MethodCallableNode || $node instanceof StaticMethodCallableNode ) {
+		$node = $node->getOriginalNode();
 	}
 	$named = $node instanceof Expr\MethodCall || $node instanceof Expr\StaticCall
 		|| $node instanceof Expr\ClassConstFetch || $node instanceof Expr\StaticPropertyFetch;

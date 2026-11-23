@@ -62,11 +62,12 @@ hits=$(grep -rnE 'newspack_event_logger_nodes_rules_schema_version' docs README.
 [ -n "$hits" ] && report "retired option — newspack_event_logger_nodes_rules_schema_version:"$'\n'"$hits"
 
 # 6. substrate version floor: the prose must name the value the loader enforces.
-# A no-op in the substrate itself (nothing there calls version_at_least). Nothing
+# A no-op in the substrate itself, which declares no floor. Nothing
 # scripts the floor — bump-version.sh repins release.yml, not this — so only
 # this check keeps the prose on the loader's value.
-floor=$(grep -hoE "version_at_least\( *'[0-9]+\.[0-9]+\.[0-9]+'" ./*.php 2>/dev/null \
-	| grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1 || true)
+# shellcheck source=/dev/null
+. scripts/lib/substrate-floor.sh
+floor=$(declared_floor)
 if [ -n "$floor" ]; then
 	hits=$(grep -rn 'version_at_least' README.md AGENTS.md docs .claude/skills \
 		--include='*.md' 2>/dev/null | grep -v "$floor" || true)

@@ -20,6 +20,7 @@ SELF_TESTS=(
 	"test-pre-push.sh" "the pre-push hook"
 	"test-bump-version.sh" "the version bump"
 	"test-check-substrate-floor.sh" "the substrate-floor check"
+	"test-lint-docs.sh" "the doc-drift lint"
 )
 
 push_gates() {

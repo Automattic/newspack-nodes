@@ -70,6 +70,9 @@ readonly TOPLEVEL
 # dndocker sits four levels above the main checkout, which a worktree is not.
 DNDOCKER="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/../../../.."
 readonly DNDOCKER
+# git names this repository in GIT_DIR, which would override a gate's git -C.
+# shellcheck disable=SC2046 # one variable name per word
+unset $(git rev-parse --local-env-vars)
 
 # Runs scripts/$1 when present; no $4 where the script prints its own verdict.
 script_gate() {

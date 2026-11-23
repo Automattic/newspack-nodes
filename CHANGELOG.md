@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The substrate-floor gate reads a floor held in a class constant.** `check-substrate-floor.sh` takes the version a class under `includes/` declares as `NODES_FLOOR` when the plugin file does not spell one out, so newspack-foundation's floor is checked.
+- **The substrate-floor gate reads a floor held in a class constant.** `check-substrate-floor.sh` takes the version a class under `includes/` declares as `NODES_FLOOR` when the plugin file does not spell one out, so newspack-foundation's floor is checked. `lint-docs.sh` reads the floor the same way, through the shared `scripts/lib/substrate-floor.sh`, and holds the prose to it.
+- **The substrate-floor gate counts first-class callables.** `Class::method( ... )` and `$object->method( ... )` hold a consumer's floor to the method they name, as a call does.
+- **A push from a linked worktree runs its gates on the repositories they name.** git sets `GIT_DIR` for a hook run there, which overrode a gate's `git -C`, so a self-test's throwaway repository was the real one. The shared `pre-push` clears git's repository variables before any gate runs.
 
 ## [2.164.1] - 2026-11-22
 
