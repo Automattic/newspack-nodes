@@ -3,6 +3,9 @@
 
 $graph: ".newspack-nodes-force-graph";
 
+// How far both canvases dim a node without traffic.
+$idle-opacity: 0.7;
+
 // Both canvases paint an include's hull in the color its name hashes to.
 @mixin hull-colors($class, $first) {
 	@for $i from 0 through 5 {
@@ -31,7 +34,7 @@ $graph: ".newspack-nodes-force-graph";
 	}
 
 	#{$graph}__node.is-idle {
-		opacity: 0.55;
+		opacity: $idle-opacity;
 	}
 
 	#{$graph}__node.is-live #{$graph}__shape {

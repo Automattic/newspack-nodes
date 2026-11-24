@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Idle nodes are brighter on both console canvases**, at 70% opacity in place of 55%.
 - **`usePoller` makes no `_cwd`.** The view's host builds it, and the poller asks once that is done, so a Reset Graph no longer loses its first ask.
 
 ### Fixed

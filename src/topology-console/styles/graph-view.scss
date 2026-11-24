@@ -698,7 +698,7 @@
 
 	// Idle (no count since the last poll): frame and text dim together.
 	&.is-idle {
-		opacity: 0.55;
+		opacity: force-graph.$idle-opacity;
 	}
 
 	// Hover or hull focus elsewhere: the frame dims, the text keeps its ink.

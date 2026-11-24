@@ -155,13 +155,21 @@ describe( 'a node', () => {
 
 	it.each( [
 		[ '', undefined ],
-		[ 'is-idle', '0.55' ],
+		[ 'is-idle', '0.7' ],
 		[ 'is-lit', undefined ],
 		[ 'is-dimmed', '0.4' ],
 		[ 'is-idle is-dimmed', '0.4' ],
 		[ 'is-lit is-dimmed', '0.4' ],
 	] )( 'that %s is at opacity %s', ( state, opacity ) => {
 		expect( node( state )( 'opacity' ) ).toBe( opacity );
+	} );
+
+	it( 'that is idle dims as far as the schematic’s', () => {
+		const card = paint(
+			'<g class="topology-node is-idle"></g>',
+			'.topology-node'
+		);
+		expect( card( 'opacity' ) ).toBe( node( 'is-idle' )( 'opacity' ) );
 	} );
 
 	it( 'with traffic brightens and glows', () => {
