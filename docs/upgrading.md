@@ -4,6 +4,24 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased, after 2.164.1
+
+- **A consumer whose bundle inlines the debug overlay raises its floor.**
+  event-logger-nodes, pyrobase, intelligence and foundation raise their
+  `version_at_least()` floor to this release at their next release, by hand:
+  `check-substrate-floor.sh` reads PHP alone. The overlay's force canvas asks
+  a worker it shows `dump_metadata -s`, which an older substrate reads as a
+  node name and answers with an empty map, so the canvas draws the sidecars
+  its own nodes list without their lines, their rates or the sidecars below
+  them, and Show sinks draws no `_command_interpreter`. The
+  substrate's `newspack-nodes-graph` style paints the canvas, and an older
+  substrate ships that style without the force canvas's rules.
+- **`usePoller` makes no `_cwd`.** A host that mounts a console view outside
+  the topology console and the debug overlay stands `_cwd` up itself, as
+  `useConsoleGraph` and `useDebugRepl` do: a `Node` by that name, sinking into
+  the interpreter, whose `target` is the scope to poll. Without one, the
+  Router answers every poll `NOT_AVAILABLE`.
+
 ## Unreleased
 
 - **`ModalPortal` is renamed `BodyPortal`.** Import `BodyPortal` from

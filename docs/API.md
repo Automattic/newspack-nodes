@@ -1143,11 +1143,12 @@ string `"auto"`, which the canvas treats as a map holding a fresh autolayout of
 the graph it draws. `"auto"` is never stored: `get` answers it where the file is
 missing or unreadable or its map places no node, and `save` given it,
 or a map placing no node, removes the file, as Save Layout does while every card
-still sits where the canvas laid it out. `save` refuses any other value. Every other canvas in the substrate, the debug
+still sits where the canvas laid it out. `save` refuses any other value. Every other schematic in the substrate, the debug
 overlay's Inspector and each station tab graph included, persists positions to
 `localStorage` through the same hook and never reaches the server, so a
 dashboard wanting layout to survive a change of browser wires these two commands up
-itself.
+itself. The force canvas saves no positions, and offers neither Save Layout nor
+Reset Layout while it shows.
 
 **`compositions` stores block layouts.** A consumer declares the blocks and
 the contexts it composes on the
@@ -1330,8 +1331,11 @@ Time Travel and Triage included, in one command. `dump_metadata -s` answers
 the full snapshot and the row of every node reachable from it through
 `Node::sidecars()`, at any depth, breadth first and each node once, so one
 command covers a graph and all its sidecars; a `:config` interpreter and a
-`hidden` schema stay out, as `sidecars()` leaves them. Anything beside `-s`, a
-node or `-o`, is refused: `dump_metadata -s takes no node`. A full snapshot,
+`hidden` schema stay out, as `sidecars()` leaves them. The browser producer
+answers it alike, through `dumpMetadataPayload()`'s `sidecars` option. The
+force canvas, in the console and the debug overlay, asks it of the scope it
+draws, at the interval of the canvas's own poll, while it shows a live graph.
+Anything beside `-s`, a node or `-o`, is refused: `dump_metadata -s takes no node`. A full snapshot,
 with or without `-s`, also carries a `_header` entry holding `profiling` and,
 when the command supplied one, `pwd`.
 

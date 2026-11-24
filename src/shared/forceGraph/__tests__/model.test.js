@@ -242,11 +242,11 @@ describe( 'buildModel groups', () => {
 			build( [ group( 'a', 'a' ) ], [ node( 'n', { group: 'a' } ) ] )
 		).toThrow( 'force graph: group parent cycle at "a"' );
 		expect( () =>
-			build( [ group( 'a', 'b' ), group( 'b', 'a' ) ], [] )
+			build( [ group( 'd' ), group( 'a', 'b' ), group( 'b', 'a' ) ], [] )
 		).toThrow( 'force graph: group parent cycle at "a"' );
 		expect( () =>
 			build(
-				[ group( 'a', 'b' ), group( 'b', 'a' ), group( 'c', 'a' ) ],
+				[ group( 'c', 'a' ), group( 'a', 'b' ), group( 'b', 'a' ) ],
 				[ node( 'n', { group: 'c' } ) ]
 			)
 		).toThrow( 'force graph: group parent cycle at "a"' );
