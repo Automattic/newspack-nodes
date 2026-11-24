@@ -4,8 +4,8 @@
  * stream graph would otherwise wire three nodes and the bridge between them:
  *
  * - `<name>:sse-in` is this link's own SseIn child, the inbound EventSource
- *   stream. It is named so `trace` reaches it, and patron-owned so the canvas
- *   skips it.
+ *   stream. It is named so `trace` reaches it, and patron-owned so the
+ *   schematic skips it.
  * - `_http` is the process-wide HttpOut singleton, the outbound `/command` POST
  *   boundary. This link configures it, and never aliases one per link.
  * - `_heartbeat` is the process-wide Heartbeat singleton, which keeps the

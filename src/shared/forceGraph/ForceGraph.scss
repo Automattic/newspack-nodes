@@ -47,6 +47,14 @@
 		}
 	}
 
+	// What a press of a line lands on, as wide as an edge of the schematic takes.
+	&__hit {
+		fill: none;
+		stroke: transparent;
+		stroke-width: 14;
+		cursor: pointer;
+	}
+
 	&__arrow {
 		fill: var(--ink-3, var(--np-text-secondary));
 		fill: context-stroke;

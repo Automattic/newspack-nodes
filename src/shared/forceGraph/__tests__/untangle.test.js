@@ -607,7 +607,7 @@ describe( 'createUntangler', () => {
 		// `a` links to 150 small leaves in a hull and has twelve rivals its
 		// size, a larger one nearest of all, and 1,800 spans of filler that
 		// make each trade cost a good part of a tick.
-		const fixture = () => {
+		const fixture = ( x = 5003 ) => {
 			const cs = Array.from( { length: 150 }, ( _, i ) => `c${ i }` );
 			const rs = Array.from( { length: 12 }, ( _, i ) => `r${ i }` );
 			const fs = Array.from( { length: 1801 }, ( _, i ) => `f${ i }` );
@@ -626,7 +626,7 @@ describe( 'createUntangler', () => {
 				[ group( 'g' ) ]
 			);
 			at( model, [
-				[ 5003, 7 ],
+				[ x, 7 ],
 				[ 43, 11 ],
 				...rs.map( ( _, j ) => [ 103 + 60 * j, 5 * j ] ),
 				...fs.map( ( _, i ) => [
@@ -638,18 +638,26 @@ describe( 'createUntangler', () => {
 			return { model, rs };
 		};
 
-		it( 'tries each partner once, in a turn spanning calls', () => {
-			const { model, rs } = fixture();
-			expect( model.spans.length ).toBeLessThan( MAX_SPANS );
+		/**
+		 * Untangle through the turn of `a`, and count the reads of each other
+		 * body: none for one it never tries, one for a trade it keeps, two
+		 * for one it undoes.
+		 * @param {Object}   fixed       The fixture.
+		 * @param {Object}   fixed.model Its model.
+		 * @param {string[]} fixed.rs    Ids of the rivals its size.
+		 * @return {{tried: Object, calls: number}} Reads by id, and how many calls the turn spanned.
+		 */
+		const turnOfA = ( { model, rs } ) => {
 			const leafOf = ( id ) => model.byId.get( id );
-			const tried = new Map( rs.map( ( id ) => [ id, 0 ] ) );
-			tried.set( 'big', 0 );
-			for ( const [ id ] of tried ) {
+			const tried = Object.fromEntries(
+				[ 'big', ...rs ].map( ( id ) => [ id, 0 ] )
+			);
+			for ( const id of Object.keys( tried ) ) {
 				const leaf = leafOf( id );
 				const { leafNodes } = leaf;
 				Object.defineProperty( leaf, 'leafNodes', {
 					get() {
-						tried.set( id, tried.get( id ) + 1 );
+						tried[ id ]++;
 						return leafNodes;
 					},
 				} );
@@ -665,24 +673,26 @@ describe( 'createUntangler', () => {
 				},
 			} );
 
+			const reads = () =>
+				Object.values( tried ).reduce( ( n, t ) => n + t, 0 );
 			const untangle = createUntangler( model );
-			const busy = [];
+			let calls = 0;
 			for ( let i = 0; i < 60 && ! begun; i++ ) {
-				const before = [ ...tried.values() ].reduce(
-					( n, t ) => n + t,
-					0
-				);
+				const before = reads();
 				untangle();
-				busy.push(
-					[ ...tried.values() ].reduce( ( n, t ) => n + t, 0 ) >
-						before
-				);
+				calls += reads() > before ? 1 : 0;
 			}
-
 			expect( begun ).toBe( true );
-			expect( busy.filter( Boolean ).length ).toBeGreaterThan( 1 );
-			// One kept trade reads its partner once; an undone one, twice.
-			expect( Object.fromEntries( tried ) ).toEqual( {
+			return { tried, calls };
+		};
+
+		it( 'tries each partner once, in a turn spanning calls', () => {
+			const fixed = fixture();
+			expect( fixed.model.spans.length ).toBeLessThan( MAX_SPANS );
+			const { tried, calls } = turnOfA( fixed );
+
+			expect( calls ).toBeGreaterThan( 1 );
+			expect( tried ).toEqual( {
 				big: 0,
 				r0: 1,
 				r1: 2,
@@ -697,6 +707,12 @@ describe( 'createUntangler', () => {
 				r10: 0,
 				r11: 0,
 			} );
+		} );
+
+		it( 'leaves the body itself out, nearest though it is', () => {
+			const { tried } = turnOfA( fixture( -900 ) );
+
+			expect( tried ).toMatchObject( { r0: 2, r6: 2, r7: 0 } );
 		} );
 	} );
 
@@ -768,12 +784,12 @@ describe( 'createUntangler', () => {
 
 		const one = fixture();
 		const start = spotsOf( one );
-		const rivals = () =>
-			one.movable.map( ( { rivals: r } ) => r.map( ( { id } ) => id ) );
-		const order = rivals();
+		const peers = () =>
+			one.movable.map( ( { peers: p } ) => p.map( ( { id } ) => id ) );
+		const order = peers();
 		const first = run( one );
 		expect( first ).not.toEqual( start );
-		expect( rivals() ).toEqual( order );
+		expect( peers() ).toEqual( order );
 		expect( run( fixture() ) ).toEqual( first );
 
 		// The same model, set back and run again.

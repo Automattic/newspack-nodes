@@ -1,7 +1,8 @@
 /**
- * The console's slice views, declared rather than subclassed.
+ * The console's slice views, declared rather than subclassed, and the force
+ * canvas's poller under its `make_node` name.
  *
- * Each owns one polled catalog and nothing else: the palette's Node classes
+ * Each view owns one polled catalog and nothing else: the palette's Node classes
  * and formatter names, and the OPEN dialog's saved topologies. Neither needs
  * more than an empty model and a guard-then-map parse, which is what
  * `sliceView()` takes as a declaration.
@@ -10,7 +11,11 @@
  * screen; the next tick is the retry. A stale list beats an empty one.
  */
 
+import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
+import { ForceRowsNode } from './force-rows-node';
+
+CommandInterpreterNode.registerNodeClasses( { ForceRows: ForceRowsNode } );
 
 /**
  * The view classes. `useCatalogs` hands `makeNode` the class itself rather than

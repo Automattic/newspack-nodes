@@ -3,7 +3,7 @@
  * and where each one stands.
  */
 
-import { min, polygonCentroid, scaleLog, select } from 'd3';
+import { min, polygonCentroid, polygonContains, scaleLog, select } from 'd3';
 import { classes } from '../components/Modal';
 import { hullPoints } from './hulls';
 
@@ -99,6 +99,7 @@ const keep = ( parents, tag, part, wants, before ) =>
 const all = () => true;
 const sized = ( { node } ) => node.size;
 const unsized = ( { node } ) => ! node.size;
+const titled = ( { link } ) => link.title;
 
 /**
  * Draw on an svg.
@@ -125,7 +126,13 @@ export const createDrawing = ( svg, arrowId ) => {
 	const view = layer( root, 'view' );
 	let hulls = layer( view, 'hulls' ).selectChildren();
 	let links = layer( view, 'links' ).selectChildren();
+	let hits = layer( view, 'hits' ).selectChildren();
 	let nodes = layer( view, 'nodes' ).selectChildren();
+	// Each hull's outline as painted, outermost first.
+	let outlines = [];
+	// The line under each target for a press.
+	/** @type {Element[]} */
+	let aimed = [];
 
 	/** @param {ForceGraphProps} host The host's props. */
 	const dressNodes = ( { selectedId, hoveredId } ) =>
@@ -140,17 +147,36 @@ export const createDrawing = ( svg, arrowId ) => {
 			)
 		);
 
+	/** Lay each target for a press over its line, as that is painted. */
+	const placeHits = () =>
+		hits.attr( 'd', ( _, i ) => aimed[ i ].getAttribute( 'd' ) );
+
 	/** @param {ForceGraphProps} host The host's props. */
-	const dressLinks = ( { selectedLink, onSelectLink } ) =>
-		links.attr( 'class', ( { link } ) =>
+	const dressLinks = ( { selectedLink, onSelectLink } ) => {
+		const takesPress = ( { link } ) =>
+			!! onSelectLink && false !== link.pressable;
+		links.attr( 'class', ( datum ) =>
 			classes(
 				`${ BLOCK }__link`,
-				link.className,
-				link.rate > 0 && 'is-live',
-				onSelectLink && 'is-pressable',
-				link.id === selectedLink && 'is-selected'
+				datum.link.className,
+				datum.link.rate > 0 && 'is-live',
+				takesPress( datum ) && 'is-pressable',
+				datum.link.id === selectedLink && 'is-selected'
 			)
 		);
+
+		const pressed = links.filter( takesPress );
+		aimed = pressed.nodes();
+		hits = hits
+			.data( pressed.data(), ( { link } ) => link.id )
+			.join( 'path' )
+			.attr( 'class', `${ BLOCK }__hit` )
+			.attr( 'aria-hidden', 'true' );
+		keep( hits, 'title', 'title', titled ).text(
+			( { link } ) => link.title
+		);
+		placeHits();
+	};
 
 	/** @param {ForceGraphProps} host The host's props. */
 	const dressHulls = ( { selectedGroup } ) =>
@@ -196,7 +222,7 @@ export const createDrawing = ( svg, arrowId ) => {
 				.attr( 'marker-end', ( { link } ) =>
 					link.directed ? `url(#${ arrowId })` : null
 				);
-			keep( links, 'title', 'title', ( { link } ) => link.title ).text(
+			keep( links, 'title', 'title', titled ).text(
 				( { link } ) => link.title
 			);
 			dressLinks( host );
@@ -241,8 +267,11 @@ export const createDrawing = ( svg, arrowId ) => {
 				( { x, y } ) => `translate(${ x },${ y })`
 			);
 			links.attr( 'd', linkPath );
-			hulls.each( function ( { leafNodes } ) {
-				const points = hullPoints( leafNodes );
+			placeHits();
+			outlines = [];
+			hulls.each( function ( branch ) {
+				const points = hullPoints( branch.leafNodes );
+				outlines.push( { branch, points } );
 				const hull = select( this );
 				hull.select( 'path' ).attr( 'd', `M${ points.join( 'L' ) }Z` );
 				hull.select( 'text' )
@@ -253,6 +282,17 @@ export const createDrawing = ( svg, arrowId ) => {
 					);
 			} );
 		},
+
+		/**
+		 * The hull painted at a point, the deepest of several.
+		 *
+		 * @param {[number, number]} at The point, in the graph's own units.
+		 * @return {import('./model').Branch|undefined} The branch of the hull, or undefined off any.
+		 */
+		hullAt: ( at ) =>
+			outlines
+				.filter( ( { points } ) => polygonContains( points, at ) )
+				.pop()?.branch,
 
 		clear: () => root.selectChildren().remove(),
 	};

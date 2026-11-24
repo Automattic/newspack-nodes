@@ -8,6 +8,7 @@
 
 @use "../../shared/styles/mixins" as mix;
 @use "../../shared/styles/tokens";
+@use "force-graph";
 
 .topology-app {
 	position: relative;
@@ -626,13 +627,6 @@
 		opacity 120ms ease,
 		stroke-width 120ms ease;
 
-	@for $i from 0 through 5 {
-		&--#{ $i } {
-			fill: var(--chart-#{$i + 1});
-			stroke: var(--chart-#{$i + 1});
-		}
-	}
-
 	// Hover lifts the group; every non-member node dims (`.is-faded`).
 	&.is-hovered {
 		opacity: 0.3;
@@ -650,6 +644,8 @@
 		opacity: 0.4;
 	}
 }
+
+@include force-graph.hull-colors(".topology-hull--", 0);
 
 // The hull inspector: a composition boundary, not a node.
 .topology-hull-panel {
@@ -824,7 +820,7 @@
 		pointer-events: none;
 	}
 
-	// "…" on an owner's card: opens the sidecars the canvas never draws.
+	// "…" on an owner's card: opens the sidecars the schematic never draws.
 	&__sidecars {
 		cursor: pointer;
 
@@ -1232,6 +1228,11 @@
 
 .topology-insp__section {
 	margin: 18px 0;
+
+	// The canvas toggles, at the top of the panel, which pads itself.
+	.topology-inspector > &:first-child {
+		margin-top: 0;
+	}
 
 	// Grids inherit the 2xs size from here; one too wide scrolls in place.
 	&:has(> .nodes-runtime__grid) {

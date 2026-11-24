@@ -1,8 +1,8 @@
 /**
- * SidecarsPopover — the grid an owner's "…" opens, drawn on the canvas so it
+ * SidecarsPopover — the grid an owner's "…" opens, drawn on the schematic so it
  * pans and zooms with it: below the owner's card, a notch on its top edge
- * pointing up at the card, each sidecar the owned node the canvas never
- * draws, as the card the canvas would draw for it, live off the sidecar
+ * pointing up at the card, each sidecar the owned node the schematic never
+ * draws, as the card it would draw for it, live off the sidecar
  * poller's rows and its own rate map. Picking a card shows that sidecar's
  * Inspector; a card owning sidecars in turn draws a "…", and the grid that
  * opens hangs inside this one, below that card. Focus stays on the canvas,

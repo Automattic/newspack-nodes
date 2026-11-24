@@ -73,7 +73,8 @@
 	}
 
 	// The canvas wrapper clips; an outset ring would draw wholly outside it.
-	.topology-canvas-svg:focus-visible {
+	.topology-canvas-svg:focus-visible,
+	.topology-force-canvas:focus-visible {
 		outline-offset: -2px;
 	}
 

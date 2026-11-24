@@ -972,6 +972,17 @@ describe( 'GraphView — Delete on a selected hull', () => {
 } );
 
 describe( 'GraphView — sidecars', () => {
+	/** What reached `_cwd`, which the host of a GraphView builds; a capture. */
+	let sent;
+
+	beforeEach( () => {
+		sent = [];
+		Core.registerNode( '_cwd', {
+			name: '_cwd',
+			fill: ( m ) => sent.push( m ),
+		} );
+	} );
+
 	afterEach( () => {
 		delete global.__dotsGeneration;
 		delete global.__dotsHidden;
@@ -1060,17 +1071,10 @@ describe( 'GraphView — sidecars', () => {
 	} );
 
 	describe( 'the one sidecar poller', () => {
-		/** What reached `_cwd`, here a capture. */
-		let sent;
 		let now;
 		let realNow;
 
 		beforeEach( () => {
-			sent = [];
-			Core.registerNode( '_cwd', {
-				name: '_cwd',
-				fill: ( m ) => sent.push( m ),
-			} );
 			now = 1_700_000_000_000;
 			realNow = Date.now;
 			Date.now = () => now;

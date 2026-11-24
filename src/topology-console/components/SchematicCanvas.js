@@ -35,7 +35,6 @@ import {
 	clipSegmentExit,
 } from '../utils/viewportCull';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
-import { nameHash } from '../../shared/hooks/useTimeChart';
 import { isTypingTarget } from '../../shared/utils/isTypingTarget';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
@@ -47,6 +46,7 @@ import {
 	hullGeometry,
 	hullsUnder,
 } from '../utils/hullPath';
+import { hullColorIndex } from '../utils/hullColor';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import {
 	ARROWS,
@@ -82,24 +82,6 @@ import {
  * hull press commits no reposition.
  */
 const DRAG_THRESHOLD = 3;
-
-/**
- * How many hull colour classes exist, mirroring `@for $i from 0 through 5` in
- * graph-view.scss. An index past the end paints an unstyled hull.
- */
-const HULL_COLORS = 6;
-
-/**
- * The colour class for one include's hull, hashed from the include name so the
- * colour holds still. Colouring by paint order would reshuffle every hull the
- * moment a drag changed the area sort the paths are drawn in.
- *
- * @param {string} include Include name.
- * @return {number} An index in `[0, HULL_COLORS)`.
- */
-function hullColorIndex( include ) {
-	return nameHash( include ) % HULL_COLORS;
-}
 
 /**
  * Project a pointer's client coordinates into the canvas's world units, through

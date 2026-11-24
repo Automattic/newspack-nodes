@@ -82,8 +82,26 @@ describe( 'compare', () => {
 		[ 'removed', AB_BC.slice( 1 ) ],
 		[ 'parallel', [ ...AB_BC, link( 'a', 'b' ) ] ],
 		[ 'turned', [ link( 'b', 'a' ), link( 'b', 'c' ) ] ],
+		[ 'from elsewhere', [ link( 'd', 'b' ), link( 'b', 'c' ) ] ],
+		[ 'to elsewhere', [ link( 'a', 'd' ), link( 'b', 'c' ) ] ],
 	] )( 'finds a link %s', ( _name, links ) => {
 		expect( of( four(), build( ABCD, links ) ) ).toEqual( changed );
+	} );
+
+	it( 'finds a link that turns loose, or no longer is', () => {
+		const loose = [
+			link( 'a', 'b', { loose: true } ),
+			link( 'b', 'c', { loose: false } ),
+		];
+		expect( of( four(), build( ABCD, loose ) ) ).toEqual( changed );
+		expect( of( build( ABCD, loose ), four() ) ).toEqual( changed );
+		expect( of( build( ABCD, loose ), build( ABCD, loose ) ) ).toEqual(
+			same
+		);
+		const [ , tight ] = loose;
+		expect(
+			of( four(), build( ABCD, [ link( 'a', 'b' ), tight ] ) )
+		).toEqual( same );
 	} );
 
 	it( 'finds a node that changes groups', () => {
@@ -192,6 +210,20 @@ describe( 'refresh', () => {
 		] );
 		expect( model.branches[ 0 ].group ).toBe( groups[ 0 ] );
 		expect( model.leaves.map( spot ) ).toEqual( SPOTS.slice( 0, 3 ) );
+	} );
+
+	it( 'hands a loose link its own, whichever comes first', () => {
+		const pair = ( weight ) => [
+			link( 'a', 'b', { loose: true, weight } ),
+			link( 'a', 'b', { weight: weight + 1 } ),
+		];
+		const model = at( build( ABCD, pair( 11 ) ), SPOTS );
+
+		refresh( model, build( ABCD, pair( 23 ).reverse() ) );
+		expect( model.links.map( ( one ) => one.link.weight ) ).toEqual( [
+			23, 24,
+		] );
+		expect( model.pulls[ 0 ].link.weight ).toBe( 24 );
 	} );
 
 	it( 'hands over the extents and answers the leaves they changed', () => {

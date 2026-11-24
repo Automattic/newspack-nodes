@@ -538,7 +538,7 @@ export class MetadataNode extends PollerNode {
 		}
 		this.rawMap = meta;
 		const parsed = parseMetadata( meta, this.hidden );
-		this.pollIntervalMs = computePollIntervalMs( parsed.nodes.length );
+		this.pollIntervalMs = computePollIntervalMs( this.sizeOf( parsed ) );
 		// Re-arm only when the cadence moved; the recurring timer stays armed.
 		if (
 			'inactive' !== this.mode &&
@@ -548,6 +548,16 @@ export class MetadataNode extends PollerNode {
 		}
 		this.setField( 'snapshot', parsed );
 		this.setField( 'metadata', parsed );
+	}
+
+	/**
+	 * How many nodes of a graph the poll is paced on.
+	 *
+	 * @param {MetadataGraph} graph The parsed graph.
+	 * @return {number} All of them.
+	 */
+	sizeOf( graph ) {
+		return graph.nodes.length;
 	}
 
 	/**

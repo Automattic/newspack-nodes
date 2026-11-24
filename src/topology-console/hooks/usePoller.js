@@ -1,7 +1,8 @@
 /**
  * usePoller — one poller node mounted on the backbone for the life of a view,
  * asking its command of `_cwd`, the scope the console draws, and handing back the
- * field it publishes.
+ * field it publishes. The host of the view builds `_cwd`: the console's
+ * `useConsoleGraph`, and the overlay's `useDebugRepl`.
  *
  * The node is a `Poller`, or a subclass such as `Metadata` that says what a
  * reply means. It rides the Router's grid at the live cadence
@@ -60,7 +61,7 @@ export function usePoller( {
 	 * Bumped once the node exists, so `useNodeField` re-resolves it: on the
 	 * render that mounts it, nothing by that name was registered yet.
 	 */
-	const [ , bumpBuild ] = useState( 0 );
+	const [ builds, bumpBuild ] = useState( 0 );
 	const argsKey = JSON.stringify( args );
 	// What is asked now, which a retargeting node is built asking.
 	const asked = useRef( null );
@@ -73,22 +74,25 @@ export function usePoller( {
 			return undefined;
 		}
 		const build = ( { interpreter } ) => {
-			// `_cwd` routes to the current scope; default it to browser-local.
-			if ( ! Core.node( names.CWD ) ) {
-				interpreter.makeNode( 'Node', names.CWD );
-			}
 			const poller = interpreter.makeNode( nodeClass, name );
 			poller.verb = verb;
 			poller.pollArgs = asked.current.args;
 			poller.subject = asked.current.subject;
 			poller.target = names.CWD;
 			poller.pollIntervalMs = LIVE_POLL_INTERVAL_MS;
-			armTimer( poller, LIVE_POLL_INTERVAL_MS );
 			bumpBuild( ( n ) => n + 1 );
 		};
 		const { teardown } = mountExospine( build );
 		return teardown;
 	}, [ enabled, name, nodeClass, verb, mountedArgs, mountedSubject ] );
+
+	// An unarmed node is armed once its host's effects have run.
+	useEffect( () => {
+		const poller = enabled ? Core.node( name ) : null;
+		if ( 'inactive' === poller?.mode ) {
+			armTimer( poller, LIVE_POLL_INTERVAL_MS );
+		}
+	}, [ enabled, name, builds ] );
 
 	useEffect( () => {
 		const poller = retarget ? Core.node( name ) : null;

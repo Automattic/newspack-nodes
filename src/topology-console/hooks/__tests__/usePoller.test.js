@@ -5,8 +5,10 @@
  */
 
 import { act, renderHook } from '@testing-library/react';
+import { useEffect } from '@wordpress/element';
 import { usePoller } from '../usePoller';
 import { Core } from '../../../runtime/core';
+import { mountExospine } from '../../../runtime/exospine';
 import { MetadataNode } from '../../../runtime/metadata-node';
 import {
 	newMessage,
@@ -153,5 +155,42 @@ describe( 'usePoller', () => {
 		expect( sent ).toHaveLength( 1 );
 		await flush();
 		expect( sent ).toHaveLength( 2 );
+	} );
+
+	it( 'leaves a node that its name holds alone while disabled', () => {
+		const { teardown } = mountExospine();
+		const held = new MetadataNode();
+		held.name = 'kea:fetch';
+		renderHook( () =>
+			usePoller( {
+				name: 'kea:fetch',
+				verb: 'list_timers',
+				enabled: false,
+			} )
+		);
+		expect( held.mode ).toBe( 'inactive' );
+		held.removeNode();
+		teardown();
+	} );
+
+	it( 'keeps the cadence of an answer inside its first tick', () => {
+		const rows = Object.fromEntries(
+			Array.from( { length: 201 }, ( _, i ) => [
+				`quill-${ i }`,
+				{ class: 'Quill' },
+			] )
+		);
+		// The answer comes once it is armed, before the render its build asks.
+		renderHook( () => {
+			usePoller( {
+				name: 'kea:fetch',
+				nodeClass: MetadataNode,
+				verb: 'dump_metadata',
+				field: 'metadata',
+			} );
+			useEffect( () => Core.node( 'kea:fetch' ).publish( rows ), [] );
+		} );
+		expect( Core.node( 'kea:fetch' ).metadata.nodes ).toHaveLength( 201 );
+		expect( Core.node( 'kea:fetch' ).interval_ms ).toBe( 5000 );
 	} );
 } );

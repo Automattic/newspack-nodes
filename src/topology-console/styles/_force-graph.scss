@@ -1,0 +1,104 @@
+// The force canvas's paint over the shared force graph: every class that
+// utils/forceGraphModel.js hands it, and the three the component adds.
+
+$graph: ".newspack-nodes-force-graph";
+
+// Both canvases paint an include's hull in the color its name hashes to.
+@mixin hull-colors($class, $first) {
+	@for $i from 0 through 5 {
+		#{$class}#{$first + $i} {
+			fill: var(--chart-#{$i + 1});
+			stroke: var(--chart-#{$i + 1});
+		}
+	}
+}
+
+.topology-force-canvas {
+	// Above the title block (z 0); the frame beneath paints the wash.
+	position: relative;
+	z-index: 1;
+	background-image: linear-gradient(var(--grid) 1px, transparent 1px),
+		linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+	background-size: 120px 55px;
+
+	#{$graph}__shape {
+		stroke: var(--ink);
+	}
+
+	// By paint alone, and on its parts: a transform here would move the node.
+	#{$graph}__node.is-sidecar > * {
+		transform: scale(0.8);
+	}
+
+	#{$graph}__node.is-idle {
+		opacity: 0.55;
+	}
+
+	#{$graph}__node.is-live #{$graph}__shape {
+		fill: color-mix(in srgb, var(--cyan) 14%, var(--paper-2));
+		stroke: var(--cyan);
+		filter: drop-shadow(0 0 4px var(--cyan));
+	}
+
+	#{$graph}__node.is-lit #{$graph}__shape,
+	#{$graph}__node.is-hovered #{$graph}__shape {
+		fill: color-mix(in srgb, var(--ink) 8%, var(--paper-2));
+	}
+
+	#{$graph}__node.is-drift #{$graph}__shape {
+		stroke: var(--brass);
+		stroke-width: 2;
+		stroke-dasharray: 5 3;
+	}
+
+	#{$graph}__node.is-selected #{$graph}__shape {
+		stroke: var(--oxide);
+	}
+
+	#{$graph}__node.is-dimmed {
+		opacity: 0.4;
+	}
+
+	@include hull-colors(".is-hull-", 1);
+
+	// A line's traffic is its opacity and width, which are attributes.
+	#{$graph}__link.is-target {
+		stroke: var(--cyan);
+	}
+
+	#{$graph}__link.is-virtual {
+		stroke: var(--brass-dark);
+	}
+
+	#{$graph}__link.is-registration {
+		stroke: var(--sage-dark);
+	}
+
+	#{$graph}__link.is-sink,
+	#{$graph}__link.is-patron {
+		stroke: var(--ink-3);
+	}
+
+	#{$graph}__link.is-patron {
+		stroke-dasharray: 4 3;
+	}
+
+	#{$graph}__link.is-selected {
+		stroke: var(--oxide);
+		stroke-width: 2.6;
+		opacity: 1;
+	}
+
+	#{$graph}__link.is-touched {
+		stroke: var(--oxide);
+		opacity: 1;
+	}
+
+	#{$graph}__link.is-lit {
+		opacity: 1;
+	}
+
+	#{$graph}__link.is-dimmed {
+		opacity: 0.15;
+	}
+}

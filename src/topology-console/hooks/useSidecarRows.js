@@ -1,6 +1,7 @@
 /**
  * useSidecarRows — the live rows of the owned nodes the console shows, which
- * the canvas never draws: a sidecar in the Inspector and every open grid of
+ * the schematic never draws: a sidecar in the Inspector, opened from its
+ * owner's "…" or by a press of it on the force canvas, and every open grid of
  * sidecar cards. One `SidecarRowsNode` poller asks `dump_metadata -o` of
  * `_cwd` for each owner and the sidecars it lists, the owners riding on FROM
  * so only an answer about them publishes, and its first ask leaves on the

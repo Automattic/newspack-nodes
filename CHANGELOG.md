@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`ForceGraph`, a shared force-directed graph** (`@newspack-nodes/shared/forceGraph`). It draws nodes, lines and nested hulls, lays them out until few lines cross, and stops. A swipe pans, a pinch or a wheel notch zooms, and the arrows pan or move the selection. With `live`, each new `pollKey` hands it rates that move the layout.
 - **`dump_metadata -s` answers the whole graph and every sidecar**, at any depth, in one command, from PHP and the browser alike. It takes no node. A browser `MetadataNode` subclass names what its graph leaves out through `hidden`.
+- **A force canvas beside the schematic**, on the station and overlay consoles. A toggle at the top of the Inspector's no-node panel draws the graph by force, with includes as hulls and every sidecar joined to its patron, and each poll's rates light and move it; Show sinks and Keep warm act on it alone. The schematic and its saved layout do not change. Each choice is kept per browser.
+
+### Changed
+
+- **`usePoller` makes no `_cwd`.** The view's host builds it, and the poller asks once that is done, so a Reset Graph no longer loses its first ask.
 
 ### Fixed
 

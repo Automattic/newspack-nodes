@@ -1,9 +1,13 @@
-import { renderHook, act } from '@testing-library/react';
+import { render, renderHook, act } from '@testing-library/react';
 import { StrictMode } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
 import { ShellNode } from '../../runtime/shell-node';
+import {
+	FORCE_POLLER,
+	useForceRows,
+} from '../../topology-console/hooks/useForceRows';
 import { useDebugRepl } from '../useDebugRepl';
 
 // Build a Shell like DebugOverlay does: empty cwd, sinks into the page CI.
@@ -482,6 +486,44 @@ describe( 'useDebugRepl', () => {
 			( e ) => 'sent' === e.kind
 		);
 		expect( sent.map( ( e ) => e.prompt ) ).toEqual( [ '/', '/_http' ] );
+		teardown();
+	} );
+} );
+
+// A canvas's own poller mounts beneath the overlay, so its effects run first.
+describe( 'useDebugRepl — a poller beneath it', () => {
+	const Canvas = () => {
+		useForceRows( true, 'overlay|local' );
+		return null;
+	};
+	const Overlay = ( { shell, shown } ) => {
+		useDebugRepl( true, shell );
+		return shown ? <Canvas /> : null;
+	};
+
+	it.each( [
+		[ 'plainly', ( ui ) => ui ],
+		[ 'in StrictMode', ( ui ) => <StrictMode>{ ui }</StrictMode> ],
+	] )( 'survives a Reset Graph, mounted %s', async ( _, wrap ) => {
+		Core.reset();
+		// A page offers Reset Graph only while its backbone's owner rebuilds.
+		const { teardown } = mountExospine( () => {} );
+		const shell = makeShell();
+		shell.path = names.OUTPUT;
+		const { rerender } = render( wrap( <Overlay shell={ shell } /> ) );
+		rerender( wrap( <Overlay shell={ shell } shown /> ) );
+		// The tick a mount asks for runs before anything else happens.
+		await act( async () => {} );
+		const before = Core.node( names.CWD );
+		await act( async () => {
+			[ ...Core.nodes.values() ].forEach( ( n ) => n.removeNode() );
+			Core.bumpGraphGeneration();
+		} );
+		const cwd = Core.node( names.CWD );
+		expect( cwd ).not.toBe( before );
+		expect( cwd.target ).toBe( names.OUTPUT );
+		// It asked once `_cwd` stood; a miss would warn, and fail the test.
+		expect( Core.node( FORCE_POLLER ).counter ).toBe( 1 );
 		teardown();
 	} );
 } );

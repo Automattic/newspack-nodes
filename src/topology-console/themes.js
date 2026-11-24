@@ -1,19 +1,19 @@
 /**
  * The Topology Console's theme surface: the shared skin contract, plus the
- * storage keys the console shell's two flanking panels persist their collapse
- * state under.
+ * storage keys of what each browser remembers about the console shell: the
+ * collapse state of its two flanking panels, and which canvas it draws.
  *
  * The skin catalog and its storage helpers live in `src/shared/theme.js`, so
  * sibling dashboards import the same contract through
  * `@newspack-nodes/shared/theme`. This file re-exports the four entry points
- * the console reaches for and declares the three collapse keys beside them,
- * giving console modules one import for both. Everything else the shared
+ * the console reaches for and declares the storage keys beside them, giving
+ * console modules one import for both. Everything else the shared
  * module exports — `THEME_STORAGE_KEY`, `SKIN_EVENT`, `isValidTheme` — is
  * imported from there directly.
  *
  * The debug overlay imports from here as well. It mounts the same
- * ConsoleShell, so it persists its palette and inspector state under the
- * console's keys instead of a parallel set of its own.
+ * ConsoleShell, so it persists its palette, inspector and canvas state under
+ * the console's keys instead of a parallel set of its own.
  */
 export { THEMES, getStoredTheme, applySkin, initSkin } from '../shared/theme';
 
@@ -47,3 +47,16 @@ export const PALETTE_COLLAPSED_STORAGE_KEY_EDIT =
  */
 export const INSPECTOR_COLLAPSED_STORAGE_KEY =
 	'newspack-nodes:inspector-collapsed';
+
+/**
+ * The `localStorage` key of whether the force canvas shows in the schematic's
+ * place. This key and the two below are one set for the station and the
+ * overlay, live and in a draft.
+ */
+export const FORCE_CANVAS_STORAGE_KEY = 'newspack-nodes:force-canvas';
+
+/** The `localStorage` key of whether the force canvas draws sinks. */
+export const FORCE_SINKS_STORAGE_KEY = 'newspack-nodes:force-sinks';
+
+/** The `localStorage` key of whether the force canvas keeps moving. */
+export const FORCE_WARM_STORAGE_KEY = 'newspack-nodes:force-warm';

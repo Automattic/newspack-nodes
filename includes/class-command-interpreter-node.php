@@ -919,8 +919,8 @@ class Command_Interpreter_Node extends Node {
 	 * Naming a node returns that node alone, or an empty map once it is gone or
 	 * its schema is `hidden`, so a refresh after one mutation costs a one-node
 	 * round-trip. `-o` returns each node named and then each of its
-	 * `sidecars()`, so the console asks for an owner's sidecars, which its
-	 * canvas never draws, by the owner's name alone however many it owns.
+	 * `sidecars()`, so the console asks for an owner's sidecars, which the
+	 * schematic never draws, by the owner's name alone however many it owns.
 	 * With no argument the whole map comes back, carrying a `_header` row and
 	 * leaving out every `owned()` node, then every `hidden` one, so an owned
 	 * node's schema is built once, by its owner's `sidecars()`. A node another

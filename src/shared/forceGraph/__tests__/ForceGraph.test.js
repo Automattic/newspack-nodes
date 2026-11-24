@@ -22,11 +22,17 @@ jest.useFakeTimers();
 
 const { act, render } = require( '@testing-library/react' );
 const { createRef } = require( '@wordpress/element' );
-const { polygonContains, zoomTransform } = require( 'd3' );
+const { polygonCentroid, polygonContains, zoomTransform } = require( 'd3' );
 const { installViewport } = require( '../../test-utils/viewportWidth' );
 const { ZOOM_STEP } = require( '../../utils/wheelGesture' );
 const { ForceGraph } = require( '..' );
 const { hullPoints } = require( '../hulls' );
+const path = require( 'path' );
+const postcss = require( 'postcss' );
+const sass = require( 'sass' );
+const read = require( '../../../build-kit/css-reader.cjs' );
+
+const SHEET = path.resolve( __dirname, '../ForceGraph.scss' );
 
 const BLOCK = 'newspack-nodes-force-graph';
 
@@ -365,6 +371,19 @@ describe( 'what it draws', () => {
 		expect( [ ...svg.classList ] ).toEqual( [ BLOCK, 'orchard' ] );
 		update( { className: undefined } );
 		expect( [ ...svg.classList ] ).toEqual( [ BLOCK ] );
+	} );
+
+	it( 'hands its svg to a host that asks, until it unmounts', () => {
+		const svgRef = createRef();
+		const { svg, update, unmount } = mount( { svgRef } );
+		expect( svgRef.current ).toBe( svg );
+		expect( all( svg, 'node' ) ).toHaveLength( 4 );
+		const another = createRef();
+		update( { svgRef: another } );
+		expect( svgRef.current ).toBeNull();
+		expect( another.current ).toBe( svg );
+		unmount();
+		expect( another.current ).toBeNull();
 	} );
 
 	it( 'draws a node, a line and a hull for each, and no dangling line', () => {
@@ -758,6 +777,120 @@ describe( 'what it draws', () => {
 	} );
 } );
 
+describe( 'a target for a press', () => {
+	const onSelectLink = () => {};
+	const paths = ( els ) => els.map( ( el ) => el.getAttribute( 'd' ) );
+	const aims = ( svg ) =>
+		all( svg, 'hit' ).map( ( el ) => el.__data__.link.id );
+	const barring = ( id ) =>
+		graph().links.map( ( one ) => ( {
+			...one,
+			pressable: id !== one.id,
+		} ) );
+
+	it( 'lies over each line that takes one, and follows it', () => {
+		const { svg } = mount( { onSelectLink, links: barring( 'l2' ) } );
+		const lies = () =>
+			expect( paths( all( svg, 'hit' ) ) ).toEqual(
+				paths( [ linkEl( svg, 0 ), linkEl( svg, 2 ) ] )
+			);
+		expect( aims( svg ) ).toEqual( [ 'l1', 'l3' ] );
+		lies();
+		const [ before ] = paths( all( svg, 'hit' ) );
+		frames( 5 );
+		expect( paths( all( svg, 'hit' ) )[ 0 ] ).not.toBe( before );
+		lies();
+	} );
+
+	it( 'is not drawn without a handler', () => {
+		const { svg } = mountSettled();
+		expect( aims( svg ) ).toEqual( [] );
+	} );
+
+	it( 'comes and goes with the handler and with the line', () => {
+		const { svg, update } = mountSettled();
+		update( { onSelectLink } );
+		expect( aims( svg ) ).toEqual( [ 'l1', 'l2', 'l3' ] );
+		expect( paths( all( svg, 'hit' ) ) ).toEqual(
+			paths( all( svg, 'link' ) )
+		);
+		const [ , ...rest ] = all( svg, 'hit' );
+		update( { links: barring( 'l1' ) } );
+		expect( aims( svg ) ).toEqual( [ 'l2', 'l3' ] );
+		expect( all( svg, 'hit' ) ).toEqual( rest );
+		expect( paths( all( svg, 'hit' ) ) ).toEqual(
+			paths( all( svg, 'link' ) ).slice( 1 )
+		);
+		update( { links: graph().links.slice( 0, 1 ) } );
+		expect( aims( svg ) ).toEqual( [ 'l1' ] );
+		update( { onSelectLink: undefined } );
+		expect( aims( svg ) ).toEqual( [] );
+	} );
+
+	it( 'lies over the line as painted, while the layout is ahead of it', () => {
+		const { svg, update } = mountSettled();
+		const painted = paths( all( svg, 'link' ) );
+		act( () => mockEngine.drag( 'n2', 5300, 410 ) );
+		update( { onSelectLink } );
+		expect( paths( all( svg, 'hit' ) ) ).toEqual( painted );
+	} );
+
+	it( 'lies over hulls and lines, and under nodes', () => {
+		const { svg } = mountSettled( { onSelectLink } );
+		const parts = [ 'hull', 'link', 'hit', 'node' ].map(
+			( part ) => all( svg, part )[ 0 ]
+		);
+		const painted = [ ...svg.querySelectorAll( 'path, g' ) ].filter(
+			( el ) => parts.includes( el )
+		);
+		expect( painted ).toEqual( parts );
+	} );
+
+	it( 'selects its line, says its title, and is over no hull', () => {
+		const host = { onSelectLink: jest.fn(), onHoverGroup: jest.fn() };
+		const { links } = graph();
+		const { svg } = mountSettled( { ...host, links } );
+		const [ first, second ] = all( svg, 'hit' );
+		press( second );
+		press( first.querySelector( 'title' ) );
+		expect( host.onSelectLink.mock.calls ).toEqual( [
+			[ links[ 1 ] ],
+			[ links[ 0 ] ],
+		] );
+		expect( first.textContent ).toBe( 'owns' );
+		expect( second.querySelector( 'title' ) ).toBeNull();
+		expect( first.getAttribute( 'aria-hidden' ) ).toBe( 'true' );
+		const [ clientX, clientY ] = over( svg, 'n2' );
+		pointer( 'pointerover', first, { clientX, clientY } );
+		pointer( 'pointermove', first, { clientX, clientY } );
+		expect( host.onHoverGroup ).not.toHaveBeenCalled();
+	} );
+
+	// The schematic's target is 14 units of its graph, at any zoom.
+	it( 'is 14 of the graph’s own units wide, at any zoom', () => {
+		const { svg } = mountSettled( { onSelectLink } );
+		const sheet = postcss.parse( sass.compile( SHEET ).css );
+		// jsdom does not read `:has( > … )`.
+		sheet.walkRules( /:has\(/, ( rule ) => rule.remove() );
+		const [ hit ] = all( svg, 'hit' );
+		const onScreen = () => {
+			const scale = all( svg, 'view' )[ 0 ]
+				.getAttribute( 'transform' )
+				.match( /scale\((.+)\)/ )[ 1 ];
+			const effect = read.winning( hit, 'vector-effect', [ sheet ] );
+			expect( effect ).toBeUndefined();
+			return scale * read.winning( hit, 'stroke-width', [ sheet ] );
+		};
+		const { k } = view( svg );
+		expect( onScreen() ).toBeCloseTo( 14 * k, 9 );
+		for ( let i = 0; i < 9; i++ ) {
+			wheel( svg, { deltaY: 100 } );
+		}
+		expect( view( svg ).k ).toBeLessThan( k / 1.5 );
+		expect( onScreen() ).toBeCloseTo( 14 * view( svg ).k, 9 );
+	} );
+} );
+
 describe( 'a change of data', () => {
 	it( 'of text, class, title or weight does not move a node', () => {
 		const { svg, update } = mountSettled();
@@ -881,6 +1014,105 @@ describe( 'a press', () => {
 		expect( linkEl( svg, 1 ).classList.contains( 'is-pressable' ) ).toBe(
 			true
 		);
+	} );
+
+	it( 'on a line the host bars counts as one on the canvas', () => {
+		const host = hosts();
+		const { links } = graph();
+		const barred = links.map( ( one ) => ( {
+			...one,
+			pressable: 'l2' !== one.id,
+		} ) );
+		const { svg, update } = mountSettled( { links: barred, ...host } );
+		const marks = () =>
+			all( svg, 'link' ).map( ( el ) =>
+				el.classList.contains( 'is-pressable' )
+			);
+		expect( marks() ).toEqual( [ true, false, true ] );
+		press( linkEl( svg, 1 ) );
+		expect( calls( host ) ).toEqual( { onDeselect: [ [] ] } );
+		press( linkEl( svg, 2 ) );
+		expect( host.onSelectLink.mock.calls ).toEqual( [ [ barred[ 2 ] ] ] );
+		update( { links } );
+		expect( marks() ).toEqual( [ true, true, true ] );
+	} );
+
+	it.each( [
+		[ 'n2', { onSelectGroup: [ [ 'out/in' ] ] } ],
+		[ 'n1', { onSelectGroup: [ [ 'out' ] ] } ],
+		[ 'n4', { onDeselect: [ [] ] } ],
+	] )(
+		'on a barred line over where %s stands reaches what is beneath',
+		( id, heard ) => {
+			const host = hosts();
+			const { links } = graph();
+			links[ 0 ].pressable = false;
+			const { svg } = mountSettled( { links, ...host } );
+			const title = linkEl( svg, 0 ).querySelector( 'title' );
+			mouse( 'click', title, ...over( svg, id ) );
+			expect( calls( host ) ).toEqual( heard );
+		}
+	);
+
+	it.each( [
+		[ 'inside', -4, 'onSelectGroup' ],
+		[ 'outside', 4, 'onDeselect' ],
+	] )(
+		'on a barred line just %s a hull’s edge is read there',
+		( _, by, heard ) => {
+			const host = hosts();
+			const { links } = graph();
+			links[ 0 ].pressable = false;
+			const { svg } = mountSettled( { links, ...host } );
+			const { leafNodes } = mockEngine.model().branches.at( -1 );
+			const points = hullPoints( leafNodes );
+			const right = Math.max( ...points.map( ( [ px ] ) => px ) );
+			const [ , y ] = polygonCentroid( points );
+			const [ x, top ] = zoomTransform( svg ).apply( [ right, y ] );
+			const spot = [ x + LEFT + by, top + TOP ];
+			mouse( 'click', linkEl( svg, 0 ), ...spot );
+			expect( Object.keys( calls( host ) ) ).toEqual( [ heard ] );
+		}
+	);
+
+	it( 'on a barred line reaches the hull where it is painted', () => {
+		const host = hosts();
+		const { links } = graph();
+		links[ 0 ].pressable = false;
+		const { svg } = mountSettled( { links, ...host } );
+		const painted = over( svg, 'n2' );
+		act( () => mockEngine.dragGroup( 'out', 6100, 0 ) );
+		mouse( 'click', linkEl( svg, 0 ), ...painted );
+		expect( calls( host ) ).toEqual( { onSelectGroup: [ [ 'out/in' ] ] } );
+		mouse( 'click', linkEl( svg, 0 ), ...over( svg, 'n2' ) );
+		expect( calls( host ).onDeselect ).toEqual( [ [] ] );
+	} );
+
+	it( 'on a barred line does not reach a hull the model has dropped', () => {
+		viewport.restore();
+		viewport = installViewport( false, { reducedMotion: true } );
+		const host = hosts();
+		const { links, nodes } = graph();
+		links[ 0 ].pressable = false;
+		const { svg, update } = mountSettled( { links, ...host } );
+		const painted = over( svg, 'n3' );
+		update( {
+			nodes: [
+				...nodes.map( ( one ) => ( { ...one, group: null } ) ),
+				{ id: 'n9', label: 'Ninth' },
+			],
+		} );
+		expect( mockEngine.running() ).toBe( true );
+		expect( all( svg, 'hull' ) ).toHaveLength( 2 );
+		mouse( 'click', linkEl( svg, 0 ), ...painted );
+		expect( calls( host ) ).toEqual( { onDeselect: [ [] ] } );
+	} );
+
+	it( 'on the canvas beside a hull does not reach it', () => {
+		const host = hosts();
+		const { svg } = mountSettled( host );
+		mouse( 'click', svg, ...over( svg, 'n2' ) );
+		expect( calls( host ) ).toEqual( { onDeselect: [ [] ] } );
 	} );
 
 	it( 'on the canvas deselects and fits', () => {
@@ -1381,6 +1613,129 @@ describe( 'a hover', () => {
 			[ 'n3' ],
 			[ null ],
 		] );
+	} );
+
+	it( 'says which hull, once, and when there is none', () => {
+		const onHoverGroup = jest.fn();
+		const { svg } = mountSettled( { onHoverGroup } );
+		const [ outer, inner ] = all( svg, 'hull' );
+		for ( const el of [
+			outer,
+			outer,
+			inner,
+			nodeEl( svg, 'n2' ),
+			inner,
+			linkEl( svg, 0 ),
+			outer,
+			svg,
+			inner,
+		] ) {
+			pointer( 'pointerover', el );
+		}
+		pointer( 'pointerleave', svg );
+		expect( onHoverGroup.mock.calls ).toEqual( [
+			[ 'out' ],
+			[ 'out/in' ],
+			[ null ],
+			[ 'out/in' ],
+			[ null ],
+			[ 'out' ],
+			[ null ],
+			[ 'out/in' ],
+			[ null ],
+		] );
+	} );
+
+	describe( 'of a line', () => {
+		const spot = ( svg, id ) => {
+			const [ clientX, clientY ] = over( svg, id );
+			return { clientX, clientY };
+		};
+		const mounted = ( pressable ) => {
+			const onHoverGroup = jest.fn();
+			const { links } = graph();
+			links[ 0 ].pressable = pressable;
+			const { svg } = mountSettled( {
+				links,
+				onHoverGroup,
+				onSelectLink: jest.fn(),
+			} );
+			return { svg, line: linkEl( svg, 0 ), heard: onHoverGroup.mock };
+		};
+
+		it( 'that takes no press is one of the hull beneath', () => {
+			const { svg, line, heard } = mounted( false );
+			pointer( 'pointerover', line, spot( svg, 'n2' ) );
+			pointer( 'pointerover', line, spot( svg, 'n4' ) );
+			expect( heard.calls ).toEqual( [ [ 'out/in' ], [ null ] ] );
+		} );
+
+		it( 'that takes no press goes on from the hull without a break', () => {
+			const { svg, line, heard } = mounted( false );
+			pointer( 'pointerover', hullEl( svg, 1 ) );
+			pointer( 'pointerover', line, spot( svg, 'n2' ) );
+			expect( heard.calls ).toEqual( [ [ 'out/in' ] ] );
+		} );
+
+		it( 'that takes no press follows the pointer over hulls’ edges', () => {
+			const { svg, line, heard } = mounted( false );
+			pointer( 'pointerover', line, spot( svg, 'n2' ) );
+			pointer( 'pointermove', line, spot( svg, 'n2' ) );
+			pointer( 'pointermove', line, spot( svg, 'n1' ) );
+			pointer( 'pointermove', line, spot( svg, 'n4' ) );
+			expect( heard.calls ).toEqual( [
+				[ 'out/in' ],
+				[ 'out' ],
+				[ null ],
+			] );
+		} );
+
+		it( 'that takes a press is one of no hull', () => {
+			const { svg, line, heard } = mounted( true );
+			pointer( 'pointerover', line, spot( svg, 'n2' ) );
+			pointer( 'pointermove', line, spot( svg, 'n2' ) );
+			expect( heard.calls ).toEqual( [] );
+		} );
+	} );
+
+	it( 'moves with the pointer over a line alone', () => {
+		const onHoverGroup = jest.fn();
+		const { svg } = mountSettled( { onHoverGroup } );
+		pointer( 'pointerover', hullEl( svg, 1 ) );
+		pointer( 'pointermove', svg );
+		pointer( 'pointermove', hullEl( svg, 0 ) );
+		expect( onHoverGroup.mock.calls ).toEqual( [ [ 'out/in' ] ] );
+	} );
+
+	it( 'passes from a node to a hull and back', () => {
+		const calls = [];
+		const { svg } = mountSettled( {
+			onHover: ( id ) => calls.push( [ 'node', id ] ),
+			onHoverGroup: ( id ) => calls.push( [ 'hull', id ] ),
+		} );
+		pointer( 'pointerover', nodeEl( svg, 'n2' ) );
+		pointer( 'pointerover', hullEl( svg, 0 ) );
+		pointer( 'pointerover', nodeEl( svg, 'n2' ) );
+		expect( calls ).toEqual( [
+			[ 'node', 'n2' ],
+			[ 'node', null ],
+			[ 'hull', 'out' ],
+			[ 'node', 'n2' ],
+			[ 'hull', null ],
+		] );
+	} );
+
+	it( 'ends when its hull is removed', () => {
+		const onHoverGroup = jest.fn();
+		const { svg, update } = mountSettled( { onHoverGroup } );
+		pointer( 'pointerover', hullEl( svg, 1 ) );
+		const { nodes } = graph();
+		update( { nodes: nodes.filter( ( { id } ) => 'n4' !== id ) } );
+		expect( onHoverGroup.mock.calls ).toEqual( [ [ 'out/in' ] ] );
+		update( {
+			nodes: nodes.map( ( one ) => ( { ...one, group: null } ) ),
+		} );
+		expect( onHoverGroup.mock.calls ).toEqual( [ [ 'out/in' ], [ null ] ] );
 	} );
 
 	it( 'ends when its node is removed', () => {
@@ -2232,6 +2587,7 @@ describe( 'reduced motion', () => {
 			onSelectGroup: jest.fn(),
 			onDeselect: jest.fn(),
 			onHover: jest.fn(),
+			onHoverGroup: jest.fn(),
 		} );
 		const without = ( id ) => ( {
 			nodes: [
@@ -2272,6 +2628,7 @@ describe( 'reduced motion', () => {
 					{ id: 'n9', label: 'Ninth' },
 				],
 			} );
+			pointer( 'pointerover', inner );
 			press( inner, [ 0, 3 ] );
 			press( inner );
 			expect( host.onSelectGroup ).not.toHaveBeenCalled();

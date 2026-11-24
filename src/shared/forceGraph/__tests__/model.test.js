@@ -6,7 +6,7 @@
 import { buildModel, labelHalfW, LABEL_HALF_H } from '../model';
 
 const node = ( id, extra = {} ) => ( { id, label: id, ...extra } );
-const link = ( source, target ) => ( { source, target } );
+const link = ( source, target, extra = {} ) => ( { source, target, ...extra } );
 const group = ( id, parent = null ) => ( { id, parent } );
 
 const ids = ( bodies ) => bodies.map( ( body ) => body.id );
@@ -40,6 +40,41 @@ describe( 'buildModel links and spans', () => {
 
 		expect( model.links ).toHaveLength( 3 );
 		expect( model.spans ).toHaveLength( 1 );
+	} );
+
+	it( 'a loose link is drawn, and takes no part in the layout', () => {
+		const loose = link( 'A', 'B', { loose: true } );
+		const model = buildModel( {
+			nodes: [ node( 'A' ), node( 'B' ), node( 'C' ) ],
+			links: [ loose, link( 'B', 'C', { loose: false } ) ],
+			groups: [],
+		} );
+
+		expect( model.links ).toHaveLength( 2 );
+		expect( model.links[ 0 ].link ).toBe( loose );
+		for ( const list of [ model.pulls, model.spans ] ) {
+			expect( list.map( ( l ) => [ l.source.id, l.target.id ] ) ).toEqual(
+				[ [ 'B', 'C' ] ]
+			);
+		}
+		expect( model.byId.get( 'A' ).neighbors ).toEqual( [] );
+		expect( model.byId.get( 'A' ).spans ).toEqual( [] );
+		expect( ids( model.byId.get( 'B' ).neighbors ) ).toEqual( [ 'C' ] );
+		expect( model.movable.map( ( { body } ) => body.id ) ).toEqual( [
+			'B',
+			'C',
+		] );
+	} );
+
+	it( 'a pair a loose link shares keeps its one span', () => {
+		const model = buildModel( {
+			nodes: [ node( 'A' ), node( 'B' ) ],
+			links: [ link( 'B', 'A', { loose: true } ), link( 'A', 'B' ) ],
+			groups: [],
+		} );
+
+		expect( model.spans ).toEqual( [ model.links[ 1 ] ] );
+		expect( model.pulls ).toEqual( [ model.links[ 1 ] ] );
 	} );
 
 	it( 'a link keeps the host link beside its two leaves', () => {
@@ -356,9 +391,23 @@ describe( 'buildModel bodies', () => {
 			'p',
 		] );
 		const p = model.movable.find( ( m ) => 'p' === m.body.id );
-		expect( ids( p.rivals ) ).toEqual( [ 'q' ] );
+		expect( ids( p.peers ) ).toEqual( [ 'p', 'q' ] );
 		const branch = model.movable.find( ( m ) => 'group:g' === m.body.id );
-		expect( branch.rivals ).toEqual( [] );
+		expect( ids( branch.peers ) ).toEqual( [ 'group:g' ] );
+	} );
+
+	it( 'siblings of one type share one list of peers', () => {
+		const model = buildModel( {
+			nodes: [ node( 'p' ), node( 'q' ), node( 'r', { group: 'g' } ) ],
+			links: [ link( 'p', 'q' ), link( 'q', 'r' ) ],
+			groups: [ group( 'g' ) ],
+		} );
+		const peersOf = ( id ) =>
+			model.movable.find( ( { body } ) => id === body.id ).peers;
+
+		expect( ids( peersOf( 'p' ) ) ).toEqual( [ 'p', 'q' ] );
+		expect( peersOf( 'q' ) ).toBe( peersOf( 'p' ) );
+		expect( ids( peersOf( 'group:g' ) ) ).toEqual( [ 'group:g' ] );
 	} );
 
 	it( 'an empty graph builds an empty model', () => {

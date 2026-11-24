@@ -1063,8 +1063,8 @@ response without that list as fatal rather than wire an edge to the literal
 token text; the console's document loader throws there, and
 [`augmentWithVirtualEdges()`](../src/topology-console/utils/virtualEdges.js) does not draw any edge at all for a token the server resolved
 to nothing. A node an owner builds for itself, such as a Crawler's
-`{name}:seen` Table, is not in any reply: a canvas never draws one, and it opens from
-the "…" on its owner's card.
+`{name}:seen` Table, is not in any reply: the schematic never draws one, and it opens
+from the "…" on its owner's card, or by a press of it on the force canvas.
 
 **`aggregator` — one `id` field, two meanings.** `list_servers` returns one
 row per wired [`Remote_Source`](../includes/class-remote-source-node.php), keyed by the NODE name in `id` and carrying the

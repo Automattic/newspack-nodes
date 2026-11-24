@@ -206,18 +206,19 @@ export const createUntangler = ( model ) => {
 	 * The siblings a body may trade with: the nearest to what it links to,
 	 * within the size ratio.
 	 *
-	 * @param {import('./model').Body}   one    A body.
-	 * @param {import('./model').Body[]} rivals Its siblings of its own type.
+	 * @param {import('./model').Body}   one   A body.
+	 * @param {import('./model').Body[]} peers Every sibling of its type, itself among them.
 	 * @return {import('./model').Body[]} Rivals in the order to try them.
 	 */
-	const partners = ( one, rivals ) => {
+	const partners = ( one, peers ) => {
 		const { neighbors } = one;
 		const x = mean( neighbors, ( other ) => other.x );
 		const y = mean( neighbors, ( other ) => other.y );
 		const fits = ( other ) =>
 			Math.max( one.radius, other.radius ) <=
 			SIZE_RATIO * Math.min( one.radius, other.radius );
-		return [ ...rivals ]
+		return peers
+			.filter( ( other ) => other !== one )
 			.sort(
 				( a, b ) =>
 					Math.hypot( a.x - x, a.y - y ) -
@@ -232,7 +233,7 @@ export const createUntangler = ( model ) => {
 	 * trades with each partner in turn, taken once as its first trade starts
 	 * and kept until its turn ends.
 	 *
-	 * @param {{body: import('./model').Body, rivals: import('./model').Body[]}} entry The body and its rivals.
+	 * @param {{body: import('./model').Body, peers: import('./model').Body[]}} entry The body and its peers.
 	 * @return {boolean} False when the body has no move left.
 	 */
 	const move = ( entry ) => {
@@ -247,7 +248,7 @@ export const createUntangler = ( model ) => {
 			);
 			return true;
 		}
-		partnerList ??= partners( one, entry.rivals );
+		partnerList ??= partners( one, entry.peers );
 		const partner = partnerList[ step - axes.length ];
 		if ( ! partner ) {
 			return false;

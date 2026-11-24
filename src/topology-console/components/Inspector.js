@@ -1876,9 +1876,10 @@ function ComposeModal( { nodeNames, onSend, onDismiss } ) {
  * is, and the node view otherwise. Edit mode swaps the node view for a
  * schema-driven config form — locked when the node is borrowed through an
  * include, since its configuration belongs to the topology that defines it. A
- * shown sidecar, an owned node that a canvas never draws, takes the selection's
- * place: its row is the one the console polls by name, and its own sidecars
- * open from the "…" on its card in its owner's grid.
+ * shown sidecar, an owned node that the schematic never draws, takes the
+ * selection's place: its row is the one the console polls by name. Its own
+ * sidecars open from the "…" on its card in its owner's grid, or by a press of
+ * one on the force canvas.
  *
  * @param {Object}                         props
  * @param {?string}                        props.selectedId         Selected node id; null falls through to the hull or process view.
@@ -1914,6 +1915,7 @@ function ComposeModal( { nodeNames, onSend, onDismiss } ) {
  * @param {Function}                       [props.onRemoveHull]     (name) — remove the include a hull stands for.
  * @param {(name: string) => void}         [props.onSelectHull]     Selects an include's hull by its name in a list.
  * @param {string}                         [props.currentTopology]  The topology being edited; titles the edit-mode panel shown with nothing selected.
+ * @param {import('react').ReactNode}      [props.canvasToggles]    Shown first in the panel with nothing selected, live and in edit mode.
  * @return {import('react').ReactElement} The inspector pane.
  */
 export default function Inspector( {
@@ -1949,6 +1951,7 @@ export default function Inspector( {
 	onRemoveHull,
 	onSelectHull,
 	currentTopology = '',
+	canvasToggles,
 } ) {
 	const {
 		classes: catalog,
@@ -2021,6 +2024,7 @@ export default function Inspector( {
 					onSelectNode={ onSelect }
 					onHoverNode={ onHover }
 					nodeIds={ nodeIds }
+					canvasToggles={ canvasToggles }
 				/>
 			);
 		}
@@ -2037,6 +2041,7 @@ export default function Inspector( {
 		const live = ! streamStatus || streamStatus === 'open';
 		return (
 			<aside className="topology-inspector">
+				{ canvasToggles }
 				<h2 className="topology-insp__title">_command_interpreter</h2>
 				<div className="newspack-nodes-status is-accent topology-insp__type">
 					<span

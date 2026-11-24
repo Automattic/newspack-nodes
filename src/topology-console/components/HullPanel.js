@@ -146,22 +146,23 @@ function HullStats( { nodes, graphSize, rateSeries } ) {
  * an unrelated include also provides, and the edges crossing the boundary. In
  * `whole` mode the same sections describe the edited file itself.
  *
- * @param {Object}                  props
- * @param {string}                  props.include           Topology the hull stands for; titles the panel.
- * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]` — scopes this one's members and finds the diamonds.
- * @param {Object}                  [props.parsed]          The WHOLE graph, `{ nodes, edges }`; the hull's members are a subset of it.
- * @param {Object}                  [props.rateSeries]      `{ in, out, read, write }` sample rings, already scoped to the hull; edit mode shows no stats and reads none.
- * @param {boolean}                 [props.editMode]        Draft graph: counters don't exist yet, so stats hide and the remove button appears.
- * @param {Object}                  [props.includeTree]     Nested include tree from `topologies expand`; tells containment apart from sharing.
- * @param {string[]}                [props.includes]        Directly-declared includes — only one of those has a line to remove.
- * @param {Function}                [props.onOpenTopology]  (name) — drill into the hull's own topology.
- * @param {Function}                [props.onRemoveHull]    (name) — remove the include that brings the hull.
- * @param {(name: string) => void}  [props.onSelectHull]    Selects a child include's hull by its name.
- * @param {(name: string) => void}  [props.onSelectNode]    Selects a node by its name in any list.
- * @param {boolean}                 [props.whole]           `include` names the edited topology itself: every node is a member, Shared is a node two declared includes both provide, and Interface is the wiring between its own nodes and its includes.
- * @param {(name: string) => void}  [props.onRemoveInclude] With `whole`, removes a declared include from its row.
- * @param {(name: ?string) => void} [props.onHoverNode]     Lights a named node on the canvas, null on leave.
- * @param {Set<string>}             [props.nodeIds]         Ids in the graph; a name outside it is not a link.
+ * @param {Object}                    props
+ * @param {string}                    props.include           Topology the hull stands for; titles the panel.
+ * @param {Array}                     [props.hulls]           Every hull, `{ include, nodeIds }[]` — scopes this one's members and finds the diamonds.
+ * @param {Object}                    [props.parsed]          The WHOLE graph, `{ nodes, edges }`; the hull's members are a subset of it.
+ * @param {Object}                    [props.rateSeries]      `{ in, out, read, write }` sample rings, already scoped to the hull; edit mode shows no stats and reads none.
+ * @param {boolean}                   [props.editMode]        Draft graph: counters don't exist yet, so stats hide and the remove button appears.
+ * @param {Object}                    [props.includeTree]     Nested include tree from `topologies expand`; tells containment apart from sharing.
+ * @param {string[]}                  [props.includes]        Directly-declared includes — only one of those has a line to remove.
+ * @param {Function}                  [props.onOpenTopology]  (name) — drill into the hull's own topology.
+ * @param {Function}                  [props.onRemoveHull]    (name) — remove the include that brings the hull.
+ * @param {(name: string) => void}    [props.onSelectHull]    Selects a child include's hull by its name.
+ * @param {(name: string) => void}    [props.onSelectNode]    Selects a node by its name in any list.
+ * @param {boolean}                   [props.whole]           `include` names the edited topology itself: every node is a member, Shared is a node two declared includes both provide, and Interface is the wiring between its own nodes and its includes.
+ * @param {(name: string) => void}    [props.onRemoveInclude] With `whole`, removes a declared include from its row.
+ * @param {(name: ?string) => void}   [props.onHoverNode]     Lights a named node on the canvas, null on leave.
+ * @param {Set<string>}               [props.nodeIds]         Ids in the graph; a name outside it is not a link.
+ * @param {import('react').ReactNode} [props.canvasToggles]   With `whole`, shown above the title.
  * @return {import('react').ReactElement} The hull inspector.
  */
 export default function HullPanel( {
@@ -180,6 +181,7 @@ export default function HullPanel( {
 	onOpenTopology,
 	onRemoveHull,
 	onSelectHull,
+	canvasToggles,
 } ) {
 	const nodes = whole
 		? parsed.nodes || []
@@ -256,6 +258,7 @@ export default function HullPanel( {
 
 	return (
 		<aside className="topology-inspector topology-hull-panel">
+			{ canvasToggles }
 			<h3 className="topology-insp__title">{ title }</h3>
 			<div className="topology-insp__subtitle">
 				{ sprintf(

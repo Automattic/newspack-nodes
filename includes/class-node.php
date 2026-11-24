@@ -795,7 +795,7 @@ class Node {
 	}
 
 	/**
-	 * Patron getter/setter. A patron marks this node owned — off the canvas,
+	 * Patron getter/setter. A patron marks this node owned — off the schematic,
 	 * listed in its owner's `sidecars()` — and changes nothing else: the node
 	 * keeps its `{name}:config` interpreter, so its commands reach it whoever
 	 * owns it, and the patron may be set before or after `name()`.

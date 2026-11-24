@@ -213,6 +213,10 @@ describe( 'an owned Table on the console', () => {
 		 * @return {import('react').ReactElement} GraphView over the crawler.
 		 */
 		function Console( { parsed, steer } ) {
+			// The host of a GraphView builds `_cwd`.
+			useState( () =>
+				Core.registerNode( '_cwd', { name: '_cwd', fill: () => {} } )
+			);
 			const [ viewport, setViewport ] = useState( {
 				x: 0,
 				y: 0,

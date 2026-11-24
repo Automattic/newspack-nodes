@@ -35,6 +35,9 @@ const FIT_SLACK = 5;
 /** Milliseconds without a step that end a run of them. */
 const STEP_GAP_MS = 150;
 
+/** The part a line that takes no press is. */
+const MUTE_LINK = 'link:not(.is-pressable)';
+
 /** @typedef {import('./model').Body} Body */
 /** @typedef {import('./ForceGraph').GraphLink} GraphLink */
 /** @typedef {import('./ForceGraph').Stage} Stage */
@@ -74,6 +77,22 @@ const touchedBy = ( { type, target } ) =>
 	type.startsWith( 'touch' ) ? /** @type {Element} */ ( target ) : null;
 
 /**
+ * The id of the node a body is.
+ *
+ * @param {?Body} body A body, or null.
+ * @return {?string} The id, or null for a hull and for none.
+ */
+const nodeOf = ( body ) => ( 'leaf' === body?.type ? body.id : null );
+
+/**
+ * The id of the group a body is the hull of.
+ *
+ * @param {?Body} body A body, or null.
+ * @return {?string} The id, or null for a node and for none.
+ */
+const groupOf = ( body ) => ( 'branch' === body?.type ? body.group.id : null );
+
+/**
  * Listen on an svg. Nothing here reads the stage before an event does.
  *
  * @param {SVGSVGElement}              svg      The svg.
@@ -99,6 +118,7 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 	let gap;
 	// What the pointer is over, and what it has hold of.
 	let over = false;
+	/** @type {?Body} */
 	let hovered = null;
 	let grab = null;
 	// The scale of a pinch by gesture event, at its last step.
@@ -224,10 +244,16 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 		endSteps();
 	};
 
-	const hover = ( id ) => {
-		if ( id !== hovered ) {
-			hovered = id;
-			hostRef.current.onHover?.( id );
+	/** @param {?Body} body What the pointer is over, or null. */
+	const hover = ( body ) => {
+		const was = hovered;
+		hovered = body;
+		const { onHover, onHoverGroup } = hostRef.current;
+		if ( nodeOf( body ) !== nodeOf( was ) ) {
+			onHover?.( nodeOf( body ) );
+		}
+		if ( groupOf( body ) !== groupOf( was ) ) {
+			onHoverGroup?.( groupOf( body ) );
 		}
 	};
 
@@ -336,7 +362,7 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 			release();
 		}
 		endLostZoom();
-		if ( ! modelOf().leaves.some( ( { id } ) => id === hovered ) ) {
+		if ( hovered && ! bodyOf( hovered ) ) {
 			hover( null );
 		}
 	};
@@ -350,15 +376,36 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 		}
 	};
 
-	const onClick = ( { target } ) => {
+	/**
+	 * The hull painted beneath a line that takes no press.
+	 *
+	 * @param {MouseEvent} e What landed there.
+	 * @return {?Body} The hull, or null over the canvas and off any such line.
+	 */
+	const hullBeneath = ( e ) => {
+		if ( ! partAt( e.target, MUTE_LINK ) ) {
+			return null;
+		}
+		const at = zoomTransform( svg ).invert( pointer( e, svg ) );
+		const hull = stageRef.current.drawing.hullAt( at );
+		return ( hull && bodyOf( hull ) ) ?? null;
+	};
+
+	const onClick = ( e ) => {
+		const { target } = e;
 		if ( partAt( target, 'node', 'hull' ) ) {
 			return;
 		}
 		const { onSelectLink, onDeselect } = hostRef.current;
-		const el = onSelectLink && partAt( target, 'link' );
+		const el = onSelectLink && partAt( target, 'link.is-pressable', 'hit' );
 		if ( ! el ) {
-			onDeselect?.();
-			refit();
+			const hull = hullBeneath( e );
+			if ( hull ) {
+				press( hull );
+			} else {
+				onDeselect?.();
+				refit();
+			}
 			return;
 		}
 		const { id } = select( el ).datum().link;
@@ -412,10 +459,15 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 		} )
 		.on( 'click.graph', onClick )
 		.on( 'pointerdown.graph', () => svg.focus( { preventScroll: true } ) )
-		.on( 'pointerover.graph', ( { target } ) => {
+		.on( 'pointerover.graph', ( e ) => {
 			over = true;
-			const body = bodyAt( target );
-			hover( 'leaf' === body?.type ? body.id : null );
+			hover( bodyAt( e.target ) ?? hullBeneath( e ) );
+		} )
+		// A line is one element over every hull it crosses.
+		.on( 'pointermove.graph', ( e ) => {
+			if ( partAt( e.target, MUTE_LINK ) ) {
+				hover( hullBeneath( e ) );
+			}
 		} )
 		.on( 'pointerleave.graph', () => {
 			over = false;

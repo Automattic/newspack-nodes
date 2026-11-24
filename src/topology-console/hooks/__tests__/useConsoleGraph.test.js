@@ -11,10 +11,11 @@
  * live SseIn — `lastConnector` is its composed SseIn child (`{reader}:sse-in`).
  */
 
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { render, renderHook, act, waitFor } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
 import { RouterNode } from '../../../runtime/router-node';
 import { CommandInterpreterNode } from '../../../runtime/command-interpreter-node';
+import { mountExospine } from '../../../runtime/exospine';
 import { DumperNode } from '../../../runtime/dumper-node';
 import { MetadataNode } from '../../../runtime/metadata-node';
 import { UptimeNode } from '../../../runtime/uptime-node';
@@ -98,6 +99,7 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 } );
 
 import { useConsoleGraph } from '../useConsoleGraph';
+import { FORCE_POLLER, useForceRows } from '../useForceRows';
 
 // The handle jest.setup.js issues every test's command session under.
 const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
@@ -1405,5 +1407,80 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		expect(
 			mockSend.mock.calls.filter( ( c ) => 'expand' === c[ 0 ]?.verb )
 		).toHaveLength( 0 );
+	} );
+} );
+
+// A canvas's own poller mounts beneath the console, so its effects run first.
+describe( 'useConsoleGraph — a poller beneath it', () => {
+	const DEBUG_LEVEL = { current: 0 };
+	const Canvas = ( { resetKey } ) => {
+		useForceRows( true, resetKey );
+		return null;
+	};
+	const Console = ( { partition, shown } ) => {
+		useConsoleGraph( {
+			topology: 'quay',
+			partition,
+			enabled: true,
+			debugLevelRef: DEBUG_LEVEL,
+			catalog: EMPTY_CATALOG,
+		} );
+		return shown ? <Canvas resetKey={ `quay.p${ partition }` } /> : null;
+	};
+	// A page offers Reset Graph only while its backbone's owner rebuilds.
+	let page;
+	beforeEach( () => {
+		page = mountExospine( () => {} );
+	} );
+	const mount = async () => {
+		const { rerender } = render( <Console partition={ 3 } /> );
+		rerender( <Console partition={ 3 } shown /> );
+		// The tick a mount asks for runs before anything else happens.
+		await act( async () => {} );
+		return rerender;
+	};
+	// The poller's one ask reached a standing _cwd: a miss would warn.
+	const standing = () => {
+		const cwd = Core.node( names.CWD );
+		const poller = Core.node( FORCE_POLLER );
+		return {
+			scope: cwd.target,
+			sunk: cwd.sink === Core.node( names.COMMAND_INTERPRETER ),
+			asks: poller.target,
+			about: poller.subject,
+			asked: poller.counter,
+		};
+	};
+	const at = ( partition ) => ( {
+		scope: `quay.p${ partition }`,
+		sunk: true,
+		asks: names.CWD,
+		about: `quay.p${ partition }`,
+		asked: 1,
+	} );
+
+	afterEach( () => page.teardown() );
+
+	it( 'asks through the _cwd it builds', async () => {
+		await mount();
+		expect( standing() ).toEqual( at( 3 ) );
+	} );
+
+	it( 'survives another partition', async () => {
+		const rerender = await mount();
+		rerender( <Console partition={ 5 } shown /> );
+		await act( async () => {} );
+		expect( standing() ).toEqual( at( 5 ) );
+	} );
+
+	it( 'survives a Reset Graph', async () => {
+		await mount();
+		const before = Core.node( names.CWD );
+		await act( async () => {
+			[ ...Core.nodes.values() ].forEach( ( n ) => n.removeNode() );
+			Core.bumpGraphGeneration();
+		} );
+		expect( Core.node( names.CWD ) ).not.toBe( before );
+		expect( standing() ).toEqual( at( 3 ) );
 	} );
 } );

@@ -12,6 +12,7 @@
  */
 
 import {
+	useCallback,
 	useEffect,
 	useId,
 	useImperativeHandle,
@@ -52,6 +53,8 @@ const NO_GROUPS = [];
  * @property {number=}  rate      Messages a second; with one it lights and fades.
  * @property {string=}  title     Native tooltip.
  * @property {boolean=} directed  Whether it ends in an arrowhead.
+ * @property {boolean=} pressable False lets a press through to what is beneath.
+ * @property {boolean=} loose     Whether it is drawn alone, taking no part in the layout.
  */
 
 /**
@@ -77,6 +80,7 @@ const NO_GROUPS = [];
  * @property {function(GraphLink): void}             [onSelectLink]  Takes a pressed line; without it lines take no press.
  * @property {function(string): void}                [onSelectGroup] Takes a pressed hull's group id.
  * @property {function(?string): void}               [onHover]       Takes the id of the node the pointer is over, or null.
+ * @property {function(?string): void}               [onHoverGroup]  Takes the group id of the hull the pointer is over, or null, as on a node or a line that takes a press.
  * @property {function(): void}                      [onDeselect]    Runs on a press of the canvas, and on Escape.
  * @property {boolean}                               [live]          Whether rates move the layout, and Space and `k` act.
  * @property {boolean}                               [keepWarm]      Whether a live layout holds its energy.
@@ -84,6 +88,7 @@ const NO_GROUPS = [];
  * @property {string}                                [ariaLabel]     The canvas's name.
  * @property {string}                                [className]     The host's class on the svg.
  * @property {{current: ?{reset: function(): void}}} [apiRef]        Takes a handle that resets the layout.
+ * @property {{current: ?SVGSVGElement}}             [svgRef]        Takes the svg, for a host that asks whether an event landed on it.
  */
 
 /**
@@ -137,8 +142,19 @@ export function ForceGraph( props ) {
 		ariaLabel,
 		className,
 		apiRef,
+		svgRef: hostSvgRef,
 	} = props;
 	const svgRef = useRef( /** @type {SVGSVGElement} */ ( null ) );
+	// The svg's own ref, mirrored into the host's when it passes one.
+	const attachSvg = useCallback(
+		( el ) => {
+			svgRef.current = el;
+			if ( hostSvgRef ) {
+				hostSvgRef.current = el;
+			}
+		},
+		[ hostSvgRef ]
+	);
 	const stageRef = useRef( /** @type {Stage} */ ( null ) );
 	const hostRef = useRef( props );
 	hostRef.current = props;
@@ -274,7 +290,7 @@ export function ForceGraph( props ) {
 
 	return (
 		<svg
-			ref={ svgRef }
+			ref={ attachSvg }
 			className={ classes( BLOCK, className ) }
 			tabIndex={ 0 }
 			role="application"

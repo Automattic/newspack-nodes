@@ -36,8 +36,9 @@ const MEETING_CHILDREN = 2;
 
 /**
  * @typedef {Object} HostLink
- * @property {string} source Id of a node.
- * @property {string} target Id of a node.
+ * @property {string}   source Id of a node.
+ * @property {string}   target Id of a node.
+ * @property {boolean=} loose  Whether it is drawn alone, taking no part in the layout.
  */
 
 /**
@@ -99,14 +100,14 @@ const MEETING_CHILDREN = 2;
 
 /**
  * @typedef {Object} Model
- * @property {Leaf[]}                         leaves   One for each node.
- * @property {Branch[]}                       branches One for each group that draws a hull, deepest first.
- * @property {Map<string, Body>}              byId     Leaves by node id, branches by `group:<id>`.
- * @property {Body[][]}                       siblings Top-level bodies, then each branch's children.
- * @property {Link[]}                         links    Every drawable link.
- * @property {Link[]}                         pulls    The links whose ends share a parent.
- * @property {Link[]}                         spans    One link for each linked pair.
- * @property {{body: Body, rivals: Body[]}[]} movable  Each sibling with a neighbor outside itself, and its siblings of its own type.
+ * @property {Leaf[]}                        leaves   One for each node.
+ * @property {Branch[]}                      branches One for each group that draws a hull, deepest first.
+ * @property {Map<string, Body>}             byId     Leaves by node id, branches by `group:<id>`.
+ * @property {Body[][]}                      siblings Top-level bodies, then each branch's children.
+ * @property {Link[]}                        links    Every drawable link.
+ * @property {Link[]}                        pulls    The links whose ends share a parent, loose ones aside.
+ * @property {Link[]}                        spans    One link for each linked pair, loose ones aside.
+ * @property {{body: Body, peers: Body[]}[]} movable  Each sibling with a neighbor outside itself, and every sibling of its type, itself among them.
  */
 
 /**
@@ -402,10 +403,11 @@ export const buildModel = ( { nodes, links, groups } ) => {
 			? [ { source, target, link } ]
 			: [];
 	} );
+	const laidOut = drawn.filter( ( { link } ) => ! link.loose );
 
 	// A pair linked many times, either way, is one span; a self link has none.
 	const pairs = new Map();
-	for ( const link of drawn ) {
+	for ( const link of laidOut ) {
 		if ( link.source !== link.target ) {
 			const key = JSON.stringify(
 				[ link.source.id, link.target.id ].sort()
@@ -416,7 +418,7 @@ export const buildModel = ( { nodes, links, groups } ) => {
 	const spans = [ ...pairs.values() ];
 	reach( spans );
 
-	const pulls = drawn.filter(
+	const pulls = laidOut.filter(
 		( { source, target } ) =>
 			source !== target && source.parent === target.parent
 	);
@@ -425,16 +427,14 @@ export const buildModel = ( { nodes, links, groups } ) => {
 		[ ...branches, ...leaves ].filter( ( body ) => ! body.parent ),
 		...branches.map( ( branch ) => branch.children ),
 	];
-	const movable = siblings.flatMap( ( bodies ) =>
-		bodies
+	const movable = siblings.flatMap( ( bodies ) => {
+		// Shared by its bodies, so a list of any length is walked once.
+		const peers = { leaf: [], branch: [] };
+		bodies.forEach( ( body ) => peers[ body.type ].push( body ) );
+		return bodies
 			.filter( ( body ) => body.neighbors.length )
-			.map( ( body ) => ( {
-				body,
-				rivals: bodies.filter(
-					( other ) => other !== body && other.type === body.type
-				),
-			} ) )
-	);
+			.map( ( body ) => ( { body, peers: peers[ body.type ] } ) );
+	} );
 
 	return {
 		leaves,

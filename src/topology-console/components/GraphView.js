@@ -7,6 +7,8 @@ import {
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import SchematicCanvas from './SchematicCanvas';
+import ForceCanvas from './ForceCanvas';
+import CanvasToggles from './CanvasToggles';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import SidecarsPopover from './SidecarsPopover';
@@ -16,6 +18,12 @@ import { usePublishedGraph } from '../hooks/useGraphSource';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
 import { isTypingTarget } from '../../shared/utils/isTypingTarget';
+import { usePersistedFlag } from '../../shared/hooks/usePersistedState';
+import {
+	FORCE_CANVAS_STORAGE_KEY,
+	FORCE_SINKS_STORAGE_KEY,
+	FORCE_WARM_STORAGE_KEY,
+} from '../themes';
 
 /** @typedef {import('../hooks/useGraphHandlers').ComposeForm} ComposeForm */
 
@@ -24,6 +32,12 @@ const NONE = [];
 
 /** A rows map with nothing in it, one identity. */
 const NO_ROWS = new Map();
+
+/** An include tree with nothing in it, one identity. */
+const NO_TREE = {};
+
+/** What hides the frame's chips that act on the schematic's positions. */
+const NO_LAYOUT_CHIPS = { onResetLayout: null, onSaveLayout: null };
 
 /**
  * The open grids up to a depth; the shared empty list below depth 1.
@@ -47,13 +61,14 @@ function upTo( open, depth ) {
  * The reusable graph-editing surface, shared by the topology console and the
  * debug overlay. Returns a Fragment (no wrapper element) so it drops into the
  * console's existing CSS-grid `topology-app` shell without changing the DOM.
- * It owns three things — the selection, the Delete key, and the per-node rate
- * histories. Everything else is injected: the graph, the command handlers, the
- * canvas `frame`, and the display flags. Selecting a node, an edge or a hull
- * clears the other two, so Delete has one unambiguous target.
+ * It owns four things — the selection, the Delete key, the per-node rate
+ * histories, and which canvas shows. Everything else is injected: the graph,
+ * the command handlers, the canvas `frame`, and the display flags. Selecting a
+ * node, an edge or a hull clears the other two, so Delete has one unambiguous
+ * target.
  *
  * Part of the selection is the sidecar shown in the selected node's place:
- * an owned node the canvas never draws, picked from the grid its owner's "…"
+ * an owned node the schematic never draws, picked from the grid its owner's "…"
  * opens on the canvas below the owner's card. A grid card owning sidecars in
  * turn opens theirs inside it, below that card, so the open grids form a stack,
  * outermost first. A pick leaves every grid open. Another selection closes
@@ -66,13 +81,19 @@ function upTo( open, depth ) {
  * and Delete removes nothing while it shows: the selected node is its owner,
  * not what the Inspector shows.
  *
+ * It draws one of two canvases, which each browser remembers: the schematic,
+ * or the force canvas in its place, by toggles in the Inspector's no-node
+ * panel. The selection, the hover and the Inspector are the same on both. The
+ * grids, wiring, palette drops and the layout chips belong to the schematic
+ * alone; the force canvas draws every sidecar, and a press of one shows it.
+ *
  * @param {Object}                         props
  * @param {Object}                         props.graph                { nodes, edges } to render.
  * @param {FrameComponent}                 props.frame                Component wrapping the canvas (CanvasFrame in the console, a plain frame in the overlay). Receives `frameProps` and the canvas as children.
- * @param {Object}                         [props.frameProps]         Props forwarded to `frame`.
+ * @param {Object}                         [props.frameProps]         Props forwarded to `frame`, its layout chips hidden while the force canvas shows.
  * @param {string}                         props.resetKey             Identity key; a change clears the rate history and both the edge and hull selections.
- * @param {?Object}                        [props.viewportDelta]      Persisted `{ dcx, dcy, zoom }` offset from autofit; the canvas applies it once it knows its first autofit box. Null autofits.
- * @param {boolean}                        [props.interactive]        Gate for every canvas gesture. Default true.
+ * @param {?Object}                        [props.viewportDelta]      Persisted `{ dcx, dcy, zoom }` offset from autofit; the schematic applies it once it knows its first autofit box. Null autofits.
+ * @param {boolean}                        [props.interactive]        Gate for every gesture of the schematic. Default true.
  * @param {boolean}                        [props.editMode]           Draft mode: the Palette gains its topologies, the Inspector becomes the config form, and Delete removes a selected edge or hull. Default false.
  * @param {boolean}                        [props.showPalette]        Render the class palette. Default false.
  * @param {boolean}                        [props.paletteLoading]     The catalog fetch is in flight; the palette shows a placeholder until classes arrive. Default false.
@@ -80,7 +101,7 @@ function upTo( open, depth ) {
  * @param {Function}                       [props.onConnect]          (from, to) — a wire was dropped on an IN port. Omitted disables wire drags.
  * @param {Function}                       [props.onRemoveNode]       (id)
  * @param {Function}                       [props.onRemoveEdge]       (from, to)
- * @param {Function}                       [props.onDropNode]         ({ shellName, x, y }) — a palette class dropped on the canvas, x/y already projected into SVG space.
+ * @param {Function}                       [props.onDropNode]         ({ shellName, x, y }) — a palette class dropped on the schematic, x/y already projected into SVG space.
  * @param {Function}                       [props.onInspectorAction]  (action, nodeId, value) — every command the Inspector sends but a compose.
  * @param {(form: ComposeForm) => ?string} [props.onCompose]          Sends the Compose modal's message; returns the refusal, or null once sent.
  * @param {Function}                       [props.onRenameNode]       (id, next) — returns false when the name is already taken.
@@ -94,10 +115,10 @@ function upTo( open, depth ) {
  * @param {?Set<string>}                   [props.driftIds]           Runtime drift, painted distinctly: on a worker, its live nodes outside its registered .tsl; on the browser graph, the nodes the console made (`useGraphReset`'s `userNodeIds`). Null means no drift information.
  * @param {boolean}                        [props.local]              The graph belongs to the browser, so the no-node header reads wire-accurate IoTelemetry, as the overlay's Overview tab does, instead of rolling up dump_metadata. Default false (remote or worker scope).
  * @param {number}                         [props.debugLevel]         Live Dumper verbosity; the Inspector's no-node Debug toggle lights at 1 and Verbose at 2. Default 0.
- * @param {Array}                          [props.hulls]              One soft hull per include, `{ include, depth, nodeIds }[]`. Forwarded to SchematicCanvas, and the scope `hullNodes` reads for the selected hull's sparklines.
+ * @param {Array}                          [props.hulls]              One soft hull per include, `{ include, depth, nodeIds }[]`. Forwarded to the canvas, and the scope `hullNodes` reads for the selected hull's sparklines.
  * @param {string}                         [props.currentTopology]    The topology being edited; the Palette refuses to drag it, or any topology that includes it, onto itself.
- * @param {Function}                       [props.onDropTopology]     ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
- * @param {Object}                         [props.includeTree]        `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
+ * @param {Function}                       [props.onDropTopology]     ({ name, x, y }) — a topology dragged from the Palette onto the schematic.
+ * @param {Object}                         [props.includeTree]        `topologies expand`'s `tree`; the Inspector lists it, and the force canvas nests its hulls by it.
  * @param {string[]}                       [props.includes]           The draft's DIRECTLY-declared includes. The Palette greys out entries already included, Inspector gates its IncludeTree rows and the hull panel's remove button on it, and it is what makes a hull deletable here — a hull drawn for a nested include has no line to remove.
  * @param {(name: string) => void}         [props.onRemoveInclude]    Removes a declared include; reached from the IncludeTree rows, the hull panel's remove button, and the Delete key on a selected hull.
  * @param {Function}                       [props.onOpenTopology]     (name) — drill into a hull's topology (open its .tsl).
@@ -130,10 +151,10 @@ export default function GraphView( {
 	driftIds = null,
 	local = false,
 	debugLevel = 0,
-	hulls = [],
+	hulls = NONE,
 	currentTopology = '',
 	onDropTopology,
-	includeTree = {},
+	includeTree = NO_TREE,
 	includes = [],
 	onRemoveInclude,
 	onOpenTopology,
@@ -150,6 +171,19 @@ export default function GraphView( {
 	const [ stack, setStack ] = useState( NONE );
 	// The owner whose grid the keys opened last, so it opens on screen.
 	const [ entered, setEntered ] = useState( null );
+	// Which canvas shows, and how the force canvas draws.
+	const [ force, , toggleForce ] = usePersistedFlag(
+		FORCE_CANVAS_STORAGE_KEY,
+		false
+	);
+	const [ sinks, , toggleSinks ] = usePersistedFlag(
+		FORCE_SINKS_STORAGE_KEY,
+		false
+	);
+	const [ warm, , toggleWarm ] = usePersistedFlag(
+		FORCE_WARM_STORAGE_KEY,
+		false
+	);
 	// The selection as of the last render, for the controlled re-sync.
 	const selectedRef = useRef( null );
 	selectedRef.current = selectedId;
@@ -351,6 +385,15 @@ export default function GraphView( {
 		[ onSelectionChange ]
 	);
 
+	// A press of the empty canvas, which clears a hull as well.
+	const deselect = () => {
+		setSelectedId( null );
+		setSelectedEdge( null );
+		setStack( NONE );
+		setSelectedHull( null );
+		onSelectionChange?.( null );
+	};
+
 	// Select an include's hull, from the canvas or a list; clears the rest.
 	const selectHull = useCallback(
 		( include ) => {
@@ -534,17 +577,28 @@ export default function GraphView( {
 		}
 	};
 	/**
-	 * Show the sidecar chosen from an open grid, selecting the canvas card
-	 * the grids hang from first. Every grid stays open.
+	 * Show a sidecar in the place of the canvas node at the root of its chain,
+	 * which it selects first.
+	 *
+	 * @param {string} root The canvas node.
+	 * @param {string} name The sidecar.
+	 */
+	const pickSidecarOf = useCallback(
+		( root, name ) => {
+			selectNode( root );
+			setSidecar( name );
+		},
+		[ selectNode ]
+	);
+	/**
+	 * Show the sidecar chosen from an open grid, of the canvas card the grids
+	 * hang from. Every grid stays open.
 	 *
 	 * @param {string} name The sidecar chosen.
 	 */
 	const pickSidecar = useCallback(
-		( name ) => {
-			selectNode( gridOwner );
-			setSidecar( name );
-		},
-		[ selectNode, gridOwner ]
+		( name ) => pickSidecarOf( gridOwner, name ),
+		[ pickSidecarOf, gridOwner ]
 	);
 	/**
 	 * The open grids on the canvas, the outermost below its owner's card,
@@ -596,6 +650,32 @@ export default function GraphView( {
 		]
 	);
 
+	/** Swap the canvas, whose open grids and hover leave with it. */
+	const swapCanvas = () => {
+		toggleForce();
+		setStack( NONE );
+		setHoveredId( null );
+	};
+
+	// What both canvases take.
+	const canvasProps = {
+		parsed: graph,
+		driftIds,
+		selectedId,
+		onSelect: handleSelectNode,
+		selectedHull,
+		onSelectHull: selectHull,
+		onDeselect: deselect,
+		hoveredId,
+		onHover: setHoveredId,
+		rateRef,
+		editMode,
+		selectedEdge,
+		onSelectEdge: handleSelectEdge,
+		svgRef: canvasRef,
+		hulls,
+	};
+
 	const inspectorToggleLabel = inspectorCollapsed
 		? __( 'Expand inspector', 'newspack-nodes' )
 		: __( 'Collapse inspector', 'newspack-nodes' );
@@ -612,38 +692,34 @@ export default function GraphView( {
 					onDropTopology={ onDropTopology }
 				/>
 			) }
-			<Frame { ...frameProps }>
-				<SchematicCanvas
-					parsed={ graph }
-					driftIds={ driftIds }
-					selectedId={ selectedId }
-					onSelect={ handleSelectNode }
-					selectedHull={ selectedHull }
-					onSelectHull={ selectHull }
-					onDeselect={ () => {
-						setSelectedId( null );
-						setSelectedEdge( null );
-						setStack( NONE );
-						// The hull is a selection too — background clears it.
-						setSelectedHull( null );
-						onSelectionChange?.( null );
-					} }
-					hoveredId={ hoveredId }
-					onHover={ setHoveredId }
-					rateRef={ rateRef }
-					viewportDelta={ viewportDelta }
-					interactive={ interactive }
-					editMode={ editMode }
-					onConnect={ onConnect }
-					selectedEdge={ selectedEdge }
-					onSelectEdge={ handleSelectEdge }
-					svgRef={ canvasRef }
-					onOpenSidecars={ ( owner ) => openSidecars( 0, owner ) }
-					onEnterSidecars={ ( owner ) => enterSidecars( 0, owner ) }
-					overlay={ grids.length > 0 ? drawGrids : undefined }
-					overlayActive={ gridActive }
-					hulls={ hulls }
-				/>
+			<Frame { ...frameProps } { ...( force && NO_LAYOUT_CHIPS ) }>
+				{ force ? (
+					<ForceCanvas
+						{ ...canvasProps }
+						seeded={ ! snapshot }
+						sidecar={ shownSidecar }
+						onPickSidecar={ pickSidecarOf }
+						tree={ includeTree }
+						resetKey={ resetKey }
+						showSinks={ sinks }
+						keepWarm={ warm }
+						onKeepWarm={ toggleWarm }
+						rateVersion={ rateVersion }
+					/>
+				) : (
+					<SchematicCanvas
+						{ ...canvasProps }
+						viewportDelta={ viewportDelta }
+						interactive={ interactive }
+						onConnect={ onConnect }
+						onOpenSidecars={ ( owner ) => openSidecars( 0, owner ) }
+						onEnterSidecars={ ( owner ) =>
+							enterSidecars( 0, owner )
+						}
+						overlay={ grids.length > 0 ? drawGrids : undefined }
+						overlayActive={ gridActive }
+					/>
+				) }
 			</Frame>
 			{ /* Always present so the show/hide chevron is reachable with no selection. */ }
 			{
@@ -708,6 +784,16 @@ export default function GraphView( {
 							onRemoveHull={ handleRemoveHull }
 							onSelectHull={ selectHull }
 							currentTopology={ currentTopology }
+							canvasToggles={
+								<CanvasToggles
+									force={ force }
+									sinks={ sinks }
+									warm={ warm }
+									onForce={ swapCanvas }
+									onSinks={ toggleSinks }
+									onWarm={ toggleWarm }
+								/>
+							}
 						/>
 					) }
 				</div>
