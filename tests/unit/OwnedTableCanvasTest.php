@@ -18,6 +18,7 @@ use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Crawler_Node;
 use Newspack_Nodes\Event_Framework;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
@@ -46,12 +47,30 @@ final class Owned_Table_Hidden_Sibling_Fixture_Node extends Node {
 	}
 }
 
+/** A sibling whose schema takes no fill. */
+final class Owned_Table_Deaf_Sibling_Fixture_Node extends Node {
+	public static function node_schema(): array {
+		return [ 'accepts_fill' => false ] + parent::node_schema();
+	}
+}
+
 /** Owns one schema-counting sibling. */
 final class Owned_Table_Counted_Owner_Fixture_Node extends Node {
 	public function own(): void {
 		$tally = new Owned_Table_Schema_Counter_Fixture_Node();
 		$tally->patron( $this );
 		$this->publish_sibling( 'tally', $tally );
+	}
+}
+
+/** Lists itself and its owner among its sidecars, which closes a cycle. */
+final class Owned_Table_Cycle_Fixture_Node extends Node {
+	public function sidecars(): array {
+		return [
+			[ 'name' => $this->name(), 'class' => 'Owned_Table_Cycle_Fixture' ],
+			[ 'name' => 'ring-2957', 'class' => 'Node' ],
+			[ 'name' => 'ghost-8810', 'class' => 'Node' ],
+		];
 	}
 }
 
@@ -227,6 +246,76 @@ final class OwnedTableCanvasTest extends TestCase {
 		$this->assertArrayNotHasKey( '_header', $meta );
 	}
 
+	/** The browser's producer answers this fixture too, in metadata.test.js. */
+	public function test_dash_s_answers_the_snapshot_and_every_sidecar_breadth_first(): void {
+		$fixture = $this->sidecar_fixture();
+
+		$plain = $this->ci->dispatch( 'dump_metadata' );
+		$meta  = $this->ci->dispatch( 'dump_metadata', [ '-s' ] );
+
+		$this->assertIsArray( $plain );
+		$this->assertIsArray( $meta );
+		$names = \array_column( $fixture['nodes'], 'name' );
+		$this->assertSame( $fixture['plain'], \array_values( \array_intersect( \array_keys( $plain ), $names ) ) );
+		$rows = [];
+		foreach ( \array_intersect_key( $meta, \array_flip( $names ) ) as $name => $row ) {
+			$rows[] = [
+				'name'         => $name,
+				'counter'      => $row['counter'],
+				'has_config'   => $row['has_config'],
+				'accepts_fill' => $row['accepts_fill'],
+				'owner'        => $row['owner'] ?? null,
+				'sidecars'     => \array_column( $row['sidecars'] ?? [], 'name' ),
+			];
+		}
+		$this->assertSame( $fixture['rows'], $rows );
+	}
+
+	public function test_dash_s_keeps_every_row_of_the_plain_snapshot_and_its_header(): void {
+		$envelope                  = Message::new_message();
+		$envelope[ Message::FROM ] = '_sse/console-7731';
+
+		$plain = $this->ci->dispatch( 'dump_metadata', [], $envelope );
+		$meta  = $this->ci->dispatch( 'dump_metadata', [ '-s' ], $envelope );
+
+		$this->assertIsArray( $plain );
+		$this->assertIsArray( $meta );
+		$this->assertSame( [ 'profiling' => false, 'pwd' => '_sse/console-7731' ], $meta['_header'] );
+		$this->assertSame( [ 'crawl-4471:curl', 'crawl-4471:seen' ], \array_keys( \array_diff_key( $meta, $plain ) ) );
+		$this->assertSame( $plain, \array_intersect_key( $meta, $plain ) );
+		$this->assertSame( $this->ci->dispatch( 'dump_metadata', [ 'crawl-4471:seen' ] ), [ 'crawl-4471:seen' => $meta['crawl-4471:seen'] ] );
+	}
+
+	public function test_dash_s_visits_each_node_of_a_cycle_once(): void {
+		$ring = new Node();
+		$ring->name( 'ring-2957' );
+		$this->publish( $ring, 'link', new Owned_Table_Cycle_Fixture_Node() );
+
+		$meta = $this->ci->dispatch( 'dump_metadata', [ '-s' ] );
+
+		$this->assertIsArray( $meta );
+		$rows = \array_intersect_key( $meta, \array_flip( [ 'ring-2957', 'ring-2957:link', 'ghost-8810' ] ) );
+		$this->assertSame( [ 'ring-2957', 'ring-2957:link' ], \array_keys( $rows ) );
+		$this->assertSame( 'ring-2957', $rows['ring-2957:link']['owner'] );
+	}
+
+	public function test_a_blank_token_names_no_node(): void {
+		$this->assertSame( $this->ci->dispatch( 'dump_metadata', [ '-s' ] ), $this->ci->dispatch( 'dump_metadata', [ '', '-s', '' ] ) );
+		$this->assertSame( $this->ci->dispatch( 'dump_metadata' ), $this->ci->dispatch( 'dump_metadata', [ '' ] ) );
+	}
+
+	public function test_dash_s_refuses_anything_beside_it(): void {
+		foreach ( [ [ '-s', 'crawl-4471' ], [ 'crawl-4471', '-s' ], [ '-o', '-s', 'crawl-4471' ], [ '-s', '-o' ] ] as $args ) {
+			$refusal = null;
+			try {
+				$this->ci->dispatch( 'dump_metadata', $args );
+			} catch ( \RuntimeException $e ) {
+				$refusal = $e->getMessage();
+			}
+			$this->assertSame( 'dump_metadata -s takes no node', $refusal, \implode( ' ', $args ) );
+		}
+	}
+
 	public function test_naming_the_owned_table_alone_returns_its_full_row_and_owner(): void {
 		$meta = $this->ci->dispatch( 'dump_metadata', [ 'crawl-4471:seen' ] );
 
@@ -283,6 +372,38 @@ final class OwnedTableCanvasTest extends TestCase {
 		$this->assertSame( [], $this->ci->dispatch( 'dump_metadata', [ 'crawl-4471:seen' ] ) );
 		$this->assertNotNull( Core::node( 'crawl-5582:seen:config' ) );
 		$this->assertNull( Core::node( 'crawl-4471:seen:config' ) );
+	}
+
+	/**
+	 * Registers the nodes the shared sidecar fixture declares.
+	 *
+	 * @return array{nodes: list<array{name: string, patron?: string, kind?: string, hidden?: bool, deaf?: bool, counter: int}>, plain: list<string>, rows: list<array<string, mixed>>}
+	 */
+	private function sidecar_fixture(): array {
+		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/dump-metadata-sidecars.json' ), true, 512, \JSON_THROW_ON_ERROR );
+		foreach ( $fixture['nodes'] as $spec ) {
+			$node = match ( true ) {
+				$spec['hidden'] ?? false                      => new Owned_Table_Hidden_Sibling_Fixture_Node(),
+				$spec['deaf'] ?? false                        => new Owned_Table_Deaf_Sibling_Fixture_Node(),
+				Node::CONFIG_KIND === ( $spec['kind'] ?? '' ) => new Command_Interpreter_Node(),
+				default                                       => new Node(),
+			};
+			if ( isset( $spec['patron'] ) ) {
+				$this->publish( Core::node( $spec['patron'] ), $spec['kind'], $node );
+			} else {
+				$node->name( $spec['name'] );
+			}
+			$this->assertSame( $spec['name'], $node->name() );
+			( fn () => $this->counter = $spec['counter'] )->call( $node );
+		}
+		return $fixture;
+	}
+
+	/** Publish `$sibling` in its owner's `$kind` slot, its owner its patron. */
+	private function publish( ?Node $owner, string $kind, Node $sibling ): void {
+		$this->assertNotNull( $owner );
+		$sibling->patron( $owner );
+		( fn () => $this->publish_sibling( $kind, $sibling ) )->call( $owner );
 	}
 
 	/** An owner of a ledger Table and a hidden sibling, named and sunk. */

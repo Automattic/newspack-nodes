@@ -544,5 +544,43 @@ describe( 'Metadata node', () => {
 			expect( touched ).toContain( 'topicprobe' );
 			expect( touched ).not.toContain( '_router' );
 		} );
+
+		const BACKBONE = {
+			_command_interpreter: { class: 'Command_Interpreter' },
+			_router: { class: 'Router' },
+			'press-6140': { class: 'Crawler', sink: '_command_interpreter' },
+		};
+
+		it( 'drops only the names it is given', () => {
+			const { nodes } = parseMetadata(
+				{ ...BACKBONE, _header: { profiling: true } },
+				new Set( [ '_router' ] )
+			);
+			expect( nodes.map( ( n ) => n.id ) ).toEqual( [
+				'_command_interpreter',
+				'press-6140',
+			] );
+		} );
+
+		it( 'publishes a graph without the names its class hides', () => {
+			class InterpreterShownNode extends MetadataNode {
+				hidden = new Set( [ '_router' ] );
+			}
+			const shown = new InterpreterShownNode();
+			shown.fill( msg( TM_STRUCT, BACKBONE ) );
+			const usual = new MetadataNode();
+			usual.fill( msg( TM_STRUCT, BACKBONE ) );
+			const ids = ( graph ) => graph.nodes.map( ( n ) => n.id );
+			expect( ids( shown.metadata ) ).toEqual( [
+				'_command_interpreter',
+				'press-6140',
+			] );
+			expect( ids( shown.snapshot ) ).toEqual( ids( shown.metadata ) );
+			expect( ids( usual.metadata ) ).toEqual( [ 'press-6140' ] );
+			expect( [ ...MetadataNode.prototype.hidden ].sort() ).toEqual( [
+				'_command_interpreter',
+				'_router',
+			] );
+		} );
 	} );
 } );

@@ -7,6 +7,7 @@ import {
 	dumpOwnedPayload,
 	parseMetadata,
 } from '../metadata-node';
+import sidecarFixture from '../../../tests/fixtures/dump-metadata-sidecars.json';
 
 /** Stands for a server Table, which its owner opens like any sidecar. */
 class TableNode extends Node {
@@ -42,6 +43,38 @@ function ownedGraph() {
 	const config = new Node();
 	config.patron = seen;
 	config.name = 'crawl-4471:seen:config';
+}
+
+/** A sidecar whose schema takes no fill. */
+class DeafNode extends Node {
+	static nodeSchema() {
+		return { accepts_fill: false };
+	}
+}
+
+/**
+ * The class a node of the shared sidecar fixture is built from.
+ *
+ * @param {{hidden?: boolean, deaf?: boolean}} spec The fixture's node.
+ * @return {typeof Node} Its class.
+ */
+function classFor( spec ) {
+	if ( spec.hidden ) {
+		return PlumbingNode;
+	}
+	return spec.deaf ? DeafNode : Node;
+}
+
+/** Registers the nodes the shared sidecar fixture declares. */
+function pressGraph() {
+	for ( const spec of sidecarFixture.nodes ) {
+		const node = new ( classFor( spec ) )();
+		if ( spec.patron ) {
+			node.patron = Core.node( spec.patron );
+		}
+		node.name = spec.name;
+		node.counter = spec.counter;
+	}
 }
 
 describe( 'dumpMetadataPayload', () => {
@@ -203,6 +236,71 @@ describe( 'dumpMetadataPayload', () => {
 		} );
 		expect( payload[ 'vat-2290' ].sidecars ).toEqual( [
 			{ name: 'vat-2290:lid', class: 'Table' },
+		] );
+	} );
+
+	// PHP's producer answers this fixture too, in OwnedTableCanvasTest.php.
+	it( 'answers the snapshot and every sidecar, breadth first', () => {
+		pressGraph();
+		const payload = dumpMetadataPayload( '', Core.registry, {
+			sidecars: true,
+		} );
+		const { _header: header, ...rows } = payload;
+		expect( Object.keys( payload ).pop() ).toBe( '_header' );
+		expect( header ).toEqual( { pwd: '_output', profiling: false } );
+		expect(
+			Object.entries( rows ).map( ( [ name, row ] ) => ( {
+				name,
+				counter: row.counter,
+				has_config: row.has_config,
+				accepts_fill: row.accepts_fill,
+				owner: row.owner ?? null,
+				sidecars: ( row.sidecars ?? [] ).map( ( c ) => c.name ),
+			} ) )
+		).toEqual( sidecarFixture.rows );
+	} );
+
+	it( 'answers the owners alone in the plain snapshot', () => {
+		pressGraph();
+		expect( Object.keys( dumpMetadataPayload() ) ).toEqual( [
+			...sidecarFixture.plain,
+			'_header',
+		] );
+	} );
+
+	it( 'walks the sidecars of the registry it is given', () => {
+		pressGraph();
+		const nodes = new Map( Core.registry.nodes );
+		Core.reset();
+		expect(
+			Object.keys(
+				dumpMetadataPayload( '', { nodes }, { sidecars: true } )
+			)
+		).toEqual( [
+			...sidecarFixture.rows.map( ( row ) => row.name ),
+			'_header',
+		] );
+	} );
+
+	it( 'ends on a patron cycle, which an unowned node never reaches', () => {
+		pressGraph();
+		const [ lid, hinge ] = [ 'lid-7045', 'hinge-7046' ].map( ( name ) => {
+			const node = new Node();
+			node.name = name;
+			return node;
+		} );
+		lid.patron = hinge;
+		hinge.patron = lid;
+		const own = new Node();
+		own.name = 'own-7047';
+		own.patron = own;
+		expect(
+			Object.keys(
+				dumpMetadataPayload( '', Core.registry, { sidecars: true } )
+			)
+		).toEqual( [
+			...sidecarFixture.rows.map( ( row ) => row.name ),
+			'_header',
 		] );
 	} );
 

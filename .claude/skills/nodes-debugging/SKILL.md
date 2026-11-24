@@ -87,6 +87,7 @@ dump_metadata [<node>]      # JSON keyed by node name: class, counter, sink, tar
                             #   `_header` row and no sidecar. Naming a node returns that
                             #   one, owned or not; a `hidden` schema never appears
 dump_metadata -o <node>...  # each node named, then every sidecar it lists
+dump_metadata -s            # the full snapshot, then every sidecar at any depth
 stats [<node>]              # NAME COUNT LGST_MSG READ WRITTEN for the nodes sinking INTO
 stats -a [<regex>]          #   <node>, matched as an exact name; bare scopes to this
                             #   interpreter's siblings. -a widens to every node matching an

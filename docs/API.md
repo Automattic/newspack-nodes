@@ -1326,9 +1326,14 @@ Naming a node, `dump_metadata <name>`, answers it unless its schema is
 sidecar it lists, so a client asks for an owner's sidecars by the owner's name
 however many it owns: that is how the console polls every grid of live cards
 an owner's "…" opens, while it is open, and the sidecar its Inspector shows,
-Time Travel and Triage included, in one command. A full snapshot also carries a
-`_header` entry holding `profiling` and, when the command supplied one,
-`pwd`.
+Time Travel and Triage included, in one command. `dump_metadata -s` answers
+the full snapshot and the row of every node reachable from it through
+`Node::sidecars()`, at any depth, breadth first and each node once, so one
+command covers a graph and all its sidecars; a `:config` interpreter and a
+`hidden` schema stay out, as `sidecars()` leaves them. Anything beside `-s`, a
+node or `-o`, is refused: `dump_metadata -s takes no node`. A full snapshot,
+with or without `-s`, also carries a `_header` entry holding `profiling` and,
+when the command supplied one, `pwd`.
 
 `registrations` comes from `Node::registered_listeners()`, which walks the
 registration table and keeps only the entries whose callback is null — the

@@ -677,7 +677,7 @@ class Command_Interpreter_Node extends Node {
 			'list_profiles' => "list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total`\n          shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view\n        that wants to sort them.\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
-			'dump_metadata' => "dump_metadata [<node> | -o <node>...]\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n          One round-trip gives a GUI everything it needs to render\n          the graph.\n    -o: each node named, then each sidecar it lists.\n",
+			'dump_metadata' => "dump_metadata [<node> | -o <node>... | -s]\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n          One round-trip gives a GUI everything it needs to render\n          the graph.\n    -o: each node named, then each sidecar it lists.\n    -s: the whole graph, then every sidecar at any depth.\n",
 			'trace' => "trace [ <node name> [ <level> ] ]\n"
 				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
 				. "    name only:    toggle that node's debug_state.\n"
@@ -913,8 +913,8 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `dump_metadata [<node> | -o <node>...]` — the per-node snapshot the GUI
-	 * canvas renders.
+	 * `dump_metadata [<node> | -o <node>... | -s]` — the per-node snapshot the
+	 * GUI canvas renders.
 	 *
 	 * Naming a node returns that node alone, or an empty map once it is gone or
 	 * its schema is `hidden`, so a refresh after one mutation costs a one-node
@@ -926,15 +926,23 @@ class Command_Interpreter_Node extends Node {
 	 * node's schema is built once, by its owner's `sidecars()`. A node another
 	 * published names that publisher under `owner`, because `remove_node` and
 	 * `move_node` refuse it, and an owner's row lists its `sidecars()`.
+	 * `-s` takes no node and adds to the whole map the row of every node
+	 * reachable from it through `sidecars()`, breadth first and each once, so
+	 * one ask covers a graph and its sidecars at every depth.
 	 *
-	 * @param list<string> $args The tokens: `-o` and nodes, one node, or none.
+	 * @param list<string> $args The tokens: `-o` and nodes, `-s`, one node, or none.
 	 * @param string       $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
 	 * @return array<string,array<string,mixed>>
+	 * @throws \RuntimeException When `-s` comes with anything else.
 	 */
 	private static function cmd_dump_metadata( array $args, string $pwd ): array {
-		$names = \array_values( \array_filter( $args, static fn ( string $arg ): bool => '' !== $arg && '-o' !== $arg ) );
-		if ( \in_array( '-o', $args, true ) ) {
-			return self::owned_metadata( $names );
+		$names         = \array_values( \array_diff( $args, [ '', '-s' ] ) );
+		$with_sidecars = \in_array( '-s', $args, true );
+		if ( $with_sidecars && [] !== $names ) {
+			throw new \RuntimeException( 'dump_metadata -s takes no node' );
+		}
+		if ( \in_array( '-o', $names, true ) ) {
+			return self::owned_metadata( \array_values( \array_diff( $names, [ '-o' ] ) ) );
 		}
 		if ( [] !== $names ) {
 			$node = Core::node( $names[0] );
@@ -944,7 +952,8 @@ class Command_Interpreter_Node extends Node {
 			$schema = $node::node_schema();
 			return Node::hidden( $schema ) ? [] : [ $names[0] => self::metadata_row( $names[0], $node, $schema ) ];
 		}
-		$out = [];
+		$out   = [];
+		$nodes = [];
 		/** @var \Newspack_Nodes\Node $node Each registered node. */
 		foreach ( Core::$nodes_by_name as $name => $node ) {
 			if ( $node->owned() ) {
@@ -953,6 +962,13 @@ class Command_Interpreter_Node extends Node {
 			$schema = $node::node_schema();
 			if ( ! Node::hidden( $schema ) ) {
 				$out[ $name ] = self::metadata_row( $name, $node, $schema );
+				$nodes[]      = $node;
+			}
+		}
+		if ( $with_sidecars ) {
+			// The walk appends what it finds, so it goes breadth first.
+			for ( $i = 0; isset( $nodes[ $i ] ); ++$i ) {
+				\array_push( $nodes, ...self::add_sidecar_rows( $out, $nodes[ $i ] ) );
 			}
 		}
 		// Full-snapshot header: Profiling-toggle truth + reverse_cwd for GUIs.
@@ -982,14 +998,28 @@ class Command_Interpreter_Node extends Node {
 				continue;
 			}
 			$out[ $name ] = self::metadata_row( $name, $node, $schema );
-			foreach ( $node->sidecars() as [ 'name' => $sidecar_name ] ) {
-				$sidecar = Core::node( $sidecar_name );
-				if ( null !== $sidecar ) {
-					$out[ $sidecar_name ] = self::metadata_row( $sidecar_name, $sidecar, $sidecar::node_schema() );
-				}
-			}
+			self::add_sidecar_rows( $out, $node );
 		}
 		return $out;
+	}
+
+	/**
+	 * Add the row of each sidecar a node lists, but one whose row is there.
+	 *
+	 * @param array<string,array<string,mixed>> $out   The rows so far, added to in place.
+	 * @param Node                              $owner The node whose `sidecars()` to add.
+	 * @return list<Node> The nodes added.
+	 */
+	private static function add_sidecar_rows( array &$out, Node $owner ): array {
+		$added = [];
+		foreach ( $owner->sidecars() as [ 'name' => $name ] ) {
+			$node = Core::node( $name );
+			if ( null !== $node && ! isset( $out[ $name ] ) ) {
+				$out[ $name ] = self::metadata_row( $name, $node, $node::node_schema() );
+				$added[]      = $node;
+			}
+		}
+		return $added;
 	}
 
 	/**

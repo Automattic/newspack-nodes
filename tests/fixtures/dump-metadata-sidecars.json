@@ -1,0 +1,26 @@
+{
+  "nodes": [
+    { "name": "press-6140", "counter": 4107 },
+    { "name": "press-6140:feed", "patron": "press-6140", "kind": "feed", "counter": 7219 },
+    { "name": "press-6140:feed:valve", "patron": "press-6140:feed", "kind": "valve", "counter": 3313 },
+    { "name": "press-6140:feed:valve:gasket", "patron": "press-6140:feed:valve", "kind": "gasket", "counter": 9041 },
+    { "name": "press-6140:feed:config", "patron": "press-6140:feed", "kind": "config", "counter": 11 },
+    { "name": "press-6140:plumbing", "patron": "press-6140", "kind": "plumbing", "hidden": true, "counter": 12 },
+    { "name": "press-6140:plumbing:trap", "patron": "press-6140:plumbing", "kind": "trap", "counter": 13 },
+    { "name": "press-6140:ink", "patron": "press-6140", "kind": "ink", "counter": 5527 },
+    { "name": "sealed-8836", "hidden": true, "counter": 14 },
+    { "name": "sealed-8836:seam", "patron": "sealed-8836", "kind": "seam", "counter": 15 },
+    { "name": "vat-3381", "counter": 2689 },
+    { "name": "vat-3381:lid", "patron": "vat-3381", "kind": "lid", "deaf": true, "counter": 6473 }
+  ],
+  "plain": [ "press-6140", "vat-3381" ],
+  "rows": [
+    { "name": "press-6140", "counter": 4107, "has_config": false, "accepts_fill": true, "owner": null, "sidecars": [ "press-6140:feed", "press-6140:ink" ] },
+    { "name": "vat-3381", "counter": 2689, "has_config": false, "accepts_fill": true, "owner": null, "sidecars": [ "vat-3381:lid" ] },
+    { "name": "press-6140:feed", "counter": 7219, "has_config": true, "accepts_fill": true, "owner": "press-6140", "sidecars": [ "press-6140:feed:valve" ] },
+    { "name": "press-6140:ink", "counter": 5527, "has_config": false, "accepts_fill": true, "owner": "press-6140", "sidecars": [] },
+    { "name": "vat-3381:lid", "counter": 6473, "has_config": false, "accepts_fill": false, "owner": "vat-3381", "sidecars": [] },
+    { "name": "press-6140:feed:valve", "counter": 3313, "has_config": false, "accepts_fill": true, "owner": "press-6140:feed", "sidecars": [ "press-6140:feed:valve:gasket" ] },
+    { "name": "press-6140:feed:valve:gasket", "counter": 9041, "has_config": false, "accepts_fill": true, "owner": "press-6140:feed:valve", "sidecars": [] }
+  ]
+}

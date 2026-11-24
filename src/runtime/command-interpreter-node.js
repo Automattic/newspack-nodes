@@ -150,7 +150,7 @@ const HELP = {
 	dump_config:
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink /\n          connect_node lines; an optional regex glob filters by name.\n',
 	dump_metadata:
-		'dump_metadata [<node> | -o <node>...]\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n    -o: each node named, then each sidecar it lists.\n',
+		'dump_metadata [<node> | -o <node>... | -s]\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n    -o: each node named, then each sidecar it lists.\n    -s: the whole graph, then every sidecar at any depth.\n',
 	trace: "trace [ <node name> [ <level> ] ]\n    no args: toggle this CommandInterpreter's debug_state.\n",
 	pwd: 'pwd\n',
 	log: 'log <message>\n    note: prints <message> to stderr (server-side debug log).\n',
@@ -1188,18 +1188,25 @@ export class CommandInterpreterNode extends Node {
 
 	/**
 	 * `dump_metadata [<node>]` — the per-node snapshot the dashboards read;
-	 * `dump_metadata -o <node>...` answers each node and the sidecars it lists.
+	 * `dump_metadata -o <node>...` answers each node and the sidecars it lists,
+	 * and `dump_metadata -s` the whole snapshot and every sidecar at any depth.
 	 *
-	 * @param {string[]} args     The tokens: `-o` and nodes, one node, or none.
+	 * @param {string[]} args     The tokens: `-o` and nodes, `-s`, one node, or none.
 	 * @param {Object}   registry Name table to walk.
 	 * @return {Object} Metadata keyed by node name.
+	 * @throws {Error} When `-s` comes with anything else.
 	 */
 	static _cmdDumpMetadata( args, registry ) {
-		const names = args.filter( ( a ) => '' !== a && '-o' !== a );
-		if ( args.includes( '-o' ) ) {
-			return dumpOwnedPayload( names, registry );
+		const names = args.filter( ( a ) => '' !== a && '-s' !== a );
+		const sidecars = args.includes( '-s' );
+		if ( sidecars && names.length ) {
+			throw new Error( 'dump_metadata -s takes no node' );
 		}
-		return dumpMetadataPayload( names[ 0 ] ?? '', registry );
+		if ( names.includes( '-o' ) ) {
+			const owners = names.filter( ( a ) => '-o' !== a );
+			return dumpOwnedPayload( owners, registry );
+		}
+		return dumpMetadataPayload( names[ 0 ] ?? '', registry, { sidecars } );
 	}
 
 	/**

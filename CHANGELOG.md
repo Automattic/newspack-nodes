@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`ForceGraph`, a shared force-directed graph** (`@newspack-nodes/shared/forceGraph`). It draws nodes, lines and nested hulls, lays them out until few lines cross, and stops. A swipe pans, a pinch or a wheel notch zooms, and the arrows pan or move the selection. With `live`, each new `pollKey` hands it rates that move the layout.
+- **`dump_metadata -s` answers the whole graph and every sidecar**, at any depth, in one command, from PHP and the browser alike. It takes no node. A browser `MetadataNode` subclass names what its graph leaves out through `hidden`.
 
 ### Fixed
 

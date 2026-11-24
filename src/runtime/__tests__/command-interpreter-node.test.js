@@ -1451,6 +1451,41 @@ describe( 'base commands — defaults installed on every interpreter', () => {
 			] );
 			expect( meta[ 'vat-2290:lid' ].owner ).toBe( 'vat-2290' );
 		} );
+		it( '-s answers the whole snapshot and a sidecar at any depth', () => {
+			const interpreter = makeInterpreter();
+			const names = [ 'vat-2290', 'vat-2290:lid', 'vat-2290:lid:hinge' ];
+			names.forEach( ( name, depth ) => {
+				const node = new Node();
+				node.name = name;
+				node.patron = Core.node( names[ depth - 1 ] ) ?? null;
+			} );
+			const meta = dispatch( interpreter, 'dump_metadata', '-s' );
+			expect( Object.keys( meta ) ).toEqual( [
+				'_command_interpreter',
+				...names,
+				'_header',
+			] );
+			expect( meta[ 'vat-2290:lid:hinge' ].owner ).toBe( 'vat-2290:lid' );
+		} );
+		it( 'names no node by a blank token', () => {
+			const interpreter = makeInterpreter();
+			const ask = ( ...args ) =>
+				interpreter.dispatch( 'dump_metadata', args );
+			new Node().name = 'vat-2290';
+			expect( ask( '', '-s', '' ) ).toEqual( ask( '-s' ) );
+			expect( ask( '' ) ).toEqual( ask() );
+			expect( ask() ).toHaveProperty( [ 'vat-2290' ] );
+		} );
+		it.each( [ '-s vat-2290', 'vat-2290 -s', '-o -s vat-2290', '-s -o' ] )(
+			'refuses anything beside -s: %s',
+			( args ) => {
+				const interpreter = makeInterpreter();
+				new Node().name = 'vat-2290';
+				expect( () =>
+					dispatch( interpreter, 'dump_metadata', args )
+				).toThrow( 'dump_metadata -s takes no node' );
+			}
+		);
 	} );
 
 	describe( 'stats', () => {

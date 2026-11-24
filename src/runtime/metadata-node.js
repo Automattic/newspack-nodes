@@ -86,26 +86,35 @@ function sidecarsByOwner( registry, only = null ) {
  * flattened list cannot express a Tee fan-out (ADR-19): `target` is the
  * routing value a console mutation patches, `targets` the display union the
  * edges are drawn from. An owned node adds `owner`, its patron's name,
- * because the server refuses to remove or rename it.
+ * because the server refuses to remove or rename it. With `sidecars`, a full
+ * snapshot adds the row of every node reachable through the `sidecars` it
+ * lists, breadth first and each once, as PHP answers `dump_metadata -s`.
  *
- * @param {string} [only]     Single node name to snapshot; '' = all nodes.
- * @param {Object} [registry] The name table to read; defaults to Core's.
+ * @param {string}  [only]             Single node name to snapshot; '' = all nodes.
+ * @param {Object}  [registry]         The name table to read; defaults to Core's.
+ * @param {Object}  [options]          What a full snapshot adds.
+ * @param {boolean} [options.sidecars] Whether to add every sidecar's row.
  * @return {Object} Map of node name to its metadata entry.
  */
-export function dumpMetadataPayload( only = '', registry = Core.registry ) {
+export function dumpMetadataPayload(
+	only = '',
+	registry = Core.registry,
+	{ sidecars = false } = {}
+) {
 	if ( only ) {
 		const node = registry.nodes.get( only );
 		const schema = node?.constructor?.nodeSchema?.() ?? null;
 		if ( ! node || isHidden( schema ) ) {
 			return {};
 		}
-		const sidecars = sidecarsByOwner( registry, node );
+		const byOwner = sidecarsByOwner( registry, node );
 		return {
-			[ only ]: metadataRow( only, node, schema, registry, sidecars ),
+			[ only ]: metadataRow( only, node, schema, registry, byOwner ),
 		};
 	}
 	const out = {};
-	const sidecars = sidecarsByOwner( registry );
+	const nodes = new Set();
+	const byOwner = sidecarsByOwner( registry );
 	for ( const [ name, node ] of registry.nodes ) {
 		if ( node.patron ) {
 			continue;
@@ -113,7 +122,15 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 		// Per-node port flags from the node's schema; default true without one.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
 		if ( ! isHidden( schema ) ) {
-			out[ name ] = metadataRow( name, node, schema, registry, sidecars );
+			out[ name ] = metadataRow( name, node, schema, registry, byOwner );
+			nodes.add( node );
+		}
+	}
+	if ( sidecars ) {
+		// A Set iterates what the walk adds, each once: breadth first.
+		for ( const owner of nodes ) {
+			const added = addSidecarRows( out, owner, registry, byOwner );
+			added.forEach( ( node ) => nodes.add( node ) );
 		}
 	}
 	// FULL-snapshot header: reverse_cwd + router profiling-toggle truth.
@@ -135,26 +152,35 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
  */
 export function dumpOwnedPayload( names, registry = Core.registry ) {
 	const out = {};
-	const sidecars = sidecarsByOwner( registry );
+	const byOwner = sidecarsByOwner( registry );
 	for ( const name of names ) {
 		const node = registry.nodes.get( name );
 		const schema = node?.constructor?.nodeSchema?.() ?? null;
 		if ( ! node || isHidden( schema ) ) {
 			continue;
 		}
-		out[ name ] = metadataRow( name, node, schema, registry, sidecars );
-		for ( const sidecar of sidecars.get( node ) ?? [] ) {
-			const child = registry.nodes.get( sidecar.name );
-			out[ sidecar.name ] = metadataRow(
-				sidecar.name,
-				child,
-				child.constructor?.nodeSchema?.() ?? null,
-				registry,
-				sidecars
-			);
-		}
+		out[ name ] = metadataRow( name, node, schema, registry, byOwner );
+		addSidecarRows( out, node, registry, byOwner );
 	}
 	return out;
+}
+
+/**
+ * Add the row of each sidecar a node lists.
+ *
+ * @param {Object}                                            out      The rows so far, added to in place.
+ * @param {Object}                                            owner    The node whose sidecars to add.
+ * @param {Object}                                            registry The name table it is registered in.
+ * @param {Map<Object, Array<{name: string, class: string}>>} byOwner  Sidecars by owner.
+ * @return {Object[]} The nodes added.
+ */
+function addSidecarRows( out, owner, registry, byOwner ) {
+	return ( byOwner.get( owner ) ?? [] ).map( ( { name } ) => {
+		const node = registry.nodes.get( name );
+		const schema = node.constructor?.nodeSchema?.() ?? null;
+		out[ name ] = metadataRow( name, node, schema, registry, byOwner );
+		return node;
+	} );
 }
 
 /**
@@ -217,9 +243,10 @@ export function canonicalReverseCwd( rawPwd ) {
 }
 
 /**
- * Node names `parseMetadata()` drops. Only the backbone hides: `_router` and
- * `_command_interpreter` sit in every graph and say nothing about the topology
- * being drawn. Everything else shows, TSL-declared probes included.
+ * Node names `parseMetadata()` drops by default. Only the backbone hides:
+ * `_router` and `_command_interpreter` sit in every graph and say nothing
+ * about the topology being drawn. Everything else shows, TSL-declared probes
+ * included.
  */
 const SCAFFOLDING = new Set( [
 	reservedNames.COMMAND_INTERPRETER,
@@ -275,7 +302,7 @@ const SCAFFOLDING = new Set( [
  * A parsed `dump_metadata` payload, ready for the canvas.
  *
  * @typedef  {Object}              MetadataGraph
- * @property {MetadataGraphNode[]} nodes     Every shown node, backbone excluded.
+ * @property {MetadataGraphNode[]} nodes     Every shown node, the hidden names excluded.
  * @property {Array}               edges     `{ from, to }` links, plus `registration`/`event` for listener edges.
  * @property {string}              pwd       Canonical reply path from `_header.pwd`.
  * @property {boolean}             profiling Whether the router is profiling.
@@ -283,13 +310,14 @@ const SCAFFOLDING = new Set( [
 
 /**
  * Parse a `dump_metadata` payload (object keyed by node name) into
- * { nodes, edges }. `target` is a string or array (Tee fan-out); the backbone
- * is hidden and everything else is shown.
+ * { nodes, edges }. `target` is a string or array (Tee fan-out); the names in
+ * `hidden`, the backbone by default, are dropped and everything else is shown.
  *
- * @param {?Object} payload dump_metadata reply payload.
+ * @param {?Object}     payload  dump_metadata reply payload.
+ * @param {Set<string>} [hidden] The node names to drop.
  * @return {MetadataGraph} Canvas-ready graph.
  */
-export function parseMetadata( payload ) {
+export function parseMetadata( payload, hidden = SCAFFOLDING ) {
 	if ( ! payload || typeof payload !== 'object' ) {
 		return { nodes: [], edges: [], pwd: '', profiling: false };
 	}
@@ -306,7 +334,7 @@ export function parseMetadata( payload ) {
 	const nodes = [];
 	const edges = [];
 	for ( const [ name, meta ] of Object.entries( payload ) ) {
-		if ( SCAFFOLDING.has( name ) || '_header' === name ) {
+		if ( hidden.has( name ) || '_header' === name ) {
 			continue;
 		}
 		// Display union; an optimistic patch sets `target` alone (ADR-19).
@@ -509,7 +537,7 @@ export class MetadataNode extends PollerNode {
 			return;
 		}
 		this.rawMap = meta;
-		const parsed = parseMetadata( meta );
+		const parsed = parseMetadata( meta, this.hidden );
 		this.pollIntervalMs = computePollIntervalMs( parsed.nodes.length );
 		// Re-arm only when the cadence moved; the recurring timer stays armed.
 		if (
@@ -579,3 +607,11 @@ export class MetadataNode extends PollerNode {
 		};
 	}
 }
+
+/**
+ * The node names a poll's graph drops; a subclass that shows more declares its
+ * own. `publish()` alone reads it.
+ *
+ * @type {Set<string>}
+ */
+MetadataNode.prototype.hidden = SCAFFOLDING;
