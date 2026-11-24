@@ -2429,6 +2429,104 @@ describe( 'the keys', () => {
 		expect( onKeepWarm.mock.calls ).toEqual( [ [] ] );
 	} );
 
+	describe( 'an arrow on a hovered canvas', () => {
+		const ALL = [ 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown' ];
+		let holder;
+
+		beforeEach( () => {
+			holder = document.body.appendChild(
+				document.createElement( 'div' )
+			);
+		} );
+
+		afterEach( () => holder.remove() );
+
+		/**
+		 * Press each arrow over a canvas, with focus in another control.
+		 *
+		 * @param {string}               html     The control; `#at` takes focus.
+		 * @param {function(Element): *} [moveOn] Takes the canvas, and moves focus.
+		 * @return {string[]} The keys the canvas took.
+		 */
+		const takenFrom = ( html, moveOn = () => {} ) => {
+			holder.innerHTML = html;
+			const el = holder.querySelector( '#at' );
+			const { svg } = mountSettled( { selectedId: 'n1' } );
+			pointer( 'pointerover', svg );
+			act( () => el.focus() );
+			expect( document.activeElement ).toBe( el );
+			moveOn( svg );
+			const from = document.activeElement;
+			const { x, y, k } = view( svg );
+			const taken = ALL.filter(
+				( name ) => key( name, {}, from ).defaultPrevented
+			);
+			if ( ! taken.length ) {
+				expect( view( svg ) ).toEqual( { x, y, k } );
+			}
+			return taken;
+		};
+
+		it.each( [
+			'<input id="at" type="range">',
+			'<input id="at" type="RANGE">',
+			'<input id="at" type="radio">',
+			'<span role="slider" tabindex="0" id="at"></span>',
+			'<span role="slider"><button id="at"></button></span>',
+			...[
+				'spinbutton',
+				'radio',
+				'tab',
+				'option',
+				'listbox',
+				'combobox',
+				'menu',
+				'menuitem',
+				'menuitemcheckbox',
+				'menuitemradio',
+				'treeitem',
+				'grid',
+				'treegrid',
+				'gridcell',
+			].map( ( role ) => `<button role="${ role }" id="at"></button>` ),
+		] )( 'is left to %s with focus', ( html ) => {
+			expect( takenFrom( html ) ).toEqual( [] );
+		} );
+
+		it.each( [
+			'<button id="at"></button>',
+			'<a id="at" href="#x">x</a>',
+			'<input id="at" type="checkbox">',
+			'<div role="tabpanel"><button id="at"></button></div>',
+			'<div role="group"><button id="at" role="switch"></button></div>',
+			'<div><input type="range"><button id="at"></button></div>',
+		] )( 'pans while %s has focus', ( html ) => {
+			expect( takenFrom( html ) ).toEqual( ALL );
+		} );
+
+		it( 'acts once the canvas has focus', () => {
+			expect(
+				takenFrom( '<input id="at" type="range">', focus )
+			).toEqual( ALL );
+		} );
+
+		it( 'acts on a canvas with focus, whatever control it stands in', () => {
+			const inCell = ( svg ) => {
+				svg.parentElement.setAttribute( 'role', 'gridcell' );
+				focus( svg );
+			};
+			expect( takenFrom( '<button id="at"></button>', inCell ) ).toEqual(
+				ALL
+			);
+		} );
+
+		it( 'leaves the zoom keys to the canvas', () => {
+			expect( takenFrom( '<input id="at" type="range">' ) ).toEqual( [] );
+			const from = document.activeElement;
+			expect( key( '=', {}, from ).defaultPrevented ).toBe( true );
+		} );
+	} );
+
 	it( 'that select and deselect want focus', () => {
 		const host = { onSelect: jest.fn(), onDeselect: jest.fn() };
 		const { svg } = mount( { selectedId: 'n1', ...host } );

@@ -1,8 +1,9 @@
 /**
  * The force graph's keys. Each acts while the canvas has focus or the pointer
  * is over it, but for those that another control or the page may want: Escape
- * and an arrow's move of the selection want focus, and Space wants it once
- * anything in the document has it.
+ * and an arrow's move of the selection want focus, Space wants it once
+ * anything in the document has it, and an arrow once a control that takes
+ * arrows does.
  */
 
 import { isTypingTarget } from '../utils/isTypingTarget';
@@ -11,6 +12,32 @@ import { KEY_ZOOM } from '../utils/wheelGesture';
 
 /** Pixels an arrow pans. */
 const PAN_STEP = 80;
+
+/** Roles of a control that takes the arrows while it has focus. */
+const ARROW_ROLES = [
+	'slider',
+	'spinbutton',
+	'radio',
+	'tab',
+	'option',
+	'listbox',
+	'combobox',
+	'menu',
+	'menuitem',
+	'menuitemcheckbox',
+	'menuitemradio',
+	'treeitem',
+	'grid',
+	'treegrid',
+	'gridcell',
+];
+
+/** What takes the arrows while focus is in it. */
+const ARROW_CONTROL = [
+	'input[type="range"]',
+	'input[type="radio"]',
+	...ARROW_ROLES.map( ( role ) => `[role="${ role }"]` ),
+].join();
 
 /** @typedef {import('./ForceGraph').Stage} Stage */
 /** @typedef {import('./ForceGraph').ForceGraphProps} ForceGraphProps */
@@ -104,6 +131,9 @@ export const bindKeys = (
 			return;
 		}
 		if ( ARROWS[ e.key ] ) {
+			if ( ! focused && doc.activeElement.closest( ARROW_CONTROL ) ) {
+				return;
+			}
 			arrow( ARROWS[ e.key ], focused );
 		} else if ( KEY_ZOOM[ e.key ] ) {
 			zoomBy( 1 / KEY_ZOOM[ e.key ] );
