@@ -47,6 +47,7 @@ jest.useFakeTimers();
 
 const { act, render } = require( '@testing-library/react' );
 const { createRef } = require( '@wordpress/element' );
+const { installSvgBox } = require( '../../../shared/test-utils/svgBox' );
 const {
 	installViewport,
 } = require( '../../../shared/test-utils/viewportWidth' );
@@ -120,34 +121,29 @@ const rates = ( map = {} ) => ( {
 } );
 
 let viewport;
+let box;
 
 beforeEach( () => {
 	viewport = installViewport( false );
+	box = installSvgBox( 1313, 777 );
 	mockGraphs = [];
 	mockDrawn = 0;
 	mockPlaced = 0;
-	for ( const [ side, value ] of [
-		[ 'Width', 1313 ],
-		[ 'Height', 777 ],
-	] ) {
-		Object.defineProperty( window.SVGElement.prototype, `client${ side }`, {
-			configurable: true,
-			get: () => value,
-		} );
-	}
 	Core.reset();
 	Core.registerNode( '_cwd', { name: '_cwd', fill: () => {} } );
 } );
 
 afterEach( () => {
 	viewport.restore();
+	box.restore();
 	jest.restoreAllMocks();
-	delete window.SVGElement.prototype.clientWidth;
-	delete window.SVGElement.prototype.clientHeight;
 } );
 
+// A frame, which is all the untangling takes while the clock stands.
+const frame = () => act( () => jest.advanceTimersToNextFrame() );
+
 /**
- * Mount the canvas on GRAPH, live, with every callback mocked.
+ * Mount the canvas on GRAPH, live, with every callback mocked, and run a frame.
  *
  * @param {Object} [props] Props over those.
  * @return {Object} The svg, the props it was handed, a way to re-render it, and its unmount.
@@ -180,6 +176,7 @@ const mount = ( props = {} ) => {
 		...props,
 	};
 	const view = render( <ForceCanvas { ...held } /> );
+	frame();
 	return {
 		svg: view.container.querySelector( 'svg' ),
 		props: held,
@@ -187,12 +184,13 @@ const mount = ( props = {} ) => {
 		update: ( next ) => {
 			held = { ...held, ...next };
 			view.rerender( <ForceCanvas { ...held } /> );
+			frame();
 		},
 	};
 };
 
 /**
- * Answer the poller as the Router hands it a reply.
+ * Answer the poller as the Router hands it a reply, and run a frame.
  *
  * @param {Object} [map]   The reply map.
  * @param {string} [scope] The scope it names.
@@ -203,6 +201,7 @@ const answer = ( map = reply(), scope = SCOPE ) => {
 	m[ TO ] = encodeURIComponent( scope );
 	m[ VALUE ] = { payload: map };
 	act( () => Core.node( FORCE_POLLER ).fill( m ) );
+	frame();
 };
 
 const all = ( svg, part ) => [
@@ -579,9 +578,11 @@ describe( 'a full layout', () => {
 } );
 
 describe( 'the rates', () => {
+	// Two answers, two seconds apart.
 	const answerTwice = ( counters ) => {
+		const second = Date.now() + 2000;
 		answer();
-		act( () => jest.advanceTimersByTime( 2000 ) );
+		act( () => jest.advanceTimersByTime( second - Date.now() ) );
 		answer( reply( counters ) );
 	};
 

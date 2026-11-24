@@ -135,13 +135,14 @@ export const createDrawing = ( svg, arrowId ) => {
 	let aimed = [];
 
 	/** @param {ForceGraphProps} host The host's props. */
-	const dressNodes = ( { selectedId, hoveredId } ) =>
+	const dressNodes = ( { selectedId, hoveredId, onSelect } ) =>
 		nodes.attr( 'class', ( { id, node } ) =>
 			classes(
 				`${ BLOCK }__node`,
 				node.size && 'is-sized',
 				node.className,
 				node.rate > 0 && 'is-live',
+				onSelect && 'is-pressable',
 				id === selectedId && 'is-selected',
 				id === hoveredId && 'is-hovered'
 			)
@@ -284,6 +285,27 @@ export const createDrawing = ( svg, arrowId ) => {
 		},
 
 		/**
+		 * The rects of the nodes, where they are painted.
+		 *
+		 * @return {{id: string, x: number, y: number, w: number, h: number}[]} One for each node, by its id and its corner of least x and y.
+		 */
+		boxes: () =>
+			nodes.nodes().map( ( el ) => {
+				const { id, halfW, halfH } = select( el ).datum();
+				const [ x, y ] = el
+					.getAttribute( 'transform' )
+					.slice( 'translate('.length, -1 )
+					.split( ',' );
+				return {
+					id,
+					x: x - halfW,
+					y: y - halfH,
+					w: 2 * halfW,
+					h: 2 * halfH,
+				};
+			} ),
+
+		/**
 		 * The hull painted at a point, the deepest of several.
 		 *
 		 * @param {[number, number]} at The point, in the graph's own units.
@@ -293,6 +315,9 @@ export const createDrawing = ( svg, arrowId ) => {
 			outlines
 				.filter( ( { points } ) => polygonContains( points, at ) )
 				.pop()?.branch,
+
+		/** Whether no node is painted. */
+		isEmpty: () => nodes.empty(),
 
 		clear: () => root.selectChildren().remove(),
 	};

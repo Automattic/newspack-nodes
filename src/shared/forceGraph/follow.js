@@ -3,9 +3,9 @@
  * before it, what a model of the same shape takes over, where a new model's
  * leaves start, and which of them crowd a sibling.
  *
- * Shape is the nodes, the links' ends, which links are loose and the tree of
- * hulls. Text, classes, weights and extents are not shape: a model takes those
- * over in place.
+ * Shape is the nodes, which of them are centered, the links' ends and
+ * distances, which links are loose and the tree of hulls. Text, classes,
+ * weights and extents are not shape: a model takes those over in place.
  */
 
 import { boxLeaves, updateBoxes } from './forces';
@@ -16,8 +16,8 @@ import { boxLeaves, updateBoxes } from './forces';
 /** @typedef {import('./forces').BoxedLeaf|import('./model').Branch} Boxed */
 
 /**
- * Links by their ends and whether they are loose, parallel links told apart by
- * their turn.
+ * Links by their ends, their distance and whether they are loose, parallel
+ * links told apart by their turn.
  *
  * @param {Link[]} links Links.
  * @return {Map<string, Link>} Links by key.
@@ -30,6 +30,7 @@ const byEnds = ( links ) => {
 			const alike = JSON.stringify( [
 				source.id,
 				target.id,
+				host.distance,
 				!! host.loose,
 			] );
 			const turn = turns.get( alike ) ?? 0;
@@ -121,9 +122,13 @@ export const compare = ( was, next ) => {
 		);
 
 	const sameSurvivors =
-		[ ...survivors.values() ].every(
-			( leaf ) => before.get( leaf.id ).parent?.id === leaf.parent?.id
-		) &&
+		[ ...survivors.values() ].every( ( leaf ) => {
+			const old = before.get( leaf.id );
+			return (
+				old.parent?.id === leaf.parent?.id &&
+				!! old.node.center === !! leaf.node.center
+			);
+		} ) &&
 		sameKeys( among( was ), among( next ) ) &&
 		sameHulls( was, next, survivors );
 

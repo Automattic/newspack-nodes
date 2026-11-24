@@ -37,22 +37,18 @@ const GAP = 24;
 /** Fastest a leaf moves, in pixels a tick. */
 const MAX_VELOCITY = 100;
 
-/** Range of the charge's log scale, in pixels of repulsion. */
-const CHARGE_RANGE = [ 5, 100 ];
-
-/** Charge applied to a body for every unit of its rate's log. */
-const CHARGE_SIGN = -2;
-
-/** Charge of a body moving `rate` messages a second. */
-const chargeScale = scaleLog().range( CHARGE_RANGE );
+/** Repulsion of a live body: 1500 idle, 3000 at nine a second, and so on. */
+const repulsionScale = scaleLog().range( [ 1500, 3000 ] );
 
 /**
- * The charge a body of the given rate carries.
+ * The charge a live body of the given rate carries. An idle one repels more
+ * than the fixed charge does, because cohesion grows with alpha and a live
+ * layout stays warm.
  *
  * @param {number} rate Messages a second.
  * @return {number} A negative charge, stronger for a busier body.
  */
-export const chargeOf = ( rate ) => CHARGE_SIGN * chargeScale( 1 + rate );
+export const chargeOf = ( rate ) => -repulsionScale( 1 + rate );
 
 /**
  * Refit every branch's box, centre, radius and mass centre to its children.

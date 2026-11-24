@@ -3,7 +3,7 @@
  * when that cuts the crossings among the spans and shortens them.
  *
  * Untangling moves leaves directly, not through velocity. A move is one trade
- * or one mirror; a tick earns a credit of span comparisons and runs moves
+ * or one mirror; a call earns a credit of span comparisons and runs moves
  * while any is left, so a large graph is untangled a few moves at a time.
  */
 
@@ -11,7 +11,7 @@ import { mean } from 'd3';
 import { updateBoxes } from './forces';
 
 /** Span comparisons a call earns, and the most credit that is kept. */
-export const COMPARISONS_PER_TICK = 400000;
+export const COMPARISONS_PER_CALL = 400000;
 
 /** Most spans a model may hold and still be untangled. */
 export const MAX_SPANS = 2000;
@@ -90,12 +90,12 @@ const shift = ( body, dx, dy ) => {
  * the untangler's life, so a changed graph makes a new one.
  *
  * @param {import('./model').Model} model Model whose leaves move.
- * @return {function(): void} Untangle: a few moves mirror or trade places.
+ * @return {?function(): void} Untangle: a few moves mirror or trade places. Null for a model with more spans than the most, or nothing movable.
  */
 export const createUntangler = ( model ) => {
 	const { spans, movable } = model;
 	if ( spans.length > MAX_SPANS || ! movable.length ) {
-		return () => {};
+		return null;
 	}
 
 	let body = 0;
@@ -259,8 +259,8 @@ export const createUntangler = ( model ) => {
 
 	return () => {
 		credit = Math.min(
-			credit + COMPARISONS_PER_TICK,
-			COMPARISONS_PER_TICK
+			credit + COMPARISONS_PER_CALL,
+			COMPARISONS_PER_CALL
 		);
 		let finished = 0;
 		if ( credit > 0 ) {

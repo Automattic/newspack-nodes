@@ -34,10 +34,15 @@ const at = ( model, spots ) =>
 const canvas = { width: 2000, height: 1000 };
 
 describe( 'chargeOf', () => {
-	it( 'follows the visualizer', () => {
-		expect( chargeOf( 0 ) ).toBeCloseTo( -10 );
-		expect( chargeOf( 9 ) ).toBeCloseTo( -200 );
+	it( 'repels by the log of the rate, idle or not', () => {
+		expect( chargeOf( 0 ) ).toBeCloseTo( -1500 );
+		expect( chargeOf( 9 ) ).toBeCloseTo( -3000 );
+		expect( chargeOf( 999 ) ).toBeCloseTo( -6000 );
+	} );
+
+	it( 'is stronger than the fixed charge of a graph without rates', () => {
 		expect( CHARGE ).toBe( -1000 );
+		expect( chargeOf( 0 ) ).toBeLessThan( CHARGE );
 	} );
 } );
 
@@ -261,6 +266,19 @@ describe( 'forceSiblings', () => {
 		expect( a.vx ).toBe( 0 );
 		expect( a.vy ).toBe( -( 12 + 12 - 20 + 24 ) / 2 );
 		expect( b.vy ).toBe( 14 );
+	} );
+
+	it( 'parts toward the left when that exit is nearest', () => {
+		const model = build( [ node( 'a', { size: 100 } ), node( 'b' ) ] );
+		at( model, [
+			[ 100, 100 ],
+			[ 35, 100 ],
+		] );
+		forceSiblings( model )( 0 );
+		const [ a, b ] = model.leaves;
+
+		expect( [ a.vx, b.vx ] ).toEqual( [ 44.5, -44.5 ] );
+		expect( [ a.vy, b.vy ] ).toEqual( [ 0, 0 ] );
 	} );
 
 	it( 'stops pushing at the gap', () => {

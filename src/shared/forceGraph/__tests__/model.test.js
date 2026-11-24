@@ -396,6 +396,41 @@ describe( 'buildModel bodies', () => {
 		expect( ids( branch.peers ) ).toEqual( [ 'group:g' ] );
 	} );
 
+	it( 'movable and its peers leave out a center node and its hulls', () => {
+		const model = buildModel( {
+			nodes: [
+				node( 'p' ),
+				node( 'q' ),
+				node( 'hub', { center: true } ),
+				node( 'r', { group: 'g/in' } ),
+				node( 'mid', { center: true, group: 'g/in' } ),
+				node( 's', { group: 'g' } ),
+				node( 't', { group: 'h' } ),
+			],
+			links: [
+				link( 'p', 'hub' ),
+				link( 'q', 'r' ),
+				link( 'mid', 't' ),
+				link( 's', 't' ),
+			],
+			groups: [ group( 'g' ), group( 'g/in', 'g' ), group( 'h' ) ],
+		} );
+		const { movable } = model;
+		expect( movable.map( ( { body } ) => body.id ).sort() ).toEqual( [
+			'group:h',
+			'p',
+			'q',
+			'r',
+			's',
+			't',
+		] );
+		const peersOf = ( id ) =>
+			ids( movable.find( ( { body } ) => id === body.id ).peers );
+		expect( peersOf( 'p' ) ).toEqual( [ 'p', 'q' ] );
+		expect( peersOf( 'group:h' ) ).toEqual( [ 'group:h' ] );
+		expect( peersOf( 'r' ) ).toEqual( [ 'r' ] );
+	} );
+
 	it( 'siblings of one type share one list of peers', () => {
 		const model = buildModel( {
 			nodes: [ node( 'p' ), node( 'q' ), node( 'r', { group: 'g' } ) ],

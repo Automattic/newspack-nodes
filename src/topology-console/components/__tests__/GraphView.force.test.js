@@ -37,6 +37,7 @@ jest.useFakeTimers();
 
 const { act, fireEvent, render } = require( '@testing-library/react' );
 const { useState } = require( '@wordpress/element' );
+const { installSvgBox } = require( '../../../shared/test-utils/svgBox' );
 const {
 	installViewport,
 } = require( '../../../shared/test-utils/viewportWidth' );
@@ -172,6 +173,9 @@ function Host( props ) {
 	);
 }
 
+// A frame, which is all the untangling takes while the clock stands.
+const frame = () => act( () => jest.advanceTimersToNextFrame() );
+
 /**
  * Mount the host, and let the layout settle.
  *
@@ -183,6 +187,7 @@ const mount = ( props = {} ) => {
 		<Host graph={ LIVE } { ...props } />
 	);
 	act( () => jest.advanceTimersByTime( 300 ) );
+	frame();
 	const find = ( selector ) => container.querySelector( selector );
 	return {
 		find,
@@ -190,8 +195,10 @@ const mount = ( props = {} ) => {
 		svg: () => find( FORCE ) ?? find( SCHEMATIC ),
 		panel: () => find( '.topology-inspector' ),
 		title: () => find( '.topology-insp__title' )?.textContent,
-		update: ( next ) =>
-			rerender( <Host graph={ LIVE } { ...props } { ...next } /> ),
+		update: ( next ) => {
+			rerender( <Host graph={ LIVE } { ...props } { ...next } /> );
+			frame();
+		},
 		unmount,
 	};
 };
@@ -200,7 +207,10 @@ const toggle = ( view, label ) =>
 	view
 		.all( '.topology-inspector-dock [aria-pressed]' )
 		.find( ( button ) => label === button.textContent );
-const press = ( view, label ) => fireEvent.click( toggle( view, label ) );
+const press = ( view, label ) => {
+	fireEvent.click( toggle( view, label ) );
+	frame();
+};
 const toggles = ( view ) =>
 	view
 		.all( '.topology-inspector-dock [aria-pressed]' )
@@ -222,7 +232,7 @@ const store = ( ...keys ) =>
 	keys.forEach( ( key ) => window.localStorage.setItem( key, '1' ) );
 
 /**
- * Answer a poller as the Router hands it a reply.
+ * Answer a poller as the Router hands it a reply, and run a frame.
  *
  * @param {string}   name  The poller.
  * @param {string[]} [ids] The rows it answers; all of them when not given.
@@ -235,6 +245,7 @@ const answer = ( name, ids = Object.keys( ROWS ) ) => {
 		payload: Object.fromEntries( ids.map( ( id ) => [ id, ROWS[ id ] ] ) ),
 	};
 	act( () => Core.node( name ).fill( reply ) );
+	frame();
 };
 
 /**
@@ -334,17 +345,11 @@ const CANVASES = {
 };
 
 let viewport;
+let box;
 
 beforeAll( () => {
 	// jsdom has no PointerEvent; the schematic reads its button.
 	window.PointerEvent ??= class extends window.MouseEvent {};
-	const svg = window.SVGSVGElement.prototype;
-	svg.createSVGPoint = () => {
-		const point = { x: 0, y: 0 };
-		point.matrixTransform = () => ( { x: point.x, y: point.y } );
-		return point;
-	};
-	svg.getScreenCTM = () => ( { inverse: () => ( {} ) } );
 	window.Element.prototype.setPointerCapture = () => {};
 	window.Element.prototype.releasePointerCapture = () => {};
 	window.Element.prototype.hasPointerCapture = () => false;
@@ -352,18 +357,10 @@ beforeAll( () => {
 
 beforeEach( () => {
 	viewport = installViewport( false );
+	box = installSvgBox( 1313, 777 );
 	window.localStorage.clear();
 	mockHanded = {};
 	layoutCalls = [];
-	for ( const [ side, value ] of [
-		[ 'Width', 1313 ],
-		[ 'Height', 777 ],
-	] ) {
-		Object.defineProperty( window.SVGElement.prototype, `client${ side }`, {
-			configurable: true,
-			get: () => value,
-		} );
-	}
 	Core.reset();
 	Core.registerNode( '_cwd', {
 		name: '_cwd',
@@ -374,8 +371,7 @@ beforeEach( () => {
 
 afterEach( () => {
 	viewport.restore();
-	delete window.SVGElement.prototype.clientWidth;
-	delete window.SVGElement.prototype.clientHeight;
+	box.restore();
 	delete document.elementFromPoint;
 } );
 

@@ -539,6 +539,36 @@ describe( 'toForceGraph lines', () => {
 		] );
 	} );
 
+	it( 'draws a sidecar close to its patron, however their line is folded', () => {
+		const own = { ...OWNED, showSinks: true };
+		const folded = {
+			...own,
+			graph: {
+				...OWNED.graph,
+				nodes: OWNED.graph.nodes.map( ( one ) => ( {
+					...one,
+					sink: 'press-61',
+				} ) ),
+				edges: [
+					{ from: 'vat-33', to: 'vat-33:feed' },
+					{ from: 'press-61', to: 'vat-33' },
+				],
+			},
+		};
+		for ( const options of [ own, folded ] ) {
+			const { links } = draw( options );
+			const close = links.filter( ( { distance } ) => 100 === distance );
+			expect( ids( close ).sort() ).toEqual( [
+				'patron:vat-33:feed',
+				'patron:vat-33:feed:valve',
+			] );
+			expect(
+				links.filter( ( { distance } ) => undefined !== distance )
+			).toEqual( close );
+		}
+		expect( draw( folded ).links.length ).toBeGreaterThan( 2 );
+	} );
+
 	it( 'draws a virtual edge as a virtual target line', () => {
 		const [ line ] = lines( [ { from: 'a-1', to: 'b-2', virtual: true } ] );
 
@@ -762,6 +792,9 @@ describe( 'toForceGraph sinks', () => {
 
 		expect( ids( nodes ) ).toEqual( [ 'a-1', 'b-2', 'c-3', 'd-4', CI ] );
 		expect( byId( nodes )[ CI ].group ?? null ).toBeNull();
+		expect( ids( nodes.filter( ( { center } ) => center ) ) ).toEqual( [
+			CI,
+		] );
 		expect( wears( byId( nodes )[ CI ], 'is-sidecar' ) ).toBe( false );
 		expect( patronOf.size ).toBe( 0 );
 		expect(

@@ -44,21 +44,18 @@ export const bindKeys = (
 	const doc = svg.ownerDocument;
 
 	/**
-	 * Move the selection the way an arrow points, or with none pan that way.
+	 * Move the selection the way an arrow points, among the nodes as painted,
+	 * or with none pan that way.
 	 *
 	 * @param {[number, number]} dir     The arrow.
 	 * @param {boolean}          focused Whether the canvas has focus.
 	 */
 	const arrow = ( dir, focused ) => {
-		const boxes = stageRef.current.engine
-			.model()
-			.leaves.map( ( { id, x, y, halfW, halfH } ) => ( {
-				id,
-				x: x - halfW,
-				y: y - halfH,
-				w: 2 * halfW,
-				h: 2 * halfH,
-			} ) );
+		const { drawing, engine } = stageRef.current;
+		const { byId } = engine.model();
+		const boxes = drawing
+			.boxes()
+			.filter( ( { id } ) => 'leaf' === byId.get( id )?.type );
 		const { selectedId, onSelect } = hostRef.current;
 		const selected =
 			focused && boxes.find( ( { id } ) => id === selectedId );

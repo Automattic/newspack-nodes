@@ -12,6 +12,7 @@ import { renderWithCatalog } from './catalogTestUtils';
 import { LayoutProvider } from '../LayoutContext';
 import { autoLayout } from '../utils/autoLayout';
 import { SIDECAR_POLLER } from '../hooks/useSidecarRows';
+import { installSvgBox } from '../../shared/test-utils/svgBox';
 import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import {
@@ -59,16 +60,15 @@ function crawlerGraph() {
 }
 
 describe( 'an owned Table on the console', () => {
+	let box;
+
 	beforeAll( () => {
-		window.SVGSVGElement.prototype.createSVGPoint = function () {
-			const pt = { x: 0, y: 0 };
-			pt.matrixTransform = () => ( { x: pt.x, y: pt.y } );
-			return pt;
-		};
-		window.SVGSVGElement.prototype.getScreenCTM = function () {
-			return { inverse: () => ( {} ) };
-		};
+		box = installSvgBox( 0, 0 );
 	} );
+
+	afterEach( () => box.setSize( 0, 0 ) );
+
+	afterAll( () => box.restore() );
 
 	beforeEach( () => {
 		Core.reset();
@@ -273,16 +273,7 @@ describe( 'an owned Table on the console', () => {
 				<Console parsed={ crawlerGraph() } />
 			);
 			const svg = container.querySelector( '.topology-canvas-svg' );
-			svg.getBoundingClientRect = () => ( {
-				x: 0,
-				y: 0,
-				width: 1000,
-				height: 800,
-				top: 0,
-				left: 0,
-				right: 1000,
-				bottom: 800,
-			} );
+			box.setSize( 1000, 800 );
 			fireEvent.click(
 				container.querySelector( '.topology-node__sidecars' )
 			);
@@ -322,23 +313,7 @@ describe( 'an owned Table on the console', () => {
 
 		describe( 'below the level of detail and back', () => {
 			// The canvas measures 1000 x 800 px, so a 10000-wide view is LOD.
-			beforeAll( () => {
-				for ( const [ side, px ] of [
-					[ 'clientWidth', 1000 ],
-					[ 'clientHeight', 800 ],
-				] ) {
-					Object.defineProperty(
-						window.SVGSVGElement.prototype,
-						side,
-						{ configurable: true, get: () => px }
-					);
-				}
-			} );
-
-			afterAll( () => {
-				delete window.SVGSVGElement.prototype.clientWidth;
-				delete window.SVGSVGElement.prototype.clientHeight;
-			} );
+			beforeEach( () => box.setSize( 1000, 800 ) );
 
 			/**
 			 * Open the owner's grid, then zoom below LOD and back, so the

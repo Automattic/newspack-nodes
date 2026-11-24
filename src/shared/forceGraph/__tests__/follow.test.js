@@ -88,6 +88,25 @@ describe( 'compare', () => {
 		expect( of( four(), build( ABCD, links ) ) ).toEqual( changed );
 	} );
 
+	it( 'finds a link of another distance', () => {
+		const apart = ( distance ) =>
+			build( ABCD, [ link( 'a', 'b', { distance } ), link( 'b', 'c' ) ] );
+		expect( of( four(), apart( 91 ) ) ).toEqual( changed );
+		expect( of( apart( 91 ), apart( 92 ) ) ).toEqual( changed );
+		expect( of( apart( 91 ), four() ) ).toEqual( changed );
+		expect( of( apart( 91 ), apart( 91 ) ) ).toEqual( same );
+		expect( of( apart( undefined ), four() ) ).toEqual( same );
+	} );
+
+	it( 'finds a node that is centered, or no longer is', () => {
+		const [ a, ...rest ] = ABCD;
+		const held = build( [ { ...a, center: true }, ...rest ], AB_BC );
+		const free = build( [ { ...a, center: false }, ...rest ], AB_BC );
+		expect( of( four(), held ) ).toEqual( changed );
+		expect( of( held, four() ) ).toEqual( changed );
+		expect( of( four(), free ) ).toEqual( same );
+	} );
+
 	it( 'finds a link that turns loose, or no longer is', () => {
 		const loose = [
 			link( 'a', 'b', { loose: true } ),

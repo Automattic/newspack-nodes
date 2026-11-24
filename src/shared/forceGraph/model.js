@@ -28,17 +28,19 @@ const MEETING_CHILDREN = 2;
 
 /**
  * @typedef {Object} HostNode
- * @property {string}   id    Unique among nodes.
- * @property {string}   label Text drawn in the node's rect.
- * @property {number=}  size  Circle radius; absent for a label body.
- * @property {?string=} group Id of the group holding the node.
+ * @property {string}   id     Unique among nodes.
+ * @property {string}   label  Text drawn in the node's rect.
+ * @property {number=}  size   Circle radius; absent for a label body.
+ * @property {?string=} group  Id of the group holding the node.
+ * @property {boolean=} center Whether the layout holds it at the centre of the canvas.
  */
 
 /**
  * @typedef {Object} HostLink
- * @property {string}   source Id of a node.
- * @property {string}   target Id of a node.
- * @property {boolean=} loose  Whether it is drawn alone, taking no part in the layout.
+ * @property {string}   source   Id of a node.
+ * @property {string}   target   Id of a node.
+ * @property {number=}  distance Pixels it pulls its ends to; the layout's own without one.
+ * @property {boolean=} loose    Whether it is drawn alone, taking no part in the layout.
  */
 
 /**
@@ -65,6 +67,8 @@ const MEETING_CHILDREN = 2;
  * @property {number}    y          Centre.
  * @property {number}    vx         Velocity.
  * @property {number}    vy         Velocity.
+ * @property {number=}   fx         Where the layout holds it.
+ * @property {number=}   fy         Where the layout holds it.
  */
 
 /**
@@ -107,7 +111,7 @@ const MEETING_CHILDREN = 2;
  * @property {Link[]}                        links    Every drawable link.
  * @property {Link[]}                        pulls    The links whose ends share a parent, loose ones aside.
  * @property {Link[]}                        spans    One link for each linked pair, loose ones aside.
- * @property {{body: Body, peers: Body[]}[]} movable  Each sibling with a neighbor outside itself, and every sibling of its type, itself among them.
+ * @property {{body: Body, peers: Body[]}[]} movable  Each sibling with a neighbor outside itself, and every sibling of its type, itself among them; a center node, and a body that holds one, is neither.
  */
 
 /**
@@ -427,7 +431,10 @@ export const buildModel = ( { nodes, links, groups } ) => {
 		[ ...branches, ...leaves ].filter( ( body ) => ! body.parent ),
 		...branches.map( ( branch ) => branch.children ),
 	];
-	const movable = siblings.flatMap( ( bodies ) => {
+	const isFree = ( { leafNodes } ) =>
+		! leafNodes.some( ( { node } ) => node.center );
+	const movable = siblings.flatMap( ( all ) => {
+		const bodies = all.filter( isFree );
 		// Shared by its bodies, so a list of any length is walked once.
 		const peers = { leaf: [], branch: [] };
 		bodies.forEach( ( body ) => peers[ body.type ].push( body ) );

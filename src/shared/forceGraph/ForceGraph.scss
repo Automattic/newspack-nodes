@@ -61,7 +61,11 @@
 	}
 
 	&__node {
-		cursor: pointer;
+		cursor: grab;
+
+		&.is-pressable {
+			cursor: pointer;
+		}
 	}
 
 	&__shape {

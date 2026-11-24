@@ -5,7 +5,7 @@
 
 import { buildModel } from '../model';
 import { updateBoxes } from '../forces';
-import { COMPARISONS_PER_TICK, MAX_SPANS, createUntangler } from '../untangle';
+import { COMPARISONS_PER_CALL, MAX_SPANS, createUntangler } from '../untangle';
 import { countCrossings } from './countCrossings';
 
 /**
@@ -412,8 +412,8 @@ describe( 'createUntangler', () => {
 
 			expect( first ).toBeGreaterThan( 0 );
 			expect( first ).toBeLessThan( model.movable.length );
-			expect( reads() ).toBeGreaterThanOrEqual( COMPARISONS_PER_TICK );
-			expect( reads() ).toBeLessThan( 3 * COMPARISONS_PER_TICK );
+			expect( reads() ).toBeGreaterThanOrEqual( COMPARISONS_PER_CALL );
+			expect( reads() ).toBeLessThan( 3 * COMPARISONS_PER_CALL );
 
 			// A body is asked once, as its turn begins, so call two asks the next.
 			untangle();
@@ -522,12 +522,12 @@ describe( 'createUntangler', () => {
 				const comparisons = ( n ) => n / 2;
 				for ( const call of calls ) {
 					expect( comparisons( call.reads ) ).toBeLessThan(
-						COMPARISONS_PER_TICK + move * 1.01
+						COMPARISONS_PER_CALL + move * 1.01
 					);
 				}
 				const total = calls.reduce( ( sum, c ) => sum + c.reads, 0 );
 				expect( comparisons( total ) ).toBeLessThan(
-					( rounds * COMPARISONS_PER_TICK + move ) * 1.01
+					( rounds * COMPARISONS_PER_CALL + move ) * 1.01
 				);
 
 				// A heavy move leaves a debt: a call in it reads nothing.
@@ -593,11 +593,11 @@ describe( 'createUntangler', () => {
 
 				for ( const comparisons of spent ) {
 					expect( comparisons ).toBeLessThan(
-						( COMPARISONS_PER_TICK + move ) * 1.01
+						( COMPARISONS_PER_CALL + move ) * 1.01
 					);
 				}
 				expect( Math.max( ...spent ) ).toBeGreaterThan(
-					COMPARISONS_PER_TICK
+					COMPARISONS_PER_CALL
 				);
 			} );
 		} );
@@ -736,13 +736,8 @@ describe( 'createUntangler', () => {
 			return model;
 		};
 
-		it( 'does nothing above 2,000 spans', () => {
-			const model = chain( MAX_SPANS + 1 );
-			const before = spotsOf( model );
-
-			createUntangler( model )();
-
-			expect( spotsOf( model ) ).toEqual( before );
+		it( 'leaves a model above 2,000 spans without an untangler', () => {
+			expect( createUntangler( chain( MAX_SPANS + 1 ) ) ).toBeNull();
 		} );
 
 		it( 'works at 2,000 spans', () => {
@@ -753,6 +748,14 @@ describe( 'createUntangler', () => {
 
 			expect( spotsOf( model ) ).not.toEqual( before );
 		} );
+	} );
+
+	it.each( [
+		[ 'no node', [], [] ],
+		[ 'no link', [ node( 'a' ), node( 'b' ) ], [] ],
+		[ 'a link to itself', [ node( 'a' ) ], [ link( 'a', 'a' ) ] ],
+	] )( 'is not made for a model with %s', ( _name, nodes, links ) => {
+		expect( createUntangler( build( nodes, links ) ) ).toBeNull();
 	} );
 
 	it( 'untangles one graph the same way twice', () => {

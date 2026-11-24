@@ -6,6 +6,10 @@
  * that it is still. The simulation's own timer never runs. One d3 timer, a
  * call an animation frame, ticks it while it is not still and nothing holds
  * it: a pause, a hidden canvas, a gesture or a drag.
+ *
+ * A full layout begins with its untangling, which runs unpainted because a
+ * trade jumps: slices of ticks a frame, cooling by its own decay whatever
+ * polls ask. What the polls asked last takes hold as it ends.
  */
 
 import {
@@ -28,8 +32,11 @@ import { carry, compare, crowds, refresh } from './follow';
 import { buildModel } from './model';
 import { createUntangler } from './untangle';
 
-/** Ticks at the start of a full layout that untangle: alpha 0.5 to 0.003. */
+/** Ticks a full layout untangles for: alpha 0.5 to 0.003. */
 const UNTANGLE_TICKS = 680;
+
+/** Ticks of the untangling from one that trades to the next. */
+const UNTANGLE_EVERY = 4;
 
 /** Alpha of a full layout and of a drop, and the energy of a first poll. */
 const ALPHA = 0.5;
@@ -43,7 +50,7 @@ const ALPHA_DECAY = 0.0075;
 /** Share of its speed a leaf loses each tick: the friction. */
 const VELOCITY_DECAY = 0.5;
 
-/** Pixels a link pulls its ends to. */
+/** Pixels a link without a distance of its own pulls its ends to. */
 const LINK_DISTANCE = 250;
 
 /** Share of its error a link corrects each tick, per alpha. */
@@ -55,7 +62,7 @@ const STEADY_POLLS = 10;
 /** Energy a steady poll takes, and friction it adds. */
 const POLL_STEP = 0.05;
 
-/** Ticks a poll's energy holds without another poll. */
+/** Ticks past the untangling a poll's energy holds without another poll. */
 const HOLD_TICKS = 600;
 
 /** Least energy a poll sets before the layout is let go. */
@@ -64,7 +71,7 @@ const MIN_ENERGY = 0.1;
 /** Seed of the jiggle that parts bodies at one x or y, so a reset repeats. */
 const SEED = 1;
 
-/** Milliseconds of ticks in a frame under reduced motion. */
+/** Milliseconds of ticks in a frame that is not painted. */
 const SLICE_MS = 12;
 
 /** @typedef {import('./model').Model} Model */
@@ -78,22 +85,22 @@ const SLICE_MS = 12;
 
 /**
  * @typedef {Object} Engine
- * @property {function(HostGraph, (string|undefined)): void}   setGraph    Take the host's graph.
- * @property {function(Map<string, number>): void}             setRates    Take a poll's rates by node id; a node it leaves out has none.
- * @property {function(): void}                                reset       Lay the graph out from scratch.
- * @property {function(string, number, number): void}          drag        Put a node at a point and hold the layout.
- * @property {function(string, number, number): void}          dragGroup   Move a group's nodes by an offset and hold the layout.
- * @property {function(): void}                                drop        End a drag and reheat.
- * @property {function({width: number, height: number}): void} setSize     Take the canvas's size.
- * @property {function(boolean): void}                         setPaused   Hold the layout, or let it go on.
- * @property {function(boolean): void}                         setHeld     Hold the layout for a gesture, or let it go on.
- * @property {function(boolean): void}                         setLive     Let rates charge and move the layout, or the fixed charge alone.
- * @property {function(boolean): void}                         setKeepWarm Hold a live layout's energy and friction, or let polls step them.
- * @property {function(boolean): void}                         setHidden   Hold the layout of a canvas no one sees.
- * @property {function(): Model}                               model       The model, replaced when its shape changes.
- * @property {function(): boolean}                             running     Whether the layout ticks, or will once a gesture or a drag ends: it is neither still, paused nor hidden.
- * @property {function(): number}                              ticks       Ticks the layout has run, painted or not.
- * @property {function(): void}                                destroy     Stop for good.
+ * @property {function(HostGraph, (string|undefined)): void}   setGraph      Take the host's graph.
+ * @property {function(Map<string, number>): void}             setRates      Take a poll's rates by node id; a node it leaves out has none.
+ * @property {function(): void}                                reset         Lay the graph out from scratch.
+ * @property {function(string, number, number): void}          drag          Put a node at a point and hold the layout.
+ * @property {function(): void}                                drop          End a drag and reheat.
+ * @property {function({width: number, height: number}): void} setSize       Take the canvas's size.
+ * @property {function(boolean): void}                         setPaused     Hold the layout, or let it go on.
+ * @property {function(boolean): void}                         setHeld       Hold the layout for a gesture, or let it go on.
+ * @property {function(boolean): void}                         setLive       Let rates charge and move the layout, or the fixed charge alone.
+ * @property {function(boolean): void}                         setKeepWarm   Hold a live layout's energy and friction, or let polls step them.
+ * @property {function(boolean): void}                         setHidden     Hold the layout of a canvas no one sees.
+ * @property {function(): Model}                               model         The model, replaced when its shape changes.
+ * @property {function(): boolean}                             running       Whether the layout ticks, or will once a gesture or a drag ends: it is neither still, paused nor hidden.
+ * @property {function(): boolean}                             runsUnpainted Whether the layout runs and the frame that ends it, or its untangling, is the next one painted.
+ * @property {function(): number}                              ticks         Ticks the layout has run, painted or not.
+ * @property {function(): void}                                destroy       Stop for good.
  */
 
 /**
@@ -107,10 +114,14 @@ const hasArea = ( { width, height } ) => width > 0 && height > 0;
 /**
  * Make an engine. It starts still, with an empty model.
  *
- * `onTick` is for motion: the host paints what its own call placed, which is
- * a graph, a reset or a drag, and `onTick` paints each frame after it. Under
- * reduced motion a layout runs unpainted and `onTick` is called once, when it
- * stops. The layout is already still at the last call.
+ * `onTick` is for motion: the host paints what its own call placed, unless
+ * the layout then runs unpainted, and `onTick` paints each frame after it. An
+ * untangling runs unpainted until `onTick` paints where it ended, and under
+ * reduced motion a layout runs unpainted until `onTick` paints where it
+ * stopped. The layout is already still at the last call.
+ *
+ * A center node stands at the centre of the canvas, and a resize moves it
+ * there. A drag takes it along, and the first tick after the drop puts it back.
  *
  * A full layout waits, still, for a canvas with area. Rates charge the leaves
  * of a live engine alone; the leaves of any other carry the fixed charge, and
@@ -141,6 +152,9 @@ export const createEngine = ( {
 	/** @type {Map<string, {x: number, y: number}>} */
 	const seen = new Map();
 	let ticks = 0;
+	// Null for a model that is not untangled, which has no such ticks.
+	/** @type {?function(): void} */
+	let untangle = null;
 	let untangleTicks = 0;
 
 	/** @type {Map<string, number>} */
@@ -151,6 +165,9 @@ export const createEngine = ( {
 	let live = false;
 	let keepWarm = false;
 	let holdTicks = 0;
+	// What the polls last asked of the layout.
+	let energy = 0;
+	let friction = VELOCITY_DECAY;
 
 	let paused = false;
 	let hidden = false;
@@ -164,14 +181,42 @@ export const createEngine = ( {
 		.velocityDecay( VELOCITY_DECAY );
 	const charge = forceManyBody();
 
+	const running = () => ! ( still || paused || hidden || destroyed );
+
+	const runsUnpainted = () =>
+		running() && ( reducedMotion || untangleTicks > 0 );
+
+	/**
+	 * Take an energy and a friction: at once, or as the untangling ends.
+	 *
+	 * @param {number} nextEnergy   The alpha to settle at.
+	 * @param {number} nextFriction The friction.
+	 */
+	const ask = ( nextEnergy, nextFriction ) => {
+		energy = nextEnergy;
+		friction = nextFriction;
+		if ( ! untangleTicks ) {
+			simulation.alphaTarget( energy ).velocityDecay( friction );
+		}
+	};
+
 	/** Let the layout cool, at the friction of one no poll drives. */
-	const release = () =>
-		simulation.alphaTarget( 0 ).velocityDecay( VELOCITY_DECAY );
+	const release = () => ask( 0, VELOCITY_DECAY );
+
+	/** End the untangling, if one is under way. */
+	const endUntangling = () => {
+		untangleTicks = 0;
+		ask( energy, friction );
+	};
 
 	const tick = () => {
 		ticks++;
 		simulation.tick();
-		if ( 0 === --holdTicks ) {
+		if ( untangleTicks > 1 ) {
+			untangleTicks--;
+		} else if ( untangleTicks ) {
+			endUntangling();
+		} else if ( 0 === --holdTicks ) {
 			release();
 		}
 		if ( simulation.alpha() < simulation.alphaMin() ) {
@@ -179,25 +224,20 @@ export const createEngine = ( {
 		}
 	};
 
-	const slice = () => {
+	/** Run a tick, or while the layout runs unpainted a slice of them. */
+	const frame = () => {
 		const until = performance.now() + SLICE_MS;
 		do {
 			tick();
-		} while ( ! still && performance.now() < until );
-	};
-
-	const frame = () => {
-		( reducedMotion ? slice : tick )();
+		} while ( runsUnpainted() && performance.now() < until );
 		run();
-		if ( ! reducedMotion || still ) {
+		if ( ! runsUnpainted() ) {
 			onTick();
 		}
 	};
 
 	const stepper = timer( frame );
 	stepper.stop();
-
-	const running = () => ! ( still || paused || hidden || destroyed );
 
 	/** Start or stop the timer, as the layout runs and is held. */
 	const run = () => {
@@ -231,9 +271,30 @@ export const createEngine = ( {
 	 * @param {number} alpha The alpha.
 	 */
 	const reheat = ( alpha ) => {
-		untangleTicks = 0;
+		endUntangling();
 		raise( alpha );
 		start();
+	};
+
+	/** The leaves the host centers. */
+	const centered = () => model.leaves.filter( ( { node } ) => node.center );
+
+	/**
+	 * Fix the center leaves at the centre of the canvas, unless a drag has the
+	 * layout; a tick puts them there.
+	 *
+	 * @return {boolean} Whether any was fixed elsewhere, or nowhere.
+	 */
+	const fixCenter = () => {
+		if ( dragging ) {
+			return false;
+		}
+		const [ fx, fy ] = [ size.width / 2, size.height / 2 ];
+		const strays = centered().filter(
+			( leaf ) => leaf.fx !== fx || leaf.fy !== fy
+		);
+		strays.forEach( ( leaf ) => Object.assign( leaf, { fx, fy } ) );
+		return strays.length > 0;
 	};
 
 	const applyCharge = () =>
@@ -243,19 +304,23 @@ export const createEngine = ( {
 
 	/**
 	 * Build the model's forces. The untangler's is first, so the rest push from
-	 * where it leaves the bodies, and the boxes are fitted before what reads them.
+	 * where it leaves the bodies, and the boxes are fitted before what reads
+	 * them. A model that is not untangled ends the untangling of the one before.
 	 */
 	const engage = () => {
-		const untangle = createUntangler( model );
+		untangle = createUntangler( model );
+		if ( ! untangle ) {
+			endUntangling();
+		}
 		const pull = forceLink( model.pulls )
-			.distance( LINK_DISTANCE )
+			.distance( ( { link } ) => link.distance ?? LINK_DISTANCE )
 			.strength( LINK_STRENGTH );
+		fixCenter();
 		simulation
 			.nodes( model.leaves )
 			.randomSource( randomLcg( SEED ) )
 			.force( 'untangle', () => {
-				if ( untangleTicks > 0 ) {
-					untangleTicks--;
+				if ( untangleTicks && 0 === untangleTicks % UNTANGLE_EVERY ) {
 					untangle();
 				}
 			} )
@@ -278,9 +343,9 @@ export const createEngine = ( {
 			placeNodes( model, size );
 		}
 		engage();
-		untangleTicks = UNTANGLE_TICKS;
-		simulation.alpha( ALPHA );
 		release();
+		untangleTicks = untangle ? UNTANGLE_TICKS : 0;
+		simulation.alpha( ALPHA );
 		start();
 	};
 
@@ -302,9 +367,15 @@ export const createEngine = ( {
 		}
 	};
 
+	/** Hand the layout to a drag, the center leaves with it. */
 	const hold = () => {
-		dragging = true;
-		untangleTicks = 0;
+		if ( ! dragging ) {
+			dragging = true;
+			centered().forEach( ( leaf ) =>
+				Object.assign( leaf, { fx: null, fy: null } )
+			);
+		}
+		endUntangling();
 		run();
 	};
 
@@ -346,9 +417,10 @@ export const createEngine = ( {
 			} else {
 				const taken = POLL_STEP * steadyPolls;
 				holdTicks = HOLD_TICKS;
-				simulation
-					.alphaTarget( Math.max( MIN_ENERGY, ALPHA - taken ) )
-					.velocityDecay( VELOCITY_DECAY + taken );
+				ask(
+					Math.max( MIN_ENERGY, ALPHA - taken ),
+					VELOCITY_DECAY + taken
+				);
 			}
 			start();
 		},
@@ -364,20 +436,10 @@ export const createEngine = ( {
 			}
 		},
 
-		dragGroup: ( id, dx, dy ) => {
-			const branch = model.branches.find( ( b ) => id === b.group.id );
-			if ( branch ) {
-				for ( const leaf of branch.leafNodes ) {
-					leaf.x += dx;
-					leaf.y += dy;
-				}
-				hold();
-			}
-		},
-
 		drop: () => {
 			if ( dragging ) {
 				dragging = false;
+				fixCenter();
 				reheat( ALPHA );
 			}
 		},
@@ -388,9 +450,12 @@ export const createEngine = ( {
 				return;
 			}
 			size = next;
+			const strayed = fixCenter();
 			simulation.force( 'cohesion', forceCohesion( model, size ) );
 			if ( pending ) {
 				layOut();
+			} else if ( strayed && ! untangleTicks ) {
+				reheat( REHEAT_ALPHA );
 			}
 		},
 
@@ -427,6 +492,7 @@ export const createEngine = ( {
 
 		model: () => model,
 		running,
+		runsUnpainted,
 		ticks: () => ticks,
 
 		destroy: () => {

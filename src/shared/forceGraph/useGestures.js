@@ -216,6 +216,7 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 				.classed( 'is-far', to.k < TEXT_ZOOM );
 			if (
 				from &&
+				! stageRef.current.drawing.isEmpty() &&
 				( to.k !== from.k ||
 					Math.hypot( to.x - from.x, to.y - from.y ) >= FIT_SLACK )
 			) {
@@ -263,19 +264,31 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 			: hostRef.current.onSelectGroup?.( body.group.id );
 
 	/**
-	 * Move a body, and hold the layout.
+	 * Where the painted nodes stand, while the model is ahead of them.
+	 *
+	 * @return {Map<string, number[]>} Places by node id; empty when it is not.
+	 */
+	const painted = () => {
+		const { drawing, unpainted } = stageRef.current;
+		return new Map(
+			( unpainted() ? drawing.boxes() : [] ).map(
+				( { id, x, y, w, h } ) => [ id, [ x + w / 2, y + h / 2 ] ]
+			)
+		);
+	};
+
+	/**
+	 * Move a body from where it is painted, and hold the layout.
 	 *
 	 * @param {Body}   body A body the model has.
 	 * @param {number} dx   How far, in the graph's own units.
 	 * @param {number} dy   How far.
 	 */
 	const shift = ( body, dx, dy ) => {
-		const { engine } = stageRef.current;
-		if ( 'leaf' === body.type ) {
-			const { x, y } = bodyOf( body );
-			engine.drag( body.id, x + dx, y + dy );
-		} else {
-			engine.dragGroup( body.group.id, dx, dy );
+		const places = painted();
+		for ( const leaf of bodyOf( body ).leafNodes ) {
+			const [ x, y ] = places.get( leaf.id ) ?? [ leaf.x, leaf.y ];
+			stageRef.current.engine.drag( leaf.id, x + dx, y + dy );
 		}
 	};
 

@@ -1,6 +1,6 @@
 /**
- * SchematicCanvas tests. beforeAll polyfills PointerEvent and stubs
- * createSVGPoint / getScreenCTM with identity-transform math.
+ * SchematicCanvas tests. beforeAll polyfills PointerEvent and gives the canvas
+ * a box at one scale with the window.
  */
 
 import { act, fireEvent, render } from '@testing-library/react';
@@ -8,6 +8,7 @@ import { useState } from '@wordpress/element';
 import SchematicCanvas from '../SchematicCanvas';
 import ReplFooter from '../ReplFooter';
 import { NODE_H, NODE_W } from '../NodeCard';
+import { installSvgBox } from '../../../shared/test-utils/svgBox';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 /**
@@ -52,32 +53,10 @@ beforeAll( () => {
 } );
 
 describe( 'SchematicCanvas', () => {
+	let box;
+
 	beforeAll( () => {
-		// Stub createSVGPoint / getScreenCTM (jsdom SVGSVGElement lacks them).
-		const svg = window.SVGSVGElement.prototype;
-		svg.createSVGPoint = function () {
-			const pt = { x: 0, y: 0 };
-			// Apply the affine matrix so identity returns the same coords.
-			pt.matrixTransform = (
-				m = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
-			) => ( {
-				x: m.a * pt.x + m.c * pt.y + m.e,
-				y: m.b * pt.x + m.d * pt.y + m.f,
-			} );
-			return pt;
-		};
-		svg.getScreenCTM = function () {
-			return {
-				inverse: () => ( {
-					a: 1,
-					b: 0,
-					c: 0,
-					d: 1,
-					e: 0,
-					f: 0,
-				} ),
-			};
-		};
+		box = installSvgBox( 0, 0 );
 		// Pointer capture/release: no-op stubs jsdom's handlers require.
 		window.Element.prototype.setPointerCapture = function () {};
 		window.Element.prototype.releasePointerCapture = function () {};
@@ -85,6 +64,10 @@ describe( 'SchematicCanvas', () => {
 			return false;
 		};
 	} );
+
+	afterEach( () => box.setSize( 0, 0 ) );
+
+	afterAll( () => box.restore() );
 
 	// positionOverrides is the COMPLETE map; supply autoLayout positions.
 	const baseProps = {
@@ -1351,16 +1334,7 @@ describe( 'SchematicCanvas', () => {
 			}
 		);
 		const svg = container.querySelector( 'svg' );
-		svg.getBoundingClientRect = () => ( {
-			x: 0,
-			y: 0,
-			width: 1000,
-			height: 800,
-			top: 0,
-			left: 0,
-			right: 1000,
-			bottom: 800,
-		} );
+		box.setSize( 1000, 800 );
 		fireEvent.pointerDown( svg, {
 			button: 0,
 			pointerId: 7,
@@ -1400,16 +1374,7 @@ describe( 'SchematicCanvas', () => {
 			}
 		);
 		const svg = container.querySelector( 'svg' );
-		svg.getBoundingClientRect = () => ( {
-			x: 0,
-			y: 0,
-			width: 100,
-			height: 100,
-			top: 0,
-			left: 0,
-			right: 100,
-			bottom: 100,
-		} );
+		box.setSize( 100, 100 );
 		fireEvent.pointerDown( svg, {
 			button: 0,
 			pointerId: 7,
@@ -1433,12 +1398,7 @@ describe( 'SchematicCanvas', () => {
 	 * resize re-derived a different box from the same delta.
 	 */
 	it( 'frames a near-full transcript as closed, as the resize path does', () => {
-		const measured = ( container ) => {
-			const svg = container.querySelector( 'svg' );
-			Object.defineProperty( svg, 'clientWidth', { value: 1000 } );
-			Object.defineProperty( svg, 'clientHeight', { value: 1000 } );
-			return svg;
-		};
+		box.setSize( 1000, 1000 );
 		const clickBackground = ( svg ) => {
 			fireEvent.pointerDown( svg, {
 				button: 0,
@@ -1469,7 +1429,7 @@ describe( 'SchematicCanvas', () => {
 					bottomObstructionPx,
 				}
 			);
-			clickBackground( measured( container ) );
+			clickBackground( container.querySelector( 'svg' ) );
 			return onViewportChange.mock.calls.pop()[ 0 ];
 		};
 
@@ -1500,16 +1460,7 @@ describe( 'SchematicCanvas', () => {
 			}
 		);
 		const svg = container.querySelector( 'svg' );
-		svg.getBoundingClientRect = () => ( {
-			x: 0,
-			y: 0,
-			width: 100,
-			height: 100,
-			top: 0,
-			left: 0,
-			right: 100,
-			bottom: 100,
-		} );
+		box.setSize( 100, 100 );
 		fireEvent.pointerDown( svg, {
 			button: 0,
 			pointerId: 7,
@@ -1590,16 +1541,7 @@ describe( 'SchematicCanvas', () => {
 		 * @param {number}  dx  How far the release is from the press.
 		 */
 		const pressBackground = ( svg, dx ) => {
-			svg.getBoundingClientRect = () => ( {
-				x: 0,
-				y: 0,
-				width: 1000,
-				height: 800,
-				top: 0,
-				left: 0,
-				right: 1000,
-				bottom: 800,
-			} );
+			box.setSize( 1000, 800 );
 			const from = {
 				button: 0,
 				pointerId: 9,
@@ -1990,16 +1932,7 @@ describe( 'SchematicCanvas', () => {
 			}
 		);
 		const svg = container.querySelector( 'svg' );
-		svg.getBoundingClientRect = () => ( {
-			x: 0,
-			y: 0,
-			left: 0,
-			top: 0,
-			width: 1000,
-			height: 800,
-			right: 1000,
-			bottom: 800,
-		} );
+		box.setSize( 1000, 800 );
 		svg.focus();
 		fireEvent.keyDown( document, { key: '=' } );
 		const [ zoomedIn ] = onViewportChange.mock.calls.at( -1 );
@@ -2093,16 +2026,7 @@ describe( 'SchematicCanvas', () => {
 			}
 		);
 		const svg = container.querySelector( 'svg' );
-		svg.getBoundingClientRect = () => ( {
-			x: 0,
-			y: 0,
-			left: 0,
-			top: 0,
-			width: 1000,
-			height: 1000,
-			right: 1000,
-			bottom: 1000,
-		} );
+		box.setSize( 1000, 1000 );
 		// Identity-CTM stub → world under cursor = client coords = (500,500).
 		fireEvent.wheel( svg, { deltaY: -100, clientX: 500, clientY: 500 } );
 		const [ vp ] = onViewportChange.mock.calls.at( -1 );
@@ -2935,16 +2859,7 @@ describe( 'SchematicCanvas', () => {
 			}
 		);
 		const svg = container.querySelector( 'svg' );
-		svg.getBoundingClientRect = () => ( {
-			x: 0,
-			y: 0,
-			width: 1000,
-			height: 800,
-			top: 0,
-			left: 0,
-			right: 1000,
-			bottom: 800,
-		} );
+		box.setSize( 1000, 800 );
 		fireEvent.pointerDown( svg, {
 			button: 0,
 			pointerId: 9,
@@ -3729,47 +3644,34 @@ describe( 'SchematicCanvas', () => {
 		} );
 
 		it( 'pans by the card as drawn, floored on screen at low zoom', () => {
-			const proto = window.SVGSVGElement.prototype;
-			Object.defineProperty( proto, 'clientWidth', {
-				configurable: true,
-				get: () => 1000,
-			} );
-			Object.defineProperty( proto, 'clientHeight', {
-				configurable: true,
-				get: () => 700,
-			} );
-			try {
-				const onViewportChange = jest.fn();
-				const far = { c: AROUND.c, r: { x: 99900, y: 400 } };
-				function Far() {
-					const [ id, setId ] = useState( 'c' );
-					return (
-						<SchematicCanvas
-							{ ...baseProps }
-							parsed={ aroundParsed }
-							selectedId={ id }
-							onSelect={ setId }
-						/>
-					);
-				}
-				const { container } = renderWithCatalog( <Far />, {
-					positionOverrides: far,
-					onPositionChange: () => {},
-					viewport: { x: 0, y: 0, w: 100000, h: 70000 },
-					onViewportChange,
-				} );
-				fireEvent.keyDown( focusCanvas( container ), {
-					key: 'ArrowRight',
-				} );
-				// 2px at 0.01px per unit draws the card 200 units wide.
-				expect( onViewportChange ).toHaveBeenLastCalledWith(
-					{ x: 100, y: 0, w: 100000, h: 70000 },
-					expect.anything()
+			box.setSize( 1000, 700 );
+			const onViewportChange = jest.fn();
+			const far = { c: AROUND.c, r: { x: 99900, y: 400 } };
+			function Far() {
+				const [ id, setId ] = useState( 'c' );
+				return (
+					<SchematicCanvas
+						{ ...baseProps }
+						parsed={ aroundParsed }
+						selectedId={ id }
+						onSelect={ setId }
+					/>
 				);
-			} finally {
-				delete proto.clientWidth;
-				delete proto.clientHeight;
 			}
+			const { container } = renderWithCatalog( <Far />, {
+				positionOverrides: far,
+				onPositionChange: () => {},
+				viewport: { x: 0, y: 0, w: 100000, h: 70000 },
+				onViewportChange,
+			} );
+			fireEvent.keyDown( focusCanvas( container ), {
+				key: 'ArrowRight',
+			} );
+			// 2px at 0.01px per unit draws the card 200 units wide.
+			expect( onViewportChange ).toHaveBeenLastCalledWith(
+				{ x: 100, y: 0, w: 100000, h: 70000 },
+				expect.anything()
+			);
 		} );
 
 		it( 'leaves a key another handler took', () => {
@@ -4035,18 +3937,10 @@ describe( 'SchematicCanvas', () => {
 
 // Scale-gated LOD: stub the canvas measure so the zoomed-OUT tier is tested.
 describe( 'SchematicCanvas scale-gated LOD', () => {
-	let stubW = 0;
-	let stubH = 0;
+	let box;
 
 	beforeAll( () => {
-		Object.defineProperty( window.SVGSVGElement.prototype, 'clientWidth', {
-			configurable: true,
-			get: () => stubW,
-		} );
-		Object.defineProperty( window.SVGSVGElement.prototype, 'clientHeight', {
-			configurable: true,
-			get: () => stubH,
-		} );
+		box = installSvgBox( 1000, 1000 );
 		// No-op ResizeObserver: mount-time measure() reads the stubbed size.
 		if ( typeof window.ResizeObserver === 'undefined' ) {
 			window.ResizeObserver = class {
@@ -4056,10 +3950,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		}
 	} );
 
-	afterAll( () => {
-		delete window.SVGSVGElement.prototype.clientWidth;
-		delete window.SVGSVGElement.prototype.clientHeight;
-	} );
+	afterAll( () => box.restore() );
 
 	const lodProps = {
 		parsed,
@@ -4079,8 +3970,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'keeps the cards and the edges at a fifth of a pixel per unit', () => {
 		// 0.2 px/unit: a card is 39px wide — its shape and colour still read,
 		// so the detail scale sits below this and nothing LODs away yet.
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4102,8 +3991,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'drops the edge layer below the detail (text) scale, with the text', () => {
-		stubW = 1000;
-		stubH = 1000;
 		// 0.1 px/unit: below the detail scale, so edges LOD away with labels.
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
@@ -4129,8 +4016,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'marks visible nodes is-static (no entrance fade) when zoomed out', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4152,8 +4037,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'restores edges and animated (non-static) nodes when zoomed in', () => {
-		stubW = 1000;
-		stubH = 1000;
 		// 1000/1000 = 1.0 px/unit: detail on, edge layer + node fade restored.
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
@@ -4179,8 +4062,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'floors a bare node to a visible on-screen size at extreme zoom-out', () => {
-		stubW = 1000;
-		stubH = 1000;
 		// 0.0025 px/unit: a 196-unit node → ~0.5px; floor enlarges it to ~2px.
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
@@ -4211,8 +4092,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'leaves a node at its natural NODE_W when zoomed in (floor is a no-op)', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4233,8 +4112,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'truncates a one-endpoint-visible edge to a straight stub, no arrow', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
@@ -4267,8 +4144,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'keeps the full bezier (+ arrow) when both endpoints are visible', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4292,8 +4167,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'renders all cards in one bloom-classed group when zoomed in (no reparenting)', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4321,8 +4194,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'paints the grid under the whole graph, however far it reaches', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4355,8 +4226,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'drops the bloom class from the nodes group when zoomed out (LOD)', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4379,8 +4248,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( "hands its overlay each card's box as drawn, floored on screen", () => {
-		stubW = 1000;
-		stubH = 1000;
 		const overlay = jest.fn( () => null );
 		const at = ( w ) => {
 			renderWithCatalog(
@@ -4399,8 +4266,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'hands its overlay the level of detail it draws at', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const overlay = jest.fn( () => null );
 		const at = ( w ) =>
 			renderWithCatalog(
@@ -4450,8 +4315,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'does not bloom an edge with an endpoint outside the viewport', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
@@ -4487,8 +4350,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'blooms an edge whose endpoints are both on-screen', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -4511,8 +4372,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'draws the live readouts and a flowing wire outside every bloom layer', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const rates = new Map( [
 			[ 'a', { rate: 3.25, history: [ 1, 2, 3.25 ] } ],
 			[ 'b', { rate: 4.5, history: [ 2, 4.5 ] } ],
@@ -4588,8 +4447,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'reflows a controlled viewport when the bottom obstruction changes (transcript overlay opens)', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const onViewportChange = jest.fn();
 		// Panned/zoomed off autofit; inset-shifted box → a different viewport.
 		const viewport = { x: 100, y: 100, w: 2000, h: 2000 };
@@ -4630,8 +4487,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'does not reflow a null (uncontrolled) viewport on an obstruction change', () => {
-		stubW = 1000;
-		stubH = 1000;
 		const onViewportChange = jest.fn();
 		const { rerender } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,

@@ -38,6 +38,7 @@ const NO_GROUPS = [];
  * @property {?string=} group     Id of the group holding it.
  * @property {string=}  className The host's classes.
  * @property {number=}  size      Circle radius.
+ * @property {boolean=} center    Whether the layout holds it at the centre of the canvas.
  * @property {string=}  detail    Text in the circle.
  * @property {number=}  rate      Messages a second; above zero it is live.
  * @property {string=}  title     Native tooltip.
@@ -54,6 +55,7 @@ const NO_GROUPS = [];
  * @property {string=}  title     Native tooltip.
  * @property {boolean=} directed  Whether it ends in an arrowhead.
  * @property {boolean=} pressable False lets a press through to what is beneath.
+ * @property {number=}  distance  Pixels it pulls its ends to; 250 without one.
  * @property {boolean=} loose     Whether it is drawn alone, taking no part in the layout.
  */
 
@@ -102,7 +104,7 @@ const NO_GROUPS = [];
  * @property {unknown}                          polled    The last poll key handed over.
  * @property {function(): boolean}              unpainted Whether the model is ahead of what is painted.
  * @property {function(): void}                 paint     Paint the positions, and first whatever is not yet drawn.
- * @property {function(): void}                 show      Draw the model: at once, or when the layout that runs unpainted stops.
+ * @property {function(): void}                 show      Draw the model: at once, or once the layout no longer runs unpainted.
  * @property {function(): void}                 reset     Lay the graph out from scratch.
  */
 
@@ -136,6 +138,7 @@ export function ForceGraph( props ) {
 		selectedLink,
 		selectedGroup,
 		hoveredId,
+		onSelect,
 		onSelectLink,
 		live = false,
 		keepWarm = false,
@@ -162,7 +165,6 @@ export function ForceGraph( props ) {
 	const gestures = useGestures( svgRef, stageRef, hostRef );
 
 	useEffect( () => {
-		const reducedMotion = prefersReducedMotion();
 		const drawing = createDrawing( svgRef.current, arrowId );
 		// Whether the model holds what the drawing lacks.
 		let behind = false;
@@ -185,8 +187,8 @@ export function ForceGraph( props ) {
 		const engine = createEngine( {
 			width: 0,
 			height: 0,
-			reducedMotion,
 			onTick: paint,
+			reducedMotion: prefersReducedMotion(),
 		} );
 		const stage = {
 			engine,
@@ -198,7 +200,7 @@ export function ForceGraph( props ) {
 			paint,
 			show: () => {
 				behind = true;
-				if ( stage.shown && ! ( reducedMotion && engine.running() ) ) {
+				if ( stage.shown && ! engine.runsUnpainted() ) {
 					draw();
 				}
 			},
@@ -271,13 +273,14 @@ export function ForceGraph( props ) {
 		}
 	}, [ live, pollKey ] );
 
+	const nodesPress = !! onSelect;
 	useEffect( () => {
 		stageRef.current.drawing.dressNodes( hostRef.current );
-	}, [ selectedId, hoveredId ] );
-	const pressable = !! onSelectLink;
+	}, [ selectedId, hoveredId, nodesPress ] );
+	const linksPress = !! onSelectLink;
 	useEffect( () => {
 		stageRef.current.drawing.dressLinks( hostRef.current );
-	}, [ selectedLink, pressable ] );
+	}, [ selectedLink, linksPress ] );
 	useEffect( () => {
 		stageRef.current.drawing.dressHulls( hostRef.current );
 	}, [ selectedGroup ] );

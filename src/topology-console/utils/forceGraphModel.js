@@ -41,6 +41,9 @@ import names from '../../runtime/reserved-node-names.json';
 import { edgeHasConnectRole } from './consoleGraph';
 import { hullColorIndex } from './hullColor';
 
+/** Pixels a patron line pulls a sidecar and its patron to. */
+const PATRON_DISTANCE = 100;
+
 /**
  * An include's hull.
  *
@@ -166,7 +169,8 @@ const seatsOf = ( hulls, rankOf ) => {
 
 /**
  * The graph's nodes, then every sidecar they list at any depth, then with
- * `showSinks` the interpreter nearly every node sinks into.
+ * `showSinks` the interpreter nearly every node sinks into, which the layout
+ * holds at the centre of the canvas.
  *
  * @param {Body[]}  nodes     The graph's nodes.
  * @param {?Body[]} rows      The polled rows; null draws the graph's nodes alone.
@@ -371,6 +375,7 @@ export const toForceGraph = ( {
 		draw( `patron:${ sidecar }`, 'patron', source, target, {
 			rate: liveRate( sidecar ),
 			directed,
+			distance: PATRON_DISTANCE,
 		} );
 	const eventsOf = new Map();
 	const fold = ( sidecar, /** @type {Edge} */ edge ) => {
@@ -439,6 +444,7 @@ export const toForceGraph = ( {
 			group: seats.get( rootOf( patronOf, id ) ),
 			className: classOf.node( id ),
 			rate: liveRate( id ),
+			center: names.COMMAND_INTERPRETER === id,
 		} ) ),
 		links: [ ...links.values() ],
 		patronOf,
