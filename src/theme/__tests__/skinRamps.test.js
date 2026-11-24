@@ -2292,7 +2292,7 @@ describe( 'theme skin ramps', () => {
 			for ( const part of parts ) {
 				const dimmed = effectiveOpacity( idle.querySelector( part ) );
 				const full = effectiveOpacity( busy.querySelector( part ) );
-				if ( 0.55 !== dimmed || 1 !== full ) {
+				if ( 0.7 !== dimmed || 1 !== full ) {
 					failures.push(
 						`${ slug }:${ part }:idle=${ dimmed } busy=${ full }`
 					);

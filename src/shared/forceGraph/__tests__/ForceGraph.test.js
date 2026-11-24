@@ -1,13 +1,24 @@
 /**
  * Tests for the force graph's component: what it draws, what a press, a key
  * and a gesture do, and when it lays out, fits and paints. d3 and the engine
- * are the real ones, the engine wrapped to show it.
+ * are the real ones, wrapped to show the engine and its timer.
  *
  * d3-timer binds the frame scheduler as it loads, so the fake timers come
  * first and the modules are required after them.
  */
 
 let mockEngine;
+let mockTimer;
+
+jest.mock( 'd3', () => {
+	const actual = jest.requireActual( 'd3' );
+	const { watchTimer } = require( './watchTimer' );
+	return {
+		...actual,
+		timer: ( ...args ) =>
+			( mockTimer = watchTimer( actual.timer( ...args ) ) ),
+	};
+} );
 
 jest.mock( '../engine', () => {
 	const actual = jest.requireActual( '../engine' );
@@ -107,10 +118,10 @@ const wait = ( ms ) => act( () => jest.advanceTimersByTime( ms ) );
 
 const settle = () => {
 	let count = 0;
-	while ( mockEngine.running() && count++ < TOO_MANY ) {
+	while ( mockTimer.runs && count++ < TOO_MANY ) {
 		frames( 1 );
 	}
-	expect( mockEngine.running() ).toBe( false );
+	expect( mockTimer.runs ).toBe( false );
 };
 
 /**
@@ -157,6 +168,10 @@ const nodeEl = ( svg, id ) =>
 	all( svg, 'node' ).find( ( el ) => id === el.dataset.id );
 const linkEl = ( svg, i ) => all( svg, 'link' )[ i ];
 const hullEl = ( svg, i ) => all( svg, 'hull' )[ i ];
+const busy = ( svg ) => [
+	svg.getAttribute( 'aria-busy' ),
+	svg.classList.contains( 'is-blank' ),
+];
 const textOf = ( el, name ) =>
 	el.querySelector( `.${ BLOCK }__${ name }` )?.textContent;
 
@@ -481,8 +496,43 @@ describe( 'what it draws', () => {
 		expect( el.querySelector( 'title' ).textContent ).toBe(
 			'Fourth\n4,242 objects'
 		);
-		expect( el.classList.contains( 'is-sized' ) ).toBe( true );
-		expect( nodeEl( svg, 'n1' ).classList.contains( 'is-sized' ) ).toBe(
+		expect( [ ...el.classList ] ).toEqual( [ `${ BLOCK }__node` ] );
+	} );
+
+	it( 'draws a scaled label and its rect at their scale', () => {
+		const { nodes } = graph();
+		nodes[ 1 ].scale = 0.5;
+		nodes[ 3 ].scale = 0.5;
+		const { svg, update } = mount( { nodes } );
+		const wide = nodeEl( svg, 'n2' );
+		const rect = wide.querySelector( 'rect' );
+		const label = ( el ) => el.querySelector( `.${ BLOCK }__label` );
+		// 19 characters of 7 pixels and 16 of padding, by 24, at half.
+		expect(
+			[ 'x', 'y', 'width', 'height', 'transform' ].map( ( name ) =>
+				rect.getAttribute( name )
+			)
+		).toEqual( [ '-37.25', '-6', '74.5', '12', null ] );
+		expect( label( wide ).getAttribute( 'transform' ) ).toBe(
+			'scale(0.5)'
+		);
+		expect( label( wide ).getAttribute( 'y' ) ).toBe( '4' );
+		const plain = label( nodeEl( svg, 'n1' ) );
+		expect( plain.getAttribute( 'transform' ) ).toBeNull();
+
+		const sized = nodeEl( svg, 'n4' );
+		expect( sized.querySelector( 'circle' ).getAttribute( 'r' ) ).toBe(
+			'21'
+		);
+		expect( label( sized ).getAttribute( 'transform' ) ).toBe(
+			'scale(0.5)'
+		);
+		// Half of 58 is as far above the circle as an unscaled label stands.
+		expect( label( sized ).getAttribute( 'y' ) ).toBe( '-58' );
+
+		update( { nodes: graph().nodes } );
+		settle();
+		expect( label( nodeEl( svg, 'n2' ) ).hasAttribute( 'transform' ) ).toBe(
 			false
 		);
 	} );
@@ -960,12 +1010,14 @@ describe( 'a full layout, while it untangles', () => {
 	it( 'is an empty canvas, then painted once and frame by frame', () => {
 		const { svg } = open();
 		const moved = jest.spyOn( all( svg, 'view' )[ 0 ], 'setAttribute' );
-		const slices = untangle( () =>
-			expect( all( svg, 'node' ) ).toHaveLength( 0 )
-		);
+		const slices = untangle( () => {
+			expect( all( svg, 'node' ) ).toHaveLength( 0 );
+			expect( busy( svg ) ).toEqual( [ 'true', true ] );
+		} );
 		expect( slices ).toBeGreaterThan( 200 );
 		expect( mockEngine.ticks() ).toBe( 680 );
 		expect( all( svg, 'node' ) ).toHaveLength( 4 );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
 		expectFitted( svg );
 		expect(
 			moved.mock.calls.filter( ( [ name ] ) => 'transform' === name )
@@ -1004,10 +1056,44 @@ describe( 'a full layout, while it untangles', () => {
 		const slices = untangle( () => {
 			expect( painted( svg ) ).toEqual( before );
 			expect( view( svg ) ).toEqual( shown );
+			expect( busy( svg ) ).toEqual( [ 'true', false ] );
 		} );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
 		expect( slices ).toBeGreaterThan( 200 );
 		expect( painted( svg ) ).not.toEqual( before );
 		expectFitted( svg );
+	} );
+
+	it( 'is a skeleton through a change of the host’s class', () => {
+		const { svg, update } = open( { className: 'orchard' } );
+		frames( 2 );
+		update( { className: 'meadow' } );
+		expect( [ ...svg.classList ].sort() ).toEqual( [
+			'is-blank',
+			'meadow',
+			BLOCK,
+		] );
+		untangle( () => {} );
+		expect( [ ...svg.classList ] ).toEqual( [ BLOCK, 'meadow' ] );
+	} );
+
+	it( 'is a skeleton again once the graph emptied and filled', () => {
+		const { svg, update } = mountSettled();
+		const { nodes, links } = graph();
+		update( { nodes: [], links: [] } );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
+		update( { nodes, links } );
+		expect( busy( svg ) ).toEqual( [ 'true', true ] );
+	} );
+
+	it( 'is not waited for by a canvas without nodes or a box', () => {
+		const { svg, update } = open( { nodes: [], links: [] } );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
+		resize( 0, 0 );
+		update( graph() );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
+		resize( 901, 555 );
+		expect( busy( svg ) ).toEqual( [ 'true', true ] );
 	} );
 
 	it( 'keeps its view through a press, a resize and 0', () => {
@@ -1049,9 +1135,11 @@ describe( 'a full layout, while it untangles', () => {
 		const held = painted( svg );
 		expect( held ).toEqual( spots().map( ( [ , x, y ] ) => [ x, y ] ) );
 		expectFitted( svg );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
 		frames( 5 );
 		expect( mockEngine.ticks() ).toBeLessThan( 680 );
 		key( ' ' );
+		expect( busy( svg ) ).toEqual( [ 'true', false ] );
 		untangle( () => expect( painted( svg ) ).toEqual( held ) );
 		expect( mockEngine.ticks() ).toBe( 680 );
 		expectFitted( svg );
@@ -1065,6 +1153,7 @@ describe( 'a full layout, while it untangles', () => {
 		frames( 2 );
 		expect( mockEngine.ticks() ).toBe( ticks );
 		expect( all( svg, 'node' ) ).toHaveLength( 0 );
+		expect( busy( svg ) ).toEqual( [ 'true', true ] );
 		wait( GAP );
 		untangle( () => expect( all( svg, 'node' ) ).toHaveLength( 0 ) );
 		expect( mockEngine.ticks() ).toBe( 680 );
@@ -1115,7 +1204,9 @@ describe( 'a full layout, while it untangles', () => {
 		resize( 0, 777 );
 		frames( 5 );
 		expect( mockEngine.ticks() ).toBe( ticks );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
 		resize( 1313, 777 );
+		expect( busy( svg ) ).toEqual( [ 'true', true ] );
 		untangle( () => expect( all( svg, 'node' ) ).toHaveLength( 0 ) );
 		expect( mockEngine.ticks() ).toBe( 680 );
 		expectFitted( svg );
@@ -1143,6 +1234,28 @@ describe( 'a full layout, while it untangles', () => {
 		expect( painted( svg ) ).toEqual(
 			spots().map( ( [ , x, y ] ) => [ x, y ] )
 		);
+	} );
+
+	it( 'begun under a drag keeps the node in hand, and runs at the drop', () => {
+		const { svg, update } = mountSettled();
+		const { k } = view( svg );
+		const [ x0, y0 ] = at( nodeEl( svg, 'n2' ) );
+		down( nodeEl( svg, 'n2' ) );
+		move( 500, 317 );
+		update( { layoutKey: 'k8' } );
+		move( 500, 340 );
+		move( 511, 340 );
+		const held = painted( svg );
+		expectNear( at( nodeEl( svg, 'n2' ) ), [ x0 + 111 / k, y0 + 40 / k ] );
+		up( 511, 340 );
+		expect( busy( svg ) ).toEqual( [ 'true', false ] );
+		const ticks = mockEngine.ticks();
+		untangle( () => expect( painted( svg ) ).toEqual( held ) );
+		expect( mockEngine.ticks() ).toBe( ticks + 680 );
+		expect( painted( svg ) ).toEqual(
+			spots().map( ( [ , x, y ] ) => [ x, y ] )
+		);
+		expectFitted( svg );
 	} );
 
 	it( 'is ended by a drag of a hull, whose nodes start as painted', () => {
@@ -1221,7 +1334,7 @@ describe( 'a change of data', () => {
 				className: 'is-mauve',
 			} ) ),
 		} );
-		expect( mockEngine.running() ).toBe( false );
+		expect( mockTimer.runs ).toBe( false );
 		expect( spots() ).toEqual( before );
 		expect( view( svg ) ).toEqual( shown );
 		expect( nodeEl( svg, 'n1' ).classList.contains( 'is-new' ) ).toBe(
@@ -1250,9 +1363,9 @@ describe( 'a change of data', () => {
 	it( 'lays out again on a changed key alone', () => {
 		const { update } = mountSettled();
 		update( { layoutKey: 'k7' } );
-		expect( mockEngine.running() ).toBe( false );
+		expect( mockTimer.runs ).toBe( false );
 		update( { layoutKey: 'k8' } );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 	} );
 
 	it( 'renders anew for a selection without asking the engine again', () => {
@@ -1389,9 +1502,12 @@ describe( 'a press', () => {
 		const { svg } = mountSettled( { links, ...host } );
 		const painted = over( svg, 'n2' );
 		act( () =>
-			leaf( 'group:out' ).leafNodes.forEach( ( { id, x, y } ) =>
-				mockEngine.drag( id, x + 6100, y )
-			)
+			mockEngine
+				.model()
+				.branches.find( ( { id } ) => 'group:out' === id )
+				.leafNodes.forEach( ( { id, x, y } ) =>
+					mockEngine.drag( id, x + 6100, y )
+				)
 		);
 		mouse( 'click', linkEl( svg, 0 ), ...painted );
 		expect( calls( host ) ).toEqual( { onSelectGroup: [ [ 'out/in' ] ] } );
@@ -1413,7 +1529,7 @@ describe( 'a press', () => {
 				{ id: 'n9', label: 'Ninth' },
 			],
 		} );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		expect( all( svg, 'hull' ) ).toHaveLength( 2 );
 		mouse( 'click', linkEl( svg, 0 ), ...painted );
 		expect( calls( host ) ).toEqual( { onDeselect: [ [] ] } );
@@ -1445,7 +1561,7 @@ describe( 'a press', () => {
 			linkEl( svg, 0 ),
 			svg,
 		].forEach( ( el ) => press( el ) );
-		expect( mockEngine.running() ).toBe( false );
+		expect( mockTimer.runs ).toBe( false );
 	} );
 
 	it( 'takes the latest host’s callback', () => {
@@ -1467,7 +1583,7 @@ describe( 'a press', () => {
 			onSelectGroup: [ [ 'out' ] ],
 		} );
 		expect( spots() ).toEqual( before );
-		expect( mockEngine.running() ).toBe( false );
+		expect( mockTimer.runs ).toBe( false );
 	} );
 
 	it.each( [
@@ -1478,7 +1594,7 @@ describe( 'a press', () => {
 		const { svg } = mountSettled( host );
 		press( pick( svg ), [ 2, 1 ] );
 		expect( calls( host ) ).toEqual( {} );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 	} );
 
 	it( 'dragged and brought back does not select', () => {
@@ -1583,7 +1699,7 @@ describe( 'a drag', () => {
 		frames( 5 );
 		expect( spots().filter( ( [ id ] ) => 'n2' !== id ) ).toEqual( others );
 		up( 450, 260 );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		frames( 2 );
 		expect( spots().filter( ( [ id ] ) => 'n2' !== id ) ).not.toEqual(
 			others
@@ -1608,7 +1724,7 @@ describe( 'a drag', () => {
 			);
 		} );
 		up( 370, 320 );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 	} );
 
 	it( 'holds the view still, and the fit goes on after it', () => {
@@ -1645,7 +1761,7 @@ describe( 'a drag', () => {
 		expect( drag.mock.calls.map( ( [ id ] ) => id ) ).toEqual( [ 'n2' ] );
 		const shown = view( svg );
 		up( 460, 300 );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		move( 555, 333 );
 		expect( view( svg ) ).toEqual( shown );
 	} );
@@ -2273,7 +2389,7 @@ describe( 'the keys', () => {
 		const before = spots();
 		focus( svg );
 		expect( key( 'r' ).defaultPrevented ).toBe( true );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		expect( spots() ).not.toEqual( before );
 		frames( 1 );
 		expectNear( at( nodeEl( svg, 'n2' ) ), [
@@ -2831,7 +2947,7 @@ describe( 'a canvas without a box', () => {
 		).toEqual( new Set( [ 0 ] ) );
 		expect( all( svg, 'node' ) ).toHaveLength( 0 );
 		resize( 905, 503 );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		expect( all( svg, 'node' ) ).toHaveLength( 0 );
 		frames( 1 );
 		expect( all( svg, 'node' ) ).toHaveLength( 4 );
@@ -2879,15 +2995,17 @@ describe( 'reduced motion', () => {
 
 	it( 'paints a layout once, when it stops', () => {
 		const { svg, update } = open();
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		expect( all( svg, 'node' ) ).toHaveLength( 0 );
 		const painted = jest.spyOn( all( svg, 'view' )[ 0 ], 'setAttribute' );
 		const unpainted = [];
-		while ( mockEngine.running() ) {
+		while ( mockTimer.runs ) {
 			unpainted.push( all( svg, 'node' ).length );
+			expect( busy( svg ) ).toEqual( [ 'true', true ] );
 			frames( 1 );
 		}
 		expect( new Set( unpainted ) ).toEqual( new Set( [ 0 ] ) );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
 		expect( all( svg, 'node' ) ).toHaveLength( 4 );
 		expectFitted( svg );
 		frames( 20 );
@@ -2899,8 +3017,10 @@ describe( 'reduced motion', () => {
 		const { nodes } = graph();
 		update( { nodes: [ ...nodes, { id: 'n9', label: 'Ninth' } ] } );
 		expect( all( svg, 'node' ) ).toHaveLength( 4 );
+		expect( busy( svg ) ).toEqual( [ 'true', false ] );
 		settle();
 		expect( all( svg, 'node' ) ).toHaveLength( 5 );
+		expect( busy( svg ) ).toEqual( [ 'false', false ] );
 	} );
 
 	it( 'paints at once a change that does not move a node', () => {
@@ -2934,7 +3054,7 @@ describe( 'reduced motion', () => {
 		down( nodeEl( svg, 'n2' ) );
 		move( 410, 300 );
 		up( 410, 300 );
-		expect( mockEngine.running() ).toBe( false );
+		expect( mockTimer.runs ).toBe( false );
 		wheel( svg, { deltaX: 333, deltaY: 1 } );
 		wait( GAP );
 		const shown = view( svg );
@@ -2942,7 +3062,7 @@ describe( 'reduced motion', () => {
 		expect( view( svg ) ).not.toEqual( shown );
 		expectFitted( svg );
 		key( ' ' );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 	} );
 
 	it( 'draws and fits what a poll changes while it is paused', () => {
@@ -2996,8 +3116,9 @@ describe( 'reduced motion', () => {
 		expect( all( svg, 'node' ) ).toHaveLength( 0 );
 		wait( GAP - 1 );
 		expect( mockEngine.ticks() ).toBe( 0 );
+		wait( 1 );
 		const drawn = [];
-		while ( mockEngine.running() ) {
+		while ( mockTimer.runs ) {
 			drawn.push( all( svg, 'node' ).length );
 			frames( 1 );
 		}
@@ -3038,7 +3159,7 @@ describe( 'reduced motion', () => {
 		const shown = view( svg );
 		const before = spots();
 		frames( 1 );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		expect( spots() ).not.toEqual( before );
 		press( svg );
 		expect( view( svg ) ).toEqual( shown );
@@ -3072,7 +3193,7 @@ describe( 'reduced motion', () => {
 			const { svg, update } = mountSettled( host );
 			const el = nodeEl( svg, 'n2' );
 			update( without( 'n2' ) );
-			expect( mockEngine.running() ).toBe( true );
+			expect( mockTimer.runs ).toBe( true );
 			expect( el.isConnected ).toBe( true );
 			pointer( 'pointerover', el );
 			press( el, [ 0, 3 ] );
@@ -3193,7 +3314,7 @@ describe( 'a live graph', () => {
 			nodes: rated( 3 ),
 		} );
 		frames( OPENING );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		const setRates = jest.spyOn( mockEngine, 'setRates' );
 		update( { nodes: rated( 7 ), hoveredId: 'n1' } );
 		update( { links: graph().links, pollKey: 'p1' } );
@@ -3215,7 +3336,7 @@ describe( 'a live graph', () => {
 	it( 'takes its first mount for a poll without a key', () => {
 		mount( { live: true, nodes: rated( 3 ) } );
 		frames( OPENING );
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 	} );
 
 	it( 'compares its keys by identity', () => {
@@ -3243,7 +3364,7 @@ describe( 'a live graph', () => {
 	it( 'waits to hand rates over until it is live, and then hands each poll once', () => {
 		const { update } = mount( { nodes: rated( 3 ), pollKey: 1 } );
 		frames( OPENING );
-		expect( mockEngine.running() ).toBe( false );
+		expect( mockTimer.runs ).toBe( false );
 		const setRates = jest.spyOn( mockEngine, 'setRates' );
 		update( { nodes: rated( 5 ), pollKey: 2 } );
 		expect( setRates ).not.toHaveBeenCalled();
@@ -3273,7 +3394,7 @@ describe( 'a live graph', () => {
 			update( { pollKey: i } );
 			frames( 40 );
 		}
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		const setKeepWarm = jest.spyOn( mockEngine, 'setKeepWarm' );
 		update( { keepWarm: false } );
 		expect( setKeepWarm.mock.calls ).toEqual( [ [ false ] ] );
@@ -3294,7 +3415,7 @@ describe( 'a live graph', () => {
 			expect( all( svg, 'node' ) ).toEqual( els );
 			expect( view( svg ) ).toEqual( shown );
 		}
-		expect( mockEngine.running() ).toBe( true );
+		expect( mockTimer.runs ).toBe( true );
 		frames( 5 );
 		expect( spots() ).not.toEqual( before );
 		expect( view( svg ) ).toEqual( shown );
@@ -3333,24 +3454,6 @@ describe( 'a live graph', () => {
 		up( 400, 300 );
 		frames( 2 );
 		expect( spots() ).not.toEqual( held );
-	} );
-} );
-
-describe( 'the host’s handle', () => {
-	it( 'resets, and is let go at unmount', () => {
-		const apiRef = createRef();
-		const { svg, unmount } = mountSettled( { apiRef } );
-		act( () => apiRef.current.reset() );
-		expect( mockEngine.running() ).toBe( true );
-		const before = at( nodeEl( svg, 'n2' ) );
-		expect( [ leaf( 'n2' ).x, leaf( 'n2' ).y ] ).not.toEqual( before );
-		frames( 1 );
-		expect( at( nodeEl( svg, 'n2' ) ) ).toEqual( [
-			leaf( 'n2' ).x,
-			leaf( 'n2' ).y,
-		] );
-		unmount();
-		expect( apiRef.current ).toBeNull();
 	} );
 } );
 

@@ -127,8 +127,10 @@ describe( 'createUntangler', () => {
 			[ 503, 311 ],
 		] );
 		expect( crossings( model ) ).toBe( 0 );
-		expect( model.byId.get( 'group:top' ).y ).toBe( 311 );
-		expect( model.byId.get( 'group:low' ).y ).toBe( 47 );
+		expect( model.branches.map( ( { id, y } ) => [ id, y ] ) ).toEqual( [
+			[ 'group:top', 311 ],
+			[ 'group:low', 47 ],
+		] );
 	} );
 
 	it( 'shortens links that do not cross', () => {
@@ -500,7 +502,9 @@ describe( 'createUntangler', () => {
 			it( 'spends no call past a move, repays its debt and runs on', () => {
 				const model = hulls();
 				expect( model.spans.length ).toBe( 1200 );
-				const hull = model.byId.get( 'group:a' );
+				const hull = model.branches.find(
+					( { id } ) => 'group:a' === id
+				);
 				expect( hull.spans.length ).toBe( 605 );
 				// A move: two tangles over the hull's spans against all of them.
 				const move = 2 * hull.spans.length * model.spans.length;

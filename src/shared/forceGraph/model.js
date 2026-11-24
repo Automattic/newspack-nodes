@@ -31,6 +31,7 @@ const MEETING_CHILDREN = 2;
  * @property {string}   id     Unique among nodes.
  * @property {string}   label  Text drawn in the node's rect.
  * @property {number=}  size   Circle radius; absent for a label body.
+ * @property {number=}  scale  What its label is drawn at; 1 without one.
  * @property {?string=} group  Id of the group holding the node.
  * @property {boolean=} center Whether the layout holds it at the centre of the canvas.
  */
@@ -106,7 +107,7 @@ const MEETING_CHILDREN = 2;
  * @typedef {Object} Model
  * @property {Leaf[]}                        leaves   One for each node.
  * @property {Branch[]}                      branches One for each group that draws a hull, deepest first.
- * @property {Map<string, Body>}             byId     Leaves by node id, branches by `group:<id>`.
+ * @property {Map<string, Leaf>}             byId     Leaves by node id.
  * @property {Body[][]}                      siblings Top-level bodies, then each branch's children.
  * @property {Link[]}                        links    Every drawable link.
  * @property {Link[]}                        pulls    The links whose ends share a parent, loose ones aside.
@@ -133,16 +134,17 @@ export const labelHalfW = ( label ) =>
 const holds = ( body, leaf ) => body === leaf || leaf.ancestors.has( body );
 
 /**
- * A leaf for one node: its label's rect, or a sized node's circle with room
- * beneath it for the label.
+ * A leaf for one node: its label's rect at its scale, or a sized node's circle
+ * with room beneath it for the label.
  *
  * @param {HostNode} node Host node.
  * @return {Leaf} Leaf at the origin.
  */
 const makeLeaf = ( node ) => {
-	const labelW = labelHalfW( node.label );
-	const halfW = node.size ? Math.max( node.size, labelW ) : labelW;
-	const halfH = node.size ? node.size + LABEL_BELOW : LABEL_HALF_H;
+	const { size, scale = 1 } = node;
+	const labelW = labelHalfW( node.label ) * scale;
+	const halfW = size ? Math.max( size, labelW ) : labelW;
+	const halfH = size ? size + LABEL_BELOW * scale : LABEL_HALF_H * scale;
 
 	return {
 		type: 'leaf',
@@ -391,9 +393,7 @@ export const buildModel = ( { nodes, links, groups } ) => {
 	}
 	const branches = branchGroups( nodes, groups, groupById ).map( makeBranch );
 	const branchOf = new Map( branches.map( ( b ) => [ b.group.id, b ] ) );
-	const byId = new Map(
-		[ ...branches, ...leaves ].map( ( b ) => [ b.id, b ] )
-	);
+	const byId = new Map( leaves.map( ( leaf ) => [ leaf.id, leaf ] ) );
 
 	for ( const leaf of leaves ) {
 		leaf.parent = branchOf.get( leaf.node.group ) ?? null;
@@ -403,9 +403,7 @@ export const buildModel = ( { nodes, links, groups } ) => {
 	const drawn = links.flatMap( ( link ) => {
 		const source = byId.get( link.source );
 		const target = byId.get( link.target );
-		return 'leaf' === source?.type && 'leaf' === target?.type
-			? [ { source, target, link } ]
-			: [];
+		return source && target ? [ { source, target, link } ] : [];
 	} );
 	const laidOut = drawn.filter( ( { link } ) => ! link.loose );
 

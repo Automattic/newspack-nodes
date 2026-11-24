@@ -3,7 +3,8 @@
  *
  * React renders the svg and nothing under it. d3 joins keyed by id draw the
  * rest, so a node keeps its element through every change of the data, and
- * each frame of motion writes positions alone.
+ * each frame of motion writes positions alone. While the layout runs unpainted
+ * the svg is busy, and while nothing is painted yet either it is a skeleton.
  *
  * The host colors nodes, lines and hulls through the classes it hands them,
  * which may change on every poll without moving anything. What is selected or
@@ -15,8 +16,8 @@ import {
 	useCallback,
 	useEffect,
 	useId,
-	useImperativeHandle,
 	useRef,
+	useState,
 } from '@wordpress/element';
 import { classes } from '../components/Modal';
 import { useContainerRefit } from '../hooks/useContainerRefit';
@@ -38,6 +39,7 @@ const NO_GROUPS = [];
  * @property {?string=} group     Id of the group holding it.
  * @property {string=}  className The host's classes.
  * @property {number=}  size      Circle radius.
+ * @property {number=}  scale     What its label is drawn at, box and text; 1 without one.
  * @property {boolean=} center    Whether the layout holds it at the centre of the canvas.
  * @property {string=}  detail    Text in the circle.
  * @property {number=}  rate      Messages a second; above zero it is live.
@@ -69,28 +71,27 @@ const NO_GROUPS = [];
 
 /**
  * @typedef {Object} ForceGraphProps
- * @property {GraphNode[]}                           nodes           The nodes.
- * @property {GraphLink[]}                           links           The lines; one whose end is not a node is not drawn.
- * @property {GraphGroup[]}                          [groups]        The groups, a tree by `parent`.
- * @property {string}                                [layoutKey]     Lays the graph out in full when it changes.
- * @property {unknown}                               [pollKey]       With `live`, hands the rates of `nodes` to the layout when it changes.
- * @property {?string}                               [selectedId]    Id of the selected node.
- * @property {?string}                               [selectedLink]  Id of the selected line.
- * @property {?string}                               [selectedGroup] Id of the selected group.
- * @property {?string}                               [hoveredId]     Id of the hovered node.
- * @property {function(string): void}                [onSelect]      Takes a pressed node's id, or an arrow's.
- * @property {function(GraphLink): void}             [onSelectLink]  Takes a pressed line; without it lines take no press.
- * @property {function(string): void}                [onSelectGroup] Takes a pressed hull's group id.
- * @property {function(?string): void}               [onHover]       Takes the id of the node the pointer is over, or null.
- * @property {function(?string): void}               [onHoverGroup]  Takes the group id of the hull the pointer is over, or null, as on a node or a line that takes a press.
- * @property {function(): void}                      [onDeselect]    Runs on a press of the canvas, and on Escape.
- * @property {boolean}                               [live]          Whether rates move the layout, and Space and `k` act.
- * @property {boolean}                               [keepWarm]      Whether a live layout holds its energy.
- * @property {function(): void}                      [onKeepWarm]    Runs on `k`.
- * @property {string}                                [ariaLabel]     The canvas's name.
- * @property {string}                                [className]     The host's class on the svg.
- * @property {{current: ?{reset: function(): void}}} [apiRef]        Takes a handle that resets the layout.
- * @property {{current: ?SVGSVGElement}}             [svgRef]        Takes the svg, for a host that asks whether an event landed on it.
+ * @property {GraphNode[]}               nodes           The nodes.
+ * @property {GraphLink[]}               links           The lines; one whose end is not a node is not drawn.
+ * @property {GraphGroup[]}              [groups]        The groups, a tree by `parent`.
+ * @property {string}                    [layoutKey]     Lays the graph out in full when it changes.
+ * @property {unknown}                   [pollKey]       With `live`, hands the rates of `nodes` to the layout when it changes.
+ * @property {?string}                   [selectedId]    Id of the selected node.
+ * @property {?string}                   [selectedLink]  Id of the selected line.
+ * @property {?string}                   [selectedGroup] Id of the selected group.
+ * @property {?string}                   [hoveredId]     Id of the hovered node.
+ * @property {function(string): void}    [onSelect]      Takes a pressed node's id, or an arrow's.
+ * @property {function(GraphLink): void} [onSelectLink]  Takes a pressed line; without it lines take no press.
+ * @property {function(string): void}    [onSelectGroup] Takes a pressed hull's group id.
+ * @property {function(?string): void}   [onHover]       Takes the id of the node the pointer is over, or null.
+ * @property {function(?string): void}   [onHoverGroup]  Takes the group id of the hull the pointer is over, or null, as on a node or a line that takes a press.
+ * @property {function(): void}          [onDeselect]    Runs on a press of the canvas, and on Escape.
+ * @property {boolean}                   [live]          Whether rates move the layout, and Space and `k` act.
+ * @property {boolean}                   [keepWarm]      Whether a live layout holds its energy.
+ * @property {function(): void}          [onKeepWarm]    Runs on `k`.
+ * @property {string}                    [ariaLabel]     The canvas's name.
+ * @property {string}                    [className]     The host's class on the svg.
+ * @property {{current: ?SVGSVGElement}} [svgRef]        Takes the svg, for a host that asks whether an event landed on it.
  */
 
 /**
@@ -144,7 +145,6 @@ export function ForceGraph( props ) {
 		keepWarm = false,
 		ariaLabel,
 		className,
-		apiRef,
 		svgRef: hostSvgRef,
 	} = props;
 	const svgRef = useRef( /** @type {SVGSVGElement} */ ( null ) );
@@ -159,6 +159,10 @@ export function ForceGraph( props ) {
 		[ hostSvgRef ]
 	);
 	const stageRef = useRef( /** @type {Stage} */ ( null ) );
+	const [ { isBusy, isBlank }, setWait ] = useState( {
+		isBusy: false,
+		isBlank: false,
+	} );
 	const hostRef = useRef( props );
 	hostRef.current = props;
 	const arrowId = `${ BLOCK }-arrow-${ useId() }`;
@@ -188,6 +192,11 @@ export function ForceGraph( props ) {
 			width: 0,
 			height: 0,
 			onTick: paint,
+			onUnpainted: ( unpainted ) =>
+				setWait( {
+					isBusy: unpainted,
+					isBlank: unpainted && drawing.isEmpty(),
+				} ),
 			reducedMotion: prefersReducedMotion(),
 		} );
 		const stage = {
@@ -285,16 +294,11 @@ export function ForceGraph( props ) {
 		stageRef.current.drawing.dressHulls( hostRef.current );
 	}, [ selectedGroup ] );
 
-	useImperativeHandle(
-		apiRef,
-		() => ( { reset: () => stageRef.current.reset() } ),
-		[]
-	);
-
 	return (
 		<svg
 			ref={ attachSvg }
-			className={ classes( BLOCK, className ) }
+			className={ classes( BLOCK, isBlank && 'is-blank', className ) }
+			aria-busy={ isBusy }
 			tabIndex={ 0 }
 			role="application"
 			aria-label={ ariaLabel }

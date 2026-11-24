@@ -1,4 +1,5 @@
 @use "../styles/focus-mixins" as focus;
+@use "../styles/mixins" as mix;
 
 // Neutral paint for a force graph. A host colors its nodes and lines through
 // the classes it hands them; the width and opacity of a line with a weight or
@@ -12,6 +13,15 @@
 
 	&:focus-visible {
 		@include focus.ring;
+	}
+
+	// Nothing is painted yet, and the layout runs.
+	&.is-blank {
+		@include mix.skeleton;
+
+		@media (prefers-reduced-motion: reduce) {
+			animation: none;
+		}
 	}
 
 	&__hull {

@@ -1,6 +1,6 @@
 /**
- * Shared dashboard mixins — the error banner, the table grid and the raised
- * surface. The toolbar controls (search input, column picker,
+ * Shared dashboard mixins — the skeleton, the error banner, the table grid and
+ * the raised surface. The toolbar controls (search input, column picker,
  * stats display) are real classes in `_toolbar.scss`, not mixins.
  *
  * Mixin definitions emit no CSS until `@include`d, so carrying the full canonical set
@@ -20,6 +20,31 @@
 		rgba(0, 0, 0, 0) 0 2px,
 		rgba(0, 0, 0, 0.26) 2px 3px
 	);
+}
+
+// The pulse of a surface still owed what it shows. A host on a ground of its
+// own sets `--skeleton-ground` and `--skeleton-sheen`.
+@mixin skeleton {
+	$ground: var(--skeleton-ground, var(--paper-2, var(--np-surface-subtle)));
+
+	background: linear-gradient(
+		90deg,
+		$ground 25%,
+		var(--skeleton-sheen, var(--paper-shadow, var(--np-border-strong))) 50%,
+		$ground 75%
+	);
+	background-size: 200% 100%;
+	animation: skeleton-pulse 1.5s ease-in-out infinite;
+
+	@keyframes skeleton-pulse {
+		0% {
+			background-position: -200% 0;
+		}
+
+		100% {
+			background-position: 200% 0;
+		}
+	}
 }
 
 // Dark theme error banner

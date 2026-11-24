@@ -275,10 +275,11 @@ describe( 'what it draws', () => {
 	it( 'joins the sidecars at both depths once the poll answers', () => {
 		const { svg } = mount();
 		answer();
-		expect( wearing( svg, 'is-sidecar' ) ).toEqual( [
-			'vat-33:feed',
-			'vat-33:feed:valve',
-		] );
+		expect(
+			[ ...svg.querySelectorAll( '[transform="scale(0.8)"]' ) ].map(
+				( label ) => label.textContent
+			)
+		).toEqual( [ 'vat-33:feed', 'vat-33:feed:valve' ] );
 		expect( wearing( svg, 'is-patron' ) ).toEqual( [
 			'patron:vat-33:feed',
 			'patron:vat-33:feed:valve',

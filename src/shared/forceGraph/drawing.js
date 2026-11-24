@@ -28,6 +28,7 @@ const strokeScale = scaleLog().range( [ 1, 3 ] );
 
 /** @typedef {import('./model').Model} Model */
 /** @typedef {import('./model').Link} Link */
+/** @typedef {import('./ForceGraph').GraphNode} GraphNode */
 /** @typedef {import('./ForceGraph').GraphLink} GraphLink */
 /** @typedef {import('./ForceGraph').ForceGraphProps} ForceGraphProps */
 
@@ -95,6 +96,16 @@ const keep = ( parents, tag, part, wants, before ) =>
 			enter.insert( tag, before ).attr( 'class', `${ BLOCK }__${ part }` )
 		);
 
+/**
+ * Where a node's label stands, before its scale: in the middle of its rect, or
+ * clear above its circle.
+ *
+ * @param {GraphNode} node The node.
+ * @return {number} The baseline.
+ */
+const labelY = ( { size, scale = 1 } ) =>
+	size ? ( -size - LABEL_RISE ) / scale : MIDDLE_DROP;
+
 /** Wants for `keep`. */
 const all = () => true;
 const sized = ( { node } ) => node.size;
@@ -139,7 +150,6 @@ export const createDrawing = ( svg, arrowId ) => {
 		nodes.attr( 'class', ( { id, node } ) =>
 			classes(
 				`${ BLOCK }__node`,
-				node.size && 'is-sized',
 				node.className,
 				node.rate > 0 && 'is-live',
 				onSelect && 'is-pressable',
@@ -243,8 +253,9 @@ export const createDrawing = ( svg, arrowId ) => {
 				( { node } ) => node.size
 			);
 			keep( nodes, 'text', 'label', all )
-				.attr( 'y', ( { node } ) =>
-					node.size ? -node.size - LABEL_RISE : MIDDLE_DROP
+				.attr( 'y', ( { node } ) => labelY( node ) )
+				.attr( 'transform', ( { node: { scale = 1 } } ) =>
+					1 === scale ? null : `scale(${ scale })`
 				)
 				.text( ( { node } ) => node.label );
 			keep(

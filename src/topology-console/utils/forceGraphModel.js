@@ -12,7 +12,6 @@
  *
  * | On    | Class             | Meaning                                         |
  * |-------|-------------------|-------------------------------------------------|
- * | Node  | `is-sidecar`      | A patron owns it.                               |
  * | Node  | `is-idle`         | Live, at rate zero and without focus.           |
  * | Node  | `is-drift`        | Runtime drift.                                  |
  * | Node  | `is-lit`          | In the hull in focus.                           |
@@ -43,6 +42,9 @@ import { hullColorIndex } from './hullColor';
 
 /** Pixels a patron line pulls a sidecar and its patron to. */
 const PATRON_DISTANCE = 100;
+
+/** What a sidecar's label is drawn at. */
+const SIDECAR_SCALE = 0.8;
 
 /**
  * An include's hull.
@@ -264,7 +266,6 @@ const classesUnder = ( state, hulls, patronOf, rateOf ) => {
 			const hovered = id === hoveredId;
 			const hasFocus = lit || hovered || id === selectedId;
 			return classes(
-				patronOf.has( id ) && 'is-sidecar',
 				0 === rateOf( id ) && ! hasFocus && 'is-idle',
 				driftIds?.has( id ) && 'is-drift',
 				lit && 'is-lit',
@@ -444,6 +445,7 @@ export const toForceGraph = ( {
 			group: seats.get( rootOf( patronOf, id ) ),
 			className: classOf.node( id ),
 			rate: liveRate( id ),
+			scale: patronOf.has( id ) ? SIDECAR_SCALE : 1,
 			center: names.COMMAND_INTERPRETER === id,
 		} ) ),
 		links: [ ...links.values() ],

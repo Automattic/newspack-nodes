@@ -176,8 +176,7 @@ describe( 'updateBoxes', () => {
 			[ 500, 100 ],
 		] );
 		updateBoxes( model );
-		const outer = model.byId.get( 'group:out' );
-		const inner = model.byId.get( 'group:in' );
+		const [ inner, outer ] = model.branches;
 
 		expect( inner.boxMinX ).toBe( 20 );
 		expect( outer.boxMinX ).toBe( 20 );

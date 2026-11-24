@@ -1,7 +1,8 @@
 /* @jest-environment node */
 
 /**
- * Tests for what the force graph's stylesheet lets a press reach.
+ * Tests for what the force graph's stylesheet lets a press reach, and for the
+ * skeleton it paints.
  */
 
 import path from 'node:path';
@@ -9,6 +10,7 @@ import postcss from 'postcss';
 import * as sass from 'sass';
 
 const FILE = path.resolve( __dirname, '../ForceGraph.scss' );
+const UI = path.resolve( __dirname, '../../../ui/newspack-nodes-ui.scss' );
 const BLOCK = '.newspack-nodes-force-graph';
 
 it( 'lets a press through a hull’s label and a mute line alone', () => {
@@ -23,4 +25,68 @@ it( 'lets a press through a hull’s label and a mute line alone', () => {
 		`${ BLOCK }__hull-label`,
 		`${ BLOCK }__link:not(.is-pressable):not(:has(> title))`,
 	] );
+} );
+
+describe( 'the skeleton', () => {
+	const OWN = postcss.parse( sass.compile( FILE ).css );
+	const SHARED = postcss.parse( sass.compile( UI ).css );
+	const PULSE = [ 'background', 'background-size', 'animation' ];
+
+	// What each rule whose selector ends so declares of some properties.
+	const declared = ( sheet, end, props ) => {
+		const found = [];
+		sheet.walkRules( ( rule ) => {
+			if ( rule.selectors.some( ( one ) => one.endsWith( end ) ) ) {
+				const { name = '', params = '' } = rule.parent;
+				rule.walkDecls( ( { prop, value } ) => {
+					if ( props.includes( prop ) ) {
+						found.push( [ name + params, prop, value ] );
+					}
+				} );
+			}
+		} );
+		return found;
+	};
+	const pulses = ( sheet ) => {
+		const found = [];
+		sheet.walkAtRules( 'keyframes', ( rule ) =>
+			found.push( String( rule ) )
+		);
+		return found;
+	};
+
+	it( 'pulses as the shared one does, and stands under reduced motion', () => {
+		const shared = declared( SHARED, '.newspack-nodes-skeleton', PULSE );
+		expect( shared ).toHaveLength( PULSE.length );
+		expect( declared( OWN, `${ BLOCK }.is-blank`, PULSE ) ).toEqual( [
+			...shared,
+			[ 'media(prefers-reduced-motion: reduce)', 'animation', 'none' ],
+		] );
+	} );
+
+	it( 'is two steps of the surface, unless its host names two others', () => {
+		const ends =
+			'var(--skeleton-ground, var(--paper-2, var(--np-surface-subtle)))';
+		const sheen =
+			'var(--skeleton-sheen, var(--paper-shadow, var(--np-border-strong)))';
+		const background = `linear-gradient(90deg, ${ ends } 25%, ${ sheen } 50%, ${ ends } 75%)`;
+		for ( const [ sheet, end ] of [
+			[ SHARED, '.newspack-nodes-skeleton' ],
+			[ OWN, `${ BLOCK }.is-blank` ],
+		] ) {
+			expect( declared( sheet, end, [ 'background' ] ) ).toEqual( [
+				[ '', 'background', background ],
+			] );
+		}
+		for ( const sheet of [ SHARED, OWN ] ) {
+			sheet.walkDecls( ( { prop } ) =>
+				expect( prop ).not.toMatch( /^--skeleton-/ )
+			);
+		}
+	} );
+
+	it( 'brings its own frames, as the shared sheet has them', () => {
+		expect( pulses( OWN ) ).toHaveLength( 1 );
+		expect( pulses( SHARED ) ).toEqual( pulses( OWN ) );
+	} );
 } );

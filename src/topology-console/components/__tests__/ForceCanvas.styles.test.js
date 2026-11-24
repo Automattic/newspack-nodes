@@ -28,14 +28,15 @@ const BLOCK = 'newspack-nodes-force-graph';
 /**
  * One element of a canvas, and what both load orders make of it.
  *
- * @param {string} part The element, under the console and the svg.
- * @param {string} at   A selector of it.
+ * @param {string} part    The element, under the console and the svg.
+ * @param {string} at      A selector of it.
+ * @param {string} [state] A class of the svg.
  * @return {function(string): string} A longhand's winning value.
  */
-const paint = ( part, at ) => {
+const paint = ( part, at, state = '' ) => {
 	document.body.innerHTML = `
 		<main class="topology-app"><div class="topology-canvas">
-			<svg class="${ BLOCK } topology-force-canvas">
+			<svg class="${ BLOCK } topology-force-canvas ${ state }">
 				<g class="${ BLOCK }__view">${ part }</g>
 			</svg>
 		</div></main>`;
@@ -73,6 +74,12 @@ describe( 'the canvas', () => {
 		expect( svg( 'background-color' ) ).toBeUndefined();
 		expect( svg( 'z-index' ) ).toBe( '1' );
 		expect( svg( 'position' ) ).toBe( 'relative' );
+	} );
+
+	it( 'is a skeleton over its grid while it is blank', () => {
+		const svg = paint( '', 'svg', 'is-blank' );
+		expect( svg( 'background-image' ) ).toContain( 'var(--paper-shadow,' );
+		expect( svg( 'background-image' ) ).not.toContain( 'var(--grid)' );
 	} );
 
 	it( 'insets its focus ring, as its host clips one', () => {
@@ -202,14 +209,6 @@ describe( 'a node', () => {
 			/^color-mix\(.*var\(--ink\).*var\(--paper-2\)/
 		);
 	} );
-
-	it( 'that is a sidecar is drawn smaller, and stands where it stood', () => {
-		for ( const part of [ shape, label ] ) {
-			expect( part( 'is-sidecar' )( 'transform' ) ).toBe( 'scale(0.8)' );
-			expect( part( '' )( 'transform' ) ).toBeUndefined();
-		}
-		expect( node( 'is-sidecar' )( 'transform' ) ).toBeUndefined();
-	} );
 } );
 
 describe( 'a hull', () => {
@@ -259,7 +258,7 @@ it( 'paints by tokens alone, and leaves every box and label as measured', () => 
 	for ( const { prop, value } of decls ) {
 		expect( value ).not.toMatch( /#[0-9a-f]{3}|rgba?\(|hsla?\(/i );
 		expect( prop ).not.toMatch(
-			/^(width|height|x|y|r|rx|ry|font.*|letter-spacing)$/
+			/^(width|height|x|y|r|rx|ry|font.*|letter-spacing|transform)$/
 		);
 	}
 } );

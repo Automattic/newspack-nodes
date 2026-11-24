@@ -229,11 +229,8 @@ describe( 'toForceGraph sidecars', () => {
 			[ 'vat-33:feed', 'works', 'Feed' ],
 			[ 'vat-33:feed:valve', 'works', 'Valve' ],
 		] );
-		expect( nodes.map( ( n ) => wears( n, 'is-sidecar' ) ) ).toEqual( [
-			false,
-			false,
-			true,
-			true,
+		expect( nodes.map( ( { scale } ) => scale ) ).toEqual( [
+			1, 1, 0.8, 0.8,
 		] );
 		expect(
 			links.map( ( { id, source, target, directed } ) => [
@@ -795,7 +792,7 @@ describe( 'toForceGraph sinks', () => {
 		expect( ids( nodes.filter( ( { center } ) => center ) ) ).toEqual( [
 			CI,
 		] );
-		expect( wears( byId( nodes )[ CI ], 'is-sidecar' ) ).toBe( false );
+		expect( byId( nodes )[ CI ].scale ).toBe( 1 );
 		expect( patronOf.size ).toBe( 0 );
 		expect(
 			links

@@ -10,12 +10,43 @@ const link = ( source, target, extra = {} ) => ( { source, target, ...extra } );
 const group = ( id, parent = null ) => ( { id, parent } );
 
 const ids = ( bodies ) => bodies.map( ( body ) => body.id );
+const branch = ( model, id ) =>
+	model.branches.find( ( one ) => id === one.group.id );
 
 describe( 'labelHalfW', () => {
 	it( 'is half the label rect, never narrower than 60', () => {
 		expect( labelHalfW( 'x'.repeat( 20 ) ) ).toBe( 78 );
 		expect( labelHalfW( 'ab' ) ).toBe( 30 );
 		expect( LABEL_HALF_H ).toBe( 12 );
+	} );
+} );
+
+describe( 'buildModel scale', () => {
+	const extent = ( extra ) => {
+		const { halfW, halfH, radius } = buildModel( {
+			nodes: [ node( 'x'.repeat( 20 ), extra ) ],
+			links: [],
+			groups: [],
+		} ).leaves[ 0 ];
+		return [ halfW, halfH, radius ];
+	};
+
+	it( 'a scaled label is measured at its scale, its least width too', () => {
+		expect( extent( { scale: 0.5 } ) ).toEqual( [
+			39,
+			6,
+			Math.hypot( 39, 6 ),
+		] );
+		expect( extent( {} ).slice( 0, 2 ) ).toEqual( [ 78, 12 ] );
+		expect( extent( { label: 'ab', scale: 0.5 } )[ 0 ] ).toBe( 15 );
+	} );
+
+	it( 'a scaled label over a circle leaves the circle its size', () => {
+		expect( extent( { size: 33, scale: 0.5 } ).slice( 0, 2 ) ).toEqual( [
+			39, 45.5,
+		] );
+		expect( extent( { size: 44, scale: 0.5 } )[ 0 ] ).toBe( 44 );
+		expect( extent( { size: 33 } ).slice( 0, 2 ) ).toEqual( [ 78, 58 ] );
 	} );
 } );
 
@@ -91,6 +122,26 @@ describe( 'buildModel links and spans', () => {
 	} );
 } );
 
+describe( 'buildModel byId', () => {
+	it( 'files the leaves alone, though a node may carry a hull’s id', () => {
+		const model = buildModel( {
+			nodes: [
+				node( 'A', { group: 'g' } ),
+				node( 'B', { group: 'h' } ),
+				node( 'group:g' ),
+			],
+			links: [ link( 'A', 'group:g' ), link( 'A', 'group:h' ) ],
+			groups: [ group( 'g' ), group( 'h' ) ],
+		} );
+
+		expect( [ ...model.byId.keys() ] ).toEqual( [ 'A', 'B', 'group:g' ] );
+		expect( [ ...model.byId.values() ] ).toEqual( model.leaves );
+		expect( model.links.map( ( { target } ) => target ) ).toEqual( [
+			model.leaves[ 2 ],
+		] );
+	} );
+} );
+
 describe( 'buildModel groups', () => {
 	it( 'a group with neither nodes nor two child groups draws no branch', () => {
 		const model = buildModel( {
@@ -124,12 +175,12 @@ describe( 'buildModel groups', () => {
 			'group:a/b',
 			'group:a/c',
 		] );
-		const top = model.byId.get( 'group:a' );
+		const top = branch( model, 'a' );
 		expect( top.population ).toBe( 3 );
 		expect( top.depth ).toBe( 0 );
-		expect( model.byId.get( 'group:a/b' ).parent ).toBe( top );
-		expect( model.byId.get( 'group:a/b' ).depth ).toBe( 1 );
-		expect( model.byId.get( 'group:a/b' ).ancestors ).toEqual(
+		expect( branch( model, 'a/b' ).parent ).toBe( top );
+		expect( branch( model, 'a/b' ).depth ).toBe( 1 );
+		expect( branch( model, 'a/b' ).ancestors ).toEqual(
 			new Set( [ top ] )
 		);
 		expect( ids( top.leafNodes ).sort() ).toEqual( [ 'p', 'q', 'r' ] );
@@ -206,7 +257,7 @@ describe( 'buildModel groups', () => {
 			groups: [ group( 'a' ), group( 'a/b', 'a' ) ],
 		} );
 
-		expect( ids( model.byId.get( 'group:a' ).children ) ).toEqual( [
+		expect( ids( branch( model, 'a' ).children ) ).toEqual( [
 			'group:a/b',
 			'p',
 		] );
@@ -352,8 +403,8 @@ describe( 'buildModel bodies', () => {
 		} );
 
 		expect( model.byId.get( 'g' ).type ).toBe( 'leaf' );
-		expect( model.byId.get( 'group:g' ).type ).toBe( 'branch' );
-		expect( model.byId.get( 'group:g' ).group.id ).toBe( 'g' );
+		expect( branch( model, 'g' ).type ).toBe( 'branch' );
+		expect( branch( model, 'g' ).group.id ).toBe( 'g' );
 	} );
 
 	it( 'a body spans and neighbors only what leaves it', () => {
@@ -367,9 +418,9 @@ describe( 'buildModel bodies', () => {
 			groups: [ group( 'g' ) ],
 		} );
 
-		const branch = model.byId.get( 'group:g' );
-		expect( branch.spans ).toHaveLength( 2 );
-		expect( ids( branch.neighbors ) ).toEqual( [ 'r' ] );
+		const hull = branch( model, 'g' );
+		expect( hull.spans ).toHaveLength( 2 );
+		expect( ids( hull.neighbors ) ).toEqual( [ 'r' ] );
 		expect( ids( model.byId.get( 'p' ).neighbors ) ).toEqual( [ 'q' ] );
 		expect( ids( model.byId.get( 'r' ).neighbors ) ).toEqual( [ 'q' ] );
 	} );
@@ -392,8 +443,8 @@ describe( 'buildModel bodies', () => {
 		] );
 		const p = model.movable.find( ( m ) => 'p' === m.body.id );
 		expect( ids( p.peers ) ).toEqual( [ 'p', 'q' ] );
-		const branch = model.movable.find( ( m ) => 'group:g' === m.body.id );
-		expect( ids( branch.peers ) ).toEqual( [ 'group:g' ] );
+		const hull = model.movable.find( ( m ) => 'group:g' === m.body.id );
+		expect( ids( hull.peers ) ).toEqual( [ 'group:g' ] );
 	} );
 
 	it( 'movable and its peers leave out a center node and its hulls', () => {

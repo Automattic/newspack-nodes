@@ -80,9 +80,7 @@ export const bindKeys = (
 	const arrow = ( dir, focused ) => {
 		const { drawing, engine } = stageRef.current;
 		const { byId } = engine.model();
-		const boxes = drawing
-			.boxes()
-			.filter( ( { id } ) => 'leaf' === byId.get( id )?.type );
+		const boxes = drawing.boxes().filter( ( { id } ) => byId.has( id ) );
 		const { selectedId, onSelect } = hostRef.current;
 		const selected =
 			focused && boxes.find( ( { id } ) => id === selectedId );
