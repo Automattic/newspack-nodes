@@ -1,15 +1,11 @@
 /**
  * The force graph's engine: it owns the model and the d3 simulation that
- * moves it, and says which of three phases the layout is in.
+ * moves it.
  *
- * - `laying`: a layout, or a reheat of one, is cooling.
- * - `live`: rate polls are setting the layout's energy, or it is cooling
- *   after the last one that did.
- * - `still`: nothing moves.
- *
- * The simulation's own timer never runs. One d3 timer, a call an animation
- * frame, ticks it while the phase is not `still` and nothing holds it: a
- * pause, a hidden canvas or a drag.
+ * A layout moves while it cools, and while rate polls hold its energy; after
+ * that it is still. The simulation's own timer never runs. One d3 timer, a
+ * call an animation frame, ticks it while it is not still and nothing holds
+ * it: a pause, a hidden canvas, a gesture or a drag.
  */
 
 import {
@@ -80,8 +76,6 @@ const SLICE_MS = 12;
  * @property {import('./model').HostGroup[]} groups Host groups.
  */
 
-/** @typedef {'laying'|'live'|'still'} Phase */
-
 /**
  * @typedef {Object} Engine
  * @property {function(HostGraph, (string|undefined)): void}   setGraph    Take the host's graph.
@@ -92,10 +86,13 @@ const SLICE_MS = 12;
  * @property {function(): void}                                drop        End a drag and reheat.
  * @property {function({width: number, height: number}): void} setSize     Take the canvas's size.
  * @property {function(boolean): void}                         setPaused   Hold the layout, or let it go on.
+ * @property {function(boolean): void}                         setHeld     Hold the layout for a gesture, or let it go on.
+ * @property {function(boolean): void}                         setLive     Let rates charge and move the layout, or the fixed charge alone.
  * @property {function(boolean): void}                         setKeepWarm Hold a live layout's energy and friction, or let polls step them.
  * @property {function(boolean): void}                         setHidden   Hold the layout of a canvas no one sees.
  * @property {function(): Model}                               model       The model, replaced when its shape changes.
- * @property {function(): Phase}                               phase       The layout's phase.
+ * @property {function(): boolean}                             running     Whether the layout ticks, or will once a gesture or a drag ends: it is neither still, paused nor hidden.
+ * @property {function(): number}                              ticks       Ticks the layout has run, painted or not.
  * @property {function(): void}                                destroy     Stop for good.
  */
 
@@ -113,17 +110,16 @@ const hasArea = ( { width, height } ) => width > 0 && height > 0;
  * `onTick` is for motion: the host paints what its own call placed, which is
  * a graph, a reset or a drag, and `onTick` paints each frame after it. Under
  * reduced motion a layout runs unpainted and `onTick` is called once, when it
- * stops. The phase is already `still` at the last call.
+ * stops. The layout is already still at the last call.
  *
  * A full layout waits, still, for a canvas with area. Rates charge the leaves
- * of a `live` engine alone; other leaves carry the
- * fixed charge, and rates do nothing.
+ * of a live engine alone; the leaves of any other carry the fixed charge, and
+ * rates do nothing. An engine starts out of live.
  *
  * @param {Object}           options
  * @param {number}           options.width           Canvas width.
  * @param {number}           options.height          Canvas height.
  * @param {function(): void} options.onTick          Paints a frame of motion.
- * @param {boolean}          [options.live]          Whether rates move the layout.
  * @param {boolean}          [options.reducedMotion] Whether motion goes unpainted.
  * @return {Engine} The engine.
  */
@@ -131,7 +127,6 @@ export const createEngine = ( {
 	width,
 	height,
 	onTick,
-	live = false,
 	reducedMotion = false,
 } ) => {
 	// The last size with area, which a canvas without any leaves in place.
@@ -140,12 +135,12 @@ export const createEngine = ( {
 	// Whether a full layout waits for a canvas with area.
 	let pending = false;
 	let model = buildModel( { nodes: [], links: [], groups: [] } );
-	/** @type {Phase} */
-	let phase = 'still';
+	let still = true;
 	/** @type {string|undefined} */
 	let key;
 	/** @type {Map<string, {x: number, y: number}>} */
 	const seen = new Map();
+	let ticks = 0;
 	let untangleTicks = 0;
 
 	/** @type {Map<string, number>} */
@@ -153,11 +148,13 @@ export const createEngine = ( {
 	// Steps the polls have taken, and whether the next poll starts them over.
 	let steadyPolls = 0;
 	let startOver = true;
+	let live = false;
 	let keepWarm = false;
 	let holdTicks = 0;
 
 	let paused = false;
 	let hidden = false;
+	let held = false;
 	let dragging = false;
 	let destroyed = false;
 
@@ -172,12 +169,13 @@ export const createEngine = ( {
 		simulation.alphaTarget( 0 ).velocityDecay( VELOCITY_DECAY );
 
 	const tick = () => {
+		ticks++;
 		simulation.tick();
 		if ( 0 === --holdTicks ) {
 			release();
 		}
 		if ( simulation.alpha() < simulation.alphaMin() ) {
-			phase = 'still';
+			still = true;
 		}
 	};
 
@@ -185,13 +183,13 @@ export const createEngine = ( {
 		const until = performance.now() + SLICE_MS;
 		do {
 			tick();
-		} while ( 'still' !== phase && performance.now() < until );
+		} while ( ! still && performance.now() < until );
 	};
 
 	const frame = () => {
 		( reducedMotion ? slice : tick )();
 		run();
-		if ( ! reducedMotion || 'still' === phase ) {
+		if ( ! reducedMotion || still ) {
 			onTick();
 		}
 	};
@@ -199,35 +197,43 @@ export const createEngine = ( {
 	const stepper = timer( frame );
 	stepper.stop();
 
-	/** Start or stop the timer, as the phase and the holds say. */
+	const running = () => ! ( still || paused || hidden || destroyed );
+
+	/** Start or stop the timer, as the layout runs and is held. */
 	const run = () => {
-		if ( 'still' === phase || paused || hidden || dragging || destroyed ) {
-			stepper.stop();
-		} else {
+		if ( running() && ! held && ! dragging ) {
 			stepper.restart( frame );
+		} else {
+			stepper.stop();
 		}
 	};
 
 	/**
-	 * Enter a phase; an empty graph, or one that waits for area, is still.
-	 *
-	 * @param {Phase} next The phase.
+	 * Set the layout moving; an empty graph, or one that waits for area, is
+	 * still.
 	 */
-	const enter = ( next ) => {
-		phase = model.leaves.length && ! pending ? next : 'still';
+	const start = () => {
+		still = pending || ! model.leaves.length;
 		run();
 	};
 
 	/**
-	 * Raise alpha to at least this and cool from it, without untangling; a live
-	 * layout stays live.
+	 * Raise alpha to at least this.
+	 *
+	 * @param {number} alpha The alpha.
+	 */
+	const raise = ( alpha ) =>
+		simulation.alpha( Math.max( simulation.alpha(), alpha ) );
+
+	/**
+	 * Raise alpha and cool from it, without untangling.
 	 *
 	 * @param {number} alpha The alpha.
 	 */
 	const reheat = ( alpha ) => {
 		untangleTicks = 0;
-		simulation.alpha( Math.max( simulation.alpha(), alpha ) );
-		enter( 'still' === phase ? 'laying' : phase );
+		raise( alpha );
+		start();
 	};
 
 	const applyCharge = () =>
@@ -275,7 +281,7 @@ export const createEngine = ( {
 		untangleTicks = UNTANGLE_TICKS;
 		simulation.alpha( ALPHA );
 		release();
-		enter( 'laying' );
+		start();
 	};
 
 	/**
@@ -291,7 +297,8 @@ export const createEngine = ( {
 		if ( added || ! sameSurvivors || crowds( unsettled, model ) ) {
 			reheat( REHEAT_ALPHA );
 		} else {
-			enter( phase );
+			still ||= ! model.leaves.length;
+			run();
 		}
 	};
 
@@ -323,7 +330,7 @@ export const createEngine = ( {
 			}
 			rates = next;
 			applyCharge();
-			if ( reducedMotion || paused || hidden ) {
+			if ( reducedMotion || paused || hidden || held ) {
 				return;
 			}
 			if ( startOver ) {
@@ -343,7 +350,7 @@ export const createEngine = ( {
 					.alphaTarget( Math.max( MIN_ENERGY, ALPHA - taken ) )
 					.velocityDecay( VELOCITY_DECAY + taken );
 			}
-			enter( 'live' );
+			start();
 		},
 
 		reset: layOut,
@@ -392,6 +399,22 @@ export const createEngine = ( {
 			run();
 		},
 
+		setHeld: ( next ) => {
+			held = next;
+			run();
+		},
+
+		setLive: ( next ) => {
+			if ( next === live ) {
+				return;
+			}
+			live = next;
+			release();
+			applyCharge();
+			raise( REHEAT_ALPHA );
+			start();
+		},
+
 		setKeepWarm: ( next ) => {
 			keepWarm = next;
 			startOver ||= keepWarm && STEADY_POLLS === steadyPolls;
@@ -403,7 +426,8 @@ export const createEngine = ( {
 		},
 
 		model: () => model,
-		phase: () => phase,
+		running,
+		ticks: () => ticks,
 
 		destroy: () => {
 			destroyed = true;

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ForceGraph`, a shared force-directed graph** (`@newspack-nodes/shared/forceGraph`). It draws nodes, lines and nested hulls, lays them out until few lines cross, and stops. A swipe pans, a pinch or a wheel notch zooms, and the arrows pan or move the selection. With `live`, each new `pollKey` hands it rates that move the layout.
+
 ### Fixed
 
 - **The substrate-floor gate reads a floor held in a class constant.** `check-substrate-floor.sh` takes the version a class under `includes/` declares as `NODES_FLOOR` when the plugin file does not spell one out, so newspack-foundation's floor is checked. `lint-docs.sh` reads the floor the same way, through the shared `scripts/lib/substrate-floor.sh`, and holds the prose to it.

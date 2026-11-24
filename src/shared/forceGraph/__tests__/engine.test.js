@@ -1,5 +1,5 @@
 /**
- * Tests for the force graph's engine: the phases a layout moves through, run
+ * Tests for the force graph's engine: when a layout runs and when it rests, run
  * on real d3 with fake timers, one animation frame a tick.
  *
  * d3-timer binds the frame scheduler as it loads, so the fake timers come
@@ -154,8 +154,9 @@ const withNode = ( { nodes, links, groups }, one, ...more ) => ( {
 } );
 
 const engines = [];
-const make = ( options = {} ) => {
+const make = ( { live = false, ...options } = {} ) => {
 	const engine = createEngine( { ...SIZE, onTick: () => {}, ...options } );
+	engine.setLive( live );
 	engines.push( engine );
 	return engine;
 };
@@ -174,7 +175,7 @@ const frames = ( count ) => {
  */
 const settle = ( engine ) => {
 	let count = 0;
-	while ( 'still' !== engine.phase() && count < TOO_MANY ) {
+	while ( engine.running() && count < TOO_MANY ) {
 		frames( 1 );
 		count++;
 	}
@@ -283,12 +284,12 @@ afterEach( () => {
 describe( 'a full layout', () => {
 	it( 'runs on the first graph with nodes, and stops', () => {
 		const engine = make();
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		engine.setGraph( { nodes: [], links: [], groups: [] }, 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 
 		engine.setGraph( small(), 'k7' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.5 );
 		expect( settle( engine ) ).toBe( LAYOUT_TICKS );
 
@@ -303,7 +304,7 @@ describe( 'a full layout', () => {
 		mockTurns = 0;
 
 		engine.setGraph( small(), 'k8' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.5 );
 		settle( engine );
 		expect( mockTurns ).toBe( UNTANGLE_TICKS );
@@ -319,7 +320,7 @@ describe( 'a full layout', () => {
 		mockTurns = 0;
 
 		engine.reset();
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		settle( engine );
 		expect( mockTurns ).toBe( UNTANGLE_TICKS );
 		expect( spots( engine ) ).toEqual( first );
@@ -328,7 +329,7 @@ describe( 'a full layout', () => {
 	it( 'is where a graph that changed key while empty starts', () => {
 		const engine = settled();
 		engine.setGraph( { nodes: [], links: [], groups: [] }, 'k8' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		mockTurns = 0;
 
 		engine.setGraph( small(), 'k8' );
@@ -345,7 +346,7 @@ describe( 'a full layout', () => {
 		mockTurns = 0;
 
 		engine.setGraph( small(), 'k7' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.5 );
 		expect( spots( engine ) ).toEqual( placed( small() ) );
 		settle( engine );
@@ -407,7 +408,7 @@ describe( 'a full layout', () => {
 		const engine = settled();
 		const before = leaf( engine, 'd' ).x;
 		engine.setSize( { width: 9313, height: 777 } );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		engine.drag( 'd', before + 1, leaf( engine, 'd' ).y );
 		engine.drop();
 		settle( engine );
@@ -418,7 +419,7 @@ describe( 'a full layout', () => {
 describe( 'on the class graph fixture', () => {
 	it( 'the layout ends clear', () => {
 		const engine = settled( classGraph() );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expectClear( engine.model() );
 		const untangled = countCrossings( engine.model().spans );
 
@@ -429,7 +430,7 @@ describe( 'on the class graph fixture', () => {
 
 	it( 'the layout ends clear without groups', () => {
 		const engine = settled( ungrouped( classGraph() ) );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( engine.model().branches ).toEqual( [] );
 		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
 	} );
@@ -462,7 +463,7 @@ describe( 'a data-only graph', () => {
 			},
 			'k7'
 		);
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		frames( 20 );
 		expect( spots( engine ) ).toEqual( before );
 		expect( engine.model() ).toBe( model );
@@ -502,9 +503,9 @@ describe( 'a resized node', () => {
 		);
 		expect( engine.model() ).toBe( model );
 		expect( leaf( engine, 'd' ).halfW ).toBe( 46.5 );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		poll( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( spots( engine ) ).toEqual( before );
 	} );
 
@@ -515,7 +516,7 @@ describe( 'a resized node', () => {
 		mockTurns = 0;
 		engine.setGraph( grown( small(), 'b', { size: 433 } ), 'k7' );
 		expect( overlappingLabels( engine.model() ) ).not.toEqual( [] );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
 		poll( engine );
 		expect( mockSimulation.alphaTarget() ).toBe( 0 );
@@ -532,7 +533,7 @@ describe( 'a resized node', () => {
 		};
 		const engine = settled( graph );
 		engine.setGraph( grown( graph, 'a', { size: 633 } ), 'k7' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		settle( engine );
 		expectClear( engine.model() );
 	} );
@@ -553,7 +554,7 @@ describe( 'a resized node', () => {
 		const engine = settled();
 		const graph = without( small(), 'd' );
 		engine.setGraph( grown( graph, 'b', { size: 433 } ), 'k7' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
 	} );
 } );
@@ -573,7 +574,7 @@ describe( 'a changed graph', () => {
 		expect( Math.abs( e.y - c.y ) ).toBeLessThan( e.halfH + c.halfH );
 		expect( Math.abs( e.x - c.x ) ).toBe( e.halfW + c.halfW );
 
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
 		settle( engine );
 		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
@@ -585,13 +586,13 @@ describe( 'a changed graph', () => {
 		const before = spots( engine );
 
 		engine.setGraph( without( small(), 'b' ), 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		frames( 5 );
 		engine.setGraph( without( small(), 'd' ), 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		frames( 5 );
 		engine.setGraph( small(), 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		frames( 20 );
 		expect( spots( engine ) ).toEqual( before );
 	} );
@@ -602,7 +603,7 @@ describe( 'a changed graph', () => {
 		for ( const { id } of twoGroups().nodes ) {
 			engine.setGraph( without( twoGroups(), id ), 'k7' );
 			engine.setGraph( twoGroups(), 'k7' );
-			expect( engine.phase() ).toBe( 'still' );
+			expect( engine.running() ).toBe( false );
 		}
 		expect( spots( engine ) ).toEqual( before );
 	} );
@@ -611,7 +612,7 @@ describe( 'a changed graph', () => {
 		const engine = settled();
 		engine.drag( 'a', leaf( engine, 'c' ).x + 7, leaf( engine, 'c' ).y );
 		engine.setGraph( without( small(), 'd' ), 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( mockSimulation.alpha() ).toBeLessThan( 0.1 );
 	} );
 
 	it( 'reheats for a return that lands on a sibling, and ends clear', () => {
@@ -624,7 +625,6 @@ describe( 'a changed graph', () => {
 			x,
 			y,
 		] );
-		expect( engine.phase() ).toBe( 'laying' );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
 		mockTurns = 0;
 
@@ -663,7 +663,7 @@ describe( 'a changed graph', () => {
 		engine.setGraph( withNode( small(), node( 'e' ) ), 'k7' );
 		expect( leaf( engine, 'b' ).x ).toBe( b.x );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 	} );
 
 	it( 'reheats for a link that changes as a node leaves', () => {
@@ -673,7 +673,7 @@ describe( 'a changed graph', () => {
 			{ ...graph, links: [ ...graph.links, link( 'a', 'c' ) ] },
 			'k7'
 		);
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
 	} );
 
@@ -683,7 +683,7 @@ describe( 'a changed graph', () => {
 		engine.reset();
 		settle( engine );
 		engine.setGraph( small(), 'k7' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 	} );
 
 	it( 'forgets a node that left under another key', () => {
@@ -692,7 +692,7 @@ describe( 'a changed graph', () => {
 		engine.setGraph( without( small(), 'b' ), 'k8' );
 		settle( engine );
 		engine.setGraph( small(), 'k8' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 	} );
 
 	it.each( [
@@ -728,7 +728,7 @@ describe( 'a changed graph', () => {
 		const engine = settled();
 		const before = spots( engine );
 		engine.setGraph( change( small() ), 'k7' );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
 		expect( spots( engine ) ).toEqual( before );
 	} );
@@ -751,7 +751,7 @@ describe( 'a changed graph', () => {
 			} );
 			const engine = settled( graph( 'g', gone ) );
 			engine.setGraph( graph( 'i' ), 'k7' );
-			expect( engine.phase() ).toBe( 'laying' );
+			expect( engine.running() ).toBe( true );
 			settle( engine );
 			expectClear( engine.model() );
 		}
@@ -770,9 +770,9 @@ describe( 'a changed graph', () => {
 		const engine = settled( { nodes, links: [], groups } );
 		const before = spots( engine );
 		engine.setGraph( { nodes: nodes.slice( 1 ), links: [], groups }, 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		engine.setGraph( { nodes, links: [], groups }, 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( spots( engine ) ).toEqual( before );
 	} );
 
@@ -821,7 +821,7 @@ describe( 'a changed graph', () => {
 		engine.setGraph( small(), 'k7' );
 		frames( 11 );
 		engine.setGraph( { nodes: [], links: [], groups: [] }, 'k7' );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 	} );
 } );
 
@@ -846,7 +846,7 @@ describe( 'a drag', () => {
 		expect( spots( engine ) ).not.toEqual( held );
 		expect( onTick ).toHaveBeenCalledTimes( 10 );
 		settle( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( mockTurns ).toBe( 31 );
 	} );
 
@@ -854,7 +854,7 @@ describe( 'a drag', () => {
 		const engine = settled();
 		engine.drag( 'a', 4222, 3777 );
 		engine.drop();
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		settle( engine );
 		expect( leaf( engine, 'a' ).x ).toBeLessThan( 4000 );
 	} );
@@ -904,14 +904,14 @@ describe( 'a drag', () => {
 		engine.drag( 'group:g', 5, 6 );
 		engine.dragGroup( 'gone', 5, 6 );
 		engine.drop();
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( spots( engine ) ).toEqual( before );
 	} );
 
 	it( 'is not a drop by itself', () => {
 		const engine = settled();
 		engine.drop();
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 	} );
 
 	it( 'is not let go by a poll', () => {
@@ -939,7 +939,7 @@ describe( 'rates', () => {
 
 		const fixed = settled();
 		poll( fixed );
-		expect( fixed.phase() ).toBe( 'still' );
+		expect( fixed.running() ).toBe( false );
 		expect( charges( fixed ) ).toEqual( [
 			CHARGE,
 			CHARGE,
@@ -967,7 +967,7 @@ describe( 'rates', () => {
 		expect( cooled ).toBeLessThan( 0.05 );
 
 		poll( engine );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alphaTarget() ).toBe( 0.5 );
 		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
 		frames( 150 );
@@ -983,7 +983,7 @@ describe( 'rates', () => {
 			poll( engine );
 		}
 		expect( mockTurns ).toBe( UNTANGLE_TICKS );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 	} );
 
 	it( 'step down, let go on the tenth steady poll and then only charge', () => {
@@ -1011,7 +1011,7 @@ describe( 'rates', () => {
 			[ 0.1, 0.95 ],
 			[ 0, 0.5 ],
 		] );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		poll( engine );
 		expect( mockSimulation.alphaTarget() ).toBe( 0 );
 		settle( engine );
@@ -1019,7 +1019,7 @@ describe( 'rates', () => {
 		const still = spots( engine );
 		poll( engine, () => 61 );
 		expect( charges( engine )[ 2 ] ).toBe( chargeOf( 61 ) );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		frames( 30 );
 		expect( spots( engine ) ).toEqual( still );
 	} );
@@ -1032,7 +1032,7 @@ describe( 'rates', () => {
 			poll( engine );
 		}
 		settle( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expectClear( engine.model() );
 	} );
 
@@ -1046,7 +1046,7 @@ describe( 'rates', () => {
 			frames( POLL_FRAMES );
 			poll( engine );
 		}
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alphaTarget() ).toBeCloseTo( 0.45 );
 		expect( mockSimulation.velocityDecay() ).toBeCloseTo( 0.55 );
 
@@ -1065,7 +1065,7 @@ describe( 'rates', () => {
 
 		engine.setGraph( without( small(), 'd' ), 'k7' );
 		poll( engine );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alphaTarget() ).toBe( 0.5 );
 		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
 		poll( engine );
@@ -1077,7 +1077,6 @@ describe( 'rates', () => {
 		engine.setGraph( small(), 'k7' );
 		poll( engine );
 		engine.setGraph( withNode( small(), node( 'e' ) ), 'k7' );
-		expect( engine.phase() ).toBe( 'live' );
 		expect( mockSimulation.alphaTarget() ).toBe( 0.5 );
 	} );
 
@@ -1087,7 +1086,6 @@ describe( 'rates', () => {
 		poll( engine );
 		poll( engine );
 		engine.reset();
-		expect( engine.phase() ).toBe( 'laying' );
 		expect( mockSimulation.alphaTarget() ).toBe( 0 );
 		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
 	} );
@@ -1101,7 +1099,6 @@ describe( 'rates', () => {
 		times( 5, () => poll( engine ) );
 		act( engine );
 		poll( engine );
-		expect( engine.phase() ).toBe( 'live' );
 		expect( mockSimulation.alphaTarget() ).toBe( 0.5 );
 		times( 10, () => poll( engine ) );
 		expect( mockSimulation.alphaTarget() ).toBe( 0 );
@@ -1114,13 +1111,13 @@ describe( 'rates', () => {
 		settle( engine );
 		engine.setKeepWarm( false );
 		poll( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 
 		engine.setKeepWarm( true );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		const still = spots( engine );
 		times( 3, () => poll( engine ) );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alphaTarget() ).toBe( 0.5 );
 		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
 		frames( 40 );
@@ -1146,13 +1143,13 @@ describe( 'rates', () => {
 		frames( 1 );
 		expect( mockSimulation.alphaTarget() ).toBe( 0 );
 		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		settle( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expectClear( engine.model() );
 
 		poll( engine );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alphaTarget() ).toBeCloseTo( 0.35 );
 		times( 6, () => poll( engine ) );
 		expect( mockSimulation.alphaTarget() ).toBeCloseTo( 0.1 );
@@ -1167,9 +1164,9 @@ describe( 'rates', () => {
 		engine.setKeepWarm( true );
 		poll( engine );
 		settle( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		poll( engine );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alphaTarget() ).toBeCloseTo( 0.35 );
 	} );
 
@@ -1177,14 +1174,15 @@ describe( 'rates', () => {
 		const engine = make( { live: true } );
 		engine.setGraph( { nodes: [], links: [], groups: [] }, 'k7' );
 		poll( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 	} );
 } );
 
 describe.each( [
-	[ 'paused', 'setPaused' ],
-	[ 'hidden', 'setHidden' ],
-] )( 'while %s', ( _name, method ) => {
+	[ 'paused', 'setPaused', false ],
+	[ 'hidden', 'setHidden', false ],
+	[ 'held by a gesture', 'setHeld', true ],
+] )( 'while %s', ( _name, method, willRun ) => {
 	it( 'a poll charges the leaves and moves nothing', () => {
 		const engine = settled( small(), { live: true } );
 		const before = spots( engine );
@@ -1194,17 +1192,16 @@ describe.each( [
 			frames( 5 );
 		}
 		expect( spots( engine ) ).toEqual( before );
-		expect( engine.phase() ).toBe( 'still' );
 		const charge = mockSimulation.force( 'charge' ).strength();
 		expect( charge( leaf( engine, 'a' ) ) ).toBe( chargeOf( 88 ) );
 
 		engine[ method ]( false );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		frames( 20 );
 		expect( spots( engine ) ).toEqual( before );
 
 		poll( engine );
-		expect( engine.phase() ).toBe( 'live' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alphaTarget() ).toBe( 0.5 );
 	} );
 
@@ -1216,11 +1213,12 @@ describe.each( [
 		const before = spots( engine );
 		frames( 20 );
 		expect( spots( engine ) ).toEqual( before );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( willRun );
 
 		engine[ method ]( false );
+		expect( engine.running() ).toBe( true );
 		settle( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( mockTurns ).toBe( UNTANGLE_TICKS );
 	} );
 
@@ -1234,7 +1232,9 @@ describe.each( [
 		engine.drop();
 		frames( 10 );
 		expect( onTick ).not.toHaveBeenCalled();
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( willRun );
+		engine[ method ]( false );
+		expect( engine.running() ).toBe( true );
 	} );
 } );
 
@@ -1253,12 +1253,12 @@ describe.each( [
 		engine.drag( 'n03', 41, 43 );
 		engine.drop();
 		frames( 10 );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( onTick ).not.toHaveBeenCalled();
 		expectFinite( engine );
 
 		engine.setSize( SIZE );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.5 );
 		expect( spots( engine ) ).toEqual( start );
 		frames( 1 );
@@ -1282,14 +1282,112 @@ describe.each( [
 		mockTurns = 0;
 		engine.reset();
 		frames( 10 );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expect( spots( engine ) ).toEqual( before );
 		engine.setSize( { width: 1414, height: 888 } );
-		expect( engine.phase() ).toBe( 'laying' );
+		expect( engine.running() ).toBe( true );
 		settle( engine );
 		expect( mockTurns ).toBe( UNTANGLE_TICKS );
 		engine.setSize( { width: 1515, height: 999 } );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
+	} );
+} );
+
+describe( 'a change of live', () => {
+	const charges = ( engine ) => {
+		const strength = mockSimulation.force( 'charge' ).strength();
+		return engine.model().leaves.map( ( one ) => strength( one ) );
+	};
+
+	it( 'charges the leaves anew and reheats, laying nothing out', () => {
+		const engine = settled();
+		const before = spots( engine );
+		mockTurns = 0;
+
+		engine.setLive( true );
+		expect( charges( engine ) ).toEqual( Array( 4 ).fill( chargeOf( 0 ) ) );
+		expect( engine.running() ).toBe( true );
+		expect( mockSimulation.alpha() ).toBe( 0.1 );
+		expect( spots( engine ) ).toEqual( before );
+		frames( 1 );
+		expect( spots( engine ) ).not.toEqual( before );
+		settle( engine );
+		expect( mockTurns ).toBe( 0 );
+
+		engine.setLive( false );
+		expect( charges( engine ) ).toEqual( Array( 4 ).fill( CHARGE ) );
+		expect( engine.running() ).toBe( true );
+		expect( mockSimulation.alpha() ).toBe( 0.1 );
+	} );
+
+	it.each( [ true, false ] )(
+		'leaves an opening layout its untangling: %s',
+		( live ) => {
+			const engine = make( { live: ! live } );
+			engine.setGraph( small(), 'k7' );
+			frames( 100 );
+			const alpha = mockSimulation.alpha();
+			engine.setLive( live );
+			expect( mockSimulation.alpha() ).toBe( alpha );
+			settle( engine );
+			expect( mockTurns ).toBe( UNTANGLE_TICKS );
+		}
+	);
+
+	it( 'moves the leaves by their new charge', () => {
+		const engine = settled();
+		const apart = () => {
+			const [ a, d ] = [ leaf( engine, 'a' ), leaf( engine, 'd' ) ];
+			return Math.hypot( a.x - d.x, a.y - d.y );
+		};
+		const fixed = apart();
+		engine.setLive( true );
+		settle( engine );
+		expect( apart() ).toBeLessThan( fixed - 1 );
+	} );
+
+	it( 'ends the energy and friction its polls held', () => {
+		const engine = settled( small(), { live: true } );
+		engine.setKeepWarm( true );
+		poll( engine );
+		engine.setKeepWarm( false );
+		poll( engine );
+		poll( engine );
+		expect( mockSimulation.alphaTarget() ).toBeCloseTo( 0.4 );
+		expect( mockSimulation.velocityDecay() ).toBeCloseTo( 0.6 );
+
+		engine.setLive( false );
+		expect( mockSimulation.alphaTarget() ).toBe( 0 );
+		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
+		poll( engine );
+		expect( mockSimulation.alphaTarget() ).toBe( 0 );
+		expect( settle( engine ) ).toBeLessThan( TOO_MANY );
+	} );
+
+	it( 'keeps the rates of the last poll for when it is live again', () => {
+		const engine = settled( small(), { live: true } );
+		poll( engine, ( i ) => 10 ** i - 1 );
+		engine.setLive( false );
+		engine.setLive( true );
+		expect( charges( engine ) ).toEqual(
+			[ 0, 9, 99, 999 ].map( chargeOf )
+		);
+	} );
+
+	it.each( [ true, false ] )( 'is not one to the same: %s', ( live ) => {
+		const engine = settled( small(), { live } );
+		engine.setLive( live );
+		expect( engine.running() ).toBe( false );
+	} );
+
+	it( 'leaves an opening layout waiting for area still', () => {
+		const engine = make( { width: 0, height: 0 } );
+		engine.setGraph( small(), 'k7' );
+		engine.setLive( true );
+		expect( engine.running() ).toBe( false );
+		engine.setSize( { width: 1515, height: 999 } );
+		expect( engine.running() ).toBe( true );
+		expect( charges( engine )[ 1 ] ).toBe( chargeOf( 0 ) );
 	} );
 } );
 
@@ -1305,7 +1403,7 @@ describe( 'reduced motion', () => {
 	it( 'lays out in slices and paints once, at the end', () => {
 		stepClock( 5 );
 		const onTick = jest.fn( () =>
-			expect( engine.phase() ).toBe( 'still' )
+			expect( engine.running() ).toBe( false )
 		);
 		const engine = make( { onTick, reducedMotion: true } );
 		engine.setGraph( small(), 'k7' );
@@ -1365,7 +1463,7 @@ describe( 'reduced motion', () => {
 		} );
 		const before = spots( engine );
 		poll( engine );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		frames( 30 );
 		expect( spots( engine ) ).toEqual( before );
 		expect( onTick ).toHaveBeenCalledTimes( 1 );
@@ -1392,7 +1490,7 @@ describe( 'a graph with little in it', () => {
 		[ 'nodes without links', bare( 17 ) ],
 	] )( 'ends still with finite positions: %s', ( _name, graph ) => {
 		const engine = settled( graph );
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
 		expectFinite( engine );
 		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
 	} );
@@ -1401,20 +1499,63 @@ describe( 'a graph with little in it', () => {
 		const engine = make();
 		expect( engine.model().leaves ).toEqual( [] );
 		engine.reset();
-		expect( engine.phase() ).toBe( 'still' );
+		expect( engine.running() ).toBe( false );
+	} );
+} );
+
+describe( 'a drag, while it lasts', () => {
+	it( 'holds a layout that will run when it ends', () => {
+		const engine = make();
+		engine.setGraph( small(), 'k7' );
+		frames( 5 );
+		engine.drag( 'a', 71, 72 );
+		frames( 3 );
+		expect( engine.ticks() ).toBe( 5 );
+		expect( engine.running() ).toBe( true );
+	} );
+
+	it( 'leaves a still layout still until it ends', () => {
+		const engine = settled();
+		engine.drag( 'a', 71, 72 );
+		expect( engine.running() ).toBe( false );
+		engine.drop();
+		expect( engine.running() ).toBe( true );
+	} );
+} );
+
+describe( 'ticks', () => {
+	it( 'counts every tick the layout runs, painted or not', () => {
+		const engine = make();
+		expect( engine.ticks() ).toBe( 0 );
+		engine.setGraph( small(), 'k7' );
+		frames( 13 );
+		expect( engine.ticks() ).toBe( 13 );
+		const unpainted = settled( small(), { reducedMotion: true } );
+		expect( unpainted.ticks() ).toBe( LAYOUT_TICKS );
 	} );
 } );
 
 describe( 'onTick', () => {
+	it( 'is not called once the graph is emptied', () => {
+		const onTick = jest.fn();
+		const engine = make( { onTick } );
+		engine.setGraph( small(), 'k7' );
+		frames( 3 );
+		engine.setGraph( { nodes: [], links: [], groups: [] }, 'k7' );
+		expect( engine.running() ).toBe( false );
+		frames( 3 );
+		expect( onTick ).toHaveBeenCalledTimes( 3 );
+	} );
+
 	it( 'fires once a frame, the last one still', () => {
-		const phases = [];
-		const engine = make( { onTick: () => phases.push( engine.phase() ) } );
+		const ran = [];
+		const engine = make( { onTick: () => ran.push( engine.running() ) } );
 		engine.setGraph( small(), 'k7' );
 		settle( engine );
 		frames( 20 );
-		expect( phases ).toHaveLength( LAYOUT_TICKS );
-		expect( phases[ LAYOUT_TICKS - 2 ] ).toBe( 'laying' );
-		expect( phases[ LAYOUT_TICKS - 1 ] ).toBe( 'still' );
+		expect( ran ).toHaveLength( LAYOUT_TICKS );
+		expect( ran[ LAYOUT_TICKS - 2 ] ).toBe( true );
+		expect( ran[ LAYOUT_TICKS - 1 ] ).toBe( false );
 	} );
 } );
 
@@ -1424,7 +1565,9 @@ describe( 'destroy', () => {
 		const engine = make( { onTick } );
 		engine.setGraph( small(), 'k7' );
 		frames( 8 );
+		expect( engine.running() ).toBe( true );
 		engine.destroy();
+		expect( engine.running() ).toBe( false );
 		const before = spots( engine );
 		frames( 8 );
 		expect( onTick ).toHaveBeenCalledTimes( 8 );
@@ -1439,8 +1582,10 @@ describe( 'destroy', () => {
 		engine.destroy();
 		engine.setGraph( small(), 'k8' );
 		poll( engine );
+		engine.setLive( false );
 		engine.reset();
 		engine.setPaused( false );
+		engine.setHeld( false );
 		frames( 8 );
 		expect( onTick ).not.toHaveBeenCalled();
 	} );

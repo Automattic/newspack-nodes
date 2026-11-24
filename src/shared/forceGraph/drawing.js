@@ -1,0 +1,259 @@
+/**
+ * The force graph's drawing: the elements d3 joins to a model, keyed by id,
+ * and where each one stands.
+ */
+
+import { min, polygonCentroid, scaleLog, select } from 'd3';
+import { classes } from '../components/Modal';
+import { hullPoints } from './hulls';
+
+/** The class every part of the graph is named from. */
+export const BLOCK = 'newspack-nodes-force-graph';
+
+/** Opacity of a line with a rate, while the rate is zero and above it. */
+const IDLE_OPACITY = 0.25;
+const LIT_OPACITY = 0.9;
+
+/** Pixels from a circle to its label's baseline. */
+const LABEL_RISE = 8;
+
+/** Pixels from a hull to its label's baseline. */
+const HULL_LABEL_RISE = 8;
+
+/** Drop from a text's middle to its baseline. */
+const MIDDLE_DROP = 4;
+
+/** Width of a line's stroke: 1 idle, 3 at ten times as much, and so on. */
+const strokeScale = scaleLog().range( [ 1, 3 ] );
+
+/** @typedef {import('./model').Model} Model */
+/** @typedef {import('./model').Link} Link */
+/** @typedef {import('./ForceGraph').GraphLink} GraphLink */
+/** @typedef {import('./ForceGraph').ForceGraphProps} ForceGraphProps */
+
+/**
+ * The width of a line.
+ *
+ * @param {GraphLink} link The line.
+ * @return {number} Width in the graph's own units.
+ */
+const strokeOf = ( { weight = 0, rate = 0 } ) =>
+	strokeScale( 1 + Math.max( weight, rate ) );
+
+/**
+ * The opacity of a line, which one without a rate leaves to its classes.
+ *
+ * @param {GraphLink} link The line.
+ * @return {?number} The opacity, or null.
+ */
+const opacityOf = ( { rate } ) => {
+	if ( undefined === rate ) {
+		return null;
+	}
+	return rate > 0 ? LIT_OPACITY : IDLE_OPACITY;
+};
+
+/**
+ * A line's path: from its source's centre to the edge of its target.
+ *
+ * @param {Link} link The line.
+ * @return {string} The path's `d`.
+ */
+const linkPath = ( { source, target } ) => {
+	const dx = target.x - source.x;
+	const dy = target.y - source.y;
+	const { size } = target.node;
+	// The share of the line that lies within its target.
+	const within = size
+		? size / Math.hypot( dx, dy )
+		: Math.min(
+				target.halfW / Math.abs( dx ),
+				target.halfH / Math.abs( dy )
+		  );
+	const back = Math.min( within, 1 );
+
+	return `M${ source.x },${ source.y }L${ target.x - dx * back },${
+		target.y - dy * back
+	}`;
+};
+
+/**
+ * Keep one child of a kind in each parent that wants it.
+ *
+ * @param {Object}              parents  Selection of the parents.
+ * @param {string}              tag      The child's tag.
+ * @param {string}              part     What the child is of the graph.
+ * @param {function(Object): *} wants    Whether a parent's datum wants it.
+ * @param {string}              [before] Selector of the sibling it precedes; last without one.
+ * @return {Object} Selection of the children, each with its parent's datum.
+ */
+const keep = ( parents, tag, part, wants, before ) =>
+	parents
+		.selectChildren( `${ tag }.${ BLOCK }__${ part }` )
+		.data( ( datum ) => ( wants( datum ) ? [ datum ] : [] ) )
+		.join( ( enter ) =>
+			enter.insert( tag, before ).attr( 'class', `${ BLOCK }__${ part }` )
+		);
+
+/** Wants for `keep`. */
+const all = () => true;
+const sized = ( { node } ) => node.size;
+const unsized = ( { node } ) => ! node.size;
+
+/**
+ * Draw on an svg.
+ *
+ * @param {SVGSVGElement} svg     The svg, empty.
+ * @param {string}        arrowId Id of its arrowhead, unique in the document.
+ */
+export const createDrawing = ( svg, arrowId ) => {
+	const root = select( svg );
+	const layer = ( parent, part ) =>
+		parent.append( 'g' ).attr( 'class', `${ BLOCK }__${ part }` );
+
+	root.append( 'defs' )
+		.append( 'marker' )
+		.attr( 'id', arrowId )
+		.attr( 'viewBox', '0 -5 10 10' )
+		.attr( 'refX', 10 )
+		.attr( 'markerWidth', 6 )
+		.attr( 'markerHeight', 6 )
+		.attr( 'orient', 'auto' )
+		.append( 'path' )
+		.attr( 'class', `${ BLOCK }__arrow` )
+		.attr( 'd', 'M0,-5L10,0L0,5' );
+	const view = layer( root, 'view' );
+	let hulls = layer( view, 'hulls' ).selectChildren();
+	let links = layer( view, 'links' ).selectChildren();
+	let nodes = layer( view, 'nodes' ).selectChildren();
+
+	/** @param {ForceGraphProps} host The host's props. */
+	const dressNodes = ( { selectedId, hoveredId } ) =>
+		nodes.attr( 'class', ( { id, node } ) =>
+			classes(
+				`${ BLOCK }__node`,
+				node.size && 'is-sized',
+				node.className,
+				node.rate > 0 && 'is-live',
+				id === selectedId && 'is-selected',
+				id === hoveredId && 'is-hovered'
+			)
+		);
+
+	/** @param {ForceGraphProps} host The host's props. */
+	const dressLinks = ( { selectedLink, onSelectLink } ) =>
+		links.attr( 'class', ( { link } ) =>
+			classes(
+				`${ BLOCK }__link`,
+				link.className,
+				link.rate > 0 && 'is-live',
+				onSelectLink && 'is-pressable',
+				link.id === selectedLink && 'is-selected'
+			)
+		);
+
+	/** @param {ForceGraphProps} host The host's props. */
+	const dressHulls = ( { selectedGroup } ) =>
+		hulls
+			.selectChildren( 'path' )
+			.attr( 'class', ( { group } ) =>
+				classes(
+					`${ BLOCK }__hull`,
+					group.className,
+					group.id === selectedGroup && 'is-selected'
+				)
+			);
+
+	return {
+		view,
+		dressNodes,
+		dressLinks,
+		dressHulls,
+
+		/**
+		 * Draw a model: one element for each body and line, in its words and
+		 * classes, wherever it last was.
+		 *
+		 * @param {Model}           model The model.
+		 * @param {ForceGraphProps} host  The host's props.
+		 */
+		join: ( model, host ) => {
+			// The model lists hulls deepest first; paint is outermost first.
+			hulls = hulls
+				.data( [ ...model.branches ].reverse(), ( { id } ) => id )
+				.join( 'g' );
+			keep( hulls, 'path', 'hull', all );
+			keep( hulls, 'text', 'hull-label', all ).text(
+				( { group } ) => group.label
+			);
+			dressHulls( host );
+
+			links = links
+				.data( model.links, ( { link } ) => link.id )
+				.join( 'path' )
+				.attr( 'stroke-width', ( { link } ) => strokeOf( link ) )
+				.attr( 'opacity', ( { link } ) => opacityOf( link ) )
+				.attr( 'marker-end', ( { link } ) =>
+					link.directed ? `url(#${ arrowId })` : null
+				);
+			keep( links, 'title', 'title', ( { link } ) => link.title ).text(
+				( { link } ) => link.title
+			);
+			dressLinks( host );
+
+			nodes = nodes
+				.data( model.leaves, ( { id } ) => id )
+				.join( 'g' )
+				.attr( 'data-id', ( { id } ) => id );
+			keep( nodes, 'rect', 'shape', unsized, ':first-child' )
+				.attr( 'x', ( { halfW } ) => -halfW )
+				.attr( 'y', ( { halfH } ) => -halfH )
+				.attr( 'width', ( { halfW } ) => 2 * halfW )
+				.attr( 'height', ( { halfH } ) => 2 * halfH )
+				.attr( 'rx', 4 );
+			keep( nodes, 'circle', 'shape', sized, ':first-child' ).attr(
+				'r',
+				( { node } ) => node.size
+			);
+			keep( nodes, 'text', 'label', all )
+				.attr( 'y', ( { node } ) =>
+					node.size ? -node.size - LABEL_RISE : MIDDLE_DROP
+				)
+				.text( ( { node } ) => node.label );
+			keep(
+				nodes,
+				'text',
+				'detail',
+				( { node } ) => node.size && node.detail
+			)
+				.attr( 'y', MIDDLE_DROP )
+				.text( ( { node } ) => node.detail );
+			keep( nodes, 'title', 'title', ( { node } ) => node.title ).text(
+				( { node } ) => node.title
+			);
+			dressNodes( host );
+		},
+
+		/** Write every position, as the model has it. */
+		place: () => {
+			nodes.attr(
+				'transform',
+				( { x, y } ) => `translate(${ x },${ y })`
+			);
+			links.attr( 'd', linkPath );
+			hulls.each( function ( { leafNodes } ) {
+				const points = hullPoints( leafNodes );
+				const hull = select( this );
+				hull.select( 'path' ).attr( 'd', `M${ points.join( 'L' ) }Z` );
+				hull.select( 'text' )
+					.attr( 'x', polygonCentroid( points )[ 0 ] )
+					.attr(
+						'y',
+						min( points, ( [ , y ] ) => y ) - HULL_LABEL_RISE
+					);
+			} );
+		},
+
+		clear: () => root.selectChildren().remove(),
+	};
+};

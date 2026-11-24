@@ -1,0 +1,90 @@
+@use "../styles/focus-mixins" as focus;
+
+// Neutral paint for a force graph. A host colors its nodes and lines through
+// the classes it hands them; the width and opacity of a line with a weight or
+// a rate are attributes, which any rule here or there outranks.
+.newspack-nodes-force-graph {
+	display: block;
+	width: 100%;
+	height: 100%;
+	cursor: default;
+	touch-action: none;
+
+	&:focus-visible {
+		@include focus.ring;
+	}
+
+	&__hull {
+		fill: var(--ink-3, var(--np-text-secondary));
+		fill-opacity: 0.1;
+		stroke: var(--ink-3, var(--np-text-secondary));
+		stroke-opacity: 0.4;
+		stroke-width: 1.5;
+		stroke-dasharray: 4 2;
+		cursor: grab;
+
+		&.is-selected {
+			fill-opacity: 0.2;
+			stroke-opacity: 1;
+		}
+	}
+
+	&__link {
+		fill: none;
+		stroke: var(--ink-3, var(--np-text-secondary));
+
+		&.is-pressable {
+			cursor: pointer;
+		}
+
+		// A line with nothing to press or to say leaves the press to its hull.
+		&:not(.is-pressable):not(:has(> title)) {
+			pointer-events: none;
+		}
+
+		&.is-selected {
+			stroke: var(--ink, var(--np-text));
+		}
+	}
+
+	&__arrow {
+		fill: var(--ink-3, var(--np-text-secondary));
+		fill: context-stroke;
+	}
+
+	&__node {
+		cursor: pointer;
+	}
+
+	&__shape {
+		fill: var(--paper-2, var(--np-surface-subtle));
+		stroke: var(--ink-3, var(--np-text-secondary));
+	}
+
+	&__node.is-hovered &__shape,
+	&__node.is-selected &__shape {
+		stroke: var(--ink, var(--np-text));
+	}
+
+	&__node.is-selected &__shape {
+		stroke-width: 2;
+	}
+
+	&__label,
+	&__detail,
+	&__hull-label {
+		fill: var(--ink, var(--np-text));
+		font-family: var(--np-font-mono);
+		font-size: var(--np-text-2xs);
+		text-anchor: middle;
+	}
+
+	&__hull-label {
+		fill: var(--ink-3, var(--np-text-secondary));
+		pointer-events: none;
+	}
+
+	&__view.is-far text {
+		display: none;
+	}
+}
