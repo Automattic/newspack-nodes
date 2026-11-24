@@ -19,7 +19,7 @@
 
 import { useEffect, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { ARROWS, nearestInDirection } from '../utils/keyboardNav';
+import { ARROWS, nearestInDirection } from '../../shared/utils/keyboardNav';
 import {
 	FocusRing,
 	NODE_SHADOW,
