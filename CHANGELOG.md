@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.165.0] - 2026-11-24
+
 ### Added
 
 - **`ForceGraph`, a shared force-directed graph** (`@newspack-nodes/shared/forceGraph`). It draws nodes, lines and nested hulls. A full layout first untangles, trading and mirroring siblings so that fewer lines cross, unpainted until that ends, under the shared skeleton while nothing is painted yet; then it settles in view and stops. A `center` node stands at the center of the canvas, a node's `scale` draws its label smaller or larger, box and text, and a link's `distance` is how far apart it pulls its ends. A swipe pans, a pinch or a wheel notch zooms, and the arrows pan or move the selection; while the pointer alone is over the canvas, a focused control that takes arrows keeps them. With `live`, each new `pollKey` hands the layout rates that move it.

@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased, after 2.164.1
+## 2.165.0
 
 - **A consumer whose bundle inlines the debug overlay raises its floor.**
   event-logger-nodes, pyrobase, intelligence and foundation raise their
