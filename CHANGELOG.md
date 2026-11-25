@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.166.0] - 2026-11-25
+
 ### Added
 
 - **A `ForceGraph` host sets a link's `strength` and a node's `charge`.** `strength` is the share of its error a link corrects each tick, 1 without one, and `charge` what a node carries while the graph is not live, -1000 without one. A change of either is a changed shape, as a change of `distance` is.
