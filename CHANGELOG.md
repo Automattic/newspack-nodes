@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A `ForceGraph` host sets a link's `strength` and a node's `charge`.** `strength` is the share of its error a link corrects each tick, 1 without one, and `charge` what a node carries while the graph is not live, -1000 without one. A change of either is a changed shape, as a change of `distance` is.
+
+### Changed
+
+- **A force graph of any size is untangled.** One of more than 2,000 linked pairs was laid out without it, painting from its first tick; now its first 680 ticks run unpainted, as a smaller graph's do. The budget of comparisons is unchanged, so a larger graph is untangled less, but a tick finishes the move it starts, and in a graph of thousands of links one tick can take hundreds of milliseconds.
+
 ## [2.165.0] - 2026-11-24
 
 ### Added

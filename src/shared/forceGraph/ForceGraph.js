@@ -41,6 +41,7 @@ const NO_GROUPS = [];
  * @property {number=}  size      Circle radius.
  * @property {number=}  scale     What its label is drawn at, box and text; 1 without one.
  * @property {boolean=} center    Whether the layout holds it at the centre of the canvas.
+ * @property {number=}  charge    What it carries while not live, negative to repel; -1000 without one.
  * @property {string=}  detail    Text in the circle.
  * @property {number=}  rate      Messages a second; above zero it is live.
  * @property {string=}  title     Native tooltip.
@@ -58,6 +59,7 @@ const NO_GROUPS = [];
  * @property {boolean=} directed  Whether it ends in an arrowhead.
  * @property {boolean=} pressable False lets a press through to what is beneath.
  * @property {number=}  distance  Pixels it pulls its ends to; 250 without one.
+ * @property {number=}  strength  Share of its error it corrects each tick, per alpha; 1 without one.
  * @property {boolean=} loose     Whether it is drawn alone, taking no part in the layout.
  */
 

@@ -13,9 +13,6 @@ import { updateBoxes } from './forces';
 /** Span comparisons a call earns, and the most credit that is kept. */
 export const COMPARISONS_PER_CALL = 400000;
 
-/** Most spans a model may hold and still be untangled. */
-export const MAX_SPANS = 2000;
-
 /** Pixels of span length that cost as much as one crossing. */
 const SPAN_PER_CROSSING = 10000;
 
@@ -90,11 +87,11 @@ const shift = ( body, dx, dy ) => {
  * the untangler's life, so a changed graph makes a new one.
  *
  * @param {import('./model').Model} model Model whose leaves move.
- * @return {?function(): void} Untangle: a few moves mirror or trade places. Null for a model with more spans than the most, or nothing movable.
+ * @return {?function(): void} Untangle: a few moves mirror or trade places. Null for a model with nothing movable.
  */
 export const createUntangler = ( model ) => {
 	const { spans, movable } = model;
-	if ( spans.length > MAX_SPANS || ! movable.length ) {
+	if ( ! movable.length ) {
 		return null;
 	}
 

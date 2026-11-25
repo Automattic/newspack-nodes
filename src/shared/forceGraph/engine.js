@@ -54,7 +54,7 @@ const VELOCITY_DECAY = 0.5;
 /** Pixels a link without a distance of its own pulls its ends to. */
 const LINK_DISTANCE = 250;
 
-/** Share of its error a link corrects each tick, per alpha. */
+/** Share of its error a link without a strength of its own corrects each tick, per alpha. */
 const LINK_STRENGTH = 1;
 
 /** Steady polls that let a live layout go. */
@@ -128,8 +128,8 @@ const hasArea = ( { width, height } ) => width > 0 && height > 0;
  * there. A drag takes it along, and the first tick after the drop puts it back.
  *
  * A full layout waits, still, for a canvas with area. Rates charge the leaves
- * of a live engine alone; the leaves of any other carry the fixed charge, and
- * rates do nothing. An engine starts out of live.
+ * of a live engine alone; the leaves of any other carry their node's own charge
+ * or the fixed one, and rates do nothing. An engine starts out of live.
  *
  * @param {Object}                  options
  * @param {number}                  options.width           Canvas width.
@@ -339,8 +339,8 @@ export const createEngine = ( {
 	};
 
 	const applyCharge = () =>
-		charge.strength( ( { id } ) =>
-			live ? chargeOf( rates.get( id ) ?? 0 ) : CHARGE
+		charge.strength( ( { id, node } ) =>
+			live ? chargeOf( rates.get( id ) ?? 0 ) : node.charge ?? CHARGE
 		);
 
 	/**
@@ -355,7 +355,7 @@ export const createEngine = ( {
 		}
 		const pull = forceLink( model.pulls )
 			.distance( ( { link } ) => link.distance ?? LINK_DISTANCE )
-			.strength( LINK_STRENGTH );
+			.strength( ( { link } ) => link.strength ?? LINK_STRENGTH );
 		fixCenter();
 		simulation
 			.nodes( model.leaves )

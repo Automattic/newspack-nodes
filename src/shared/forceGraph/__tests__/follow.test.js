@@ -98,6 +98,25 @@ describe( 'compare', () => {
 		expect( of( apart( undefined ), four() ) ).toEqual( same );
 	} );
 
+	it( 'finds a link of another strength', () => {
+		const pulled = ( strength ) =>
+			build( ABCD, [ link( 'a', 'b', { strength } ), link( 'b', 'c' ) ] );
+		expect( of( four(), pulled( 0.31 ) ) ).toEqual( changed );
+		expect( of( pulled( 0.31 ), pulled( 0.32 ) ) ).toEqual( changed );
+		expect( of( pulled( 0.31 ), pulled( 0.31 ) ) ).toEqual( same );
+		expect( of( pulled( undefined ), four() ) ).toEqual( same );
+	} );
+
+	it( 'finds a node of another charge', () => {
+		const [ a, ...rest ] = ABCD;
+		const charged = ( charge ) =>
+			build( [ { ...a, charge }, ...rest ], AB_BC );
+		expect( of( four(), charged( -4100 ) ) ).toEqual( changed );
+		expect( of( charged( -4100 ), charged( -4200 ) ) ).toEqual( changed );
+		expect( of( charged( -4100 ), charged( -4100 ) ) ).toEqual( same );
+		expect( of( charged( undefined ), four() ) ).toEqual( same );
+	} );
+
 	it( 'finds a node that is centered, or no longer is', () => {
 		const [ a, ...rest ] = ABCD;
 		const held = build( [ { ...a, center: true }, ...rest ], AB_BC );

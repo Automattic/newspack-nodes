@@ -5,7 +5,7 @@
 
 import { buildModel } from '../model';
 import { updateBoxes } from '../forces';
-import { COMPARISONS_PER_CALL, MAX_SPANS, createUntangler } from '../untangle';
+import { COMPARISONS_PER_CALL, createUntangler } from '../untangle';
 import { countCrossings } from './countCrossings';
 
 /**
@@ -692,7 +692,6 @@ describe( 'createUntangler', () => {
 
 		it( 'tries each partner once, in a turn spanning calls', () => {
 			const fixed = fixture();
-			expect( fixed.model.spans.length ).toBeLessThan( MAX_SPANS );
 			const { tried, calls } = turnOfA( fixed );
 
 			expect( calls ).toBeGreaterThan( 1 );
@@ -720,7 +719,7 @@ describe( 'createUntangler', () => {
 		} );
 	} );
 
-	describe( 'the span cap', () => {
+	describe( 'a large model', () => {
 		// A chain of leaves in a deterministic scatter, `spans` links long.
 		const chain = ( spans ) => {
 			const count = spans + 1;
@@ -740,12 +739,8 @@ describe( 'createUntangler', () => {
 			return model;
 		};
 
-		it( 'leaves a model above 2,000 spans without an untangler', () => {
-			expect( createUntangler( chain( MAX_SPANS + 1 ) ) ).toBeNull();
-		} );
-
-		it( 'works at 2,000 spans', () => {
-			const model = chain( MAX_SPANS );
+		it( 'is untangled however many spans it holds', () => {
+			const model = chain( 2311 );
 			const before = spotsOf( model );
 
 			createUntangler( model )();

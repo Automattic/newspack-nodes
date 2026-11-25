@@ -34,6 +34,7 @@ const MEETING_CHILDREN = 2;
  * @property {number=}  scale  What its label is drawn at; 1 without one.
  * @property {?string=} group  Id of the group holding the node.
  * @property {boolean=} center Whether the layout holds it at the centre of the canvas.
+ * @property {number=}  charge What it carries while the layout is not live, negative to repel; the layout's own without one.
  */
 
 /**
@@ -41,6 +42,7 @@ const MEETING_CHILDREN = 2;
  * @property {string}   source   Id of a node.
  * @property {string}   target   Id of a node.
  * @property {number=}  distance Pixels it pulls its ends to; the layout's own without one.
+ * @property {number=}  strength Share of its error it corrects each tick, per alpha; the layout's own without one.
  * @property {boolean=} loose    Whether it is drawn alone, taking no part in the layout.
  */
 

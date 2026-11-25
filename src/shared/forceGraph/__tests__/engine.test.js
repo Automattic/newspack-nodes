@@ -456,6 +456,21 @@ describe( 'a full layout', () => {
 		).toBeGreaterThan( 240 );
 	} );
 
+	it( 'pulls a link as hard as it asks', () => {
+		const engine = settled( {
+			...small(),
+			links: [
+				link( 'a', 'b', { strength: 0.23 } ),
+				link( 'b', 'c', { strength: undefined } ),
+			],
+		} );
+		expect(
+			engine
+				.model()
+				.pulls.map( mockSimulation.force( 'link' ).strength() )
+		).toEqual( [ 0.23, 1 ] );
+	} );
+
 	it( 'ends with a pair of its own distance that far apart', () => {
 		const engine = settled( {
 			...small(),
@@ -780,16 +795,8 @@ describe( 'the untangling of a full layout', () => {
 	} );
 
 	describe( 'is not had by a graph', () => {
-		const chain = ( spans ) => ( {
-			nodes: times( spans + 1, ( i ) => node( `n${ i }` ) ),
-			links: times( spans, ( i ) => link( `n${ i }`, `n${ i + 1 }` ) ),
-			groups: [],
-		} );
-
-		it.each( [
-			[ 'of more than 2,000 spans', chain( 2001 ) ],
-			[ 'with nothing movable', { ...small(), links: [] } ],
-		] )( '%s, which paints from the first tick', ( _name, graph ) => {
+		it( 'with nothing movable, which paints from the first tick', () => {
+			const graph = { ...small(), links: [] };
 			const onTick = jest.fn();
 			const engine = make( { onTick, live: true } );
 			engine.setGraph( graph, 'k7' );
@@ -1612,6 +1619,21 @@ describe( 'rates', () => {
 			CHARGE,
 			CHARGE,
 		] );
+	} );
+
+	it( 'charge a leaf as its node asks while the layout is not live', () => {
+		const [ a, ...rest ] = small().nodes;
+		const own = { ...small(), nodes: [ { ...a, charge: -4100 }, ...rest ] };
+		expect( charges( settled( own ) ) ).toEqual( [
+			-4100,
+			CHARGE,
+			CHARGE,
+			CHARGE,
+		] );
+
+		const live = settled( own, { live: true } );
+		poll( live, ( i ) => 10 ** i - 1 );
+		expect( charges( live ) ).toEqual( [ 0, 9, 99, 999 ].map( chargeOf ) );
 	} );
 
 	it( 'move a live layout by their charge', () => {
