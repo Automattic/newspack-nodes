@@ -9,6 +9,7 @@ import * as sass from 'sass';
 import { parse as parseJavaScript } from '@babel/parser';
 import postcss from 'postcss';
 import scss from 'postcss-scss';
+import { DARK_SKINS } from '../../test-utils/schemes';
 
 const NODES_SRC = path.resolve( __dirname, '../../..' );
 const UI_ENTRY = path.join( NODES_SRC, 'ui/newspack-nodes-ui.scss' );
@@ -356,17 +357,6 @@ const layerToken = ( name ) => {
 	return Number(
 		source.match( new RegExp( `\\$${ name }:\\s*(\\d+);` ) )[ 1 ]
 	);
-};
-
-// The dark skins, read from the stylesheet that declares them, so the list
-// cannot drift between the SCSS and the expectation pinning it.
-const darkSkins = () => {
-	const source = fs.readFileSync(
-		path.join( NODES_SRC, 'shared/styles/_controls.scss' ),
-		'utf8'
-	);
-	const declaration = source.match( /\$np-dark-skins:\s*([^;]+);/ );
-	return declaration[ 1 ].split( ',' ).map( ( skin ) => skin.trim() );
 };
 
 // The scope every pick paint nests under, which keeps the page box out.
@@ -2451,7 +2441,7 @@ describe( 'canonical appearance ownership', () => {
 			}
 		} );
 
-		expect( [ ...declared ].sort() ).toEqual( darkSkins().sort() );
+		expect( [ ...declared ].sort() ).toEqual( [ ...DARK_SKINS ].sort() );
 	} );
 
 	// @longform The ring draws at body level, so its layer ranks against what

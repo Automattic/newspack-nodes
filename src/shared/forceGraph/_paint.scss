@@ -1,0 +1,69 @@
+/**
+ * A force graph painted in color, which a host includes inside its canvas's
+ * own selector, as `.my-canvas { @include graph.paint( $colors ); }`.
+ *
+ * `$colors` maps a node's class, such as `.is-type-1`, or '' for every node,
+ * to the color its circle is filled and ringed in: a tint of it over the
+ * paper, ringed in a shade of it toward the ink, which holds a count to text
+ * contrast on its fill and the ring to shape contrast on every skin. Lines are
+ * faint enough at rest to read the names over them. A hovered circle is ringed
+ * in the ink, and a selection lights its lines in the accent, rings its circle
+ * in the ink and dims what it does not reach. A dark skin, which light-dark() reads by the color scheme the skin
+ * sets, paints the lines brighter. While the view is too far out to draw a
+ * name, a line narrows below a pixel, so it is painted stronger to stay
+ * visible, and each circle is filled nearly solid.
+ */
+@mixin paint($colors) {
+	$graph: ".newspack-nodes-force-graph";
+	$line: var(--ink-3, var(--np-text-secondary));
+	$paper: var(--paper-2, var(--np-surface-subtle));
+	$ink: var(--ink, var(--np-text));
+
+	@each $class, $color in $colors {
+		#{$graph}__node#{$class} #{$graph}__shape {
+			fill: color-mix(in srgb, #{$color} 35%, #{$paper});
+			stroke: color-mix(in srgb, #{$color} 35%, #{$ink});
+		}
+
+		#{$graph}__view.is-far #{$graph}__node#{$class} #{$graph}__shape {
+			fill: light-dark(
+				color-mix(in srgb, #{$color} 85%, #{$paper}),
+				color-mix(in srgb, #{$color} 85%, #{$ink})
+			);
+		}
+	}
+
+	#{$graph}__node.is-hovered #{$graph}__shape,
+	#{$graph}__node.is-selected #{$graph}__shape {
+		stroke: $ink;
+	}
+
+	#{$graph}__node.is-dimmed {
+		opacity: 0.25;
+	}
+
+	#{$graph}__link {
+		stroke: light-dark(
+			color-mix(in srgb, #{$line} 35%, transparent),
+			color-mix(in srgb, #{$line} 50%, transparent)
+		);
+	}
+
+	#{$graph}__link.is-lit {
+		stroke: var(--cyan, var(--np-primary));
+	}
+
+	#{$graph}__link.is-dimmed {
+		stroke: light-dark(
+			color-mix(in srgb, #{$line} 10%, transparent),
+			color-mix(in srgb, #{$line} 20%, transparent)
+		);
+	}
+
+	#{$graph}__view.is-far #{$graph}__link:not(.is-lit, .is-dimmed) {
+		stroke: light-dark(
+			color-mix(in srgb, #{$line} 45%, transparent),
+			color-mix(in srgb, #{$line} 85%, transparent)
+		);
+	}
+}
