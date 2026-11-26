@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.168.0] - 2026-11-26
+
 ### Added
 
 - **A force graph node may be a landmark** (`landmark: true`): its label shows at every scale, held to one size on screen below full scale, set semibold in the UI font over a halo of the paper, so a zoomed-out graph names its landmarks. Its label alone carries the scale the view draws at, as `--force-graph-zoom`, so a zoom restyles no other element.
