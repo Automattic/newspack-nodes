@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.167.0] - 2026-11-25
+
 ### Added
 
 - **A `ForceGraph` host names the pixels it covers at the canvas's foot, as `bottomInset`,** and a fitted view keeps the graph above them, following a change; a view the reader moved stays where it is. As in the schematic, a band covering nine tenths of the canvas counts as none, and the fit gives up band before it shrinks the graph past the scale its names show at.
