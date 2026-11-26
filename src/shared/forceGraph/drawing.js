@@ -146,19 +146,31 @@ export const createDrawing = ( svg, arrowId ) => {
 	// The line under each target for a press.
 	/** @type {Element[]} */
 	let aimed = [];
+	// The scale the view draws at, which a landmark's label alone reads.
+	let zoom = 1;
+
+	/** Tell each landmark's label the scale, and no other element. */
+	const holdZoom = () =>
+		nodes
+			.filter( ( { node } ) => node.landmark )
+			.select( `.${ BLOCK }__label` )
+			.style( '--force-graph-zoom', zoom );
 
 	/** @param {ForceGraphProps} host The host's props. */
-	const dressNodes = ( { selectedId, hoveredId, onSelect } ) =>
+	const dressNodes = ( { selectedId, hoveredId, onSelect } ) => {
 		nodes.attr( 'class', ( { id, node } ) =>
 			classes(
 				`${ BLOCK }__node`,
 				node.className,
 				node.rate > 0 && 'is-live',
+				node.landmark && 'is-landmark',
 				onSelect && 'is-pressable',
 				id === selectedId && 'is-selected',
 				id === hoveredId && 'is-hovered'
 			)
 		);
+		holdZoom();
+	};
 
 	/** Lay each target for a press over its line, as that is painted. */
 	const placeHits = () =>
@@ -206,6 +218,16 @@ export const createDrawing = ( svg, arrowId ) => {
 	return {
 		view,
 		dressNodes,
+
+		/**
+		 * Take the scale the view draws at.
+		 *
+		 * @param {number} scale The scale.
+		 */
+		setZoom: ( scale ) => {
+			zoom = scale;
+			holdZoom();
+		},
 		dressLinks,
 		dressHulls,
 

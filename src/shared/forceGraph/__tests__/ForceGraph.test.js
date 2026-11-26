@@ -671,6 +671,18 @@ describe( 'what it draws', () => {
 		] );
 	} );
 
+	it( 'marks a landmark, and only a landmark', () => {
+		const { nodes } = graph();
+		nodes[ 2 ].landmark = true;
+		const { svg } = mount( { nodes } );
+		expect( nodeEl( svg, 'n3' ).classList.contains( 'is-landmark' ) ).toBe(
+			true
+		);
+		expect( nodeEl( svg, 'n2' ).classList.contains( 'is-landmark' ) ).toBe(
+			false
+		);
+	} );
+
 	it( 'marks what is selected and hovered, and follows the host', () => {
 		const { svg, update } = mountSettled( {
 			selectedId: 'n2',
@@ -3019,6 +3031,25 @@ describe( 'the fit', () => {
 		const moved = view( svg );
 		resize( 1111, 444 );
 		expect( view( svg ) ).toEqual( moved );
+	} );
+
+	it( 'tells a landmark’s label the scale it draws at, and nothing else', () => {
+		const { nodes } = graph();
+		nodes[ 2 ].landmark = true;
+		const { svg } = mountSettled( { nodes } );
+		const zoomOf = ( el ) =>
+			el.style.getPropertyValue( '--force-graph-zoom' );
+		const label = () =>
+			nodeEl( svg, 'n3' ).querySelector( `.${ BLOCK }__label` );
+		expect( Number( zoomOf( label() ) ) ).toBeCloseTo( view( svg ).k, 9 );
+		wheel( svg, { deltaY: 100 } );
+		wheel( svg, { deltaY: 100 } );
+		expect( view( svg ).k ).not.toBeCloseTo( 1, 3 );
+		expect( Number( zoomOf( label() ) ) ).toBeCloseTo( view( svg ).k, 9 );
+		expect( zoomOf( all( svg, 'view' )[ 0 ] ) ).toBe( '' );
+		expect(
+			zoomOf( nodeEl( svg, 'n2' ).querySelector( `.${ BLOCK }__label` ) )
+		).toBe( '' );
 	} );
 
 	it( 'hides label text below a quarter scale', () => {

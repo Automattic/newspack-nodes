@@ -126,6 +126,18 @@ describe( 'compare', () => {
 		expect( of( four(), free ) ).toEqual( same );
 	} );
 
+	it( 'finds a node that is docked, or no longer is', () => {
+		const [ a, ...rest ] = ABCD;
+		const docked = build( [ { ...a, dock: true }, ...rest ], AB_BC );
+		expect( of( four(), docked ) ).toEqual( changed );
+		expect( of( docked, four() ) ).toEqual( changed );
+		const grouped = ( dock ) =>
+			build( [ { ...a, group: 'g', dock }, ...rest ], AB_BC, [
+				group( 'g' ),
+			] );
+		expect( of( grouped( false ), grouped( true ) ) ).toEqual( same );
+	} );
+
 	it( 'finds a link that turns loose, or no longer is', () => {
 		const loose = [
 			link( 'a', 'b', { loose: true } ),

@@ -482,6 +482,36 @@ describe( 'buildModel bodies', () => {
 		expect( ids( hull.peers ) ).toEqual( [ 'group:g' ] );
 	} );
 
+	it( 'movable and its peers leave out a docked node', () => {
+		const model = buildModel( {
+			nodes: [ node( 'p' ), node( 'q' ), node( 'lone', { dock: true } ) ],
+			links: [ link( 'p', 'q' ) ],
+			groups: [],
+		} );
+		expect(
+			model.movable.map( ( { body, peers } ) => [
+				body.id,
+				ids( peers ),
+			] )
+		).toEqual( [
+			[ 'p', [ 'p', 'q' ] ],
+			[ 'q', [ 'p', 'q' ] ],
+		] );
+	} );
+
+	it( 'keeps a hull movable whose node asks to dock, since a grouped node does not', () => {
+		const model = buildModel( {
+			nodes: [ node( 'p' ), node( 'q', { group: 'g', dock: true } ) ],
+			links: [ link( 'p', 'q' ) ],
+			groups: [ group( 'g' ) ],
+		} );
+		expect( model.movable.map( ( { body } ) => body.id ).sort() ).toEqual( [
+			'group:g',
+			'p',
+			'q',
+		] );
+	} );
+
 	it( 'movable and its peers leave out a center node and its hulls', () => {
 		const model = buildModel( {
 			nodes: [

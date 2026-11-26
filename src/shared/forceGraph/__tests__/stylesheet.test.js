@@ -126,3 +126,31 @@ it( 'writes a circle’s detail in the ink', () => {
 		} );
 	expect( fills ).toEqual( [ 'var(--ink, var(--np-text))' ] );
 } );
+
+it( 'names a landmark at any scale, its words a constant size on screen over a halo', () => {
+	const declared = {};
+	postcss
+		.parse( sass.compile( FILE ).css )
+		.walkRules( /is-landmark/, ( rule ) =>
+			rule.walkDecls( ( { prop, value } ) => {
+				declared[ rule.selector ] = {
+					...declared[ rule.selector ],
+					[ prop ]: value,
+				};
+			} )
+		);
+	const across = 'min(var(--force-graph-zoom, 1), 1)';
+	expect( declared ).toEqual( {
+		[ `${ BLOCK }__node.is-landmark ${ BLOCK }__label` ]: {
+			'font-family': 'var(--np-font)',
+			'font-weight': '600',
+			'font-size': `max(var(--np-text-2xs), var(--np-text-2xs) / ${ across })`,
+			'paint-order': 'stroke',
+			stroke: 'var(--paper, var(--np-surface))',
+			'stroke-width': `calc(3px / ${ across })`,
+			'stroke-linejoin': 'round',
+		},
+		[ `${ BLOCK }__view.is-far ${ BLOCK }__node.is-landmark ${ BLOCK }__label` ]:
+			{ display: 'inline' },
+	} );
+} );

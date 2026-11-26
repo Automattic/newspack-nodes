@@ -10,6 +10,7 @@
  */
 
 import { boxLeaves, updateBoxes } from './forces';
+import { docks } from './model';
 
 /** @typedef {import('./model').Model} Model */
 /** @typedef {import('./model').Leaf} Leaf */
@@ -129,6 +130,7 @@ export const compare = ( was, next ) => {
 			return (
 				old.parent?.id === leaf.parent?.id &&
 				!! old.node.center === !! leaf.node.center &&
+				docks( old.node ) === docks( leaf.node ) &&
 				old.node.charge === leaf.node.charge
 			);
 		} ) &&

@@ -31,14 +31,16 @@ const MEETING_CHILDREN = 2;
 
 /**
  * @typedef {Object} HostNode
- * @property {string}   id     Unique among nodes.
- * @property {string}   label  Text drawn in the node's rect.
- * @property {number=}  size   Least circle radius; absent for a label body.
- * @property {string=}  detail Text in the circle.
- * @property {number=}  scale  What its label is drawn at; 1 without one.
- * @property {?string=} group  Id of the group holding the node.
- * @property {boolean=} center Whether the layout holds it at the centre of the canvas.
- * @property {number=}  charge What it carries while the layout is not live, negative to repel; the layout's own without one.
+ * @property {string}   id       Unique among nodes.
+ * @property {string}   label    Text drawn in the node's rect.
+ * @property {number=}  size     Least circle radius; absent for a label body.
+ * @property {string=}  detail   Text in the circle.
+ * @property {number=}  scale    What its label is drawn at; 1 without one.
+ * @property {?string=} group    Id of the group holding the node.
+ * @property {boolean=} center   Whether the layout holds it at the centre of the canvas.
+ * @property {number=}  charge   What it carries while the layout is not live, negative to repel; the layout's own without one.
+ * @property {boolean=} dock     Whether the layout pins it in a row under the rest, unless it is centred or grouped.
+ * @property {boolean=} landmark Whether its label shows at every scale.
  */
 
 /**
@@ -157,6 +159,14 @@ export const circleRadius = ( { size, detail = '' } ) =>
  * @return {boolean} True when the leaf is the body or one of its descendants.
  */
 const holds = ( body, leaf ) => body === leaf || leaf.ancestors.has( body );
+
+/**
+ * Whether the layout docks a node: one asking to, neither centred nor grouped.
+ *
+ * @param {HostNode} node Host node.
+ * @return {boolean} Whether it docks.
+ */
+export const docks = ( node ) => !! node.dock && ! node.center && ! node.group;
 
 /**
  * A leaf for one node: its label's rect at its scale, or a sized node's circle
@@ -456,7 +466,7 @@ export const buildModel = ( { nodes, links, groups } ) => {
 		...branches.map( ( branch ) => branch.children ),
 	];
 	const isFree = ( { leafNodes } ) =>
-		! leafNodes.some( ( { node } ) => node.center );
+		! leafNodes.some( ( { node } ) => node.center || docks( node ) );
 	const movable = siblings.flatMap( ( all ) => {
 		const bodies = all.filter( isFree );
 		// Shared by its bodies, so a list of any length is walked once.

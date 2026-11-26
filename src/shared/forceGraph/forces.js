@@ -8,6 +8,7 @@
 
 import { hierarchy, pack, scaleLog } from 'd3';
 import { HULL_PADDING } from './hulls';
+import { docks } from './model';
 
 /**
  * @typedef {import('./model').Leaf & {boxMinX: number, boxMaxX: number, boxMinY: number, boxMaxY: number}} BoxedLeaf
@@ -251,4 +252,48 @@ export const forceClamp = ( model ) => () => {
 			leaf.vy *= MAX_VELOCITY / speed;
 		}
 	}
+};
+
+/**
+ * Pin each docked leaf in rows under the rest, centred on their span, in the
+ * host's order, GAP apart and GAP below; with nothing else standing, one row
+ * hangs from the origin. Which leaves dock is read once, as the model is
+ * built; their extents, which a refresh resizes, at each tick.
+ *
+ * @param {import('./model').Model} model Model whose leaves move.
+ * @return {function(): void} Force.
+ */
+export const forceDock = ( model ) => {
+	const docked = model.leaves.filter( ( { node } ) => docks( node ) );
+	if ( ! docked.length ) {
+		return () => {};
+	}
+	const rest = model.leaves.filter( ( { node } ) => ! docks( node ) );
+	return () => {
+		let [ halfW, halfH ] = [ 0, 0 ];
+		for ( const leaf of docked ) {
+			halfW = Math.max( halfW, leaf.halfW );
+			halfH = Math.max( halfH, leaf.halfH );
+		}
+		const [ step, rise ] = [ 2 * halfW + GAP, 2 * halfH + GAP ];
+		let [ left, right, bottom ] = [ Infinity, -Infinity, -Infinity ];
+		for ( const { x, y, halfW: w, halfH: h } of rest ) {
+			left = Math.min( left, x - w );
+			right = Math.max( right, x + w );
+			bottom = Math.max( bottom, y + h );
+		}
+		const across = rest.length
+			? Math.max( 1, Math.floor( ( right - left + GAP ) / step ) )
+			: docked.length;
+		const [ middle, top ] = rest.length
+			? [ ( left + right ) / 2, bottom + GAP ]
+			: [ 0, 0 ];
+		docked.forEach( ( leaf, place ) => {
+			const row = Math.floor( place / across );
+			const inRow = Math.min( across, docked.length - row * across );
+			leaf.fx =
+				middle + ( ( place % across ) - ( inRow - 1 ) / 2 ) * step;
+			leaf.fy = top + halfH + row * rise;
+		} );
+	};
 };

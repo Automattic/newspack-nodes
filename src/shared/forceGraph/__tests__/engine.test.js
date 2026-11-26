@@ -1319,6 +1319,52 @@ describe( 'a changed graph', () => {
 	} );
 } );
 
+describe( 'a docked node', () => {
+	const docked = ( dock = true ) =>
+		withNode( small(), node( 'lone', { dock } ) );
+
+	it( 'carries no charge, and repels nothing', () => {
+		const engine = settled( docked() );
+		const strength = mockSimulation.force( 'charge' ).strength();
+		expect( strength( leaf( engine, 'lone' ) ) ).toBe( 0 );
+	} );
+
+	it( 'stays in its row when dragged', () => {
+		const engine = settled( docked() );
+		const row = [ leaf( engine, 'lone' ).x, leaf( engine, 'lone' ).y ];
+		engine.drag( 'lone', 2222, 1777 );
+		engine.drop();
+		settle( engine );
+		expect( [
+			leaf( engine, 'lone' ).x,
+			leaf( engine, 'lone' ).y,
+		] ).toEqual( row );
+	} );
+
+	it( 'is free once its host no longer docks it', () => {
+		const engine = settled( docked() );
+		engine.setGraph( docked( false ), 'k7' );
+		expect( [
+			leaf( engine, 'lone' ).fx,
+			leaf( engine, 'lone' ).fy,
+		] ).toEqual( [ undefined, undefined ] );
+	} );
+
+	it( 'settles under every other node', () => {
+		const engine = settled(
+			withNode( small(), node( 'lone', { dock: true } ) )
+		);
+		const lone = leaf( engine, 'lone' );
+		const lowest = Math.max(
+			...engine
+				.model()
+				.leaves.filter( ( one ) => one !== lone )
+				.map( ( { y, halfH } ) => y + halfH )
+		);
+		expect( lone.y - lone.halfH ).toBeGreaterThan( lowest );
+	} );
+} );
+
 describe( 'a center node', () => {
 	const MIDDLE = [ 656.5, 388.5 ];
 	const centered = ( graph ) =>

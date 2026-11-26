@@ -24,13 +24,14 @@ import {
 	CHARGE,
 	chargeOf,
 	forceClamp,
+	forceDock,
 	forceCohesion,
 	forceSiblings,
 	placeNodes,
 	updateBoxes,
 } from './forces';
 import { carry, compare, crowds, refresh } from './follow';
-import { buildModel } from './model';
+import { buildModel, docks } from './model';
 import { createUntangler } from './untangle';
 
 /** Ticks a full layout untangles for: alpha 0.5 to 0.003. */
@@ -339,9 +340,14 @@ export const createEngine = ( {
 	};
 
 	const applyCharge = () =>
-		charge.strength( ( { id, node } ) =>
-			live ? chargeOf( rates.get( id ) ?? 0 ) : node.charge ?? CHARGE
-		);
+		charge.strength( ( { id, node } ) => {
+			if ( docks( node ) ) {
+				return 0;
+			}
+			return live
+				? chargeOf( rates.get( id ) ?? 0 )
+				: node.charge ?? CHARGE;
+		} );
 
 	/**
 	 * Build the model's forces. The untangler's is first, so the rest push from
@@ -370,7 +376,8 @@ export const createEngine = ( {
 			.force( 'cohesion', forceCohesion( model, size ) )
 			.force( 'siblings', forceSiblings( model ) )
 			.force( 'charge', charge )
-			.force( 'clamp', forceClamp( model ) );
+			.force( 'clamp', forceClamp( model ) )
+			.force( 'dock', forceDock( model ) );
 		applyCharge();
 	};
 	engage();
@@ -479,7 +486,8 @@ export const createEngine = ( {
 
 		drag: ( id, x, y ) => {
 			const leaf = model.byId.get( id );
-			if ( leaf ) {
+			// A docked leaf keeps its row.
+			if ( leaf && ! docks( leaf.node ) ) {
 				leaf.x = x;
 				leaf.y = y;
 				hold();

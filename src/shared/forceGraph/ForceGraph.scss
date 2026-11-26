@@ -114,4 +114,22 @@
 	&__view.is-far text {
 		display: none;
 	}
+
+	// A landmark's name holds its size on screen below full scale.
+	&__node.is-landmark &__label {
+		font-family: var(--np-font);
+		font-weight: 600;
+		font-size: max(
+			var(--np-text-2xs),
+			calc(var(--np-text-2xs) / min(var(--force-graph-zoom, 1), 1))
+		);
+		paint-order: stroke;
+		stroke: var(--paper, var(--np-surface));
+		stroke-width: calc(3px / min(var(--force-graph-zoom, 1), 1));
+		stroke-linejoin: round;
+	}
+
+	&__view.is-far &__node.is-landmark &__label {
+		display: inline;
+	}
 }

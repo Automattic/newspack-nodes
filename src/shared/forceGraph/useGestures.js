@@ -211,6 +211,7 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 			stageRef.current.drawing.view
 				.attr( 'transform', to )
 				.classed( 'is-far', to.k < TEXT_ZOOM );
+			stageRef.current.drawing.setZoom( to.k );
 			if (
 				from &&
 				! stageRef.current.drawing.isEmpty() &&

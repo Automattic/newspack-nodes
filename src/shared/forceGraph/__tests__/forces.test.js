@@ -9,6 +9,7 @@ import {
 	chargeOf,
 	forceClamp,
 	forceCohesion,
+	forceDock,
 	forceSiblings,
 	placeNodes,
 	updateBoxes,
@@ -345,6 +346,117 @@ describe( 'forceClamp', () => {
 
 		expect( [ model.leaves[ 0 ].vx, model.leaves[ 0 ].vy ] ).toEqual( [
 			30, 40,
+		] );
+	} );
+} );
+
+describe( 'forceDock', () => {
+	/** The space a docked leaf keeps from the next and from the rest. */
+	const GAP = 24;
+
+	it( 'pins the docked leaves in a row under the rest, centred on them', () => {
+		const model = build( [
+			node( 'a', { size: 10 } ),
+			node( 'b', { size: 10 } ),
+			node( 'c', { size: 10, dock: true } ),
+			node( 'd', { size: 10, dock: true } ),
+		] );
+		at( model, [
+			[ -700, 0 ],
+			[ 900, 300 ],
+			[ 5, 5 ],
+			[ 7, 7 ],
+		] );
+		forceDock( model )();
+		const [ a, b, c, d ] = model.leaves;
+		const step = 2 * c.halfW + GAP;
+		const middle = ( a.x - a.halfW + b.x + b.halfW ) / 2;
+		expect( c.fy ).toBe( b.y + b.halfH + GAP + c.halfH );
+		expect( d.fy ).toBe( c.fy );
+		expect( d.fx - c.fx ).toBe( step );
+		expect( ( c.fx + d.fx ) / 2 ).toBe( middle );
+		expect( [ a.fx, a.fy, b.fx, b.fy ] ).toEqual( [
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		] );
+	} );
+
+	it( 'wraps a row wider than the rest into rows under one another', () => {
+		const model = build( [
+			node( 'a', { size: 10 } ),
+			node( 'c', { size: 10, dock: true } ),
+			node( 'd', { size: 10, dock: true } ),
+			node( 'e', { size: 10, dock: true } ),
+		] );
+		at( model, [
+			[ 40, 80 ],
+			[ 0, 0 ],
+			[ 0, 0 ],
+			[ 0, 0 ],
+		] );
+		forceDock( model )();
+		const [ a, c, d, e ] = model.leaves;
+		const rise = 2 * c.halfH + GAP;
+		expect( [ c.fx, d.fx, e.fx ] ).toEqual( [ a.x, a.x, a.x ] );
+		expect( [ d.fy - c.fy, e.fy - d.fy ] ).toEqual( [ rise, rise ] );
+		expect( c.fy ).toBe( a.y + a.halfH + GAP + c.halfH );
+	} );
+
+	it( 'spaces the row by the extents the leaves hold at each tick', () => {
+		const model = build( [
+			node( 'a', { size: 10 } ),
+			node( 'c', { size: 10, dock: true } ),
+			node( 'd', { size: 10, dock: true } ),
+		] );
+		at( model, [
+			[ 0, 0 ],
+			[ 0, 0 ],
+			[ 0, 0 ],
+		] );
+		model.leaves[ 0 ].halfW = 900;
+		const dock = forceDock( model );
+		dock();
+		const [ , c, d ] = model.leaves;
+		c.halfW = 77;
+		dock();
+		expect( d.fx - c.fx ).toBe( 2 * 77 + GAP );
+	} );
+
+	it( 'docks no centred node and no node in a group', () => {
+		const model = build(
+			[
+				node( 'a', { size: 10 } ),
+				node( 'b', { size: 10, dock: true, center: true } ),
+				node( 'c', { size: 10, dock: true, group: 'g' } ),
+			],
+			[ group( 'g' ) ]
+		);
+		at( model, [
+			[ 0, 0 ],
+			[ 3, 3 ],
+			[ 9, 9 ],
+		] );
+		forceDock( model )();
+		expect( model.leaves.map( ( { fx, fy } ) => [ fx, fy ] ) ).toEqual( [
+			[ undefined, undefined ],
+			[ undefined, undefined ],
+			[ undefined, undefined ],
+		] );
+	} );
+
+	it( 'rows them about the origin when nothing else stands', () => {
+		const model = build( [
+			node( 'c', { size: 10, dock: true } ),
+			node( 'd', { size: 10, dock: true } ),
+		] );
+		forceDock( model )();
+		const [ c, d ] = model.leaves;
+		expect( [ c.fx + d.fx, c.fy, d.fy ] ).toEqual( [
+			0,
+			c.halfH,
+			c.halfH,
 		] );
 	} );
 } );
