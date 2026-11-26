@@ -4,7 +4,9 @@
  *
  * Untangling moves leaves directly, not through velocity. A move is one trade
  * or one mirror; a call earns a credit of span comparisons and runs moves
- * while any is left, so a large graph is untangled a few moves at a time.
+ * while any is left, so a large graph is untangled a few moves at a time. A
+ * call answers whether the untangling has settled: whether the last whole
+ * lap of bodies kept no move.
  */
 
 import { mean } from 'd3';
@@ -87,7 +89,7 @@ const shift = ( body, dx, dy ) => {
  * the untangler's life, so a changed graph makes a new one.
  *
  * @param {import('./model').Model} model Model whose leaves move.
- * @return {?function(): void} Untangle: a few moves mirror or trade places. Null for a model with nothing movable.
+ * @return {?function(): boolean} Untangle: a few moves mirror or trade places, answering whether it has settled. Null for a model with nothing movable.
  */
 export const createUntangler = ( model ) => {
 	const { spans, movable } = model;
@@ -101,6 +103,9 @@ export const createUntangler = ( model ) => {
 	let partnerList = null;
 	let credit = 0;
 	let compared = 0;
+	// Moves the lap under way kept; whether the last whole lap kept none.
+	let kept = 0;
+	let settled = false;
 	// Which spans a tangle has counted, by place in `spans`; all clear between.
 	const counted = new Uint8Array( spans.length );
 	const place = new Map( spans.map( ( span, i ) => [ span, i ] ) );
@@ -153,6 +158,7 @@ export const createUntangler = ( model ) => {
 		move();
 		if ( tangle( moved, target ) < target ) {
 			updateBoxes( model );
+			kept++;
 		} else {
 			undo();
 		}
@@ -272,8 +278,13 @@ export const createUntangler = ( model ) => {
 				step = 0;
 				partnerList = null;
 				finished++;
+				if ( 0 === body ) {
+					settled = 0 === kept;
+					kept = 0;
+				}
 			}
 			credit -= compared;
 		}
+		return settled;
 	};
 };

@@ -82,6 +82,37 @@ describe( 'createUntangler', () => {
 		expect( crossings( model ) ).toBe( 0 );
 	} );
 
+	it( 'answers settled once a whole lap of bodies keeps no move', () => {
+		const model = build(
+			[ node( 'a' ), node( 'b' ), node( 'c' ), node( 'd' ) ],
+			[ link( 'a', 'b' ), link( 'c', 'd' ) ]
+		);
+		at( model, [
+			[ 37, 41 ],
+			[ 337, 341 ],
+			[ 337, 41 ],
+			[ 37, 341 ],
+		] );
+		const untangle = createUntangler( model );
+		expect( untangle() ).toBe( false );
+		expect( crossings( model ) ).toBe( 0 );
+		expect( untangle() ).toBe( true );
+	} );
+
+	it( 'answers settled after one lap that finds nothing better', () => {
+		const model = build(
+			[ node( 'a' ), node( 'b' ), node( 'c' ), node( 'd' ) ],
+			[ link( 'a', 'b' ), link( 'c', 'd' ) ]
+		);
+		at( model, [
+			[ 37, 41 ],
+			[ 337, 41 ],
+			[ 37, 341 ],
+			[ 337, 341 ],
+		] );
+		expect( createUntangler( model )() ).toBe( true );
+	} );
+
 	it( 'trades the whole subtree of both bodies', () => {
 		const nodes = [
 			node( 'p1', { group: 'top' } ),

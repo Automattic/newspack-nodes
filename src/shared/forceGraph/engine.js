@@ -40,6 +40,12 @@ const UNTANGLE_TICKS = 680;
 /** Ticks of the untangling from one that trades to the next. */
 const UNTANGLE_EVERY = 4;
 
+/** Ticks each untangling more runs for: alpha REHEAT_ALPHA to 0.003. */
+const UNTANGLE_MORE_TICKS = 464;
+
+/** Untanglings more a full layout runs while its untangler has not settled. */
+const UNTANGLE_MORE = 3;
+
 /** Alpha of a full layout and of a drop, and the energy of a first poll. */
 const ALPHA = 0.5;
 
@@ -160,9 +166,12 @@ export const createEngine = ( {
 	const seen = new Map();
 	let ticks = 0;
 	// Null for a model that is not untangled, which has no such ticks.
-	/** @type {?function(): void} */
+	/** @type {?function(): boolean} */
 	let untangle = null;
 	let untangleTicks = 0;
+	// Whether the last whole lap kept no move; untanglings run past the first.
+	let settled = false;
+	let untanglingsMore = 0;
 
 	/** @type {Map<string, number>} */
 	let rates = new Map();
@@ -242,6 +251,14 @@ export const createEngine = ( {
 		simulation.tick();
 		if ( untangleTicks > 1 ) {
 			untangleTicks--;
+		} else if (
+			untangleTicks &&
+			! settled &&
+			untanglingsMore < UNTANGLE_MORE
+		) {
+			untanglingsMore++;
+			untangleTicks = UNTANGLE_MORE_TICKS;
+			simulation.alpha( REHEAT_ALPHA );
 		} else if ( untangleTicks ) {
 			endUntangling();
 		} else if ( energy && time() >= holdEnds ) {
@@ -356,6 +373,7 @@ export const createEngine = ( {
 	 */
 	const engage = () => {
 		untangle = createUntangler( model );
+		settled = false;
 		if ( ! untangle ) {
 			endUntangling();
 		}
@@ -368,7 +386,7 @@ export const createEngine = ( {
 			.randomSource( randomLcg( SEED ) )
 			.force( 'untangle', () => {
 				if ( untangleTicks && 0 === untangleTicks % UNTANGLE_EVERY ) {
-					untangle();
+					settled = untangle();
 				}
 			} )
 			.force( 'link', pull )
@@ -393,6 +411,7 @@ export const createEngine = ( {
 		engage();
 		release();
 		untangleTicks = untangle ? UNTANGLE_TICKS : 0;
+		untanglingsMore = 0;
 		simulation.alpha( ALPHA );
 		start();
 	};

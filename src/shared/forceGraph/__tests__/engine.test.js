@@ -11,6 +11,7 @@
 let mockSimulation;
 let mockTimer;
 let mockUntangles = true;
+let mockSettles = null;
 let mockTurns = 0;
 
 jest.mock( 'd3', () => {
@@ -35,9 +36,8 @@ jest.mock( '../untangle', () => {
 				untangle &&
 				( () => {
 					mockTurns++;
-					if ( mockUntangles ) {
-						untangle();
-					}
+					const settled = mockUntangles ? untangle() : true;
+					return mockSettles ?? settled;
 				} )
 			);
 		},
@@ -75,6 +75,9 @@ const SLICE_MS = 12;
 
 /** Ticks from alpha 0.5 to a stop. */
 const LAYOUT_TICKS = 826;
+
+/** Ticks one untangling more adds to a layout: alpha 0.1 to the stop. */
+const MORE_TICKS = 466;
 
 /** Ticks of a full layout that are painted, the last that untangles first. */
 const PAINTED_TICKS = LAYOUT_TICKS - UNTANGLE_TICKS + 1;
@@ -335,6 +338,7 @@ const expectFinite = ( engine ) =>
 beforeEach( () => {
 	stepClock();
 	mockUntangles = true;
+	mockSettles = null;
 	mockTurns = 0;
 } );
 
@@ -345,6 +349,25 @@ afterEach( () => {
 } );
 
 describe( 'a full layout', () => {
+	it( 'untangles on, reheated, while its untangler has not settled, three times at most', () => {
+		mockSettles = false;
+		const engine = make();
+		engine.setGraph( small(), 'k7' );
+		settle( engine );
+		// Each untangling more runs alpha 0.1 to 0.003, trading every fourth tick.
+		expect( mockTurns ).toBe( TRADING_TICKS + 3 * 116 );
+	} );
+
+	it( 'untangles no more once its untangler settles', () => {
+		mockSettles = false;
+		const engine = make();
+		engine.setGraph( small(), 'k7' );
+		frames( 1 );
+		mockSettles = true;
+		settle( engine );
+		expect( mockTurns ).toBe( TRADING_TICKS );
+	} );
+
 	it( 'runs on the first graph with nodes, and stops', () => {
 		const engine = make();
 		expect( isRunning( engine ) ).toBe( false );
@@ -1382,7 +1405,8 @@ describe( 'a center node', () => {
 			frames( 1 );
 			expect( at( engine ) ).toEqual( MIDDLE );
 		}
-		expect( engine.ticks() ).toBe( LAYOUT_TICKS );
+		// Its last lap in the first untangling still kept a move.
+		expect( engine.ticks() ).toBe( LAYOUT_TICKS + MORE_TICKS );
 		expectClear( engine.model() );
 	} );
 
