@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.169.2] - 2026-11-26
+
 ### Added
 
 - **A force graph can be painted in color through `@newspack-nodes/shared/forceGraph/paint`.** Its `paint( $colors )` mixin, included inside a host's canvas selector, fills and rings each node's circle in the color its class names and paints the lines faint at rest, stronger zoomed out, lit in the accent and fainter dimmed, with a selection ringed in the ink. A circle is a 35% tint of its color over the paper, ringed in a 35% shade toward the ink, so a count holds 4.5:1 on its fill and the ring 3:1 on every skin. Intelligence's graph and pyrobase's class graph both wear it.
