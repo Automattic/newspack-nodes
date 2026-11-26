@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.169.1] - 2026-11-26
+
 ### Changed
 
 - **A force graph has no collision between two nodes, as d3_visualizer.html has none.** The collision fought the console's sink lines, shaking every node a median 2,800 pixels a second, and crowded its rungs into one even spread; without it the console settles into rings again. Labels may meet; hulls still part. The `tangle` line flag is gone with the sink pulls it served.
