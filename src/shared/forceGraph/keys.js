@@ -54,6 +54,15 @@ const ARROW_CONTROL = [
  */
 
 /**
+ * Whether the host has a node, a line or a group selected.
+ *
+ * @param {ForceGraphProps} host The host's props.
+ * @return {boolean} True when any of the three is selected.
+ */
+export const hasSelection = ( { selectedId, selectedLink, selectedGroup } ) =>
+	null !== ( selectedId ?? selectedLink ?? selectedGroup ?? null );
+
+/**
  * Listen for the keys of a force graph's svg.
  *
  * @param {SVGSVGElement}              svg      The svg.
@@ -95,15 +104,11 @@ export const bindKeys = (
 	};
 
 	const isLive = () => hostRef.current.live;
-	const hasSelection = () => {
-		const { selectedId, selectedLink, selectedGroup } = hostRef.current;
-		return null !== ( selectedId ?? selectedLink ?? selectedGroup ?? null );
-	};
 
 	// What each key does, and when the canvas takes it from the page.
 	const acts = {
 		Escape: {
-			when: ( focused ) => focused && hasSelection(),
+			when: ( focused ) => focused && hasSelection( hostRef.current ),
 			run: () => hostRef.current.onDeselect?.(),
 		},
 		0: { when: () => true, run: refit },

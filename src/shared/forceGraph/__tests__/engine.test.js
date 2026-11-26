@@ -997,6 +997,20 @@ describe( 'a resized node', () => {
 		expect( mockTurns ).toBe( TRADING_TICKS );
 	} );
 
+	it( 'leaves an opening layout its untangling when it overlaps', () => {
+		const engine = make();
+		engine.setGraph( small(), 'k7' );
+		frames( 41 );
+		engine.setGraph( grown( small(), 'b', { size: 433 } ), 'k7' );
+		expect( leaf( engine, 'b' ).halfW ).toBe( 433 );
+		expect( overlappingLabels( engine.model() ) ).not.toEqual( [] );
+		frames( UNTANGLE_TICKS - 42 );
+		expect( engine.runsUnpainted() ).toBe( true );
+		frames( 1 );
+		expect( engine.runsUnpainted() ).toBe( false );
+		expect( engine.ticks() ).toBe( UNTANGLE_TICKS );
+	} );
+
 	it( 'reheats beside a removal when it overlaps', () => {
 		const engine = settled();
 		const graph = without( small(), 'd' );

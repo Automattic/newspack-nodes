@@ -20,6 +20,9 @@ const LABEL_PAD = 16;
 /** Narrowest label rect. */
 const LABEL_MIN_W = 60;
 
+/** Pixels between a circle's detail and its ring. */
+const DETAIL_PAD = 3;
+
 /** Room beneath a sized node's circle for its label. */
 const LABEL_BELOW = 25;
 
@@ -30,7 +33,8 @@ const MEETING_CHILDREN = 2;
  * @typedef {Object} HostNode
  * @property {string}   id     Unique among nodes.
  * @property {string}   label  Text drawn in the node's rect.
- * @property {number=}  size   Circle radius; absent for a label body.
+ * @property {number=}  size   Least circle radius; absent for a label body.
+ * @property {string=}  detail Text in the circle.
  * @property {number=}  scale  What its label is drawn at; 1 without one.
  * @property {?string=} group  Id of the group holding the node.
  * @property {boolean=} center Whether the layout holds it at the centre of the canvas.
@@ -127,6 +131,25 @@ export const labelHalfW = ( label ) =>
 	Math.max( label.length * LABEL_CHAR_W + LABEL_PAD, LABEL_MIN_W ) / 2;
 
 /**
+ * The least radius a circle holds a detail in, the detail set as a label is.
+ *
+ * @param {string} detail Text in the circle.
+ * @return {number} Radius in pixels.
+ */
+export const detailRadius = ( detail ) =>
+	( detail.length * LABEL_CHAR_W ) / 2 + DETAIL_PAD;
+
+/**
+ * The radius a sized node's circle is drawn at: its size, or wide enough for
+ * its detail.
+ *
+ * @param {HostNode} node A node with a size.
+ * @return {number} Radius in pixels.
+ */
+export const circleRadius = ( { size, detail = '' } ) =>
+	Math.max( size, detailRadius( detail ) );
+
+/**
  * Whether a leaf lies within a body.
  *
  * @param {Body} body Leaf or branch.
@@ -145,8 +168,9 @@ const holds = ( body, leaf ) => body === leaf || leaf.ancestors.has( body );
 const makeLeaf = ( node ) => {
 	const { size, scale = 1 } = node;
 	const labelW = labelHalfW( node.label ) * scale;
-	const halfW = size ? Math.max( size, labelW ) : labelW;
-	const halfH = size ? size + LABEL_BELOW * scale : LABEL_HALF_H * scale;
+	const ring = size ? circleRadius( node ) : 0;
+	const halfW = size ? Math.max( ring, labelW ) : labelW;
+	const halfH = size ? ring + LABEL_BELOW * scale : LABEL_HALF_H * scale;
 
 	return {
 		type: 'leaf',

@@ -508,6 +508,28 @@ describe( 'what it draws', () => {
 		expect( [ ...el.classList ] ).toEqual( [ `${ BLOCK }__node` ] );
 	} );
 
+	it( 'widens a circle to its detail, lifts its label, ends lines at it', () => {
+		const { nodes } = graph();
+		Object.assign( nodes[ 3 ], { size: 13, detail: '12,345,678/s' } );
+		const { svg } = mountSettled( { nodes } );
+		const el = nodeEl( svg, 'n4' );
+		// Twelve characters of 7 pixels, halved, and 3 of padding.
+		expect( el.querySelector( 'circle' ).getAttribute( 'r' ) ).toBe( '45' );
+		expect(
+			el.querySelector( `.${ BLOCK }__label` ).getAttribute( 'y' )
+		).toBe( '-53' );
+		const [ , , cx, cy ] = linkEl( svg, 2 )
+			.getAttribute( 'd' )
+			.match( /^M(.+),(.+)L(.+),(.+)$/ )
+			.slice( 1 )
+			.map( Number );
+		const circle = leaf( 'n4' );
+		expect( Math.hypot( cx - circle.x, cy - circle.y ) ).toBeCloseTo(
+			45,
+			6
+		);
+	} );
+
 	it( 'draws a scaled label and its rect at their scale', () => {
 		const { nodes } = graph();
 		nodes[ 1 ].scale = 0.5;
@@ -1559,6 +1581,47 @@ describe( 'a press', () => {
 		expect( view( svg ) ).not.toEqual( fitted() );
 		press( svg );
 		expect( calls( host ) ).toEqual( { onDeselect: [ [] ] } );
+		expectFitted( svg );
+	} );
+
+	it.each( [
+		[ 'node', { selectedId: 'n3' } ],
+		[ 'line', { selectedLink: 'l2' } ],
+		[ 'hull', { selectedGroup: 'out/in' } ],
+	] )(
+		'on the canvas with a %s selected deselects, and leaves the view',
+		( _, selected ) => {
+			const host = hosts();
+			const { svg } = mountSettled( { ...host, ...selected } );
+			wheel( svg, { deltaX: 333, deltaY: 222 } );
+			wait( GAP );
+			const moved = view( svg );
+			press( svg );
+			frames( 3 );
+			expect( calls( host ) ).toEqual( { onDeselect: [ [] ] } );
+			expect( view( svg ) ).toEqual( moved );
+		}
+	);
+
+	it( 'on the canvas fits a selection its host cannot clear', () => {
+		const { svg } = mountSettled( { selectedId: 'n3' } );
+		wheel( svg, { deltaX: 333, deltaY: 222 } );
+		wait( GAP );
+		expect( view( svg ) ).not.toEqual( fitted() );
+		press( svg );
+		expectFitted( svg );
+	} );
+
+	it( 'on the canvas clears the selection first, then fits', () => {
+		const host = hosts();
+		const { svg, update } = mountSettled( { ...host, selectedId: 'n3' } );
+		wheel( svg, { deltaX: 333, deltaY: 222 } );
+		wait( GAP );
+		press( svg );
+		expect( view( svg ) ).not.toEqual( fitted() );
+		update( { selectedId: null } );
+		press( svg );
+		expect( host.onDeselect.mock.calls ).toEqual( [ [], [] ] );
 		expectFitted( svg );
 	} );
 

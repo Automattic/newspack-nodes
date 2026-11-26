@@ -90,3 +90,39 @@ describe( 'the skeleton', () => {
 		expect( pulses( SHARED ) ).toEqual( pulses( OWN ) );
 	} );
 } );
+
+it( 'paints a circle in the skin’s paper and ink, under any host’s rule', () => {
+	const painted = [];
+	postcss
+		.parse( sass.compile( FILE ).css )
+		.walkRules( /circle/, ( rule ) =>
+			rule.walkDecls( ( { prop, value } ) =>
+				painted.push( [ rule.selector, prop, value ] )
+			)
+		);
+	// One class and one element, which any host's two classes outrank.
+	expect( painted ).toEqual( [
+		[ `circle${ BLOCK }__shape`, 'stroke', 'var(--ink, var(--np-text))' ],
+	] );
+	const fills = [];
+	postcss
+		.parse( sass.compile( FILE ).css )
+		.walkDecls( 'fill', ( { value, parent } ) => {
+			if ( parent.selectors.includes( `${ BLOCK }__shape` ) ) {
+				fills.push( value );
+			}
+		} );
+	expect( fills ).toEqual( [ 'var(--paper-2, var(--np-surface-subtle))' ] );
+} );
+
+it( 'writes a circle’s detail in the ink', () => {
+	const fills = [];
+	postcss
+		.parse( sass.compile( FILE ).css )
+		.walkDecls( 'fill', ( { value, parent } ) => {
+			if ( parent.selectors.includes( `${ BLOCK }__detail` ) ) {
+				fills.push( value );
+			}
+		} );
+	expect( fills ).toEqual( [ 'var(--ink, var(--np-text))' ] );
+} );

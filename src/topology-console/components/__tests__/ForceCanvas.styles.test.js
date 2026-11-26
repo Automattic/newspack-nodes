@@ -54,7 +54,7 @@ const NODE = `.${ BLOCK }__node`;
 const node = ( names, at = NODE ) =>
 	paint(
 		`<g class="${ BLOCK }__node ${ names }">
-			<rect class="${ BLOCK }__shape"></rect>
+			<circle class="${ BLOCK }__shape"></circle>
 			<text class="${ BLOCK }__label">vat-33</text>
 		</g>`,
 		at

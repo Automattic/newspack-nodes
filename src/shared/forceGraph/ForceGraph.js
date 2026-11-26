@@ -30,15 +30,16 @@ import './ForceGraph.scss';
 const NO_GROUPS = [];
 
 /**
- * A node: a labelled rect, or with a `size` a circle of that radius, its
- * label above it and its detail in it.
+ * A node: a labelled rect, or with a `size` a circle of that radius, or wide
+ * enough for its detail where that is wider, its label above it and its detail
+ * in it.
  *
  * @typedef {Object} GraphNode
  * @property {string}   id        Unique among nodes.
  * @property {string}   label     Its text.
  * @property {?string=} group     Id of the group holding it.
  * @property {string=}  className The host's classes.
- * @property {number=}  size      Circle radius.
+ * @property {number=}  size      Least circle radius.
  * @property {number=}  scale     What its label is drawn at, box and text; 1 without one.
  * @property {boolean=} center    Whether the layout holds it at the centre of the canvas.
  * @property {number=}  charge    What it carries while not live, negative to repel; -1000 without one.
@@ -87,7 +88,7 @@ const NO_GROUPS = [];
  * @property {function(string): void}    [onSelectGroup] Takes a pressed hull's group id.
  * @property {function(?string): void}   [onHover]       Takes the id of the node the pointer is over, or null.
  * @property {function(?string): void}   [onHoverGroup]  Takes the group id of the hull the pointer is over, or null, as on a node or a line that takes a press.
- * @property {function(): void}          [onDeselect]    Runs on a press of the canvas, and on Escape.
+ * @property {function(): void}          [onDeselect]    Runs on a press of the canvas and on Escape; a press of the canvas fits the view unless something is selected and this clears it.
  * @property {boolean}                   [live]          Whether rates move the layout, and Space and `k` act.
  * @property {boolean}                   [keepWarm]      Whether a live layout holds its energy.
  * @property {function(): void}          [onKeepWarm]    Runs on `k`.

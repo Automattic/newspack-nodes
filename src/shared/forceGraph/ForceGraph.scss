@@ -83,6 +83,11 @@
 		stroke: var(--ink-3, var(--np-text-secondary));
 	}
 
+	// A circle's ring, at a weight any host's rule on the shape outranks.
+	@at-root circle#{&}__shape {
+		stroke: var(--ink, var(--np-text));
+	}
+
 	&__node.is-hovered &__shape,
 	&__node.is-selected &__shape {
 		stroke: var(--ink, var(--np-text));

@@ -10,11 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A `ForceGraph` host names the pixels it covers at the canvas's foot, as `bottomInset`,** and a fitted view keeps the graph above them, following a change; a view the reader moved stays where it is. As in the schematic, a band covering nine tenths of the canvas counts as none, and the fit gives up band before it shrinks the graph past the scale its names show at.
+- **The shared force graph exports `circleSize( value, most, least )` and `lightGraph( graph, selected )`.** The first sizes a circle at `least` pixels, 10 without one, plus 20 by the square root of its value's share of the largest on the canvas; a host whose number can be wider for a smaller value names as `least` the radius the widest number on its canvas needs. The second lights a selected node, its lines and the nodes they reach, and dims the rest, adding each class to the one the host gave.
+- **A force graph paints a circle in the skin where its host names no paint:** filled with the paper, ringed in the ink and its number in the ink, at a weight any host rule on the shape outranks.
+
+### Changed
+
+- **The force canvas draws every node, sidecars included, as a circle holding its message rate,** sized by the square root of its share of the highest rate on the canvas, so it grows and shrinks with each poll without laying the graph out again. The smallest circle is wide enough for the widest rate on the canvas, so a higher rate always draws the larger circle; a node without traffic shows its zero rate in that smallest circle, and a draft's nodes hold no rate.
+- **A press of a force graph's canvas clears the selection, and only a press with nothing selected fits the view.** A host that passes a selection but no `onDeselect` still gets the fit. Escape still clears the selection alone.
 
 ### Fixed
 
 - **The force canvas keeps the graph above the REPL transcript**, as the schematic does, on the station and overlay consoles.
 - **A press of a force graph no longer rings it.** The canvas still takes focus, and a key still shows the ring.
+- **A force graph's circle widens to fit the number inside it,** and the layout spaces, the label rises above and a line stops at the circle as drawn.
+- **A circle that grows while a full layout untangles leaves the untangling to finish,** which makes room for it; a crowded resize reheats the layout only once no untangling runs.
 
 ## [2.166.0] - 2026-11-25
 

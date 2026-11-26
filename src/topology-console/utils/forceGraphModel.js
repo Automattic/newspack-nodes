@@ -8,6 +8,11 @@
  * target or a registration line, while the rates of both ends are; a patron
  * line, while the rate of the sidecar is. Port flags play no part.
  *
+ * Every node is a circle holding its message rate, sized by the square root of
+ * its share of the highest rate drawn, so it grows and shrinks with each poll.
+ * The least radius holds the widest rate drawn, so a higher rate is always the
+ * larger circle. A draft's nodes hold no rate and take the least radius.
+ *
  * Every class, for the console's stylesheet to paint:
  *
  * | On    | Class             | Meaning                                         |
@@ -36,6 +41,9 @@
  */
 
 import { classes } from '@newspack-nodes/shared/components/Modal';
+import { circleSize } from '@newspack-nodes/shared/forceGraph';
+import { detailRadius } from '@newspack-nodes/shared/forceGraph/model';
+import { formatMsgRate } from '@newspack-nodes/shared/utils/formatters';
 import names from '../../runtime/reserved-node-names.json';
 import { edgeHasConnectRole } from './consoleGraph';
 import { hullColorIndex } from './hullColor';
@@ -437,14 +445,28 @@ export const toForceGraph = ( {
 		}
 	}
 
+	const drawn = [ ...bodies.values() ].map( ( body ) => {
+		const rate = liveRate( body.id );
+		const detail = undefined === rate ? undefined : formatMsgRate( rate );
+		return { ...body, rate, detail };
+	} );
+	const most = Math.max( 0, ...drawn.map( ( { rate } ) => rate ?? 0 ) );
+	// A shorter rate can be a higher one, so every circle holds the widest.
+	const fits = drawn.flatMap( ( { detail } ) =>
+		detail ? [ detailRadius( detail ) ] : []
+	);
+	const least = fits.length ? Math.max( ...fits ) : undefined;
+
 	return {
-		nodes: [ ...bodies.values() ].map( ( { id, class: shellName } ) => ( {
+		nodes: drawn.map( ( { id, class: shellName, rate, detail } ) => ( {
 			id,
 			label: id,
 			title: shellName,
 			group: seats.get( rootOf( patronOf, id ) ),
 			className: classOf.node( id ),
-			rate: liveRate( id ),
+			rate,
+			size: circleSize( rate ?? 0, most, least ),
+			detail,
 			scale: patronOf.has( id ) ? SIDECAR_SCALE : 1,
 			center: names.COMMAND_INTERPRETER === id,
 		} ) ),

@@ -6,6 +6,7 @@
 import { min, polygonCentroid, polygonContains, scaleLog, select } from 'd3';
 import { classes } from '../components/Modal';
 import { hullPoints } from './hulls';
+import { circleRadius } from './model';
 
 /** The class every part of the graph is named from. */
 export const BLOCK = 'newspack-nodes-force-graph';
@@ -63,10 +64,9 @@ const opacityOf = ( { rate } ) => {
 const linkPath = ( { source, target } ) => {
 	const dx = target.x - source.x;
 	const dy = target.y - source.y;
-	const { size } = target.node;
 	// The share of the line that lies within its target.
-	const within = size
-		? size / Math.hypot( dx, dy )
+	const within = target.node.size
+		? circleRadius( target.node ) / Math.hypot( dx, dy )
 		: Math.min(
 				target.halfW / Math.abs( dx ),
 				target.halfH / Math.abs( dy )
@@ -103,8 +103,10 @@ const keep = ( parents, tag, part, wants, before ) =>
  * @param {GraphNode} node The node.
  * @return {number} The baseline.
  */
-const labelY = ( { size, scale = 1 } ) =>
-	size ? ( -size - LABEL_RISE ) / scale : MIDDLE_DROP;
+const labelY = ( node ) =>
+	node.size
+		? ( -circleRadius( node ) - LABEL_RISE ) / ( node.scale ?? 1 )
+		: MIDDLE_DROP;
 
 /** Wants for `keep`. */
 const all = () => true;
@@ -250,7 +252,7 @@ export const createDrawing = ( svg, arrowId ) => {
 				.attr( 'rx', 4 );
 			keep( nodes, 'circle', 'shape', sized, ':first-child' ).attr(
 				'r',
-				( { node } ) => node.size
+				( { node } ) => circleRadius( node )
 			);
 			keep( nodes, 'text', 'label', all )
 				.attr( 'y', ( { node } ) => labelY( node ) )

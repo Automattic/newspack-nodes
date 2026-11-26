@@ -5,7 +5,10 @@
  * dropped on the way to the ForceGraph reads differently from one that is kept.
  */
 import { placeHulls, targetLinkId, toForceGraph } from '../forceGraphModel';
-import { buildModel } from '@newspack-nodes/shared/forceGraph/model';
+import {
+	buildModel,
+	circleRadius,
+} from '@newspack-nodes/shared/forceGraph/model';
 
 const CI = '_command_interpreter';
 
@@ -957,6 +960,79 @@ describe( 'toForceGraph lighting', () => {
 		for ( const { rate } of [ ...nodes, ...links ] ) {
 			expect( rate ).toBeUndefined();
 		}
+	} );
+} );
+
+describe( 'toForceGraph circles', () => {
+	const wired = () => {
+		const owner = node( 'b-2', {
+			sidecars: [ { name: 'b-2:side', class: 'Side' } ],
+		} );
+		const nodes = [ node( 'a-1', { sink: 'b-2' } ), owner ];
+		return {
+			graph: { nodes, edges: [ { from: 'a-1', to: 'b-2' } ] },
+			rows: { nodes: [ ...nodes, node( 'b-2:side' ) ], edges: [] },
+		};
+	};
+	const circles = ( options ) =>
+		draw( options ).nodes.map( ( { id, size, detail, scale } ) => [
+			id,
+			size,
+			detail,
+			scale,
+		] );
+
+	// The widest of its rates, `6.4K/s`, fits 24 pixels: the least radius.
+	it( 'draws every node, sidecars too, by its share of the top rate', () => {
+		expect(
+			circles( {
+				...wired(),
+				rates: { 'a-1': 6400, 'b-2:side': 1600 },
+			} )
+		).toEqual( [
+			[ 'a-1', 44, '6.4K/s', 1 ],
+			[ 'b-2', 24, '0/s', 1 ],
+			[ 'b-2:side', 34, '1.6K/s', 0.8 ],
+		] );
+	} );
+
+	it( 'draws a higher rate in a larger circle, whatever its width', () => {
+		const { nodes } = draw( {
+			...wired(),
+			rates: { 'a-1': 100, 'b-2': 1000, 'b-2:side': 6400 },
+		} );
+		const radii = nodes.map( circleRadius );
+		expect( nodes.map( ( { detail } ) => detail ) ).toEqual( [
+			'100/s',
+			'1K/s',
+			'6.4K/s',
+		] );
+		expect( radii[ 0 ] ).toBeLessThan( radii[ 1 ] );
+		expect( radii[ 1 ] ).toBeLessThan( radii[ 2 ] );
+		expect( radii.map( ( r, i ) => r - nodes[ i ].size ) ).toEqual( [
+			0, 0, 0,
+		] );
+	} );
+
+	it( 'draws a canvas without traffic at the width of its zero rate', () => {
+		expect( circles( wired() ) ).toEqual( [
+			[ 'a-1', 13.5, '0/s', 1 ],
+			[ 'b-2', 13.5, '0/s', 1 ],
+			[ 'b-2:side', 13.5, '0/s', 0.8 ],
+		] );
+	} );
+
+	it( 'draws a draft’s nodes at the least radius, with no rate in them', () => {
+		expect(
+			circles( {
+				...wired(),
+				rates: { 'a-1': 6400 },
+				state: { editMode: true },
+			} )
+		).toEqual( [
+			[ 'a-1', 10, undefined, 1 ],
+			[ 'b-2', 10, undefined, 1 ],
+		] );
 	} );
 } );
 

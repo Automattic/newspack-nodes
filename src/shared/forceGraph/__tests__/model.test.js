@@ -3,7 +3,13 @@
  * moves, built once from the host's nodes, links and groups.
  */
 
-import { buildModel, labelHalfW, LABEL_HALF_H } from '../model';
+import {
+	buildModel,
+	circleRadius,
+	detailRadius,
+	labelHalfW,
+	LABEL_HALF_H,
+} from '../model';
 
 const node = ( id, extra = {} ) => ( { id, label: id, ...extra } );
 const link = ( source, target, extra = {} ) => ( { source, target, ...extra } );
@@ -18,6 +24,26 @@ describe( 'labelHalfW', () => {
 		expect( labelHalfW( 'x'.repeat( 20 ) ) ).toBe( 78 );
 		expect( labelHalfW( 'ab' ) ).toBe( 30 );
 		expect( LABEL_HALF_H ).toBe( 12 );
+	} );
+} );
+
+describe( 'detailRadius', () => {
+	it( 'is half the detail and three pixels', () => {
+		expect( detailRadius( '12,345,678/s' ) ).toBe( 45 );
+		expect( detailRadius( '0/s' ) ).toBe( 13.5 );
+	} );
+} );
+
+describe( 'circleRadius', () => {
+	it( 'is the size, or half the detail and three pixels where wider', () => {
+		// Twelve characters of 7 pixels, halved, and 3 of padding.
+		expect( circleRadius( { size: 13, detail: '12,345,678/s' } ) ).toBe(
+			45
+		);
+		expect( circleRadius( { size: 47, detail: '12,345,678/s' } ) ).toBe(
+			47
+		);
+		expect( circleRadius( { size: 13 } ) ).toBe( 13 );
 	} );
 } );
 
@@ -39,6 +65,15 @@ describe( 'buildModel scale', () => {
 		] );
 		expect( extent( {} ).slice( 0, 2 ) ).toEqual( [ 78, 12 ] );
 		expect( extent( { label: 'ab', scale: 0.5 } )[ 0 ] ).toBe( 15 );
+	} );
+
+	it( 'a circle too narrow for its detail is laid out at the detail', () => {
+		expect(
+			extent( { label: 'ab', size: 13, detail: '12,345,678/s' } ).slice(
+				0,
+				2
+			)
+		).toEqual( [ 45, 70 ] );
 	} );
 
 	it( 'a scaled label over a circle leaves the circle its size', () => {

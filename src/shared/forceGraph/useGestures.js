@@ -21,7 +21,7 @@ import {
 } from '../utils/wheelGesture';
 import { BLOCK } from './drawing';
 import { TEXT_ZOOM, ZOOM_RANGE, fitOf } from './fit';
-import { bindKeys } from './keys';
+import { bindKeys, hasSelection } from './keys';
 
 /** Pixels of travel a press may make before it is a drag. */
 const PRESS_SLACK = 2;
@@ -413,8 +413,11 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 			if ( hull ) {
 				press( hull );
 			} else {
+				const clears = !! onDeselect && hasSelection( hostRef.current );
 				onDeselect?.();
-				refit();
+				if ( ! clears ) {
+					refit();
+				}
 			}
 			return;
 		}

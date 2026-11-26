@@ -434,8 +434,12 @@ export const createEngine = ( {
 				layOut();
 			} else if ( ! same ) {
 				follow( next, sameSurvivors );
-			} else if ( crowds( refresh( model, next ), model ) ) {
-				reheat( REHEAT_ALPHA );
+			} else {
+				// An untangling under way makes room for the new extents.
+				const resized = refresh( model, next );
+				if ( ! untangleTicks && crowds( resized, model ) ) {
+					reheat( REHEAT_ALPHA );
+				}
 			}
 		},
 
