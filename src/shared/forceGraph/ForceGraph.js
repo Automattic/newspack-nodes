@@ -93,6 +93,7 @@ const NO_GROUPS = [];
  * @property {function(): void}          [onKeepWarm]    Runs on `k`.
  * @property {string}                    [ariaLabel]     The canvas's name.
  * @property {string}                    [className]     The host's class on the svg.
+ * @property {number}                    [bottomInset]   Pixels the host covers at the canvas's foot, which a fit keeps the graph above.
  * @property {{current: ?SVGSVGElement}} [svgRef]        Takes the svg, for a host that asks whether an event landed on it.
  */
 
@@ -103,6 +104,7 @@ const NO_GROUPS = [];
  * @property {import('./engine').Engine}        engine    The engine.
  * @property {ReturnType<typeof createDrawing>} drawing   The drawing.
  * @property {{width: number, height: number}}  size      The last box with area.
+ * @property {number}                           inset     Pixels the host covers at the canvas's foot.
  * @property {boolean}                          shown     Whether the box has area.
  * @property {unknown}                          polled    The last poll key handed over.
  * @property {function(): boolean}              unpainted Whether the model is ahead of what is painted.
@@ -147,6 +149,7 @@ export function ForceGraph( props ) {
 		keepWarm = false,
 		ariaLabel,
 		className,
+		bottomInset = 0,
 		svgRef: hostSvgRef,
 	} = props;
 	const svgRef = useRef( /** @type {SVGSVGElement} */ ( null ) );
@@ -205,6 +208,7 @@ export function ForceGraph( props ) {
 			engine,
 			drawing,
 			size: { width: 0, height: 0 },
+			inset: 0,
 			shown: false,
 			polled: UNPOLLED,
 			unpainted: () => behind || engine.ticks() !== painted,
@@ -250,6 +254,11 @@ export function ForceGraph( props ) {
 		}
 	};
 	useEffect( measure, [ gestures ] );
+
+	useEffect( () => {
+		stageRef.current.inset = bottomInset;
+		gestures.current.follow();
+	}, [ gestures, bottomInset ] );
 	useContainerRefit( svgRef, measure, [], 0 );
 
 	useEffect( () => {

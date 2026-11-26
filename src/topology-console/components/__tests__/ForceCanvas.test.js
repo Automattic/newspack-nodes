@@ -11,6 +11,7 @@ let mockEngine;
 let mockGraphs;
 let mockDrawn;
 let mockPlaced;
+let mockInsets;
 
 jest.mock( '../../../shared/forceGraph/engine', () => {
 	const actual = jest.requireActual( '../../../shared/forceGraph/engine' );
@@ -24,6 +25,17 @@ jest.mock( '../../../shared/forceGraph/engine', () => {
 				setGraph( graph, key );
 			};
 			return mockEngine;
+		},
+	};
+} );
+
+jest.mock( '../../../shared/forceGraph/fit', () => {
+	const actual = jest.requireActual( '../../../shared/forceGraph/fit' );
+	return {
+		...actual,
+		fitOf: ( leaves, size, inset ) => {
+			mockInsets.push( inset );
+			return actual.fitOf( leaves, size, inset );
 		},
 	};
 } );
@@ -52,6 +64,7 @@ const {
 	installViewport,
 } = require( '../../../shared/test-utils/viewportWidth' );
 const { default: ForceCanvas } = require( '../ForceCanvas' );
+const { ChromeProvider } = require( '../../ChromeContext' );
 const { FORCE_POLLER } = require( '../../hooks/useForceRows' );
 const { hullColorIndex } = require( '../../utils/hullColor' );
 const { Core } = require( '../../../runtime/core' );
@@ -129,6 +142,7 @@ beforeEach( () => {
 	mockGraphs = [];
 	mockDrawn = 0;
 	mockPlaced = 0;
+	mockInsets = [];
 	Core.reset();
 	Core.registerNode( '_cwd', { name: '_cwd', fill: () => {} } );
 } );
@@ -146,9 +160,10 @@ const frame = () => act( () => jest.advanceTimersToNextFrame() );
  * Mount the canvas on GRAPH, live, with every callback mocked, and run a frame.
  *
  * @param {Object} [props] Props over those.
- * @return {Object} The svg, the props it was handed, a way to re-render it, and its unmount.
+ * @return {Object} The svg, the props it was handed, ways to re-render it with other props or another covered foot, and its unmount.
  */
 const mount = ( props = {} ) => {
+	let covered = 0;
 	let held = {
 		parsed: GRAPH,
 		seeded: false,
@@ -175,7 +190,12 @@ const mount = ( props = {} ) => {
 		rateVersion: 12,
 		...props,
 	};
-	const view = render( <ForceCanvas { ...held } /> );
+	const canvas = () => (
+		<ChromeProvider bottomObstructionPx={ covered }>
+			<ForceCanvas { ...held } />
+		</ChromeProvider>
+	);
+	const view = render( canvas() );
 	frame();
 	return {
 		svg: view.container.querySelector( 'svg' ),
@@ -183,7 +203,12 @@ const mount = ( props = {} ) => {
 		unmount: view.unmount,
 		update: ( next ) => {
 			held = { ...held, ...next };
-			view.rerender( <ForceCanvas { ...held } /> );
+			view.rerender( canvas() );
+			frame();
+		},
+		cover: ( px ) => {
+			covered = px;
+			view.rerender( canvas() );
 			frame();
 		},
 	};
@@ -575,6 +600,17 @@ describe( 'a full layout', () => {
 		const { update } = mount( { editMode: true } );
 		update( { seeded: true } );
 		expect( keys() ).toHaveLength( 1 );
+	} );
+} );
+
+describe( 'the fit', () => {
+	it( 'keeps the graph above the transcript, as it moves', () => {
+		const { cover } = mount();
+		cover( 333 );
+		act( () => jest.advanceTimersByTime( 2000 ) );
+		expect( mockInsets.at( -1 ) ).toBe( 333 );
+		cover( 121 );
+		expect( mockInsets.at( -1 ) ).toBe( 121 );
 	} );
 } );
 

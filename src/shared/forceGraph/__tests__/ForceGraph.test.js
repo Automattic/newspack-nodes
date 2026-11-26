@@ -191,8 +191,14 @@ const view = ( svg ) => {
 const expectNear = ( one, two ) =>
 	one.forEach( ( value, i ) => expect( value ).toBeCloseTo( two[ i ], 6 ) );
 
-/** The view that shows every label with 50 to spare, over 0.9 of the box. */
-const fitted = () => {
+/**
+ * The view that shows every label with 50 to spare, over 0.9 of the box above
+ * the pixels a host covers at its foot.
+ *
+ * @param {number} [inset] The pixels covered; none without.
+ * @return {{x: number, y: number, k: number}} The view.
+ */
+const fitted = ( inset = 0 ) => {
 	const { leaves } = mockEngine.model();
 	const side = ( pick, sign, half ) =>
 		leaves.map( ( one ) => one[ pick ] + sign * one[ half ] );
@@ -202,10 +208,13 @@ const fitted = () => {
 	const maxY = Math.max( ...side( 'y', 1, 'halfH' ) ) + 50;
 	const k =
 		0.9 *
-		Math.min( box.width / ( maxX - minX ), box.height / ( maxY - minY ) );
+		Math.min(
+			box.width / ( maxX - minX ),
+			( box.height - inset ) / ( maxY - minY )
+		);
 	return {
 		x: box.width / 2 - ( ( minX + maxX ) / 2 ) * k,
-		y: box.height / 2 - ( ( minY + maxY ) / 2 ) * k,
+		y: ( box.height - inset ) / 2 - ( ( minY + maxY ) / 2 ) * k,
 		k,
 	};
 };
@@ -1657,11 +1666,14 @@ describe( 'a press', () => {
 		wait( 1000 );
 	} );
 
-	it( 'focuses the canvas without scrolling to it', () => {
+	it( 'focuses the canvas without scrolling to it or ringing it', () => {
 		const { svg } = mountSettled();
 		const focused = jest.spyOn( svg, 'focus' );
 		pointer( 'pointerdown', nodeEl( svg, 'n1' ) );
-		expect( focused ).toHaveBeenCalledWith( { preventScroll: true } );
+		expect( focused ).toHaveBeenCalledWith( {
+			preventScroll: true,
+			focusVisible: false,
+		} );
 		expect( document.activeElement ).toBe( svg );
 	} );
 
@@ -2800,6 +2812,37 @@ describe( 'a pinch by gesture event', () => {
 } );
 
 describe( 'the fit', () => {
+	// The view that fits the graph above the pixels a host covers.
+	const fittedAbove = ( inset ) => {
+		const { x, y, k } = fitted( inset );
+		return {
+			x: expect.closeTo( x, 6 ),
+			y: expect.closeTo( y, 6 ),
+			k: expect.closeTo( k, 6 ),
+		};
+	};
+
+	it( 'keeps the graph above the band the host covers', () => {
+		const { svg } = mountSettled( { bottomInset: 311 } );
+		expect( view( svg ) ).toEqual( fittedAbove( 311 ) );
+	} );
+
+	it( 'follows a change of the covered band', () => {
+		const { svg, update } = mountSettled();
+		update( { bottomInset: 287 } );
+		expect( view( svg ) ).toEqual( fittedAbove( 287 ) );
+		update( { bottomInset: 0 } );
+		expect( view( svg ) ).toEqual( fittedAbove( 0 ) );
+	} );
+
+	it( 'keeps a view the reader moved through a change of the band', () => {
+		const { svg, update } = mountSettled();
+		press( svg, [ 40, 0 ] );
+		const moved = view( svg );
+		update( { bottomInset: 287 } );
+		expect( view( svg ) ).toEqual( moved );
+	} );
+
 	it( 'follows the layout, frame by frame', () => {
 		const { svg } = mount();
 		expectFitted( svg );

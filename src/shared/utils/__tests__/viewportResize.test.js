@@ -1,4 +1,4 @@
-import { maxInsetBeforeLOD } from '../viewportResize';
+import { effectiveInset, maxInsetBeforeLOD } from '../viewportResize';
 
 describe( 'maxInsetBeforeLOD', () => {
 	// The floor is the inset where the autofit scale hits detailScale (LOD).
@@ -35,5 +35,20 @@ describe( 'maxInsetBeforeLOD', () => {
 				fill: 0.9,
 			} )
 		).toBe( Infinity );
+	} );
+} );
+
+describe( 'effectiveInset', () => {
+	it( 'leaves clear what the host covers', () => {
+		expect( effectiveInset( 1000, 373 ) ).toBe( 373 );
+	} );
+
+	it( 'counts a cover of nine tenths of the canvas or more as none', () => {
+		expect( effectiveInset( 1000, 899 ) ).toBe( 899 );
+		expect( effectiveInset( 1000, 900 ) ).toBe( 0 );
+	} );
+
+	it( 'never leaves less than nothing clear', () => {
+		expect( effectiveInset( 1000, -40 ) ).toBe( 0 );
 	} );
 } );

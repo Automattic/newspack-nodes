@@ -20,11 +20,8 @@ import {
 	wheelNotches,
 } from '../utils/wheelGesture';
 import { BLOCK } from './drawing';
-import { ZOOM_RANGE, fitOf } from './fit';
+import { TEXT_ZOOM, ZOOM_RANGE, fitOf } from './fit';
 import { bindKeys } from './keys';
-
-/** Scale below which label text is hidden. */
-const TEXT_ZOOM = 0.25;
 
 /** Pixels of travel a press may make before it is a drag. */
 const PRESS_SLACK = 2;
@@ -152,10 +149,10 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 	};
 
 	const follow = () => {
-		const { size, unpainted } = stageRef.current;
+		const { size, inset, unpainted } = stageRef.current;
 		const { leaves } = modelOf();
 		if ( fitting && ! from && leaves.length && ! unpainted() ) {
-			root.call( zooming.transform, fitOf( leaves, size ) );
+			root.call( zooming.transform, fitOf( leaves, size, inset ) );
 		}
 	};
 
@@ -471,7 +468,9 @@ const bindGestures = ( svg, stageRef, hostRef ) => {
 			passive: false,
 		} )
 		.on( 'click.graph', onClick )
-		.on( 'pointerdown.graph', () => svg.focus( { preventScroll: true } ) )
+		.on( 'pointerdown.graph', () =>
+			svg.focus( { preventScroll: true, focusVisible: false } )
+		)
 		.on( 'pointerover.graph', ( e ) => {
 			over = true;
 			hover( bodyAt( e.target ) ?? hullBeneath( e ) );

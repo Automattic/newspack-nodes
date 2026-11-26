@@ -3,6 +3,7 @@ import { __ } from '@wordpress/i18n';
 import { ForceGraph } from '@newspack-nodes/shared/forceGraph';
 import { useForceRows } from '../hooks/useForceRows';
 import { useGraphRates } from '../hooks/useGraphRates';
+import { useChrome } from '../ChromeContext';
 import {
 	placeHulls,
 	targetLinkId,
@@ -111,6 +112,7 @@ export default function ForceCanvas( {
 	svgRef,
 } ) {
 	const [ hoveredHull, setHoveredHull ] = useState( null );
+	const { bottomObstructionPx } = useChrome();
 	const isSnapshot = ! editMode && ! seeded;
 	const { rows, snapshot } = useForceRows( isSnapshot, resetKey );
 	const { rateRef: rowRateRef } = useGraphRates( snapshot, resetKey );
@@ -206,6 +208,7 @@ export default function ForceCanvas( {
 			onHover={ onHover }
 			onHoverGroup={ setHoveredHull }
 			onDeselect={ onDeselect }
+			bottomInset={ bottomObstructionPx }
 		/>
 	);
 }

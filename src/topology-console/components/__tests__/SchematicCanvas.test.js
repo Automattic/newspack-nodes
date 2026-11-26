@@ -1392,7 +1392,7 @@ describe( 'SchematicCanvas', () => {
 
 	/**
 	 * A near-covering transcript frames as CLOSED — the resize path's
-	 * TRANSCRIPT_FULL_FRACTION rule. The background-click autofit computed its
+	 * COVERED_FULL_SHARE rule. The background-click autofit computed its
 	 * box from the RAW inset instead, so clicking the background "fit" the
 	 * graph into the 50px strip above a maximised transcript, and a later
 	 * resize re-derived a different box from the same delta.
@@ -1433,7 +1433,7 @@ describe( 'SchematicCanvas', () => {
 			return onViewportChange.mock.calls.pop()[ 0 ];
 		};
 
-		// 950 of a 1000px canvas is past TRANSCRIPT_FULL_FRACTION (0.9).
+		// 950 of a 1000px canvas is past COVERED_FULL_SHARE (0.9).
 		expect( fitWith( 950 ) ).toEqual( fitWith( 0 ) );
 	} );
 

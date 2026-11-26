@@ -36,7 +36,10 @@ import {
 } from '../utils/viewportCull';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
 import { isTypingTarget } from '../../shared/utils/isTypingTarget';
-import { maxInsetBeforeLOD } from '../utils/viewportResize';
+import {
+	effectiveInset,
+	maxInsetBeforeLOD,
+} from '../../shared/utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
@@ -336,12 +339,6 @@ const LOD_FLOOR_SCALE = LOD_DETAIL_SCALE * 1.2;
 const GRID_MARGIN = 4000;
 
 /**
- * Bottom obstruction, as a fraction of canvas height, at which the transcript
- * counts as covering the canvas.
- */
-const TRANSCRIPT_FULL_FRACTION = 0.9;
-
-/**
  * Window in which a pointerdown and the mousedown paired with it count as one
  * press.
  */
@@ -370,20 +367,6 @@ function makeDownGuard() {
 			return true;
 		},
 	};
-}
-
-/**
- * The bottom band the graph must clear, after the full-transcript rule: a
- * transcript covering nearly the whole canvas frames as if it were closed,
- * because fitting into the remaining sliver is unreadable.
- *
- * @param {number} canvasH       Canvas height in px.
- * @param {number} obstructionPx Raw bottom obstruction in px.
- * @return {number} The inset autofit should honour.
- */
-function effectiveInset( canvasH, obstructionPx ) {
-	const inset = Math.max( 0, obstructionPx || 0 );
-	return inset >= canvasH * TRANSCRIPT_FULL_FRACTION ? 0 : inset;
 }
 
 /**
