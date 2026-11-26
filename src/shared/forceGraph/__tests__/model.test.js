@@ -9,6 +9,7 @@ import {
 	detailRadius,
 	labelHalfW,
 	LABEL_HALF_H,
+	strays,
 } from '../model';
 
 const node = ( id, extra = {} ) => ( { id, label: id, ...extra } );
@@ -572,5 +573,89 @@ describe( 'buildModel bodies', () => {
 		expect( model.movable ).toEqual( [] );
 		expect( model.siblings ).toEqual( [ [] ] );
 		expect( model.byId.size ).toBe( 0 );
+	} );
+} );
+
+describe( 'strays', () => {
+	const strayIds = ( host ) =>
+		[ ...strays( buildModel( { groups: [], ...host } ) ) ]
+			.map( ( leaf ) => leaf.id )
+			.sort();
+
+	it( 'finds every leaf outside the largest part the lines join', () => {
+		expect(
+			strayIds( {
+				nodes: [ 'ruru', 'kea', 'kaka', 'weka', 'tui', 'hoiho' ].map(
+					( id ) => node( id )
+				),
+				links: [
+					link( 'ruru', 'kea' ),
+					link( 'kea', 'kaka' ),
+					link( 'weka', 'tui' ),
+				],
+			} )
+		).toEqual( [ 'hoiho', 'tui', 'weka' ] );
+	} );
+
+	it( 'joins nothing by a loose line', () => {
+		expect(
+			strayIds( {
+				nodes: [ 'ruru', 'kea', 'kaka', 'tui' ].map( ( id ) =>
+					node( id )
+				),
+				links: [
+					link( 'ruru', 'kea' ),
+					link( 'kea', 'kaka' ),
+					link( 'kaka', 'tui', { loose: true } ),
+				],
+			} )
+		).toEqual( [ 'tui' ] );
+	} );
+
+	it( 'joins the leaves of one top-level group, whatever their lines', () => {
+		expect(
+			strayIds( {
+				nodes: [
+					node( 'ruru', { group: 'bush' } ),
+					node( 'kea', { group: 'alpine' } ),
+					node( 'kaka', { group: 'alpine' } ),
+					node( 'tui' ),
+				],
+				links: [ link( 'ruru', 'tui' ) ],
+				groups: [ group( 'bush' ), group( 'alpine', 'bush' ) ],
+			} )
+		).toEqual( [] );
+	} );
+
+	it( 'leaves a docked leaf out, so it joins no part and strays from none', () => {
+		expect(
+			strayIds( {
+				nodes: [
+					node( 'ruru' ),
+					node( 'kea' ),
+					node( 'kaka' ),
+					node( 'tui' ),
+					node( 'weka' ),
+					node( 'moa', { dock: true } ),
+				],
+				links: [
+					link( 'ruru', 'kea' ),
+					link( 'kea', 'kaka' ),
+					link( 'tui', 'weka' ),
+					link( 'kaka', 'moa' ),
+					link( 'tui', 'moa' ),
+				],
+			} )
+		).toEqual( [ 'tui', 'weka' ] );
+	} );
+
+	it( 'finds none in a graph of one part, or of none', () => {
+		expect(
+			strayIds( {
+				nodes: [ node( 'ruru' ), node( 'kea' ) ],
+				links: [ link( 'ruru', 'kea' ) ],
+			} )
+		).toEqual( [] );
+		expect( strayIds( { nodes: [], links: [] } ) ).toEqual( [] );
 	} );
 } );

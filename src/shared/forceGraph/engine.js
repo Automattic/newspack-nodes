@@ -34,7 +34,7 @@ import {
 	updateBoxes,
 } from './forces';
 import { carry, compare, crowds, refresh } from './follow';
-import { buildModel, docks } from './model';
+import { buildModel, docks, strays } from './model';
 import { createUntangler } from './untangle';
 
 /** Ticks a full layout untangles for: alpha 0.5 to 0.003. */
@@ -72,6 +72,13 @@ const THETA = 0.93;
 
 /** Strength of the pull holding each leaf toward the canvas centre. */
 const GRAVITY = 0.002;
+
+/**
+ * That pull on a leaf outside the largest part, for each unit of its charge:
+ * d3's 0.1 for the 1,000 a leaf carries at rest, so a stray stands as far out
+ * live as at rest, beside the part, never nearer than the plain pull holds it.
+ */
+const STRAY_GRAVITY = 0.1 / 1000;
 
 /** Friction of a layout its steady polls let go: every speed is lost. */
 const FROZEN = 1;
@@ -218,8 +225,9 @@ export const createEngine = ( {
 		.velocityDecay( VELOCITY_DECAY );
 	const charge = forceManyBody().theta( THETA );
 	const center = forceCenter();
-	const gravityX = forceX().strength( GRAVITY );
-	const gravityY = forceY().strength( GRAVITY );
+	let apart = new Set();
+	const gravityX = forceX();
+	const gravityY = forceY();
 	let pull = forceLink();
 
 	/** Pull toward the canvas centre; repel no farther than its larger side. */
@@ -385,22 +393,34 @@ export const createEngine = ( {
 			return false;
 		}
 		const [ fx, fy ] = [ size.width / 2, size.height / 2 ];
-		const strays = centered().filter(
+		const moved = centered().filter(
 			( leaf ) => leaf.fx !== fx || leaf.fy !== fy
 		);
-		strays.forEach( ( leaf ) => Object.assign( leaf, { fx, fy } ) );
-		return strays.length > 0;
+		moved.forEach( ( leaf ) => Object.assign( leaf, { fx, fy } ) );
+		return moved.length > 0;
 	};
 
-	const applyCharge = () =>
-		charge.strength( ( { id, node } ) => {
+	/**
+	 * Hand each leaf its charge, and its pull toward the centre, which on a
+	 * stray follows the charge.
+	 */
+	const applyCharge = () => {
+		const chargeOfLeaf = ( { id, node } ) => {
 			if ( docks( node ) ) {
 				return 0;
 			}
 			return live
 				? chargeOf( rates.get( id ) ?? 0 )
 				: node.charge ?? CHARGE;
-		} );
+		};
+		const gravity = ( leaf ) =>
+			apart.has( leaf )
+				? Math.max( GRAVITY, -chargeOfLeaf( leaf ) * STRAY_GRAVITY )
+				: GRAVITY;
+		charge.strength( chargeOfLeaf );
+		gravityX.strength( gravity );
+		gravityY.strength( gravity );
+	};
 
 	/**
 	 * Build the model's forces. The untangler's is first, so the rest push from
@@ -420,6 +440,7 @@ export const createEngine = ( {
 			joins.set( target.id, ( joins.get( target.id ) ?? 0 ) + 1 );
 		}
 		hubs = model.leaves.filter( ( { node } ) => node.center );
+		apart = strays( model );
 		pull = forceLink( model.pulls )
 			.distance(
 				// Points in the visualizer; bodies with extent here.

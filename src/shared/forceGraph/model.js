@@ -170,6 +170,56 @@ const holds = ( body, leaf ) => body === leaf || leaf.ancestors.has( body );
 export const docks = ( node ) => !! node.dock && ! node.center && ! node.group;
 
 /**
+ * The leaves outside the model's largest part: a part being the leaves its
+ * laid-out lines join, the leaves of one top-level group joined among them.
+ * A docked leaf stands in its row, apart from every part. Of two parts of a
+ * size, the one that reaches it first is the larger.
+ *
+ * @param {Model} model The model.
+ * @return {Set<Leaf>} The strays.
+ */
+export const strays = ( model ) => {
+	const up = new Map();
+	const root = ( body ) => {
+		const top = up.has( body ) ? root( up.get( body ) ) : body;
+		if ( top !== body ) {
+			up.set( body, top );
+		}
+		return top;
+	};
+	const join = ( a, b ) => {
+		const [ ra, rb ] = [ root( a ), root( b ) ];
+		if ( ra !== rb ) {
+			up.set( rb, ra );
+		}
+	};
+	const outermost = ( leaf ) => {
+		let at = leaf;
+		while ( at.parent ) {
+			at = at.parent;
+		}
+		return at;
+	};
+	const laid = model.leaves.filter( ( { node } ) => ! docks( node ) );
+	laid.forEach( ( leaf ) => join( outermost( leaf ), leaf ) );
+	model.spans.forEach( ( { source, target } ) => {
+		if ( ! docks( source.node ) && ! docks( target.node ) ) {
+			join( source, target );
+		}
+	} );
+	const sizes = new Map();
+	let largest = null;
+	laid.forEach( ( leaf ) => {
+		const part = root( leaf );
+		sizes.set( part, ( sizes.get( part ) ?? 0 ) + 1 );
+		if ( sizes.get( part ) > ( sizes.get( largest ) ?? 0 ) ) {
+			largest = part;
+		}
+	} );
+	return new Set( laid.filter( ( leaf ) => root( leaf ) !== largest ) );
+};
+
+/**
  * A leaf for one node: its label's rect at its scale, or a sized node's circle
  * with room beneath it for the label.
  *

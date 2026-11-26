@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A force graph can be painted in color through `@newspack-nodes/shared/forceGraph/paint`.** Its `paint( $colors )` mixin, included inside a host's canvas selector, fills and rings each node's circle in the color its class names and paints the lines faint at rest, stronger zoomed out, lit in the accent and fainter dimmed, with a selection ringed in the ink. A circle is a 35% tint of its color over the paper, ringed in a 35% shade toward the ink, so a count holds 4.5:1 on its fill and the ring 3:1 on every skin. Intelligence's graph and pyrobase's class graph both wear it.
 
+### Changed
+
+- **A part of a force graph cut off from the rest is held beside it.** A leaf outside the largest part the laid-out lines and top-level groups join, a docked leaf apart, is pulled toward the canvas centre by 0.1 for each 1,000 of its charge, d3's own default at rest, never less than the 0.002 every other leaf keeps, where 0.002 let the charge push a pair, a triangle or a node joined to nothing out to the end of its reach: in a test graph at rest a pair stood at 3.5 times the main part's reach, now inside twice it, and a stray stands as far out live as at rest. Kept warm, a live layout's mean holds within a pixel and a half of the canvas centre rather than one, a busy stray's harder pull aside.
+
 ## [2.169.1] - 2026-11-26
 
 ### Changed

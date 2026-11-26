@@ -368,7 +368,48 @@ describe( 'the forces', () => {
 		expect( charge.distanceMax() ).toBe( 1555 );
 	} );
 
-	it( 'keep the layout’s mean within a pixel of the canvas centre while kept warm, as forceCenter does', () => {
+	it( 'pull a node outside the largest part toward the canvas centre by its charge, 0.1 for the 1,000 it carries at rest', () => {
+		const engine = settled();
+		const gravityX = mockSimulation.force( 'gravityX' );
+		const gravityY = mockSimulation.force( 'gravityY' );
+		const d = leaf( engine, 'd' );
+		expect( gravityX.strength()( d ) ).toBe( gravityY.strength()( d ) );
+		expect( gravityX.strength()( d ) ).toBeCloseTo( 0.1, 9 );
+		expect( gravityX.strength()( leaf( engine, 'a' ) ) ).toBe( 0.002 );
+	} );
+
+	it.each( [ false, true ] )(
+		'hold a part apart from the rest beside the largest, live %s',
+		( live ) => {
+			const hub = times( 24, ( i ) => node( `h${ pad( i ) }` ) );
+			const engine = settled(
+				{
+					nodes: [ ...hub, node( 'ruru' ), node( 'kea' ) ],
+					links: [
+						...hub
+							.slice( 1 )
+							.map( ( one ) => link( 'h00', one.id ) ),
+						link( 'ruru', 'kea' ),
+					],
+					groups: [],
+				},
+				{ live }
+			);
+			const from = ( { x, y } ) =>
+				Math.hypot( x - SIZE.width / 2, y - SIZE.height / 2 );
+			const spread = hub
+				.map( ( one ) => from( leaf( engine, one.id ) ) )
+				.sort( ( a, b ) => a - b );
+			const reach = spread[ spread.length - 1 ];
+			[ 'ruru', 'kea' ].forEach( ( id ) => {
+				const gap = from( leaf( engine, id ) );
+				expect( gap ).toBeLessThan( reach * 3 );
+				expect( gap ).toBeGreaterThan( spread[ spread.length >> 1 ] );
+			} );
+		}
+	);
+
+	it( 'keep the layout’s mean within a pixel and a half of the canvas centre while kept warm, as forceCenter does, a busy stray’s harder pull aside', () => {
 		const engine = make( { live: true } );
 		engine.setKeepWarm( true );
 		engine.setGraph( small(), 'k7' );
@@ -384,7 +425,7 @@ describe( 'the forces', () => {
 			poll( engine );
 			frames( POLL_FRAMES );
 			const [ x, y ] = mean();
-			expect( Math.hypot( x - 656.5, y - 388.5 ) ).toBeLessThan( 1 );
+			expect( Math.hypot( x - 656.5, y - 388.5 ) ).toBeLessThan( 1.5 );
 		}
 	} );
 } );
@@ -2455,14 +2496,18 @@ describe( 'a change of live', () => {
 
 	it( 'moves the leaves by their new charge, an idle one weaker than the still one', () => {
 		const engine = settled();
+		const strength = () =>
+			mockSimulation.force( 'charge' ).strength()( leaf( engine, 'a' ) );
 		const apart = () => {
 			const [ a, d ] = [ leaf( engine, 'a' ), leaf( engine, 'd' ) ];
 			return Math.hypot( a.x - d.x, a.y - d.y );
 		};
 		const fixed = apart();
+		expect( strength() ).toBe( -1000 );
 		engine.setLive( true );
+		expect( strength() ).toBe( -10 );
 		settle( engine );
-		expect( apart() ).toBeLessThan( fixed - 1 );
+		expect( Math.abs( apart() - fixed ) ).toBeGreaterThan( 1 );
 	} );
 
 	it( 'ends the energy and friction its polls held', () => {
