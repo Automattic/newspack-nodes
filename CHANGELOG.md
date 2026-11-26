@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.169.0] - 2026-11-26
+
 ### Changed
 
 - **The console's sink lines pull, as the visualizer's do,** and the untangling counts none of their crossings: a force graph line takes `tangle: false` for that. Each node is drawn toward the node it sinks into.
