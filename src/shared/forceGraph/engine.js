@@ -13,6 +13,7 @@
  */
 
 import {
+	forceCenter,
 	forceLink,
 	forceManyBody,
 	forceSimulation,
@@ -205,6 +206,14 @@ export const createEngine = ( {
 		.alphaDecay( ALPHA_DECAY )
 		.velocityDecay( VELOCITY_DECAY );
 	const charge = forceManyBody();
+	const center = forceCenter();
+
+	/** Centre the layout on the canvas, and repel no farther than its larger side. */
+	const fitForces = () => {
+		center.x( size.width / 2 ).y( size.height / 2 );
+		charge.distanceMax( Math.max( size.width, size.height ) || Infinity );
+	};
+	fitForces();
 
 	// Whether the layout ticks, or will once a gesture or a drag ends.
 	const running = () => ! ( still || paused || hidden || destroyed );
@@ -391,7 +400,8 @@ export const createEngine = ( {
 			} )
 			.force( 'link', pull )
 			.force( 'boxes', () => updateBoxes( model ) )
-			.force( 'cohesion', forceCohesion( model, size ) )
+			.force( 'cohesion', forceCohesion( model ) )
+			.force( 'center', center )
 			.force( 'siblings', forceSiblings( model ) )
 			.force( 'charge', charge )
 			.force( 'clamp', forceClamp( model ) )
@@ -532,7 +542,7 @@ export const createEngine = ( {
 			}
 			size = next;
 			const strayed = fixCenter();
-			simulation.force( 'cohesion', forceCohesion( model, size ) );
+			fitForces();
 			if ( pending ) {
 				layOut();
 			} else if ( strayed && ! untangleTicks ) {

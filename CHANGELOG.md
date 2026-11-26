@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A force graph centres its layout as a whole and bounds its repulsion, as Tachikoma's `d3_visualizer.html` does:** `forceCenter` keeps the layout's mean on the canvas centre and pulls no node in, and a node repels none farther than the canvas's larger side. A pull toward the canvas centre that began 500px out is gone; with unbounded repulsion it held a graph of separate chains in a ring around an empty middle.
+
 - **A force graph untangles until it settles,** not only while its layout cools: while the last whole lap of bodies still kept a trade or a mirror, the layout reheats to 0.1 and untangles 464 ticks more, three times at most. A large graph such as the debug overlay's console gets the passes it needs; a graph whose first untangling ends settled runs as before.
 
 ## [2.168.0] - 2026-11-26

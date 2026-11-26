@@ -32,8 +32,6 @@ const at = ( model, spots ) =>
 		leaf.vy = 0;
 	} );
 
-const canvas = { width: 2000, height: 1000 };
-
 describe( 'chargeOf', () => {
 	it( 'repels by the log of the rate, idle or not', () => {
 		expect( chargeOf( 0 ) ).toBeCloseTo( -1500 );
@@ -197,7 +195,7 @@ describe( 'forceCohesion', () => {
 			[ 1100, 500 ],
 		] );
 		updateBoxes( model );
-		forceCohesion( model, canvas )( 0.4 );
+		forceCohesion( model )( 0.4 );
 
 		expect( model.leaves[ 0 ].vx ).toBeCloseTo( 4 );
 		expect( model.leaves[ 1 ].vx ).toBeCloseTo( -4 );
@@ -214,23 +212,20 @@ describe( 'forceCohesion', () => {
 			[ 1300, 500 ],
 		] );
 		updateBoxes( model );
-		forceCohesion( model, canvas )( 0.5 );
+		forceCohesion( model )( 0.5 );
 
 		expect( model.leaves[ 0 ].vx ).toBeCloseTo( 9 );
 		expect( model.leaves[ 1 ].vx ).toBeCloseTo( -9 );
 	} );
 
-	it( 'fades a pull toward the canvas center in past 500 units', () => {
+	it( 'pulls no leaf toward the canvas, however far out it stands', () => {
 		const model = build( [ node( 'a' ) ] );
-		at( model, [ [ 1750, 500 ] ] );
-		forceCohesion( model, canvas )( 0.3 );
+		at( model, [ [ 4321, 2468 ] ] );
+		forceCohesion( model )( 0.3 );
 
-		expect( model.leaves[ 0 ].vx ).toBeCloseTo( -11.25 );
-
-		at( model, [ [ 2000, 500 ] ] );
-		forceCohesion( model, canvas )( 0.3 );
-
-		expect( model.leaves[ 0 ].vx ).toBeCloseTo( -30 );
+		expect( [ model.leaves[ 0 ].vx, model.leaves[ 0 ].vy ] ).toEqual( [
+			0, 0,
+		] );
 	} );
 } );
 

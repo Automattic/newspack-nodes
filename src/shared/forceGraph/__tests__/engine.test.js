@@ -76,9 +76,6 @@ const SLICE_MS = 12;
 /** Ticks from alpha 0.5 to a stop. */
 const LAYOUT_TICKS = 826;
 
-/** Ticks one untangling more adds to a layout: alpha 0.1 to the stop. */
-const MORE_TICKS = 466;
-
 /** Ticks of a full layout that are painted, the last that untangles first. */
 const PAINTED_TICKS = LAYOUT_TICKS - UNTANGLE_TICKS + 1;
 
@@ -346,6 +343,19 @@ afterEach( () => {
 	timers.forEach( ( _timer, engine ) => engine.destroy() );
 	timers.clear();
 	jest.restoreAllMocks();
+} );
+
+describe( 'the forces', () => {
+	it( 'centre the layout on the canvas, and repel no farther than its larger side, after a resize too', () => {
+		const engine = settled();
+		const center = mockSimulation.force( 'center' );
+		const charge = mockSimulation.force( 'charge' );
+		expect( [ center.x(), center.y() ] ).toEqual( [ 656.5, 388.5 ] );
+		expect( charge.distanceMax() ).toBe( 1313 );
+		engine.setSize( { width: 901, height: 1555 } );
+		expect( [ center.x(), center.y() ] ).toEqual( [ 450.5, 777.5 ] );
+		expect( charge.distanceMax() ).toBe( 1555 );
+	} );
 } );
 
 describe( 'a full layout', () => {
@@ -1405,8 +1415,7 @@ describe( 'a center node', () => {
 			frames( 1 );
 			expect( at( engine ) ).toEqual( MIDDLE );
 		}
-		// Its last lap in the first untangling still kept a move.
-		expect( engine.ticks() ).toBe( LAYOUT_TICKS + MORE_TICKS );
+		expect( engine.ticks() ).toBe( LAYOUT_TICKS );
 		expectClear( engine.model() );
 	} );
 
@@ -1588,7 +1597,8 @@ describe( 'a center node', () => {
 		engine.drag( 'hub', 2222, 1777 );
 		engine.drop();
 		frames( 1 );
-		expect( at( engine )[ 0 ] ).toBeGreaterThan( 2000 );
+		// The layout recentres as a whole; the middle no longer holds it.
+		expect( at( engine )[ 0 ] ).toBeGreaterThan( MIDDLE[ 0 ] + 1000 );
 
 		settle( engine );
 		engine.setGraph( centered( small() ), 'k7' );

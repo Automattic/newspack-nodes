@@ -29,9 +29,6 @@ const COHESION = 0.1;
 /** Multiplier from each ancestor to the next one up. */
 const COHESION_FALLOFF = 0.9;
 
-/** Distance from the canvas centre where its pull begins. */
-const CENTER_FADE_START = 500;
-
 /** Clear space siblings keep between their boxes; the push is zero at it. */
 const GAP = 24;
 
@@ -144,34 +141,23 @@ export const placeNodes = ( model, { width, height } ) => {
 
 /**
  * Pull every leaf toward each enclosing branch's mass centre, nearest first
- * and weaker for each higher one, and toward the canvas centre once it is
- * farther than the fade start, fading in over the same distance again.
+ * and weaker for each higher one. Nothing pulls a leaf toward the canvas: the
+ * engine centres the layout as a whole, as d3_visualizer.html does.
  *
- * @param {import('./model').Model}         model Model whose leaves move.
- * @param {{width: number, height: number}} size  Canvas size.
+ * @param {import('./model').Model} model Model whose leaves move.
  * @return {function(number): void} Force of `alpha`.
  */
-export const forceCohesion =
-	( model, { width, height } ) =>
-	( alpha ) => {
-		for ( const leaf of model.leaves ) {
-			let strength = alpha * COHESION;
-			for ( const body of leaf.ancestors ) {
-				const ancestor = /** @type {MassBranch} */ ( body );
-				leaf.vx += ( ancestor.massX - leaf.x ) * strength;
-				leaf.vy += ( ancestor.massY - leaf.y ) * strength;
-				strength *= COHESION_FALLOFF;
-			}
-			const dx = width / 2 - leaf.x;
-			const dy = height / 2 - leaf.y;
-			const fade =
-				( Math.sqrt( dx * dx + dy * dy ) - CENTER_FADE_START ) /
-				CENTER_FADE_START;
-			strength *= Math.min( 1, Math.max( 0, fade ) );
-			leaf.vx += dx * strength;
-			leaf.vy += dy * strength;
+export const forceCohesion = ( model ) => ( alpha ) => {
+	for ( const leaf of model.leaves ) {
+		let strength = alpha * COHESION;
+		for ( const body of leaf.ancestors ) {
+			const ancestor = /** @type {MassBranch} */ ( body );
+			leaf.vx += ( ancestor.massX - leaf.x ) * strength;
+			leaf.vy += ( ancestor.massY - leaf.y ) * strength;
+			strength *= COHESION_FALLOFF;
 		}
-	};
+	}
+};
 
 /**
  * Part overlapping siblings (a branch by its box, a leaf by its rect) along
