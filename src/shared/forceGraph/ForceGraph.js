@@ -65,7 +65,6 @@ const NO_GROUPS = [];
  * @property {number=}  distance  Pixels it pulls its ends to; without one, 30 between their edges while live and 250 between their centres while not.
  * @property {number=}  strength  Share of its error it corrects each tick, per alpha; 1 over its less joined end's lines without one.
  * @property {boolean=} loose     Whether it is drawn alone, taking no part in the layout.
- * @property {boolean=} tangle    False for one that pulls, but whose crossings the untangling never counts.
  */
 
 /**

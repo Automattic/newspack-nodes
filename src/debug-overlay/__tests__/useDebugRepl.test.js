@@ -173,6 +173,17 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
+	it( 'sinks _stdout into the interpreter, as the station’s console does', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { unmount } = renderHook( () => useDebugRepl( true, shell ) );
+		expect( Core.node( names.STDOUT ).sink ).toBe(
+			Core.node( names.COMMAND_INTERPRETER )
+		);
+		unmount();
+		teardown();
+	} );
+
 	it( 'does not register a transcript node when inactive', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();

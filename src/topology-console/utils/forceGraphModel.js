@@ -455,7 +455,7 @@ export const toForceGraph = ( {
 			draw( `sink:${ id }/${ sink }`, 'sink', id, sink, {
 				rate: liveRate( id ),
 				directed: true,
-				tangle: false,
+				loose: true,
 			} );
 		}
 	}

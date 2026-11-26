@@ -14,7 +14,6 @@
 
 import {
 	forceCenter,
-	forceCollide,
 	forceLink,
 	forceManyBody,
 	forceX,
@@ -73,12 +72,6 @@ const THETA = 0.93;
 
 /** Strength of the pull holding each leaf toward the canvas centre. */
 const GRAVITY = 0.002;
-
-/** Pixels a collision reaches past a body's corners, its label's included. */
-const COLLIDE_PAD = 12;
-
-/** Passes d3's collision makes each tick, so a crowd kept warm stays clear. */
-const COLLIDE_PASSES = 8;
 
 /** Friction of a layout its steady polls let go: every speed is lost. */
 const FROZEN = 1;
@@ -227,8 +220,6 @@ export const createEngine = ( {
 	const center = forceCenter();
 	const gravityX = forceX().strength( GRAVITY );
 	const gravityY = forceY().strength( GRAVITY );
-	const reach = ( leaf ) => leaf.radius + COLLIDE_PAD;
-	const collide = forceCollide( reach ).iterations( COLLIDE_PASSES );
 	let pull = forceLink();
 
 	/** Pull toward the canvas centre; repel no farther than its larger side. */
@@ -463,7 +454,6 @@ export const createEngine = ( {
 			.force( 'gravityX', gravityX )
 			.force( 'gravityY', gravityY )
 			.force( 'siblings', forceSiblings( model ) )
-			.force( 'collide', collide )
 			.force( 'charge', charge )
 			.force( 'clamp', forceClamp( model ) )
 			.force( 'dock', forceDock( model ) );
@@ -535,7 +525,6 @@ export const createEngine = ( {
 				// An untangling under way makes room for the new extents.
 				const resized = refresh( model, next );
 				// d3 reads each radius and length only as it takes the leaves.
-				collide.radius( reach );
 				pull.distance( pull.distance() );
 				if ( ! untangleTicks && crowds( resized, model ) ) {
 					makeRoom();

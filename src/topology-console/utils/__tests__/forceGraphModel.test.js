@@ -830,19 +830,10 @@ describe( 'toForceGraph sinks', () => {
 					l.className,
 					l.directed,
 					l.loose,
-					l.tangle,
 				] )
 		).toEqual( [
-			[
-				`sink:a-1/${ CI }`,
-				'a-1',
-				CI,
-				'is-sink',
-				true,
-				undefined,
-				false,
-			],
-			[ 'sink:b-2/a-1', 'b-2', 'a-1', 'is-sink', true, undefined, false ],
+			[ `sink:a-1/${ CI }`, 'a-1', CI, 'is-sink', true, true ],
+			[ 'sink:b-2/a-1', 'b-2', 'a-1', 'is-sink', true, true ],
 		] );
 	} );
 

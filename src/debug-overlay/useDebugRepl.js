@@ -82,16 +82,19 @@ function makeGate( interpreter ) {
  * An already-registered `_stdout` is reused rather than replaced, which is what
  * keeps StrictMode's double-invoked initializer from colliding on the name.
  *
- * @param {Object}   shell     Shell owned by the overlay's Inspector tab.
- * @param {Object}   dumper    The `_output` Dumper owning the transcript.
- * @param {Function} onSetSkin Applies a resolved skin slug.
+ * @param {Object}   shell       Shell owned by the overlay's Inspector tab.
+ * @param {Object}   dumper      The `_output` Dumper owning the transcript.
+ * @param {Function} onSetSkin   Applies a resolved skin slug.
+ * @param {?Object}  interpreter The `_command_interpreter`, its sink.
  * @return {StdoutNode} The mounted `_stdout` node.
  */
-function wireStdout( shell, dumper, onSetSkin ) {
+function wireStdout( shell, dumper, onSetSkin, interpreter ) {
 	const stdout =
 		Core.node( names.STDOUT ) ||
 		new StdoutNode( { write: ( text ) => dumper.appendText( text ) } );
 	stdout.name = names.STDOUT;
+	// Rule #2: terminal, but sunk like PHP's TTY_Out_Node.
+	stdout.sink = interpreter;
 	shell.host = makeSkinHost( {
 		skins: THEMES,
 		currentSkin: getStoredTheme,
@@ -135,7 +138,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin ) {
 	const existing = Core.node( names.OUTPUT );
 	if ( existing ) {
 		shell.sink = makeGate( interpreter );
-		wireStdout( shell, existing, onSetSkin );
+		wireStdout( shell, existing, onSetSkin, interpreter );
 		aimHttp( names.OUTPUT );
 		return {
 			dumper: existing,
@@ -185,7 +188,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin ) {
 	}
 	// Bind shell.sink here, so a line typed on open never finds it null.
 	shell.sink = makeGate( interpreter );
-	const stdout = wireStdout( shell, dumper, onSetSkin );
+	const stdout = wireStdout( shell, dumper, onSetSkin, interpreter );
 	aimHttp( names.OUTPUT );
 	const teardown = () => {
 		aimHttp( names.NULL );

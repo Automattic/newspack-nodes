@@ -110,9 +110,13 @@ $visualizer-skins: ();
 	$visualizer-skins: list.append($visualizer-skins, ".theme-#{$slug}", comma);
 }
 
-// A line's color, glowing in its bright one while live.
+// A line's color, plain enough to see while idle, bright and glowing live.
 @mixin visualizer-line($kind) {
 	stroke: var(--visualizer-#{$kind});
+
+	&:not(.is-live, .is-dimmed) {
+		opacity: 0.55;
+	}
 
 	&.is-live {
 		stroke: var(--visualizer-#{$kind}-bright);
@@ -121,6 +125,7 @@ $visualizer-skins: ();
 
 	&:is(.is-touched, .is-selected) {
 		stroke: var(--oxide);
+		filter: none;
 	}
 }
 
@@ -146,10 +151,12 @@ $visualizer-skins: ();
 
 	&.is-drift #{$graph}__shape {
 		stroke: var(--brass);
+		filter: none;
 	}
 
 	&.is-selected #{$graph}__shape {
 		stroke: var(--oxide);
+		filter: none;
 	}
 }
 

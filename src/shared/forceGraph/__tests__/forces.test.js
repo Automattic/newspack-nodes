@@ -245,7 +245,7 @@ describe( 'forceSiblings', () => {
 		return { a, b, g: model.branches[ 0 ] };
 	};
 
-	it( 'leaves two nodes to d3’s collision', () => {
+	it( 'leaves two nodes free to meet, as d3_visualizer.html does', () => {
 		const model = build( [ node( 'a' ), node( 'b' ) ] );
 		at( model, [
 			[ 100, 40 ],

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A force graph has no collision between two nodes, as d3_visualizer.html has none.** The collision fought the console's sink lines, shaking every node a median 2,800 pixels a second, and crowded its rungs into one even spread; without it the console settles into rings again. Labels may meet; hulls still part. The `tangle` line flag is gone with the sink pulls it served.
+
+- **The console's sink lines are drawn loose again,** pulling nothing: every node sinks into the command interpreter, so their pull drew the whole graph into one ring.
+
+- **The debug overlay's `_stdout` sinks into the command interpreter,** as the station console's does and as every node does, so the console draws its sink line.
+
+- **An idle connection stays visible on the dark skins that take color,** drawn at more than twice its old strength; a live one glows in its bright color as before. A glow on every line tripled each frame's cost.
+
 ## [2.169.0] - 2026-11-26
 
 ### Changed

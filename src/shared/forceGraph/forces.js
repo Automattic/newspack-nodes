@@ -162,10 +162,10 @@ export const forceCohesion = ( model ) => ( alpha ) => {
 
 /**
  * Part overlapping siblings by their boxes where one is a branch, along the
- * nearest exit, half the way each, to the gap; a pair of leaves is left to
- * d3's `forceCollide`. The push is exactly zero at the gap and ignores alpha,
- * as `forceCollide` does, so the layout ends with the boxes clear of each
- * other. Siblings sorted by left edge test only the
+ * nearest exit, half the way each, to the gap; a pair of leaves is never
+ * parted, as d3_visualizer.html parts none. The push is exactly zero at the
+ * gap and ignores alpha, so the layout ends with every hull clear of its
+ * siblings. Siblings sorted by left edge test only the
  * neighbors their box can still reach in x. A branch's push moves all of its
  * leaves; its box is as `updateBoxes` last left it.
  *

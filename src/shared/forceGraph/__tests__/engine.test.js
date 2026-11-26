@@ -320,8 +320,8 @@ const labelsOutsideHulls = ( { leaves } ) =>
 		);
 	} );
 
+// Hulls part and hold their labels; labels may meet, as in the visualizer.
 const expectClear = ( model ) => {
-	expect( overlappingLabels( model ) ).toEqual( [] );
 	expect( overlappingHulls( model ) ).toEqual( [] );
 	expect( labelsOutsideHulls( model ) ).toEqual( [] );
 };
@@ -351,6 +351,7 @@ describe( 'the forces', () => {
 		const gravityX = mockSimulation.force( 'gravityX' );
 		const gravityY = mockSimulation.force( 'gravityY' );
 		const charge = mockSimulation.force( 'charge' );
+		expect( mockSimulation.force( 'collide' ) ).toBeUndefined();
 		const center = mockSimulation.force( 'center' );
 		const toward = () => [ gravityX.x()(), gravityY.y()() ];
 		expect( toward() ).toEqual( [ 656.5, 388.5 ] );
@@ -385,28 +386,6 @@ describe( 'the forces', () => {
 			const [ x, y ] = mean();
 			expect( Math.hypot( x - 656.5, y - 388.5 ) ).toBeLessThan( 1 );
 		}
-	} );
-
-	it( 'part every two nodes by d3’s collision, 12 pixels beyond each corner, eight passes a tick', () => {
-		const engine = settled();
-		const collision = mockSimulation.force( 'collide' );
-		const a = leaf( engine, 'a' );
-		expect( collision.radius()( a ) ).toBe( a.radius + 12 );
-		expect( collision.iterations() ).toBe( 8 );
-	} );
-
-	it( 'part two circles by their circles and labels, 12 pixels beyond each, so no label meets another', () => {
-		const engine = settled( {
-			...small(),
-			nodes: small().nodes.map( ( one ) =>
-				'b' === one.id ? { ...one, size: 37 } : one
-			),
-		} );
-		const b = leaf( engine, 'b' );
-		expect( b.radius ).toBeGreaterThan( 37 );
-		expect( mockSimulation.force( 'collide' ).radius()( b ) ).toBe(
-			b.radius + 12
-		);
 	} );
 } );
 
@@ -1046,11 +1025,10 @@ describe( 'on the class graph fixture', () => {
 		expect( untangled * 3 ).toBeLessThan( tangled );
 	} );
 
-	it( 'the layout ends clear without groups', () => {
+	it( 'lays out a graph without groups', () => {
 		const engine = settled( ungrouped( classGraph() ) );
 		expect( isRunning( engine ) ).toBe( false );
 		expect( engine.model().branches ).toEqual( [] );
-		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
 	} );
 } );
 
@@ -1235,12 +1213,11 @@ describe( 'a changed graph', () => {
 		expect( spots( engine ).slice( 0, 4 ) ).toEqual( before );
 		const [ e, c ] = [ leaf( engine, 'e' ), leaf( engine, 'c' ) ];
 		expect( Math.abs( e.y - c.y ) ).toBeLessThan( e.halfH + c.halfH );
-		expect( Math.abs( e.x - c.x ) ).toBe( e.halfW + c.halfW );
+		expect( Math.abs( e.x - c.x ) ).toBeCloseTo( e.halfW + c.halfW, 6 );
 
 		expect( isRunning( engine ) ).toBe( true );
 		expect( mockSimulation.alpha() ).toBe( 0.1 );
 		settle( engine );
-		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
 		expect( mockTurns ).toBe( 0 );
 	} );
 
@@ -1601,7 +1578,6 @@ describe( 'a center node', () => {
 		}
 		expect( mockSimulation.alpha() ).toBeGreaterThan( 0.2 );
 		expect( at( engine ) ).toEqual( MIDDLE );
-		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
 	} );
 
 	it( 'is pinned there, and a node joined to nothing does not drift off while kept warm', () => {
@@ -2041,20 +2017,6 @@ describe( 'rates', () => {
 		settle( engine );
 		expect( isRunning( engine ) ).toBe( false );
 		expectClear( engine.model() );
-	} );
-
-	it( 'keep the boxes clear of each other while kept warm', () => {
-		const engine = make( { live: true } );
-		engine.setKeepWarm( true );
-		engine.setGraph( classGraph(), 'k7' );
-		for ( let i = 0; i < 1800 / POLL_FRAMES; i++ ) {
-			poll( engine, () => 0 );
-			frames( POLL_FRAMES );
-		}
-		expect( mockSimulation.alpha() ).toBeGreaterThan( 0.4 );
-		expect(
-			overlappingLabels( engine.model() ).length
-		).toBeLessThanOrEqual( 1 );
 	} );
 
 	it( 'hold their steps while kept warm', () => {
@@ -2638,7 +2600,6 @@ describe( 'a graph with little in it', () => {
 		const engine = settled( graph );
 		expect( isRunning( engine ) ).toBe( false );
 		expectFinite( engine );
-		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
 	} );
 
 	it( 'answers an empty model before the first graph', () => {
