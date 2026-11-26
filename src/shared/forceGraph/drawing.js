@@ -56,12 +56,38 @@ const opacityOf = ( { rate } ) => {
 };
 
 /**
- * A line's path: from its source's centre to the edge of its target.
+ * d3_visualizer.html's target arc, a radius as long as the chord between the
+ * centres, stopped where it meets the target: as far from the target's centre
+ * as a straight line would stop, back along the arc, so its end points in.
+ *
+ * @param {{x: number, y: number}} source The source's centre.
+ * @param {{x: number, y: number}} target The target's centre.
+ * @param {number}                 back   Share of the chord within the target.
+ * @return {string} The path's `d`.
+ */
+const arcPath = ( source, target, back ) => {
+	const dx = target.x - source.x;
+	const dy = target.y - source.y;
+	const r = Math.hypot( dx, dy );
+	const half = Math.sqrt( 3 ) / 2;
+	// The arc's centre: the third corner of an equilateral triangle.
+	const cx = source.x + dx / 2 - dy * half;
+	const cy = source.y + dy / 2 + dx * half;
+	const turn = -2 * Math.asin( back / 2 );
+	const [ tx, ty ] = [ target.x - cx, target.y - cy ];
+	const x = cx + tx * Math.cos( turn ) - ty * Math.sin( turn );
+	const y = cy + tx * Math.sin( turn ) + ty * Math.cos( turn );
+	return `M${ source.x },${ source.y }A${ r },${ r } 0 0,1 ${ x },${ y }`;
+};
+
+/**
+ * A line's path: from its source's centre to the edge of its target,
+ * straight, or as an arc when the line is curved.
  *
  * @param {Link} link The line.
  * @return {string} The path's `d`.
  */
-const linkPath = ( { source, target } ) => {
+const linkPath = ( { source, target, link } ) => {
 	const dx = target.x - source.x;
 	const dy = target.y - source.y;
 	// The share of the line that lies within its target.
@@ -72,10 +98,11 @@ const linkPath = ( { source, target } ) => {
 				target.halfH / Math.abs( dy )
 		  );
 	const back = Math.min( within, 1 );
-
-	return `M${ source.x },${ source.y }L${ target.x - dx * back },${
-		target.y - dy * back
-	}`;
+	if ( link.curved ) {
+		return arcPath( source, target, back );
+	}
+	const [ x, y ] = [ target.x - dx * back, target.y - dy * back ];
+	return `M${ source.x },${ source.y }L${ x },${ y }`;
 };
 
 /**

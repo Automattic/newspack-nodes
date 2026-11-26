@@ -33,15 +33,14 @@ const at = ( model, spots ) =>
 	} );
 
 describe( 'chargeOf', () => {
-	it( 'repels by the log of the rate, idle or not', () => {
-		expect( chargeOf( 0 ) ).toBeCloseTo( -1500 );
-		expect( chargeOf( 9 ) ).toBeCloseTo( -3000 );
-		expect( chargeOf( 999 ) ).toBeCloseTo( -6000 );
+	it( 'repels as d3_visualizer.html does: -2 by a log scale of 5 to 100 over 1 + the rate', () => {
+		expect( chargeOf( 0 ) ).toBeCloseTo( -10 );
+		expect( chargeOf( 9 ) ).toBeCloseTo( -200 );
+		expect( chargeOf( 99 ) ).toBeCloseTo( -390 );
 	} );
 
-	it( 'is stronger than the fixed charge of a graph without rates', () => {
+	it( 'gives a graph without rates a charge of its own, -1000, the rate scale having nothing to read', () => {
 		expect( CHARGE ).toBe( -1000 );
-		expect( chargeOf( 0 ) ).toBeLessThan( CHARGE );
 	} );
 } );
 
@@ -230,56 +229,75 @@ describe( 'forceCohesion', () => {
 } );
 
 describe( 'forceSiblings', () => {
-	const pair = ( gap ) => {
+	// A hull of one node beside a lone node, the lone node `dx`, `dy` away.
+	const beside = ( dx, dy, extra = {} ) => {
+		const model = build(
+			[ node( 'a', { group: 'g', ...extra } ), node( 'b' ) ],
+			[ group( 'g' ) ]
+		);
+		at( model, [
+			[ 100, 100 ],
+			[ 100 + dx, 100 + dy ],
+		] );
+		updateBoxes( model );
+		forceSiblings( model )( 0.9 );
+		const [ a, b ] = model.leaves;
+		return { a, b, g: model.branches[ 0 ] };
+	};
+
+	it( 'leaves two nodes to d3’s collision', () => {
 		const model = build( [ node( 'a' ), node( 'b' ) ] );
 		at( model, [
 			[ 100, 40 ],
-			[ 100 + gap, 40 ],
+			[ 101, 41 ],
 		] );
 		forceSiblings( model )( 0.9 );
-		return model.leaves;
-	};
 
-	it( 'parts siblings by the nearest exit, half each', () => {
-		const [ a, b ] = pair( 50 );
+		expect( model.leaves.map( ( l ) => [ l.vx, l.vy ] ).flat() ).toEqual( [
+			0, 0, 0, 0,
+		] );
+	} );
 
-		expect( a.vx ).toBe( -17 );
-		expect( b.vx ).toBe( 17 );
-		expect( a.vy ).toBe( 0 );
-		expect( b.vy ).toBe( 0 );
+	it( 'parts a hull from a node by the nearest exit, half each', () => {
+		const { a, b, g } = beside( 100, 0 );
+		const kick = ( g.boxMaxX - b.boxMinX + 24 ) / 2;
+
+		expect( [ a.vx, b.vx ] ).toEqual( [ -kick, kick ] );
+		expect( [ a.vy, b.vy ] ).toEqual( [ 0, 0 ] );
 	} );
 
 	it( 'parts along y when that exit is nearer', () => {
-		const model = build( [ node( 'a' ), node( 'b' ) ] );
-		at( model, [
-			[ 100, 40 ],
-			[ 110, 60 ],
-		] );
-		forceSiblings( model )( 0 );
-		const [ a, b ] = model.leaves;
+		const { a, b, g } = beside( 0, 80 );
+		const kick = ( g.boxMaxY - b.boxMinY + 24 ) / 2;
 
-		expect( a.vx ).toBe( 0 );
-		expect( a.vy ).toBe( -( 12 + 12 - 20 + 24 ) / 2 );
-		expect( b.vy ).toBe( 14 );
+		expect( [ a.vx, b.vx ] ).toEqual( [ 0, 0 ] );
+		expect( [ a.vy, b.vy ] ).toEqual( [ -kick, kick ] );
 	} );
 
 	it( 'parts toward the left when that exit is nearest', () => {
-		const model = build( [ node( 'a', { size: 100 } ), node( 'b' ) ] );
-		at( model, [
-			[ 100, 100 ],
-			[ 35, 100 ],
-		] );
-		forceSiblings( model )( 0 );
-		const [ a, b ] = model.leaves;
+		const { a, b, g } = beside( -100, 0 );
+		const kick = ( b.boxMaxX - g.boxMinX + 24 ) / 2;
 
-		expect( [ a.vx, b.vx ] ).toEqual( [ 44.5, -44.5 ] );
+		expect( [ a.vx, b.vx ] ).toEqual( [ kick, -kick ] );
 		expect( [ a.vy, b.vy ] ).toEqual( [ 0, 0 ] );
 	} );
 
 	it( 'stops pushing at the gap', () => {
-		const [ a, b ] = pair( 84 );
+		const { g, b } = beside( 0, 0 );
+		const model = build(
+			[ node( 'a', { group: 'g' } ), node( 'b' ) ],
+			[ group( 'g' ) ]
+		);
+		at( model, [
+			[ 100, 100 ],
+			[ g.boxMaxX + 24 + b.halfW, 100 ],
+		] );
+		updateBoxes( model );
+		forceSiblings( model )( 0 );
 
-		expect( [ a.vx, a.vy, b.vx, b.vy ] ).toEqual( [ 0, 0, 0, 0 ] );
+		expect( model.leaves.map( ( l ) => [ l.vx, l.vy ] ).flat() ).toEqual( [
+			0, 0, 0, 0,
+		] );
 	} );
 
 	it( 'pushes a sibling wholly inside another out', () => {

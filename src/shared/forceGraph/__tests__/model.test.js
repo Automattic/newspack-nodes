@@ -108,6 +108,23 @@ describe( 'buildModel links and spans', () => {
 		expect( model.spans ).toHaveLength( 1 );
 	} );
 
+	it( 'a link that does not tangle pulls, but no crossing of it counts', () => {
+		const free = link( 'A', 'B', { tangle: false } );
+		const model = buildModel( {
+			nodes: [ node( 'A' ), node( 'B' ), node( 'C' ) ],
+			links: [ free, link( 'B', 'C' ) ],
+			groups: [],
+		} );
+		const pairs = ( list ) =>
+			list.map( ( l ) => [ l.source.id, l.target.id ] );
+
+		expect( pairs( model.pulls ) ).toEqual( [
+			[ 'A', 'B' ],
+			[ 'B', 'C' ],
+		] );
+		expect( pairs( model.spans ) ).toEqual( [ [ 'B', 'C' ] ] );
+	} );
+
 	it( 'a loose link is drawn, and takes no part in the layout', () => {
 		const loose = link( 'A', 'B', { loose: true } );
 		const model = buildModel( {

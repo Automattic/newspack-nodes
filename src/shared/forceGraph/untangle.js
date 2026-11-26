@@ -6,7 +6,9 @@
  * or one mirror; a call earns a credit of span comparisons and runs moves
  * while any is left, so a large graph is untangled a few moves at a time. A
  * call answers whether the untangling has settled: whether the last whole
- * lap of bodies kept no move.
+ * lap of bodies kept no move that left fewer crossings, since a move that
+ * only shortens a line never ends on a real graph, or whether it has spent
+ * the comparisons a whole layout may.
  */
 
 import { mean } from 'd3';
@@ -14,6 +16,9 @@ import { updateBoxes } from './forces';
 
 /** Span comparisons a call earns, and the most credit that is kept. */
 export const COMPARISONS_PER_CALL = 400000;
+
+/** Span comparisons a whole layout may spend: about three seconds of work. */
+export const COMPARISONS_PER_LAYOUT = 30000000;
 
 /** Pixels of span length that cost as much as one crossing. */
 const SPAN_PER_CROSSING = 10000;
@@ -88,10 +93,11 @@ const shift = ( body, dx, dy ) => {
  * starts. A call finishes at most one lap of bodies. The model is fixed for
  * the untangler's life, so a changed graph makes a new one.
  *
- * @param {import('./model').Model} model Model whose leaves move.
+ * @param {import('./model').Model} model    Model whose leaves move.
+ * @param {number}                  [budget] Span comparisons the whole layout may spend; `COMPARISONS_PER_LAYOUT` without one.
  * @return {?function(): boolean} Untangle: a few moves mirror or trade places, answering whether it has settled. Null for a model with nothing movable.
  */
-export const createUntangler = ( model ) => {
+export const createUntangler = ( model, budget = COMPARISONS_PER_LAYOUT ) => {
 	const { spans, movable } = model;
 	if ( ! movable.length ) {
 		return null;
@@ -103,8 +109,10 @@ export const createUntangler = ( model ) => {
 	let partnerList = null;
 	let credit = 0;
 	let compared = 0;
-	// Moves the lap under way kept; whether the last whole lap kept none.
-	let kept = 0;
+	let spent = 0;
+	// Crossings the last tangle counted; the lap's kept moves that cut one.
+	let crossed = 0;
+	let uncrossed = 0;
 	let settled = false;
 	// Which spans a tangle has counted, by place in `spans`; all clear between.
 	const counted = new Uint8Array( spans.length );
@@ -120,6 +128,7 @@ export const createUntangler = ( model ) => {
 	 */
 	const tangle = ( moved, limit = Infinity ) => {
 		let cost = 0;
+		crossed = 0;
 		for ( const { source, target } of moved ) {
 			cost +=
 				Math.hypot( target.x - source.x, target.y - source.y ) /
@@ -132,6 +141,7 @@ export const createUntangler = ( model ) => {
 					compared++;
 					if ( crosses( l, spans[ i ] ) ) {
 						cost++;
+						crossed++;
 					}
 				}
 			}
@@ -155,10 +165,11 @@ export const createUntangler = ( model ) => {
 	 */
 	const keepIfBetter = ( moved, move, undo ) => {
 		const target = tangle( moved ) - ROUNDING;
+		const before = crossed;
 		move();
 		if ( tangle( moved, target ) < target ) {
 			updateBoxes( model );
-			kept++;
+			uncrossed += crossed < before ? 1 : 0;
 		} else {
 			undo();
 		}
@@ -261,6 +272,10 @@ export const createUntangler = ( model ) => {
 	};
 
 	return () => {
+		// A layout that has spent its budget takes the shape it has.
+		if ( spent >= budget ) {
+			return true;
+		}
 		credit = Math.min(
 			credit + COMPARISONS_PER_CALL,
 			COMPARISONS_PER_CALL
@@ -279,11 +294,12 @@ export const createUntangler = ( model ) => {
 				partnerList = null;
 				finished++;
 				if ( 0 === body ) {
-					settled = 0 === kept;
-					kept = 0;
+					settled = 0 === uncrossed;
+					uncrossed = 0;
 				}
 			}
 			credit -= compared;
+			spent += compared;
 		}
 		return settled;
 	};

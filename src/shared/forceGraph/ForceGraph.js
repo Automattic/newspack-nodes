@@ -60,10 +60,12 @@ const NO_GROUPS = [];
  * @property {number=}  rate      Messages a second; with one it lights and fades.
  * @property {string=}  title     Native tooltip.
  * @property {boolean=} directed  Whether it ends in an arrowhead.
+ * @property {boolean=} curved    Whether it is drawn as an arc, as d3_visualizer.html draws a target.
  * @property {boolean=} pressable False lets a press through to what is beneath.
- * @property {number=}  distance  Pixels it pulls its ends to; 250 without one.
- * @property {number=}  strength  Share of its error it corrects each tick, per alpha; 1 without one.
+ * @property {number=}  distance  Pixels it pulls its ends to; without one, 30 between their edges while live and 250 between their centres while not.
+ * @property {number=}  strength  Share of its error it corrects each tick, per alpha; 1 over its less joined end's lines without one.
  * @property {boolean=} loose     Whether it is drawn alone, taking no part in the layout.
+ * @property {boolean=} tangle    False for one that pulls, but whose crossings the untangling never counts.
  */
 
 /**

@@ -49,7 +49,9 @@ const MEETING_CHILDREN = 2;
  * @property {string}   target   Id of a node.
  * @property {number=}  distance Pixels it pulls its ends to; the layout's own without one.
  * @property {number=}  strength Share of its error it corrects each tick, per alpha; the layout's own without one.
+ * @property {boolean=} curved   Whether it is drawn as an arc.
  * @property {boolean=} loose    Whether it is drawn alone, taking no part in the layout.
+ * @property {boolean=} tangle   False for one that pulls, but whose crossings never count as tangled.
  */
 
 /**
@@ -119,7 +121,7 @@ const MEETING_CHILDREN = 2;
  * @property {Body[][]}                      siblings Top-level bodies, then each branch's children.
  * @property {Link[]}                        links    Every drawable link.
  * @property {Link[]}                        pulls    The links whose ends share a parent, loose ones aside.
- * @property {Link[]}                        spans    One link for each linked pair, loose ones aside.
+ * @property {Link[]}                        spans    One link for each linked pair, loose ones and ones that do not tangle aside.
  * @property {{body: Body, peers: Body[]}[]} movable  Each sibling with a neighbor outside itself, and every sibling of its type, itself among them; a center node, and a body that holds one, is neither.
  */
 
@@ -446,7 +448,7 @@ export const buildModel = ( { nodes, links, groups } ) => {
 	// A pair linked many times, either way, is one span; a self link has none.
 	const pairs = new Map();
 	for ( const link of laidOut ) {
-		if ( link.source !== link.target ) {
+		if ( link.source !== link.target && false !== link.link.tangle ) {
 			const key = JSON.stringify(
 				[ link.source.id, link.target.id ].sort()
 			);

@@ -1,0 +1,28 @@
+// d3_visualizer.html's palette: each kind's color, then its bright one while
+// traffic runs. The dark skins named take it; plain CRT is one phosphor and
+// the blueprint one ink, so neither does. Declares no CSS of its own.
+
+$skins: (crt-color, synthwave, nord, aurora, neotokyo, scada);
+
+$palette: (
+	sink-link: (
+		#787,
+		#9d9,
+	),
+	owner-link: (
+		#778,
+		#99d,
+	),
+	edge-link: (
+		#877,
+		#d99,
+	),
+	sink-node: (
+		#898,
+		#9f9,
+	),
+	owner-node: (
+		#889,
+		#99f,
+	),
+);

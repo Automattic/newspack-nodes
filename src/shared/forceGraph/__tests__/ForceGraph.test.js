@@ -759,6 +759,40 @@ describe( 'what it draws', () => {
 		);
 	} );
 
+	it( 'draws a curved line as d3_visualizer.html draws a target: an arc as wide as its chord', () => {
+		const { nodes, links } = graph();
+		const { svg } = mountSettled( {
+			nodes,
+			links: links.map( ( one, i ) =>
+				0 === i ? { ...one, curved: true } : one
+			),
+		} );
+		const d = linkEl( svg, 0 ).getAttribute( 'd' );
+		const [ , x1, y1, r, x2, y2 ] = d
+			.match( /^M(.+),(.+)A(.+),\3 0 0,1 (.+),(.+)$/ )
+			.map( Number );
+		const [ s, t ] = [ leaf( 'n1' ), leaf( 'n2' ) ];
+		const [ dx, dy ] = [ t.x - s.x, t.y - s.y ];
+		expect( [ x1, y1 ] ).toEqual( [ s.x, s.y ] );
+		// An arc between the centres, turning 60 degrees about its own.
+		expect( r ).toBeCloseTo( Math.hypot( dx, dy ), 6 );
+		const [ cx, cy ] = [
+			s.x + dx / 2 - ( dy * Math.sqrt( 3 ) ) / 2,
+			s.y + dy / 2 + ( dx * Math.sqrt( 3 ) ) / 2,
+		];
+		expect( Math.hypot( x2 - cx, y2 - cy ) ).toBeCloseTo( r, 6 );
+		// It stops where it meets the target, as far out as a straight line.
+		const within = Math.min(
+			t.halfW / Math.abs( dx ),
+			t.halfH / Math.abs( dy )
+		);
+		expect( Math.hypot( x2 - t.x, y2 - t.y ) ).toBeCloseTo(
+			Math.min( within, 1 ) * r,
+			6
+		);
+		expect( linkEl( svg, 1 ).getAttribute( 'd' ) ).toMatch( /L/ );
+	} );
+
 	it( 'ends an upright line at the near side of its target’s rect', () => {
 		const { svg } = mountSettled();
 		Object.assign( leaf( 'n1' ), { x: 10, y: 700 } );
@@ -1294,7 +1328,11 @@ describe( 'a full layout, while it untangles', () => {
 		expect( busy( svg ) ).toEqual( [ 'true', false ] );
 		const ticks = mockEngine.ticks();
 		untangle( () => expect( painted( svg ) ).toEqual( held ) );
-		expect( mockEngine.ticks() ).toBe( ticks + 680 );
+		// A start the untangler cannot settle takes its three rounds more.
+		expect( mockEngine.ticks() - ticks ).toBeGreaterThanOrEqual( 680 );
+		expect( mockEngine.ticks() - ticks ).toBeLessThanOrEqual(
+			680 + 3 * 464
+		);
 		expect( painted( svg ) ).toEqual(
 			spots().map( ( [ , x, y ] ) => [ x, y ] )
 		);

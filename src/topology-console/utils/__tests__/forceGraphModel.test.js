@@ -8,6 +8,7 @@ import { placeHulls, targetLinkId, toForceGraph } from '../forceGraphModel';
 import {
 	buildModel,
 	circleRadius,
+	detailRadius,
 } from '@newspack-nodes/shared/forceGraph/model';
 
 const CI = '_command_interpreter';
@@ -461,7 +462,7 @@ describe( 'toForceGraph lines', () => {
 	const lines = ( edges, rest = {} ) =>
 		draw( { graph: { nodes, edges }, ...rest } ).links;
 
-	it( 'draws a target line with an arrowhead', () => {
+	it( 'draws a target line curved, as d3_visualizer.html does, with an arrowhead', () => {
 		const [ line ] = lines( [ { from: 'a-1', to: 'b-2' } ] );
 
 		expect( line ).toMatchObject( {
@@ -469,6 +470,7 @@ describe( 'toForceGraph lines', () => {
 			source: 'a-1',
 			target: 'b-2',
 			directed: true,
+			curved: true,
 		} );
 		expect( line.className ).toBe( 'is-target' );
 		expect( line.loose ).toBeUndefined();
@@ -673,6 +675,27 @@ describe( 'toForceGraph lines', () => {
 		).toEqual( [] );
 	} );
 
+	it( 'marks a node with a target line as an owner, as the visualizer colors one', () => {
+		const drawn = byId(
+			draw( {
+				graph: {
+					nodes: [
+						node( 'press-61' ),
+						node( 'vat-33' ),
+						node( 'tank-47' ),
+					],
+					edges: [ { from: 'press-61', to: 'vat-33' } ],
+				},
+				showSinks: true,
+			} ).nodes
+		);
+		expect(
+			[ 'press-61', 'vat-33', 'tank-47' ].map( ( id ) =>
+				wears( drawn[ id ], 'is-owner' )
+			)
+		).toEqual( [ true, false, false ] );
+	} );
+
 	it( 'bars a sink line from a press', () => {
 		const [ line ] = draw( {
 			graph: {
@@ -807,10 +830,19 @@ describe( 'toForceGraph sinks', () => {
 					l.className,
 					l.directed,
 					l.loose,
+					l.tangle,
 				] )
 		).toEqual( [
-			[ `sink:a-1/${ CI }`, 'a-1', CI, 'is-sink', true, true ],
-			[ 'sink:b-2/a-1', 'b-2', 'a-1', 'is-sink', true, true ],
+			[
+				`sink:a-1/${ CI }`,
+				'a-1',
+				CI,
+				'is-sink',
+				true,
+				undefined,
+				false,
+			],
+			[ 'sink:b-2/a-1', 'b-2', 'a-1', 'is-sink', true, undefined, false ],
 		] );
 	} );
 
@@ -949,7 +981,7 @@ describe( 'toForceGraph lighting', () => {
 
 		expect( ids( nodes ) ).toEqual( [ 'a-1', 'b-2' ] );
 		expect( nodes.map( ( { className } ) => className ) ).toEqual( [
-			'',
+			'is-owner',
 			'',
 		] );
 		expect( ids( links ) ).toEqual( [
@@ -975,42 +1007,35 @@ describe( 'toForceGraph circles', () => {
 		};
 	};
 	const circles = ( options ) =>
-		draw( options ).nodes.map( ( { id, size, detail, scale } ) => [
-			id,
-			size,
-			detail,
-			scale,
+		draw( options ).nodes.map( ( one ) => [
+			one.id,
+			circleRadius( one ),
+			one.detail,
+			one.scale,
 		] );
 
-	// The widest of its rates, `6.4K/s`, fits 24 pixels: the least radius.
-	it( 'draws every node, sidecars too, by its share of the top rate', () => {
+	it( 'draws every node, sidecars too, just wide enough for its own rate', () => {
 		expect(
 			circles( {
 				...wired(),
 				rates: { 'a-1': 6400, 'b-2:side': 1600 },
 			} )
 		).toEqual( [
-			[ 'a-1', 44, '6.4K/s', 1 ],
-			[ 'b-2', 24, '0/s', 1 ],
-			[ 'b-2:side', 34, '1.6K/s', 0.8 ],
+			[ 'a-1', detailRadius( '6,400/s' ), '6,400/s', 1 ],
+			[ 'b-2', detailRadius( '0/s' ), '0/s', 1 ],
+			[ 'b-2:side', detailRadius( '1,600/s' ), '1,600/s', 0.8 ],
 		] );
 	} );
 
-	it( 'draws a higher rate in a larger circle, whatever its width', () => {
+	it( 'writes a rate out whole and in full, grouped, with no fraction', () => {
 		const { nodes } = draw( {
 			...wired(),
-			rates: { 'a-1': 100, 'b-2': 1000, 'b-2:side': 6400 },
+			rates: { 'a-1': 0.4, 'b-2': 1234567.6, 'b-2:side': 9.5 },
 		} );
-		const radii = nodes.map( circleRadius );
 		expect( nodes.map( ( { detail } ) => detail ) ).toEqual( [
-			'100/s',
-			'1K/s',
-			'6.4K/s',
-		] );
-		expect( radii[ 0 ] ).toBeLessThan( radii[ 1 ] );
-		expect( radii[ 1 ] ).toBeLessThan( radii[ 2 ] );
-		expect( radii.map( ( r, i ) => r - nodes[ i ].size ) ).toEqual( [
-			0, 0, 0,
+			'<1/s',
+			'1,234,568/s',
+			'10/s',
 		] );
 	} );
 

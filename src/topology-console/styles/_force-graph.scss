@@ -1,3 +1,6 @@
+@use "sass:list";
+@use "../../theme/visualizer";
+
 // The force canvas's paint over the shared force graph: every class that
 // utils/forceGraphModel.js hands it, and the three the component adds.
 
@@ -98,5 +101,83 @@ $idle-opacity: 0.7;
 
 	#{$graph}__link.is-dimmed {
 		opacity: 0.15;
+	}
+}
+
+// d3_visualizer.html's colors and bloom, on the skins that take its palette.
+$visualizer-skins: ();
+@each $slug in visualizer.$skins {
+	$visualizer-skins: list.append($visualizer-skins, ".theme-#{$slug}", comma);
+}
+
+// A line's color, glowing in its bright one while live.
+@mixin visualizer-line($kind) {
+	stroke: var(--visualizer-#{$kind});
+
+	&.is-live {
+		stroke: var(--visualizer-#{$kind}-bright);
+		filter: drop-shadow(0 0 6px var(--visualizer-#{$kind}-bright));
+	}
+
+	&:is(.is-touched, .is-selected) {
+		stroke: var(--oxide);
+	}
+}
+
+// A circle's ring and its tint, the ring glowing while live.
+@mixin visualizer-node($kind) {
+	#{$graph}__shape {
+		fill: color-mix(
+			in srgb,
+			var(--visualizer-#{$kind}) 18%,
+			var(--paper-2)
+		);
+		stroke: var(--visualizer-#{$kind});
+	}
+
+	&.is-live #{$graph}__shape {
+		stroke: var(--visualizer-#{$kind}-bright);
+		filter: drop-shadow(0 0 6px var(--visualizer-#{$kind}-bright));
+	}
+
+	&:is(.is-lit, .is-hovered) #{$graph}__shape {
+		fill: color-mix(in srgb, var(--ink) 8%, var(--paper-2));
+	}
+
+	&.is-drift #{$graph}__shape {
+		stroke: var(--brass);
+	}
+
+	&.is-selected #{$graph}__shape {
+		stroke: var(--oxide);
+	}
+}
+
+:is(#{$visualizer-skins}) .topology-force-canvas {
+	#{$graph}__node:not(.is-owner) {
+		@include visualizer-node(sink-node);
+	}
+
+	#{$graph}__node.is-owner {
+		@include visualizer-node(owner-node);
+	}
+
+	#{$graph}__link.is-sink,
+	#{$graph}__link.is-patron {
+		@include visualizer-line(sink-link);
+	}
+
+	#{$graph}__link.is-target,
+	#{$graph}__link.is-virtual {
+		@include visualizer-line(owner-link);
+	}
+
+	// A virtual target, named but unconnected, keeps its dash.
+	#{$graph}__link.is-virtual {
+		stroke-dasharray: 4 3;
+	}
+
+	#{$graph}__link.is-registration {
+		@include visualizer-line(edge-link);
 	}
 }

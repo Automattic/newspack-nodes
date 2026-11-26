@@ -82,7 +82,7 @@ describe( 'createUntangler', () => {
 		expect( crossings( model ) ).toBe( 0 );
 	} );
 
-	it( 'answers settled once a whole lap of bodies keeps no move', () => {
+	it( 'answers settled once a whole lap of bodies removes no crossing', () => {
 		const model = build(
 			[ node( 'a' ), node( 'b' ), node( 'c' ), node( 'd' ) ],
 			[ link( 'a', 'b' ), link( 'c', 'd' ) ]
@@ -97,6 +97,23 @@ describe( 'createUntangler', () => {
 		expect( untangle() ).toBe( false );
 		expect( crossings( model ) ).toBe( 0 );
 		expect( untangle() ).toBe( true );
+	} );
+
+	it( 'answers settled after a lap that only shortens links, crossing none less', () => {
+		const model = build(
+			[ node( 'a' ), node( 'b' ), node( 'r' ) ],
+			[ link( 'a', 'b' ) ]
+		);
+		at( model, [
+			[ 29, 31 ],
+			[ 1029, 31 ],
+			[ 929, 81 ],
+		] );
+		const [ span ] = model.spans;
+		const before = lengthOf( span );
+
+		expect( createUntangler( model )() ).toBe( true );
+		expect( lengthOf( span ) ).toBeLessThan( before );
 	} );
 
 	it( 'answers settled after one lap that finds nothing better', () => {
@@ -431,6 +448,21 @@ describe( 'createUntangler', () => {
 			);
 			return model;
 		};
+
+		it( 'spends no more than a layout’s budget, then answers settled and moves nothing', () => {
+			const model = crowd();
+			const { reads } = watch( model );
+			const untangle = createUntangler( model, 2 * COMPARISONS_PER_CALL );
+			untangle();
+			untangle();
+			const spent = reads();
+			expect( spent ).toBeGreaterThanOrEqual( 2 * COMPARISONS_PER_CALL );
+			const spots = spotsOf( model );
+
+			expect( untangle() ).toBe( true );
+			expect( reads() ).toBe( spent );
+			expect( spotsOf( model ) ).toEqual( spots );
+		} );
 
 		it( 'stays inside its budget and the next call resumes', () => {
 			const model = crowd();

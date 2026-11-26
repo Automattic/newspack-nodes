@@ -346,15 +346,94 @@ afterEach( () => {
 } );
 
 describe( 'the forces', () => {
-	it( 'centre the layout on the canvas, and repel no farther than its larger side, after a resize too', () => {
+	it( 'centre the layout with d3’s forceCenter, pull each node weakly toward the canvas centre, and repel no farther than its larger side, after a resize too', () => {
 		const engine = settled();
-		const center = mockSimulation.force( 'center' );
+		const gravityX = mockSimulation.force( 'gravityX' );
+		const gravityY = mockSimulation.force( 'gravityY' );
 		const charge = mockSimulation.force( 'charge' );
+		const center = mockSimulation.force( 'center' );
+		const toward = () => [ gravityX.x()(), gravityY.y()() ];
+		expect( toward() ).toEqual( [ 656.5, 388.5 ] );
 		expect( [ center.x(), center.y() ] ).toEqual( [ 656.5, 388.5 ] );
+		const a = leaf( engine, 'a' );
+		expect( [
+			gravityX.strength()( a ),
+			gravityY.strength()( a ),
+		] ).toEqual( [ 0.002, 0.002 ] );
 		expect( charge.distanceMax() ).toBe( 1313 );
 		engine.setSize( { width: 901, height: 1555 } );
+		expect( toward() ).toEqual( [ 450.5, 777.5 ] );
 		expect( [ center.x(), center.y() ] ).toEqual( [ 450.5, 777.5 ] );
 		expect( charge.distanceMax() ).toBe( 1555 );
+	} );
+
+	it( 'keep the layout’s mean within a pixel of the canvas centre while kept warm, as forceCenter does', () => {
+		const engine = make( { live: true } );
+		engine.setKeepWarm( true );
+		engine.setGraph( small(), 'k7' );
+		const mean = () => {
+			const { leaves } = engine.model();
+			return [ 'x', 'y' ].map(
+				( axis ) =>
+					leaves.reduce( ( sum, one ) => sum + one[ axis ], 0 ) /
+					leaves.length
+			);
+		};
+		for ( let i = 0; i < 12; i++ ) {
+			poll( engine );
+			frames( POLL_FRAMES );
+			const [ x, y ] = mean();
+			expect( Math.hypot( x - 656.5, y - 388.5 ) ).toBeLessThan( 1 );
+		}
+	} );
+
+	it( 'part every two nodes by d3’s collision, 12 pixels beyond each corner, eight passes a tick', () => {
+		const engine = settled();
+		const collision = mockSimulation.force( 'collide' );
+		const a = leaf( engine, 'a' );
+		expect( collision.radius()( a ) ).toBe( a.radius + 12 );
+		expect( collision.iterations() ).toBe( 8 );
+	} );
+
+	it( 'part two circles by their circles and labels, 12 pixels beyond each, so no label meets another', () => {
+		const engine = settled( {
+			...small(),
+			nodes: small().nodes.map( ( one ) =>
+				'b' === one.id ? { ...one, size: 37 } : one
+			),
+		} );
+		const b = leaf( engine, 'b' );
+		expect( b.radius ).toBeGreaterThan( 37 );
+		expect( mockSimulation.force( 'collide' ).radius()( b ) ).toBe(
+			b.radius + 12
+		);
+	} );
+} );
+
+describe( 'the copied forces', () => {
+	it( 'approximate the charge at theta 0.93, and pull a live line 30 pixels between its ends by 1 over its less joined end', () => {
+		const engine = settled(
+			withNode(
+				{ ...small(), links: [ ...small().links, link( 'a', 'z' ) ] },
+				node( 'z' )
+			),
+			{ live: true }
+		);
+		expect( mockSimulation.force( 'charge' ).theta() ).toBe( 0.93 );
+		const pull = mockSimulation.force( 'link' );
+		const pulls = engine.model().pulls;
+		const degree = ( id ) =>
+			pulls.filter( ( { source, target } ) =>
+				[ source.id, target.id ].includes( id )
+			).length;
+		pulls.forEach( ( one ) => {
+			expect( pull.distance()( one ) ).toBe(
+				30 + one.source.radius + one.target.radius
+			);
+			expect( pull.strength()( one ) ).toBeCloseTo(
+				1 / Math.min( degree( one.source.id ), degree( one.target.id ) )
+			);
+		} );
 	} );
 } );
 
@@ -474,19 +553,32 @@ describe( 'a full layout', () => {
 		expect( order ).toEqual( names );
 	} );
 
+	it( 'pulls a line 250 pixels while not live, and 30 between its ends once live', () => {
+		const engine = settled();
+		const [ first ] = engine.model().pulls;
+		expect( mockSimulation.force( 'link' ).distance()( first ) ).toBe(
+			250
+		);
+		engine.setLive( true );
+		expect( mockSimulation.force( 'link' ).distance()( first ) ).toBe(
+			30 + first.source.radius + first.target.radius
+		);
+	} );
+
 	it( 'ends with a pulled pair the link distance apart or more', () => {
 		const engine = settled();
 		const { pulls } = engine.model();
 		const [ { source, target } ] = pulls;
+		const distance = 250;
 		expect( mockSimulation.force( 'link' ).distance()( pulls[ 0 ] ) ).toBe(
-			250
+			distance
 		);
 		expect( mockSimulation.force( 'link' ).strength()( pulls[ 0 ] ) ).toBe(
 			1
 		);
 		expect(
 			Math.hypot( source.x - target.x, source.y - target.y )
-		).toBeGreaterThan( 240 );
+		).toBeGreaterThan( distance - 10 );
 	} );
 
 	it( 'pulls a link as hard as it asks', () => {
@@ -517,13 +609,14 @@ describe( 'a full layout', () => {
 				leaf( engine, one ).x - leaf( engine, two ).x,
 				leaf( engine, one ).y - leaf( engine, two ).y
 			);
+		const edges = 250;
 		expect(
 			engine
 				.model()
 				.pulls.map( mockSimulation.force( 'link' ).distance() )
-		).toEqual( [ 131, 250 ] );
+		).toEqual( [ 131, edges ] );
 		expect( Math.abs( apart( 'a', 'b' ) - 131 ) ).toBeLessThan( 30 );
-		expect( apart( 'b', 'c' ) ).toBeGreaterThan( 240 );
+		expect( apart( 'b', 'c' ) ).toBeGreaterThan( edges - 10 );
 	} );
 
 	it( 'takes the canvas it is given', () => {
@@ -545,7 +638,7 @@ describe( 'a full layout', () => {
 		engine.drag( 'd', before + 1, leaf( engine, 'd' ).y );
 		engine.drop();
 		settle( engine );
-		expect( leaf( engine, 'd' ).x - before ).toBeGreaterThan( 1000 );
+		expect( leaf( engine, 'd' ).x - before ).toBeGreaterThan( 300 );
 	} );
 } );
 
@@ -677,7 +770,51 @@ describe( 'the untangling of a full layout', () => {
 		expect( mockSimulation.alphaTarget() ).toBeCloseTo( 0.3 );
 	} );
 
-	it( 'leaves a layout its tenth steady poll let go to cool', () => {
+	it( 'freezes a layout its tenth steady poll lets go, as d3_visualizer.html does, so a drop moves the rest only as a whole', () => {
+		const engine = make( { live: true } );
+		engine.setGraph( small(), 'k7' );
+		frames( UNTANGLE_TICKS );
+		// The first poll begins the count; ten steady ones follow.
+		times( 11, () => poll( engine ) );
+		expect( mockSimulation.velocityDecay() ).toBe( 1 );
+		settle( engine );
+		// Where each of the rest stands from b: the shape forceCenter keeps.
+		const shape = () => {
+			const b = leaf( engine, 'b' );
+			return [ 'c', 'd' ].map( ( id ) => [
+				leaf( engine, id ).x - b.x,
+				leaf( engine, id ).y - b.y,
+			] );
+		};
+		const still = shape();
+		engine.drag( 'a', 37, 41 );
+		engine.drop();
+		settle( engine );
+		shape().forEach( ( [ x, y ], i ) => {
+			expect( x ).toBeCloseTo( still[ i ][ 0 ], 6 );
+			expect( y ).toBeCloseTo( still[ i ][ 1 ], 6 );
+		} );
+	} );
+
+	it( 'stops ticking a layout it freezes, and a drop on it ticks nothing', () => {
+		const engine = make( { live: true } );
+		engine.setGraph( small(), 'k7' );
+		frames( UNTANGLE_TICKS );
+		times( 11, () => poll( engine ) );
+		frames( 1 );
+		expect( isRunning( engine ) ).toBe( false );
+		const ticks = engine.ticks();
+		engine.drag( 'a', 37, 41 );
+		engine.drop();
+		frames( 30 );
+		expect( isRunning( engine ) ).toBe( false );
+		expect( engine.ticks() ).toBe( ticks );
+		expect( [ leaf( engine, 'a' ).x, leaf( engine, 'a' ).y ] ).toEqual( [
+			37, 41,
+		] );
+	} );
+
+	it( 'freezes a layout its tenth steady poll lets go as its untangling ends, ticking no more', () => {
 		const engine = make( { live: true } );
 		engine.setGraph( small(), 'k7' );
 		times( 10, () => poll( engine ) );
@@ -685,7 +822,8 @@ describe( 'the untangling of a full layout', () => {
 		poll( engine );
 		frames( UNTANGLE_TICKS - 3 );
 		expect( mockSimulation.alphaTarget() ).toBe( 0 );
-		expect( settle( engine ) ).toBe( LAYOUT_TICKS - UNTANGLE_TICKS );
+		expect( mockSimulation.velocityDecay() ).toBe( 1 );
+		expect( settle( engine ) ).toBe( 0 );
 	} );
 
 	it( 'takes none of the time a poll’s energy holds', () => {
@@ -989,6 +1127,37 @@ describe( 'a resized node', () => {
 		expect( spots( engine ) ).toEqual( before );
 	} );
 
+	it( 'pulls its lines to the length its new size asks', () => {
+		const engine = settled( small(), { live: true } );
+		const pull = mockSimulation.force( 'link' );
+		const read = jest.spyOn( pull, 'distance' );
+		engine.setGraph( grown( small(), 'b', { size: 433 } ), 'k7' );
+		expect( read ).toHaveBeenCalledWith( expect.any( Function ) );
+		const [ first ] = engine.model().pulls;
+		expect( pull.distance()( first ) ).toBe(
+			30 + first.source.radius + first.target.radius
+		);
+	} );
+
+	it( 'thaws a frozen layout to make room, keeping the energy kept warm', () => {
+		const engine = settled( small(), { live: true } );
+		times( 11, () => poll( engine ) );
+		expect( mockSimulation.velocityDecay() ).toBe( 1 );
+		engine.setKeepWarm( true );
+		engine.setGraph( grown( small(), 'b', { size: 433 } ), 'k7' );
+		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
+	} );
+
+	it( 'keeps the energy a poll holds when it makes room while warm', () => {
+		const engine = settled( small(), { live: true } );
+		engine.setKeepWarm( true );
+		poll( engine );
+		const held = mockSimulation.alphaTarget();
+		expect( held ).toBeGreaterThan( 0 );
+		engine.setGraph( grown( small(), 'b', { size: 433 } ), 'k7' );
+		expect( mockSimulation.alphaTarget() ).toBe( held );
+	} );
+
 	it( 'reheats when it overlaps, ends clear and keeps the steps', () => {
 		const engine = settled( small(), { live: true } );
 		times( 11, () => poll( engine ) );
@@ -1264,14 +1433,17 @@ describe( 'a changed graph', () => {
 	);
 
 	it( 'draws a pair together when their distance shrinks', () => {
-		const engine = settled();
+		const [ ab, bc ] = small().links;
+		const engine = settled( {
+			...small(),
+			links: [ { ...ab, distance: 400 }, bc ],
+		} );
 		const apart = () =>
 			Math.hypot(
 				leaf( engine, 'a' ).x - leaf( engine, 'b' ).x,
 				leaf( engine, 'a' ).y - leaf( engine, 'b' ).y
 			);
 		const before = apart();
-		const [ , bc ] = small().links;
 		engine.setGraph(
 			{
 				...small(),
@@ -1430,6 +1602,61 @@ describe( 'a center node', () => {
 		expect( mockSimulation.alpha() ).toBeGreaterThan( 0.2 );
 		expect( at( engine ) ).toEqual( MIDDLE );
 		expect( overlappingLabels( engine.model() ) ).toEqual( [] );
+	} );
+
+	it( 'is pinned there, and a node joined to nothing does not drift off while kept warm', () => {
+		const engine = make( { live: true } );
+		engine.setKeepWarm( true );
+		engine.setGraph(
+			withNode(
+				small(),
+				node( 'hub', { center: true } ),
+				link( 'hub', 'a' ),
+				link( 'hub', 'b' ),
+				link( 'hub', 'c' )
+			),
+			'k7'
+		);
+		const gap = () =>
+			Math.hypot(
+				...at( engine, 'd' ).map( ( v, i ) => v - MIDDLE[ i ] )
+			);
+		const gaps = [];
+		for ( let i = 0; i < 80; i++ ) {
+			poll( engine );
+			frames( POLL_FRAMES );
+			expect( at( engine ) ).toEqual( MIDDLE );
+			expect( [
+				leaf( engine, 'hub' ).fx,
+				leaf( engine, 'hub' ).fy,
+			] ).toEqual( MIDDLE );
+			gaps.push( gap() );
+		}
+		expect( Math.abs( gaps[ 79 ] - gaps[ 59 ] ) ).toBeLessThan( 1 );
+	} );
+
+	it( 'thaws a frozen layout for a node added beside it', () => {
+		const engine = settled( small(), { live: true } );
+		times( 11, () => poll( engine ) );
+		expect( mockSimulation.velocityDecay() ).toBe( 1 );
+		engine.setGraph(
+			withNode( small(), node( 'e' ), link( 'e', 'a' ) ),
+			'k7'
+		);
+		expect( mockSimulation.velocityDecay() ).toBe( 0.5 );
+	} );
+
+	it( 'goes back to the middle after a drag drops on a frozen layout', () => {
+		const engine = make( { live: true } );
+		engine.setGraph( centered( small() ), 'k7' );
+		frames( UNTANGLE_TICKS );
+		times( 11, () => poll( engine ) );
+		settle( engine );
+		expect( mockSimulation.velocityDecay() ).toBe( 1 );
+		engine.drag( 'hub', 2222, 1777 );
+		engine.drop();
+		frames( 2 );
+		expect( at( engine ) ).toEqual( MIDDLE );
 	} );
 
 	it( 'is there under reduced motion', () => {
@@ -1789,7 +2016,7 @@ describe( 'rates', () => {
 			[ 0.15, 0.85 ],
 			[ 0.1, 0.9 ],
 			[ 0.1, 0.95 ],
-			[ 0, 0.5 ],
+			[ 0, 1 ],
 		] );
 		expect( isRunning( engine ) ).toBe( true );
 		poll( engine );
@@ -2264,7 +2491,7 @@ describe( 'a change of live', () => {
 		}
 	);
 
-	it( 'moves the leaves by their new charge', () => {
+	it( 'moves the leaves by their new charge, an idle one weaker than the still one', () => {
 		const engine = settled();
 		const apart = () => {
 			const [ a, d ] = [ leaf( engine, 'a' ), leaf( engine, 'd' ) ];
@@ -2273,7 +2500,7 @@ describe( 'a change of live', () => {
 		const fixed = apart();
 		engine.setLive( true );
 		settle( engine );
-		expect( apart() ).toBeGreaterThan( fixed + 1 );
+		expect( apart() ).toBeLessThan( fixed - 1 );
 	} );
 
 	it( 'ends the energy and friction its polls held', () => {

@@ -21,17 +21,29 @@ export const TEXT_ZOOM = 0.25;
 const FIT_FLOOR_SCALE = TEXT_ZOOM * 1.2;
 
 /**
- * Where a graph's labels begin and end along an axis, with the fit's padding.
+ * Where a graph's labels begin and end along an axis, with the fit's padding,
+ * spread evenly about its centre nodes where it has any.
  *
  * @param {import('./model').Leaf[]} leaves At least one leaf.
  * @param {'x'|'y'}                  axis   The axis.
  * @param {'halfW'|'halfH'}          half   The leaf's half extent along it.
  * @return {[number, number]} The start and the end.
  */
-const spread = ( leaves, axis, half ) => [
-	min( leaves, ( leaf ) => leaf[ axis ] - leaf[ half ] ) - FIT_PADDING,
-	max( leaves, ( leaf ) => leaf[ axis ] + leaf[ half ] ) + FIT_PADDING,
-];
+const spread = ( leaves, axis, half ) => {
+	const start =
+		min( leaves, ( leaf ) => leaf[ axis ] - leaf[ half ] ) - FIT_PADDING;
+	const end =
+		max( leaves, ( leaf ) => leaf[ axis ] + leaf[ half ] ) + FIT_PADDING;
+	const held = leaves.filter( ( leaf ) => leaf.node?.center );
+	if ( ! held.length ) {
+		return [ start, end ];
+	}
+	// About a centre node, as far each way as the graph's farther side.
+	const at =
+		held.reduce( ( sum, leaf ) => sum + leaf[ axis ], 0 ) / held.length;
+	const reach = Math.max( at - start, end - at );
+	return [ at - reach, at + reach ];
+};
 
 /**
  * The view that shows a whole graph above the foot a host covers.

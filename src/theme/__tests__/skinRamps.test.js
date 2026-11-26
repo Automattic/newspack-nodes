@@ -1128,6 +1128,20 @@ const createTableFixture = ( slug, rowClass, hovered = false ) => {
 	return dom.window.document;
 };
 
+/** d3_visualizer.html's palette, by token. */
+const VISUALIZER = {
+	'--visualizer-sink-link': '#787',
+	'--visualizer-sink-link-bright': '#9d9',
+	'--visualizer-owner-link': '#778',
+	'--visualizer-owner-link-bright': '#99d',
+	'--visualizer-edge-link': '#877',
+	'--visualizer-edge-link-bright': '#d99',
+	'--visualizer-sink-node': '#898',
+	'--visualizer-sink-node-bright': '#9f9',
+	'--visualizer-owner-node': '#889',
+	'--visualizer-owner-node-bright': '#99f',
+};
+
 describe( 'theme skin ramps', () => {
 	it( 'compiles the theme stylesheet directly from source', () => {
 		expect( stylesheet.nodes.length ).toBeGreaterThan( 0 );
@@ -2786,7 +2800,33 @@ describe( "CRT's data greens and the true-color variant", () => {
 		for ( let i = 1; i <= 8; i++ ) {
 			crt[ `--chart-${ i }` ] = `var(--np-chart-${ i })`;
 		}
+		Object.assign( crt, VISUALIZER );
 		expect( skinMaps.get( 'crt-color' ) ).toEqual( crt );
+	} );
+
+	it( 'gives d3_visualizer.html’s palette to the dark skins that take color, and no other', () => {
+		const taking = [ ...skinMaps.keys() ].filter(
+			( slug ) => '--visualizer-sink-link' in skinMaps.get( slug )
+		);
+		expect( taking.sort() ).toEqual( [
+			'aurora',
+			'crt-color',
+			'neotokyo',
+			'nord',
+			'scada',
+			'synthwave',
+		] );
+		for ( const slug of taking ) {
+			const skin = skinMaps.get( slug );
+			expect(
+				Object.fromEntries(
+					Object.keys( VISUALIZER ).map( ( token ) => [
+						token,
+						skin[ token ],
+					] )
+				)
+			).toEqual( VISUALIZER );
+		}
 	} );
 
 	it( 'draws the Newspack chart palette on crt-color, 3:1 on its canvas and paper', () => {

@@ -8,10 +8,9 @@
  * target or a registration line, while the rates of both ends are; a patron
  * line, while the rate of the sidecar is. Port flags play no part.
  *
- * Every node is a circle holding its message rate, sized by the square root of
- * its share of the highest rate drawn, so it grows and shrinks with each poll.
- * The least radius holds the widest rate drawn, so a higher rate is always the
- * larger circle. A draft's nodes hold no rate and take the least radius.
+ * Every node is a circle just wide enough for the message rate it holds,
+ * written out whole and grouped, so a poll resizes it only as that text widens
+ * or narrows. A draft's nodes hold no rate and take the least radius.
  *
  * Every class, for the console's stylesheet to paint:
  *
@@ -19,6 +18,7 @@
  * |-------|-------------------|-------------------------------------------------|
  * | Node  | `is-idle`         | Live, at rate zero and without focus.           |
  * | Node  | `is-drift`        | Runtime drift.                                  |
+ * | Node  | `is-owner`        | A target line leaves it.                        |
  * | Node  | `is-lit`          | In the hull in focus.                           |
  * | Node  | `is-dimmed`       | Another node is hovered, or it is off the hull. |
  * | Line  | `is-target`       | An edge to a target.                            |
@@ -41,9 +41,8 @@
  */
 
 import { classes } from '@newspack-nodes/shared/components/Modal';
-import { circleSize } from '@newspack-nodes/shared/forceGraph';
-import { detailRadius } from '@newspack-nodes/shared/forceGraph/model';
-import { formatMsgRate } from '@newspack-nodes/shared/utils/formatters';
+import { LEAST_RADIUS } from '@newspack-nodes/shared/forceGraph';
+import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
 import names from '../../runtime/reserved-node-names.json';
 import { edgeHasConnectRole } from './consoleGraph';
 import { hullColorIndex } from './hullColor';
@@ -250,6 +249,18 @@ const pairsOf = ( edges ) => {
 };
 
 /**
+ * A rate written out whole and grouped; one under half a message reads
+ * `<1/s`, never `0/s`, so a live node's text still says it has traffic.
+ *
+ * @param {number} rate Messages per second.
+ * @return {string} The rate's text.
+ */
+const rateText = ( rate ) =>
+	rate > 0 && rate < 0.5
+		? '<1/s'
+		: `${ formatGroupedCount( Math.round( rate ) ) }/s`;
+
+/**
  * What the state makes of a node and of a line.
  *
  * @param {CanvasState}                          state    The canvas state.
@@ -363,6 +374,8 @@ export const toForceGraph = ( {
 	);
 
 	const links = new Map();
+	// A node a target line leaves owns it, as the visualizer colors one.
+	const owners = new Set();
 	const draw = ( id, kind, source, target, rest ) => {
 		if (
 			bodies.has( source ) &&
@@ -423,9 +436,11 @@ export const toForceGraph = ( {
 			const pressable = connected.has( path );
 			const isVirtual = ! pressable && named.has( path );
 			const kind = isVirtual ? 'virtual' : 'target';
+			owners.add( from );
 			draw( targetLinkId( edge ), kind, from, to, {
 				rate,
 				directed: true,
+				curved: true,
 				pressable,
 			} );
 		}
@@ -440,22 +455,16 @@ export const toForceGraph = ( {
 			draw( `sink:${ id }/${ sink }`, 'sink', id, sink, {
 				rate: liveRate( id ),
 				directed: true,
-				loose: true,
+				tangle: false,
 			} );
 		}
 	}
 
 	const drawn = [ ...bodies.values() ].map( ( body ) => {
 		const rate = liveRate( body.id );
-		const detail = undefined === rate ? undefined : formatMsgRate( rate );
+		const detail = undefined === rate ? undefined : rateText( rate );
 		return { ...body, rate, detail };
 	} );
-	const most = Math.max( 0, ...drawn.map( ( { rate } ) => rate ?? 0 ) );
-	// A shorter rate can be a higher one, so every circle holds the widest.
-	const fits = drawn.flatMap( ( { detail } ) =>
-		detail ? [ detailRadius( detail ) ] : []
-	);
-	const least = fits.length ? Math.max( ...fits ) : undefined;
 
 	return {
 		nodes: drawn.map( ( { id, class: shellName, rate, detail } ) => ( {
@@ -463,9 +472,13 @@ export const toForceGraph = ( {
 			label: id,
 			title: shellName,
 			group: seats.get( rootOf( patronOf, id ) ),
-			className: classOf.node( id ),
+			className: classes(
+				classOf.node( id ),
+				owners.has( id ) && 'is-owner'
+			),
 			rate,
-			size: circleSize( rate ?? 0, most, least ),
+			// The shared graph widens a circle to hold its detail.
+			size: LEAST_RADIUS,
 			detail,
 			scale: patronOf.has( id ) ? SIDECAR_SCALE : 1,
 			center: names.COMMAND_INTERPRETER === id,

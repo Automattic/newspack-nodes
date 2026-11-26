@@ -67,6 +67,7 @@ const { default: ForceCanvas } = require( '../ForceCanvas' );
 const { ChromeProvider } = require( '../../ChromeContext' );
 const { FORCE_POLLER } = require( '../../hooks/useForceRows' );
 const { hullColorIndex } = require( '../../utils/hullColor' );
+const { detailRadius } = require( '../../../shared/forceGraph/model' );
 const { Core } = require( '../../../runtime/core' );
 const {
 	newMessage,
@@ -673,7 +674,7 @@ describe( 'the rates', () => {
 		expect( wearing( svg, 'is-idle' ) ).toEqual( [] );
 	} );
 
-	it( 'size each circle by its rate, resized in place by each poll', () => {
+	it( 'fit each circle to its rate’s text, resized in place by each poll', () => {
 		const rateRef = rates( { 'press-61': 6400, 'vat-33': 3600 } );
 		const { svg, update } = mount( { rateRef } );
 		answer();
@@ -685,19 +686,19 @@ describe( 'the rates', () => {
 			nodeEl( svg, id ).querySelector( `.${ BLOCK }__detail` )
 				.textContent;
 		const laidOut = keys();
-		// Each floored at the 24 pixels the widest rate, `6.4K/s`, fits.
-		expect( [ radius( 'press-61' ), radius( 'vat-33' ) ] ).toEqual( [
-			44, 39,
+		expect( [ detail( 'press-61' ), detail( 'tap-7' ) ] ).toEqual( [
+			'6,400/s',
+			'0/s',
 		] );
-		expect( detail( 'press-61' ) ).toBe( '6.4K/s' );
-		expect( detail( 'tap-7' ) ).toBe( '0/s' );
+		expect( [ radius( 'press-61' ), radius( 'tap-7' ) ] ).toEqual( [
+			detailRadius( '6,400/s' ),
+			detailRadius( '0/s' ),
+		] );
 
-		rateRef.current.set( 'press-61', { rate: 2304 } );
+		rateRef.current.set( 'press-61', { rate: 7 } );
 		update( { rateVersion: 13 } );
-		expect( [ radius( 'press-61' ), radius( 'vat-33' ) ] ).toEqual( [
-			40, 44,
-		] );
-		expect( detail( 'press-61' ) ).toBe( '2.3K/s' );
+		expect( detail( 'press-61' ) ).toBe( '7/s' );
+		expect( radius( 'press-61' ) ).toBe( detailRadius( '7/s' ) );
 		expect( keys() ).toEqual( laidOut );
 	} );
 

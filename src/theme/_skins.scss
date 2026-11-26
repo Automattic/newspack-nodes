@@ -3,6 +3,7 @@
 @use "sass:map";
 @use "sass:math";
 @use "sass:meta";
+@use "visualizer";
 
 $skin-root: ":is(.topology-app, .newspack-nodes-skin-root).newspack-nodes-theme";
 
@@ -679,6 +680,19 @@ $skins: $with-variant;
 @each $slug in (newspack, newspack-brand, crt-color) {
 	@for $i from 1 through 8 {
 		$skins: map.set($skins, $slug, chart-#{$i}, var(--np-chart-#{$i}));
+	}
+}
+
+// The visualizer's palette as tokens, on the skins that take it.
+@each $slug in visualizer.$skins {
+	@each $name, $pair in visualizer.$palette {
+		$skins: map.set($skins, $slug, visualizer-#{$name}, list.nth($pair, 1));
+		$skins: map.set(
+			$skins,
+			$slug,
+			visualizer-#{$name}-bright,
+			list.nth($pair, 2)
+		);
 	}
 }
 

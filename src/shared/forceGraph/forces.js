@@ -20,9 +20,6 @@ import { docks } from './model';
  * A branch with the mass centre `updateBoxes` fits.
  */
 
-/** The fixed charge of a graph without live rates. */
-export const CHARGE = -1000;
-
 /** Share of its distance to a branch's mass centre a leaf is pulled, per alpha. */
 const COHESION = 0.1;
 
@@ -35,18 +32,23 @@ const GAP = 24;
 /** Fastest a leaf moves, in pixels a tick. */
 const MAX_VELOCITY = 100;
 
-/** Repulsion of a live body: 1500 idle, 3000 at nine a second, and so on. */
-const repulsionScale = scaleLog().range( [ 1500, 3000 ] );
+/** d3_visualizer.html's repulsion: 5 idle, 100 at nine a second, and so on. */
+const strengthScale = scaleLog().range( [ 5, 100 ] );
+
+/** d3_visualizer.html's factor on that repulsion. */
+const CHARGE_FACTOR = -2;
 
 /**
- * The charge a live body of the given rate carries. An idle one repels more
- * than the fixed charge does, because cohesion grows with alpha and a live
- * layout stays warm.
+ * The charge a body of the given rate carries, as d3_visualizer.html gives
+ * it: -2 by a log scale of 5 to 100 over 1 + the rate.
  *
  * @param {number} rate Messages a second.
  * @return {number} A negative charge, stronger for a busier body.
  */
-export const chargeOf = ( rate ) => -repulsionScale( 1 + rate );
+export const chargeOf = ( rate ) => CHARGE_FACTOR * strengthScale( 1 + rate );
+
+/** The charge of a graph without live rates, which the rate scale cannot read. */
+export const CHARGE = -1000;
 
 /**
  * Refit every branch's box, centre, radius and mass centre to its children.
@@ -141,8 +143,7 @@ export const placeNodes = ( model, { width, height } ) => {
 
 /**
  * Pull every leaf toward each enclosing branch's mass centre, nearest first
- * and weaker for each higher one. Nothing pulls a leaf toward the canvas: the
- * engine centres the layout as a whole, as d3_visualizer.html does.
+ * and weaker for each higher one.
  *
  * @param {import('./model').Model} model Model whose leaves move.
  * @return {function(number): void} Force of `alpha`.
@@ -160,10 +161,11 @@ export const forceCohesion = ( model ) => ( alpha ) => {
 };
 
 /**
- * Part overlapping siblings (a branch by its box, a leaf by its rect) along
- * the nearest exit, half the way each, to the gap. The push is exactly zero at
- * the gap and ignores alpha, as `forceCollide` does, so the layout ends with
- * the boxes clear of each other. Siblings sorted by left edge test only the
+ * Part overlapping siblings by their boxes where one is a branch, along the
+ * nearest exit, half the way each, to the gap; a pair of leaves is left to
+ * d3's `forceCollide`. The push is exactly zero at the gap and ignores alpha,
+ * as `forceCollide` does, so the layout ends with the boxes clear of each
+ * other. Siblings sorted by left edge test only the
  * neighbors their box can still reach in x. A branch's push moves all of its
  * leaves; its box is as `updateBoxes` last left it.
  *
@@ -187,6 +189,9 @@ export const forceSiblings = ( model ) => {
 					const two = bodies[ j ];
 					if ( two.boxMinX > one.boxMaxX + GAP ) {
 						break;
+					}
+					if ( 'leaf' === one.type && 'leaf' === two.type ) {
+						continue;
 					}
 					// Each way `two` could move to clear `one`.
 					const right = one.boxMaxX - two.boxMinX + GAP;

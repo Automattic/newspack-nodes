@@ -28,6 +28,17 @@ describe( 'fitOf', () => {
 		expect( k ).toBeCloseTo( 4.5, 6 );
 	} );
 
+	it( 'centres a centre node, reaching the farther side of the graph from it', () => {
+		const hub = { ...leaf( 0, 0 ), node: { center: true } };
+		const { x, y, k } = fitOf(
+			[ hub, leaf( 300, 0 ), leaf( -100, 50 ) ],
+			SIZE,
+			0
+		);
+		expect( [ x, y ] ).toEqual( [ 500, 500 ] );
+		expect( k ).toBeCloseTo( ( 1000 / ( 2 * ( 300 + 50 ) ) ) * 0.9, 6 );
+	} );
+
 	it( 'fits the band above a covered foot, centred in it', () => {
 		const { x, y, k } = fitOf( BOX, SIZE, 400 );
 		expect( [ x, y ] ).toEqual( [ 500, 300 ] );

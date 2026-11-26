@@ -9,9 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **A force graph centres its layout as a whole and bounds its repulsion, as Tachikoma's `d3_visualizer.html` does:** `forceCenter` keeps the layout's mean on the canvas centre and pulls no node in, and a node repels none farther than the canvas's larger side. A pull toward the canvas centre that began 500px out is gone; with unbounded repulsion it held a graph of separate chains in a ring around an empty middle.
+- **The console's sink lines pull, as the visualizer's do,** and the untangling counts none of their crossings: a force graph line takes `tangle: false` for that. Each node is drawn toward the node it sinks into.
 
-- **A force graph untangles until it settles,** not only while its layout cools: while the last whole lap of bodies still kept a trade or a mirror, the layout reheats to 0.1 and untangles 464 ticks more, three times at most. A large graph such as the debug overlay's console gets the passes it needs; a graph whose first untangling ends settled runs as before.
+- **The console wears the visualizer's colors and glow on the dark skins that take color** (crt-color, synthwave, nord, aurora, neotokyo and scada): sink lines green, target lines blue, registration lines red, a node a target line leaves blue and any other green, each bright and glowing while live. Plain CRT and the blueprint skin keep their one color.
+
+- **A force graph without rates keeps its own charge and line,** -1000 and 250 pixels between centres, since the visualizer's rate scale has nothing to read there. Their lines pull, as every graph's do, at d3's default strength, 1 over the line count of the less joined end, where they pulled at 1. A frozen layout stops ticking, and a drop on it moves only the node dragged.
+
+- **The console's circles fit their rate, written out whole:** each node's circle is just wide enough for its message rate, grouped and rounded to a whole message (`1,234/s`, `0/s`), where a circle used to grow with its share of the highest rate drawn.
+
+- **A fitted force graph view centres its `center` nodes,** reaching the graph's farther side from them, so the console's `_command_interpreter` stands in the middle of the view.
+
+- **A force graph lays out with a rate-driven charge, d3's default line and a frozen rest:** its charge, -2 by a log scale of 5 to 100 over one plus the rate, at theta 0.93 and reaching no farther than the canvas's larger side; d3's default line, 30 pixels between its ends' edges at 1 over the line count of its less joined end; d3's `forceCenter` on the canvas centre, a `center` node pinned there; and a live layout frozen, at friction 1, on its tenth steady poll. A pull toward the canvas centre that began 500px out is gone, which held a graph of separate chains in a ring around an empty middle.
+
+- **A force graph holds a node joined to nothing, and parts its nodes with d3's `forceCollide`.** A line pulls to the length a node's new size asks after a resize, and a frozen layout thaws, its held energy kept, to make room for a node that grows or arrives. d3's charge pushes a layout of unequal charges off as a whole; `forceCenter` cancels that, and a pull of strength 0.002 toward the canvas centre holds a node joined to nothing, which the push leaves behind, where the charge ends. On the debug overlay's console such a node ran off at 50 pixels a second before. The collision parts every two nodes 12 pixels beyond each one's corners, its label's included, eight passes a tick, and reads each radius again after a resize; the substrate's own sibling force parts only a pair holding a hull. A node near the console's centre travelled 598 pixels in 60 frames and ended 7 from where it began; it now moves with the layout, smoothly.
+
+- **A force graph draws a target line as an arc:** `curved` on a link draws it as an arc whose radius is the distance between its ends' centres, stopped where it meets the target, as far out as a straight line would stop, so its arrowhead points in. The console sets it on every target and virtual line.
+
+- **A force graph untangles until it settles,** not only while its layout cools: while the last whole lap of bodies still kept a trade or a mirror that left fewer crossings, since one that only shortens a line never ends on a real graph, the layout reheats to 0.1 and untangles 464 ticks more, three times at most, and the whole untangling stops once it has made 30 million span comparisons, about three seconds of work, so a large graph takes shape without a long wait. A large graph such as the debug overlay's console gets the passes it needs; a graph whose first untangling ends settled runs as before.
 
 ## [2.168.0] - 2026-11-26
 

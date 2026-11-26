@@ -14,8 +14,11 @@
 
 import {
 	forceCenter,
+	forceCollide,
 	forceLink,
 	forceManyBody,
+	forceX,
+	forceY,
 	forceSimulation,
 	now,
 	randomLcg,
@@ -59,11 +62,26 @@ const ALPHA_DECAY = 0.0075;
 /** Share of its speed a leaf loses each tick: the friction. */
 const VELOCITY_DECAY = 0.5;
 
-/** Pixels a link without a distance of its own pulls its ends to. */
-const LINK_DISTANCE = 250;
+/** Pixels between its ends' edges a link without a distance pulls to: d3's 30. */
+const LINK_DISTANCE = 30;
 
-/** Share of its error a link without a strength of its own corrects each tick, per alpha. */
-const LINK_STRENGTH = 1;
+/** Pixels a line pulls its ends' centres to while the layout is not live. */
+const STILL_LINK_DISTANCE = 250;
+
+/** d3_visualizer.html's Barnes-Hut approximation of the charge. */
+const THETA = 0.93;
+
+/** Strength of the pull holding each leaf toward the canvas centre. */
+const GRAVITY = 0.002;
+
+/** Pixels a collision reaches past a body's corners, its label's included. */
+const COLLIDE_PAD = 12;
+
+/** Passes d3's collision makes each tick, so a crowd kept warm stays clear. */
+const COLLIDE_PASSES = 8;
+
+/** Friction of a layout its steady polls let go: every speed is lost. */
+const FROZEN = 1;
 
 /** Steady polls that let a live layout go. */
 const STEADY_POLLS = 10;
@@ -101,7 +119,7 @@ const SLICE_MS = 12;
  * @property {function(Map<string, number>): void}             setRates      Take a poll's rates by node id; a node it leaves out has none.
  * @property {function(): void}                                reset         Lay the graph out from scratch.
  * @property {function(string, number, number): void}          drag          Put a node at a point and hold the layout.
- * @property {function(): void}                                drop          End a drag, and reheat or run the untangling that began under it.
+ * @property {function(): void}                                drop          End a drag, reheating a layout not frozen, or run the untangling that began under it.
  * @property {function({width: number, height: number}): void} setSize       Take the canvas's size.
  * @property {function(boolean): void}                         setPaused     Hold the layout, or let it go on.
  * @property {function(boolean): void}                         setHeld       Hold the layout for a gesture, or let it go on.
@@ -205,12 +223,19 @@ export const createEngine = ( {
 		.stop()
 		.alphaDecay( ALPHA_DECAY )
 		.velocityDecay( VELOCITY_DECAY );
-	const charge = forceManyBody();
+	const charge = forceManyBody().theta( THETA );
 	const center = forceCenter();
+	const gravityX = forceX().strength( GRAVITY );
+	const gravityY = forceY().strength( GRAVITY );
+	const reach = ( leaf ) => leaf.radius + COLLIDE_PAD;
+	const collide = forceCollide( reach ).iterations( COLLIDE_PASSES );
+	let pull = forceLink();
 
-	/** Centre the layout on the canvas, and repel no farther than its larger side. */
+	/** Pull toward the canvas centre; repel no farther than its larger side. */
 	const fitForces = () => {
 		center.x( size.width / 2 ).y( size.height / 2 );
+		gravityX.x( size.width / 2 );
+		gravityY.y( size.height / 2 );
 		charge.distanceMax( Math.max( size.width, size.height ) || Infinity );
 	};
 	fitForces();
@@ -273,7 +298,9 @@ export const createEngine = ( {
 		} else if ( energy && time() >= holdEnds ) {
 			release();
 		}
-		if ( simulation.alpha() < simulation.alphaMin() ) {
+		// A frozen layout loses every speed, so a tick more moves nothing.
+		const frozen = FROZEN === friction && ! untangleTicks;
+		if ( frozen || simulation.alpha() < simulation.alphaMin() ) {
 			still = true;
 		}
 	};
@@ -344,8 +371,17 @@ export const createEngine = ( {
 		start();
 	};
 
-	/** The leaves the host centers. */
-	const centered = () => model.leaves.filter( ( { node } ) => node.center );
+	/** Reheat to make room, thawing a frozen layout, its held energy kept. */
+	const makeRoom = () => {
+		if ( FROZEN === friction ) {
+			ask( energy, VELOCITY_DECAY );
+		}
+		reheat( REHEAT_ALPHA );
+	};
+
+	/** The leaves the host centers, read as the model is engaged. */
+	let hubs = [];
+	const centered = () => hubs;
 
 	/**
 	 * Fix the center leaves at the centre of the canvas, unless a drag has the
@@ -386,9 +422,31 @@ export const createEngine = ( {
 		if ( ! untangle ) {
 			endUntangling();
 		}
-		const pull = forceLink( model.pulls )
-			.distance( ( { link } ) => link.distance ?? LINK_DISTANCE )
-			.strength( ( { link } ) => link.strength ?? LINK_STRENGTH );
+		// d3's default strength: 1 over the less joined end's lines.
+		const joins = new Map();
+		for ( const { source, target } of model.pulls ) {
+			joins.set( source.id, ( joins.get( source.id ) ?? 0 ) + 1 );
+			joins.set( target.id, ( joins.get( target.id ) ?? 0 ) + 1 );
+		}
+		hubs = model.leaves.filter( ( { node } ) => node.center );
+		pull = forceLink( model.pulls )
+			.distance(
+				// Points in the visualizer; bodies with extent here.
+				( { source, target, link } ) =>
+					link.distance ??
+					( live
+						? LINK_DISTANCE + source.radius + target.radius
+						: STILL_LINK_DISTANCE )
+			)
+			.strength(
+				( { source, target, link } ) =>
+					link.strength ??
+					1 /
+						Math.min(
+							joins.get( source.id ),
+							joins.get( target.id )
+						)
+			);
 		fixCenter();
 		simulation
 			.nodes( model.leaves )
@@ -402,7 +460,10 @@ export const createEngine = ( {
 			.force( 'boxes', () => updateBoxes( model ) )
 			.force( 'cohesion', forceCohesion( model ) )
 			.force( 'center', center )
+			.force( 'gravityX', gravityX )
+			.force( 'gravityY', gravityY )
 			.force( 'siblings', forceSiblings( model ) )
+			.force( 'collide', collide )
 			.force( 'charge', charge )
 			.force( 'clamp', forceClamp( model ) )
 			.force( 'dock', forceDock( model ) );
@@ -437,7 +498,7 @@ export const createEngine = ( {
 		model = next;
 		engage();
 		if ( added || ! sameSurvivors || crowds( unsettled, model ) ) {
-			reheat( REHEAT_ALPHA );
+			makeRoom();
 		} else {
 			still ||= ! model.leaves.length;
 			run();
@@ -473,8 +534,11 @@ export const createEngine = ( {
 			} else {
 				// An untangling under way makes room for the new extents.
 				const resized = refresh( model, next );
+				// d3 reads each radius and length only as it takes the leaves.
+				collide.radius( reach );
+				pull.distance( pull.distance() );
 				if ( ! untangleTicks && crowds( resized, model ) ) {
-					reheat( REHEAT_ALPHA );
+					makeRoom();
 				}
 			}
 		},
@@ -500,7 +564,8 @@ export const createEngine = ( {
 				steadyPolls++;
 			}
 			if ( STEADY_POLLS === steadyPolls ) {
-				release();
+				// d3_visualizer.html's friction ends at 1: the layout freezes.
+				ask( 0, FROZEN );
 			} else {
 				const taken = POLL_STEP * steadyPolls;
 				ask(
@@ -526,11 +591,14 @@ export const createEngine = ( {
 		drop: () => {
 			if ( dragging ) {
 				dragging = false;
-				fixCenter();
+				const strayed = fixCenter();
 				if ( untangleTicks ) {
 					run();
-				} else {
+				} else if ( FROZEN !== friction ) {
 					reheat( ALPHA );
+				} else if ( strayed ) {
+					// One tick takes a frozen centre node back to its pin.
+					start();
 				}
 			}
 		},
@@ -546,7 +614,7 @@ export const createEngine = ( {
 			if ( pending ) {
 				layOut();
 			} else if ( strayed && ! untangleTicks ) {
-				reheat( REHEAT_ALPHA );
+				makeRoom();
 			}
 		},
 
@@ -568,6 +636,7 @@ export const createEngine = ( {
 			polledAt = Infinity;
 			release();
 			applyCharge();
+			pull.distance( pull.distance() );
 			raise( REHEAT_ALPHA );
 			start();
 		},

@@ -6,7 +6,7 @@
 import { classes } from '../components/Modal';
 
 /** Radius of a circle holding none, and what the most on the canvas adds. */
-const LEAST_RADIUS = 10;
+export const LEAST_RADIUS = 10;
 const RADIUS_SPREAD = 20;
 
 /** @typedef {import('./ForceGraph').GraphNode} GraphNode */
